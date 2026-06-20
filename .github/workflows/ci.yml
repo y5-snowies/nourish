@@ -13,6 +13,12 @@ env:
   # Keep the sccache + cargo dirs inside the workspace so actions/cache can persist them.
   SCCACHE_DIR: ${{ github.workspace }}/.sccache
   CARGO_HOME: ${{ github.workspace }}/.cargo-home
+  # CI doesn't need debug symbols — drop them entirely. This cuts target/ size the most,
+  # keeping the big workspaces (bevy/wgpu/ffmpeg) well under the runner's ~14 GB. Safe:
+  # coverage reads the instrumentation coverage map (not DWARF), and test pass/fail is
+  # unchanged — only a *failing* test's backtrace loses source line numbers (function
+  # names still show). Set to line-tables-only if you ever need those lines back.
+  CARGO_PROFILE_DEV_DEBUG: "0"
 
 jobs:
   # Enumerate workspace entries (Cargo.toml + link.json) into a JSON matrix. Rename-proof.
@@ -79,6 +85,16 @@ jobs:
     container: ghcr.io/${{ github.repository_owner }}/y5-ci:fedora44
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.SCCACHE_DIR }}
+            ${{ env.CARGO_HOME }}/registry
+          # Keyed on the commit (no filesystem hash — hashFiles('**/Cargo.lock') fails the
+          # whole-tree walk in a container job). Each commit saves a fresh cache; restore-keys
+          # restores the most recent one so sccache + the registry stay warm across runs.
+          key: ${{ runner.os }}-installer-bundle-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-installer-bundle-
       - name: Build install bundle (installer + binaries + components)
         run: ci/scripts/package-installer.sh
       - uses: actions/upload-artifact@v4

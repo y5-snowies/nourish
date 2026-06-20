@@ -21,6 +21,14 @@ die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 is_github() { [ "${GITHUB_ACTIONS:-}" = "true" ]; }
 is_gitlab() { [ -n "${GITLAB_CI:-}" ]; }
 
+# In CI the checkout is owned by a different uid than the container user, so git refuses the
+# work tree ("dubious ownership", sometimes surfacing as "not a git repository"). Trust it
+# once, here, before any git-using ci script runs — covers link-drift, gen-report,
+# open-promotion-pr, package-release, doc-suggest. CI-only so it never touches a dev's config.
+if is_github || is_gitlab; then
+    git config --global --add safe.directory "$REPO_ROOT" 2>/dev/null || true
+fi
+
 # Directory that owns the y5_compositor [[bin]] (rename-proof: keyed on the bin name),
 # printed relative to REPO_ROOT.
 y5_bin_crate_dir() {

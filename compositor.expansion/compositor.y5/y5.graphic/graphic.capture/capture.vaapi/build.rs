@@ -52,6 +52,9 @@ fn main() {
             "#,
         )
         .clang_args(&clang_args)
+        // Don't carry the C header doc comments into the bindings: rustdoc would treat
+        // their indented blocks (e.g. "For audio:") as doctests and fail `cargo test`.
+        .generate_comments(false)
         .allowlist_function("av_.*")
         .allowlist_function("avcodec_.*")
         .allowlist_function("avformat_.*")

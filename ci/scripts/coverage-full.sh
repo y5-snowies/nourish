@@ -3,21 +3,19 @@
 #
 # Usage: coverage-full.sh <entry-path>     e.g. coverage-full.sh compositor.loader
 #
-# Two-phase model (matches the "dry run finds everything, then unit tests merge" intent):
-#   1. BASELINE (no exec): build + instrument every target (--all-targets) without running
-#      anything. LLVM source-based coverage embeds a region for every instrumented line,
-#      so functions never executed — including otherwise-dead / feature-gated code — are
-#      present at zero counts instead of being omitted from the report.
-#   2. UNIT RUN: run the workspace's unit tests, accumulating real hit counts into the
-#      same profile directory.
-#   3. MERGE -> lcov: cargo-llvm-cov merges the baseline + unit profiles into one lcov,
-#      where dead code reads 0% and tested code reads its true percentage.
+# One canonical cargo-llvm-cov run does it all: `--all-targets` builds (and thus instruments)
+# every target — lib, bins, tests, examples — so LLVM source-based coverage embeds a region
+# for every line. Functions never executed (otherwise-dead / feature-gated code) are linked
+# into the coverage map and reported at zero counts; the unit tests add real hit counts in
+# the same pass; `--lcov --output-path` writes the merged lcov directly.
+# (The old `--no-run` baseline phase is gone: it's deprecated and can't combine with
+# `--no-report`, and the single-command form already covers untested code via `--all-targets`.)
 #
 # Per-entry lcov is written to  $REPO_ROOT/.ci-coverage/<slug>.lcov  (slug = entry with
 # '/' and '.' turned into '_'). merge-coverage.sh later fuses all entries into one report.
 #
 # Feature axis: the entry that owns the y5_compositor [[bin]] is additionally built with
-# --features udev_release so the DRM/KMS backend code is instrumented too. Override the
+# --features backend-native so the DRM/KMS backend code is instrumented too. Override the
 # whole feature set with Y5_COV_FEATURES if needed.
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -32,7 +30,7 @@ outdir="$REPO_ROOT/.ci-coverage"
 mkdir -p "$outdir"
 out="$outdir/$slug.lcov"
 
-# Feature args: udev_release for the entry that holds the y5_compositor bin.
+# Feature args: backend-native (the udev/DRM backend) for the entry that holds the bin.
 feature_args=()
 if [ -n "${Y5_COV_FEATURES:-}" ]; then
     # shellcheck disable=SC2206
@@ -41,8 +39,8 @@ else
     bin_dir="$(y5_bin_crate_dir)"
     bin_ws="$(y5_workspace_root_of "$REPO_ROOT/$bin_dir")"
     if [ "$bin_ws" = "$REPO_ROOT/$entry" ]; then
-        feature_args=(--features udev_release)
-        log "$entry owns y5_compositor -> instrumenting udev_release backend too"
+        feature_args=(--features backend-native)
+        log "$entry owns y5_compositor -> instrumenting the backend-native (udev/DRM) backend too"
     fi
 fi
 
@@ -51,13 +49,7 @@ cd "$REPO_ROOT/$entry"
 log "[$entry] clean coverage profile"
 cargo llvm-cov clean --workspace
 
-log "[$entry] phase 1: baseline (instrument all targets, no exec)"
-cargo llvm-cov --no-report --no-run --all-targets "${feature_args[@]}"
-
-log "[$entry] phase 2: run unit tests"
-cargo llvm-cov --no-report --all-targets "${feature_args[@]}"
-
-log "[$entry] phase 3: merge -> $out"
-cargo llvm-cov report --lcov --output-path "$out"
+log "[$entry] instrument all targets, run tests, write lcov -> $out"
+cargo llvm-cov --all-targets "${feature_args[@]}" --lcov --output-path "$out"
 
 log "[$entry] coverage lcov written: $out"

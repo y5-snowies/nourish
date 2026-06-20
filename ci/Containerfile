@@ -50,6 +50,14 @@ RUN --mount=type=cache,target=/var/cache/dnf \
       librsvg2-devel libappindicator-gtk3-devel \
     && dnf clean all
 
+# --- xwayland-satellite (X11/XCB) build deps ------------------------------------------
+# The patched xwayland-satellite component (built into the install bundle by prepare.sh)
+# links libxcb + libxcb-cursor through the rust `xcb` / `xcb-util-cursor` crates.
+RUN --mount=type=cache,target=/var/cache/dnf \
+    dnf -y install \
+      libxcb-devel xcb-util-cursor-devel \
+    && dnf clean all
+
 # --- Rust stable toolchain via rustup (reliable component + llvm-cov control) ---------
 # rust-toolchain.toml (channel = "stable") in the checkout then resolves to this.
 ENV RUSTUP_HOME=/opt/rustup \

@@ -14,10 +14,18 @@
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 covdir="$REPO_ROOT/.ci-coverage"
-[ -d "$covdir" ] || die "no coverage dir: $covdir (run coverage-full.sh first)"
+mkdir -p "$covdir"
 
 mapfile -t lcovs < <(find "$covdir" -maxdepth 1 -name '*.lcov' ! -name 'coverage.lcov' | sort)
-[ "${#lcovs[@]}" -gt 0 ] || die "no per-entry *.lcov files in $covdir"
+# Coverage is informational — it must never block CI (and therefore promote/publish). If no
+# per-entry lcovs arrived (e.g. a producing job failed, or none were uploaded), emit an
+# "n/a" report and exit cleanly instead of failing the whole pipeline.
+if [ "${#lcovs[@]}" -eq 0 ]; then
+    log "WARNING: no per-entry *.lcov in $covdir — emitting an 'n/a' coverage report (not a gate)."
+    printf 'Coverage: n/a\n' | tee "$covdir/coverage.txt"
+    printf '_No coverage data was collected this run._\n' > "$covdir/coverage-crates.md"
+    exit 0
+fi
 
 merged="$covdir/coverage.lcov"
 
