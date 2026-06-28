@@ -5,7 +5,7 @@
 
 use ash::vk;
 use smithay::backend::vulkan::PhysicalDevice;
-use std::ffi::CStr;
+use std::ffi::{CStr, c_char};
 
 /// MASTER GATE for Intel-CCS / multi-plane dmabuf support: disjoint multi-plane
 /// import + the VK_QUEUE_FAMILY_FOREIGN_EXT acquire that samples the compressed
@@ -67,7 +67,7 @@ pub fn create(phd: &PhysicalDevice) -> Result<VulkanDevice, DeviceError> {
     let queue_info = vk::DeviceQueueCreateInfo::default()
         .queue_family_index(queue_family_index)
         .queue_priorities(&priorities);
-    let ext_ptrs: Vec<*const i8> = required_extensions().iter().map(|e| e.as_ptr()).collect();
+    let ext_ptrs: Vec<*const c_char> = required_extensions().iter().map(|e| e.as_ptr()).collect();
 
     let mut features12 =
         vk::PhysicalDeviceVulkan12Features::default().timeline_semaphore(true);

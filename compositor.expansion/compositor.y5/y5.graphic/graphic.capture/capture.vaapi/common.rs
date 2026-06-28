@@ -2,7 +2,7 @@
 //! the `AVERROR` macros bindgen can't emit, the C shim for bindgen-opaque
 //! `AVFormatContext` fields, and a small mp4 `Muxer` both encoders reuse.
 
-use std::ffi::{CString, c_int};
+use std::ffi::{CString, c_char, c_int};
 use std::path::Path;
 use std::ptr;
 
@@ -19,7 +19,7 @@ pub(crate) const AVERROR_EOF: c_int =
     -((b'E' as c_int) | ((b'O' as c_int) << 8) | ((b'F' as c_int) << 16) | ((b' ' as c_int) << 24));
 
 pub(crate) fn averr(ret: c_int) -> String {
-    let mut buf = [0i8; 256];
+    let mut buf = [0 as c_char; 256];
     unsafe {
         ffi::av_strerror(ret, buf.as_mut_ptr(), buf.len());
         std::ffi::CStr::from_ptr(buf.as_ptr())
