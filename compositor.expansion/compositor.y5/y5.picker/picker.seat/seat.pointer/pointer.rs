@@ -14,7 +14,7 @@ use compositor_y5_picker_three_orient::orient::IDENTITY;
 const BTN_LEFT: u32 = 0x110;
 /// A press→release moving less than this (px) is a click, not a drag.
 const CLICK_PX: f64 = 6.0;
-fn output_size(state: &mut Loop) -> (f64, f64) { state.size_context().screen_size_physical }
+fn output_size(state: &mut Loop) -> (f64, f64) { state.size_ctx_all().screen_size_physical }
 
 fn active(state: &mut Loop) -> Option<&mut PickerActive> {
     state.inner.worlds.get_mut(PICKER_WORLD).storage_mut().get_mut(&PICKER_MUT).active.as_mut()

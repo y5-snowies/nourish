@@ -10,5 +10,6 @@ tracing-subscriber = { workspace = true }
 bitflags = { workspace = true }
 smithay = { workspace = true }
 compositor_support_smithay_dispatch_state_base.workspace = true
+compositor_support_smithay_state_fractional_debounce.workspace = true
 [lib]
 path = "lib.rs"

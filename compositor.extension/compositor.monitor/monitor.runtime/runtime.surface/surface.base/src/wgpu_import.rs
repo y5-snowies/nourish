@@ -37,10 +37,6 @@ pub fn import_dmabuf_to_wgpu(
     ctx: &WgpuVulkanContext,
     dmabuf: &Dmabuf,
 ) -> Result<wgpu::Texture, WgpuImportError> {
-    if dmabuf.num_planes() != 1 {
-        return Err(WgpuImportError::MultiPlaneNotSupported(dmabuf.num_planes()));
-    }
-
     let size = dmabuf.size();
     let fd = dmabuf.handles().next().ok_or(WgpuImportError::NoFd)?;
     let stride = dmabuf.strides().next().ok_or(WgpuImportError::NoStride)?;
@@ -88,15 +84,22 @@ pub fn import_dmabuf_to_wgpu(
             .as_ref()
             .ok_or(WgpuImportError::NotVulkanBackend)?;
 
-        hal_device
-            .texture_from_dmabuf_fd(
-                fd_owned,
-                &hal_desc,
-                modifier,
-                stride as u64,
-                offset as u64,
-            )
-            .map_err(WgpuImportError::HalImport)?
+        if dmabuf.num_planes() == 1 {
+            hal_device
+                .texture_from_dmabuf_fd(fd_owned, &hal_desc, modifier, stride as u64, offset as u64)
+                .map_err(WgpuImportError::HalImport)?
+        } else {
+            // Multi-plane (AMD DCC / Intel CCS): all planes live in the single BO
+            // we allocated, so import fd[0] with every plane's (offset, stride).
+            let planes: Vec<(u64, u64)> = dmabuf
+                .offsets()
+                .zip(dmabuf.strides())
+                .map(|(o, s)| (o as u64, s as u64))
+                .collect();
+            hal_device
+                .texture_from_dmabuf_fd_planar(fd_owned, &hal_desc, modifier, &planes)
+                .map_err(WgpuImportError::HalImport)?
+        }
     };
 
     let wgpu_desc = wgpu::TextureDescriptor {

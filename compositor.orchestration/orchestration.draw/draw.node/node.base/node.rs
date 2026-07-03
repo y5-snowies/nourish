@@ -40,9 +40,20 @@ pub enum DrawNode<R: Renderer> {
     Canvas(compositor_y5_canvas_draw_element::element::Element<R>),
     /// iced UI surface (world or screen); imported via dmabuf on native renderers.
     Iced(Iced),
+    /// World iced surface clipped to a viewport pane's physical rect.
+    IcedCropped {
+        elem: Iced,
+        crop: smithay::utils::Rectangle<i32, Physical>,
+    },
     /// bevy 3D background; imported via dmabuf on native renderers.
     Background3D(Bevy),
     Background2D(compositor_background_two_draw_element::element::ParallaxBackground),
+    /// Parallax background clipped to a viewport pane rect (floating panes).
+    Background2DCropped(
+        smithay::backend::renderer::element::utils::CropRenderElement<
+            compositor_background_two_draw_element::element::ParallaxBackground,
+        >,
+    ),
     /// A texture already imported into `R`.
     Texture(PreImported<R>),
     Solid(SolidColorRenderElement),
@@ -114,6 +125,7 @@ where
             DrawNode::Layershell(e) => vec![SceneElement::Layershell(e)],
             DrawNode::Canvas(e) => vec![SceneElement::Canvas(e)],
             DrawNode::Background2D(e) => vec![SceneElement::Background2D(e)],
+            DrawNode::Background2DCropped(e) => vec![SceneElement::Background2DCropped(e)],
             DrawNode::Texture(e) => vec![SceneElement::Texture(e)],
             DrawNode::Solid(e) => vec![SceneElement::Sentinel(e)],
             DrawNode::Iced(e) => {
@@ -121,6 +133,37 @@ where
                     return vec![SceneElement::Surface(e)];
                 }
                 import_texture(renderer, &e.dmabuf, e.location, e.size, e.world_zoom, e.id, e.commit_counter).into_iter().collect()
+            }
+            DrawNode::IcedCropped { elem, crop } => {
+                use smithay::backend::renderer::element::utils::CropRenderElement;
+                // Geometry is physical and scale-independent for both element types,
+                // so the crop scale is irrelevant.
+                if !R::prefers_dmabuf() {
+                    return CropRenderElement::from_element(elem, Scale::from(1.0), crop)
+                        .map(SceneElement::SurfaceCropped)
+                        .into_iter()
+                        .collect();
+                }
+                match renderer.import_dmabuf(&elem.dmabuf, None) {
+                    Ok(texture) => {
+                        let pre = PreImported {
+                            texture,
+                            location: elem.location,
+                            size: elem.size,
+                            world_zoom: elem.world_zoom,
+                            id: elem.id,
+                            commit: elem.commit_counter,
+                        };
+                        CropRenderElement::from_element(pre, Scale::from(1.0), crop)
+                            .map(SceneElement::TextureCropped)
+                            .into_iter()
+                            .collect()
+                    }
+                    Err(err) => {
+                        error!("draw.node: dmabuf import (cropped iced) failed: {err}");
+                        vec![]
+                    }
+                }
             }
             DrawNode::Background3D(e) => {
                 if !R::prefers_dmabuf() {

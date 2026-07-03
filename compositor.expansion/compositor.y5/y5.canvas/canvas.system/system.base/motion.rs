@@ -20,7 +20,7 @@ use compositor_support_smithay_dispatch_state_base::state::Dispatch;
 use compositor_y5_canvas_input_state::state::{
     ActiveOption, ActiveTransformCandidate, CanvasGrab,
 };
-use compositor_y5_camera_state_base::state::CAMERA;
+use compositor_y5_viewport_state_base::state::OUTPUT_VIEWS;
 use compositor_orchestration_storage_state_base::state::NESTED;
 use compositor_y5_camera_transform_translate::slot;
 use smithay::desktop::Window;
@@ -76,7 +76,7 @@ pub(crate) fn motion(cx: &mut SystemCx, x: f64, y: f64, _screen_x: f64, _screen_
     // Snapping inputs, read before the grab borrow: the camera zoom (scales the
     // snap radius + ranges) and whether CTRL is held — CTRL forces the raw
     // UNREALIZED geom (snapping off) for this frame.
-    let zoom = cx.storage.get(&CAMERA).transform.zoom;
+    let zoom = cx.storage.get(&OUTPUT_VIEWS).current_views().focus_camera().transform.zoom;
     // Under nested winit the host swallows CTRL, so snapping is always on there;
     // only on udev does CTRL toggle it off (forcing the raw unrealized geom).
     let nested = cx.kernel.try_get(&NESTED).copied().unwrap_or(false);

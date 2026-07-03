@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 compositor_developer_stats_registry_counter = { workspace = true }
 compositor_developer_stats_registry_meta = { workspace = true }
+compositor_developer_stats_registry_gpu = { workspace = true }
 
 [lib]
 path = "lib.rs"

@@ -10,7 +10,7 @@ use compositor_orchestration_draw_layer_base::base::Layer;
 use compositor_y5_surface_interface_base::hit::{self, surface_under_filtered};
 
 pub fn update(state: &mut Loop, screen_x: f64, screen_y: f64) {
-    let ctx = state.size_context();
+    let ctx = state.size_ctx_all();
     let position_screen = Point::<f64, Physical>::from((screen_x, screen_y));
     let t: Transform = (position_screen, ctx).into();
     let world: Point<f64, Logical> = t.into_storage_point_f64().into();

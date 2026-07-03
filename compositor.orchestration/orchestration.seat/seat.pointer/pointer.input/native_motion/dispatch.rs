@@ -39,7 +39,9 @@ pub fn dispatch(
     let iced_screen_point = match under.as_ref().and_then(|h| h.screen_point()) {
         Some(p) => p,
         None => {
-            let ctx = _loop.size_context();
+            // Pane context → TRUE physical cursor (screen-space iced lives in
+            // physical pixels; full-output projection would be wrong when split).
+            let ctx = _loop.focus_pane_context();
             let t: compositor_y5_camera_transform_translate::transform::Transform =
                 (position_normalized, ctx).into();
             let p: Point<f64, Physical> = t.into();

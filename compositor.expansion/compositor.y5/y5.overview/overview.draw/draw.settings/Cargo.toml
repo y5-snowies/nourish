@@ -5,6 +5,13 @@ edition = "2024"
 
 [dependencies]
 smithay = { workspace = true }
+compositor_background_two_shader_locate = { workspace = true }
+compositor_background_two_shader_load = { workspace = true }
+compositor_background_two_draw_vulkan = { workspace = true }
+compositor_background_two_shader_property = { workspace = true }
+compositor_background_two_shader_builtin = { workspace = true }
+compositor_developer_stats_registry_base = { workspace = true }
+compositor_background_two_storage_base = { workspace = true }
 compositor_orchestration_core_state_base = { workspace = true }
 compositor_orchestration_draw_layer_base = { workspace = true }
 compositor_orchestration_driver_audio_base = { workspace = true }

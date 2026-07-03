@@ -254,7 +254,7 @@ pub fn spawn_visible(state: &mut Loop, renderer: &mut GlesRenderer, ph: Placehol
     };
     let loc_logical: Point<i32, Logical> = Point::new(ph.position.0, ph.position.1);
     let size_logical: Size<i32, Logical> = Size::new(ph.size.0, ph.size.1);
-    let t: Transform = (Rectangle::new(loc_logical, size_logical), state.size_context()).into();
+    let t: Transform = (Rectangle::new(loc_logical, size_logical), state.size_ctx_all()).into();
 
     // Assign unique ID to the placeholder. this must continue from previous placeholder when it was retained
     let application_registry = state.inner.placeholder().application_registry.clone();

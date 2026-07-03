@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 compositor_support_library_ease_velocity_base = { workspace = true }
 compositor_support_system_trait_system_base = { workspace = true }
-compositor_y5_camera_state_base = { workspace = true }
+compositor_y5_viewport_state_base = { workspace = true }
 compositor_y5_navigator_state_base = { workspace = true }
 compositor_y5_navigator_tick_warp = { workspace = true }
 compositor_y5_navigator_travel_state = { workspace = true }

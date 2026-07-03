@@ -15,12 +15,30 @@ pub enum ModeRequest {
     Modeline(String),
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct OutputProfile {
     /// EDID identity string this profile applies to ("make model serial").
     /// `None` = applies to any output (single-output era default).
     pub identity: Option<String>,
     pub mode: Option<ModeRequest>,
+    /// Whether this monitor is DRIVEN (user active/inactive). `false` = deactivated.
+    pub active: bool,
+}
+
+impl Default for OutputProfile {
+    fn default() -> Self {
+        Self { identity: None, mode: None, active: true }
+    }
+}
+
+/// Whether the monitor keyed by `edid_key` is DRIVEN (active). Unknown / profile-less
+/// monitors default to active — so this is behavior-neutral until the user deactivates.
+pub fn active(edid_key: &str) -> bool {
+    get()
+        .iter()
+        .find(|p| p.identity.as_deref() == Some(edid_key))
+        .map(|p| p.active)
+        .unwrap_or(true)
 }
 
 /// Load the per-monitor profiles from `preferences.json`, mapped onto the kernel's
@@ -35,7 +53,7 @@ pub fn get() -> Vec<OutputProfile> {
 }
 
 fn map_profile(p: compositor_developer_environment_preference_base::base::OutputProfile) -> OutputProfile {
-    OutputProfile { identity: p.identity, mode: p.mode.map(map_mode) }
+    OutputProfile { identity: p.identity, mode: p.mode.map(map_mode), active: p.active }
 }
 
 /// The hand-set fallback mode for monitors lacking a per-output profile, as an

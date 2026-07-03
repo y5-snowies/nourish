@@ -27,9 +27,19 @@ impl MonitorIdentity {
     }
 }
 
-pub fn identity(parsed: Option<&ParsedEdid>) -> MonitorIdentity {
+/// Build the stable monitor identity from the parsed EDID. `fallback` (the unique
+/// connector name, e.g. `DisplayPort-1`) is used for the serial when the EDID is
+/// unreadable or carries no serial, so two identical / EDID-less monitors still get
+/// DISTINCT keys (otherwise both collapse to "Native Monitor Unknown" and the
+/// per-output render loop can't tell them apart). Priority: real EDID serial →
+/// connector name; the key stays EDID-first, matching the settings editor + prefs.
+pub fn identity(parsed: Option<&ParsedEdid>, fallback: &str) -> MonitorIdentity {
     match parsed {
-        None => MonitorIdentity::unknown(),
+        None => MonitorIdentity {
+            make: "Native".into(),
+            model: "Monitor".into(),
+            serial: fallback.to_string(),
+        },
         Some(p) => MonitorIdentity {
             make: p.manufacturer.clone(),
             model: p
@@ -37,7 +47,7 @@ pub fn identity(parsed: Option<&ParsedEdid>) -> MonitorIdentity {
                 .clone()
                 .unwrap_or_else(|| format!("{:04X}", p.product_code)),
             serial: if p.serial == 0 {
-                "Unknown".into()
+                fallback.to_string()
             } else {
                 p.serial.to_string()
             },

@@ -1,0 +1,10 @@
+[package]
+name = "compositor_background_two_shader_locate"
+version = "0.0.1"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+compositor_support_system_persist_path_base = { workspace = true }

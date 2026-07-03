@@ -97,6 +97,21 @@ export function Statistics() {
           <Row label="Synchronous (device_wait_idle)" value={String(stats.fence_synchronous)} />
           <Row label="Fallback (drain)" value={String(stats.fence_fallback)} />
 
+          <h3 style={styles.section}>GPU formats (post-determined)</h3>
+          {stats.device_formats.length === 0 ? (
+            <div style={styles.muted}>(no dmabuf allocated yet)</div>
+          ) : (
+            stats.device_formats.map((d) => (
+              <Row
+                key={d.kind}
+                label={d.kind}
+                value={`${d.fourcc} • ${d.modifier} • ${d.class} • ${d.plane_count} plane${
+                  d.plane_count === 1 ? "" : "s"
+                } • multiplane: ${d.multiplane ? "yes" : "no"}`}
+              />
+            ))
+          )}
+
           <h3 style={styles.section}>Environment</h3>
           {stats.env_flags.length === 0 ? (
             <div style={styles.muted}>(none set)</div>

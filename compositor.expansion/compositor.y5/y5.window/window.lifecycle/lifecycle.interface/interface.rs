@@ -77,12 +77,18 @@ fn _initial_mapped(state: &mut Loop, window: Window) {
         return;
     }
 
+    // Center on the ACTIVE monitor's camera (the output under the cursor), NOT
+    // `camera_mut()`. This hook drains the InitialMap queue from inside the
+    // per-output render loop, so `render_output` is pinned to whichever output is
+    // being drawn (normally the primary) — `camera_mut()`/`current_output_key()`
+    // would resolve THAT output's camera and spawn the window on the wrong monitor.
+    // `active_camera()` ignores `render_output` and follows the user's screen.
     let geometry = window.geometry();
-    let cam = state.inner.camera_mut().transform.position();
+    let cam = state.inner.active_camera().transform.position();
     let x = cam.x - geometry.size.w as f64 / 2.0;
     let y = cam.y - geometry.size.h as f64 / 2.0;
 
-    let t: Transform = ((x, y), state.size_context()).into();
+    let t: Transform = ((x, y), state.size_ctx_all()).into();
 
     state
         .inner.space_state_mut()

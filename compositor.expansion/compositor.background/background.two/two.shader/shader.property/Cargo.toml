@@ -1,0 +1,9 @@
+[package]
+name = "compositor_background_two_shader_property"
+version = "0.0.1"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]

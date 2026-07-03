@@ -80,8 +80,35 @@ impl<'a> HitCx<'a> {
         &self.storage.get(&compositor_support_world_host_space_base::base::SPACE).inner
     }
 
+    /// The output the CURSOR is on — the monitor whose mode/scale the reverse
+    /// projections (screen-space hit-testing) must use, so a physical cursor on a
+    /// secondary monitor is mapped against THAT monitor, not the primary. Resolved
+    /// from `OUTPUT_VIEWS.current` (the key the pointer path keeps in sync with the
+    /// cursor's output) by matching the same "make model serial" `output_key` the
+    /// render/input paths use; falls back to the first output pre-identity.
+    fn current_output(&self) -> &smithay::output::Output {
+        let key = &self.storage.get(&compositor_y5_viewport_state_base::state::OUTPUT_VIEWS).current;
+        self.space_state()
+            .state
+            .outputs()
+            .find(|o| {
+                let p = o.physical_properties();
+                format!("{} {} {}", p.make, p.model, p.serial_number) == *key
+            })
+            .or_else(|| self.space_state().state.outputs().next())
+            .unwrap_or_else(|| abort!("no output for hit-test"))
+    }
+
+    /// The `output_key` of the monitor the cursor is on — used to hit-test
+    /// output-bound screen surfaces (per-monitor capture overlays) only on the
+    /// monitor whose local pixels the screen point was projected into.
+    fn current_output_key(&self) -> String {
+        let p = self.current_output().physical_properties();
+        format!("{} {} {}", p.make, p.model, p.serial_number)
+    }
+
     fn camera(&self) -> &compositor_y5_camera_state_base::state::Camera {
-        self.storage.get(&compositor_y5_camera_state_base::state::CAMERA)
+        self.storage.get(&compositor_y5_viewport_state_base::state::OUTPUT_VIEWS).current_views().focus_camera()
     }
 
     fn surface(&self) -> &compositor_y5_surface_state_base::state::SurfaceState {
@@ -102,8 +129,8 @@ impl<'a> HitCx<'a> {
             .collect()
     }
 
-    fn size_context(&self) -> XformCtx {
-        let output = self.space_state().state.outputs().next().unwrap();
+    fn size_ctx_all(&self) -> XformCtx {
+        let output = self.current_output();
         let mode = output.current_mode().unwrap_or_else(|| abort!("output has a current mode"));
         let scale = output.current_scale().fractional_scale();
         let camera = &self.camera().transform;
@@ -111,6 +138,28 @@ impl<'a> HitCx<'a> {
             (camera.position.x, camera.position.y),
             camera.zoom,
             (mode.size.w as f64, mode.size.h as f64),
+            scale,
+        )
+    }
+
+    /// Region context for the pane under the cursor (the `pointer` slot). Projects
+    /// the pane-mapped world cursor back to the TRUE physical/logical position —
+    /// the analog of the renderer's pane context — so screen-space hit-testing
+    /// (iced screen, layer-shell) lands where the cursor actually is when split.
+    fn pane_context(&self) -> XformCtx {
+        let output = self.current_output();
+        let mode = output.current_mode().unwrap_or_else(|| abort!("output has a current mode"));
+        let scale = output.current_scale().fractional_scale();
+        let viewports = self.storage.get(&compositor_y5_viewport_state_base::state::OUTPUT_VIEWS).current_views();
+        let bounds = smithay::utils::Rectangle::new(smithay::utils::Point::from((0, 0)), mode.size);
+        let computed = compositor_y5_viewport_layout_base::layout::compute(viewports, bounds);
+        let rect = computed.regions.iter().find(|r| r.slot == viewports.pointer).map(|r| r.rect).unwrap_or(bounds);
+        let camera = &self.camera().transform;
+        XformCtx::new_region(
+            (camera.position.x, camera.position.y),
+            camera.zoom,
+            (rect.loc.x as f64 / scale, rect.loc.y as f64 / scale),
+            (rect.size.w as f64, rect.size.h as f64),
             scale,
         )
     }
@@ -229,7 +278,7 @@ pub fn pass_all(_: &SurfaceHit) -> bool {
 // ─── Iced camera helper ─────────────────────────────────────────────
 
 pub fn iced_camera_hcx(hcx: &HitCx) -> (IcedTransform, Size<f64, Physical>) {
-    let output = hcx.space_state().state.outputs().next().unwrap();
+    let output = hcx.current_output();
     let mode = output.current_mode().unwrap_or_else(|| abort!("output has mode"));
     let scale = output.current_scale().fractional_scale();
 
@@ -251,8 +300,16 @@ fn hit_iced_in_space(
     filter: HitFilter,
 ) -> Option<SurfaceHit> {
     let reg = hcx.surface().registry.as_ref()?;
+    let active_output = hcx.current_output_key();
     for item in reg.iter().rev() {
         if item.space() != space {
+            continue;
+        }
+        // Output-bound surfaces (per-monitor capture overlays) hit-test only on
+        // the cursor's monitor: `screen_point` is in that output's local pixels,
+        // so an identically-anchored instance bound to another output would match
+        // at the same coordinates.
+        if item.output().is_some_and(|o| o != active_output.as_str()) {
             continue;
         }
         // Capture border/dim are hit-test-transparent: skip them entirely so the
@@ -464,11 +521,18 @@ pub fn surface_under_filtered_cx(
     filter: HitFilter,
 ) -> Option<SurfaceHit> {
     let hcx = HitCx::new(storage);
-    let ctx: XformCtx = hcx.size_context();
 
-    // Project cursor world → physical (camera + scale applied). Used for
-    // iced screen items, which live in physical pixels.
-    let cursor_xform: Xform = (position_world, ctx).into();
+    // World-iced items render through the full-output camera, so hit them with the
+    // full-output projection (keeps render and hit consistent for those).
+    let cursor_phys_world: Point<f64, Physical> = {
+        let x: Xform = (position_world, hcx.size_ctx_all()).into();
+        x.into()
+    };
+
+    // Screen-space items (iced screen, layer-shell) are full-screen; project the
+    // pane-mapped world cursor back to its TRUE physical/logical via the pane
+    // context so the hit lands where the cursor actually is when split.
+    let cursor_xform: Xform = (position_world, hcx.pane_context()).into();
     let cursor_phys: Point<f64, Physical> = cursor_xform.into();
 
     let (iced_transform, iced_output_size) = iced_camera_hcx(&hcx);
@@ -509,9 +573,11 @@ pub fn surface_under_filtered_cx(
     let layer_map = layer_map_for_output(output);
     let check_layer_enabled = hcx.select().Selection.len() > 0;
 
+    // Size of the output the cursor is actually on (found just above), not the
+    // primary — layer-shell positioning on a secondary monitor must use its size.
     let compositor_output_size_logical = hcx.space_state()
         .state
-        .output_geometry(hcx.space_state().state.outputs().next().unwrap())
+        .output_geometry(output)
         .unwrap()
         .size;
 
@@ -522,7 +588,7 @@ pub fn surface_under_filtered_cx(
         for layer_surface in layer_map.layers_on(layer_band).rev() {
             let location = position::layer_surface_position_core(
                 position_world,
-                hcx.size_context(),
+                hcx.size_ctx_all(),
                 layer_surface,
                 compositor_output_size_logical,
             );
@@ -583,13 +649,13 @@ pub fn surface_under_filtered_cx(
             Some(w) => Drawable::Window(w.clone()),
             None => Drawable::IcedWorld(HandleId(id.as_u128() as u64)),
         };
-        if let Some(hit) = drawable.hit(&hcx, position_world, cursor_phys, &iced_transform, iced_output_size, filter) {
+        if let Some(hit) = drawable.hit(&hcx, position_world, cursor_phys_world, &iced_transform, iced_output_size, filter) {
             return Some(hit);
         }
     }
     for (u, w) in &by_uuid {
         if !in_order.contains(u) {
-            if let Some(hit) = Drawable::Window(w.clone()).hit(&hcx, position_world, cursor_phys, &iced_transform, iced_output_size, filter) {
+            if let Some(hit) = Drawable::Window(w.clone()).hit(&hcx, position_world, cursor_phys_world, &iced_transform, iced_output_size, filter) {
                 return Some(hit);
             }
         }

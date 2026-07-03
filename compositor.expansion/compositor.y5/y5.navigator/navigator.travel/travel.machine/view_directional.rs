@@ -38,12 +38,10 @@ pub fn view_directional(state: &mut Loop, direction: Direction, alternative: boo
         state.inner.camera().transform.position()
     );
 
-    let output = state
-        .inner.space_state()
-        .state
-        .outputs()
-        .next()
-        .unwrap_or_else(|| abort!("at least one output"));
+    // The ACTIVE output (the one the camera being moved belongs to), not the
+    // primary/first — otherwise on multi-monitor the directional view is computed
+    // against the wrong screen size. Matches `camera()`/`size_ctx_all()`.
+    let output = state.inner.current_output();
     let output_geom_i32 = state
         .inner.space_state()
         .state

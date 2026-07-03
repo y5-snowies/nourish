@@ -1,7 +1,7 @@
 // Parallax space background — native Vulkan SDR fragment shader (WGSL → SPIR-V
 // via naga at build time). A faithful port of the GLES `spacev3.frag`; runs in
 // a real VkPipeline so the Vulkan shader path is exercised. Uniforms arrive as
-// push constants (3×vec4 = 48 bytes).
+// push constants (3 engine vec4 + 4 params vec4 = 7×vec4 = 112 bytes).
 //
 // NOTE: the value-noise `hash()` here is a driver-stable integer/bit-mix hash
 // (Dave Hoskins' "hash without sine"), NOT the GLES `fract(sin(...))` hash. The
@@ -11,9 +11,10 @@
 // gone; the cloud pattern differs slightly from the GLES reference by design.
 
 struct Push {
-    res_zoom_time: vec4<f32>, // xy = resolution, z = zoom, w = time
-    pan_flow: vec4<f32>,      // xy = pan, zw = flow_offset
-    lock_alpha: vec4<f32>,    // x = lock_amount, y = alpha
+    res_zoom_time: vec4<f32>,        // xy = resolution, z = zoom, w = time
+    pan_flow: vec4<f32>,             // xy = pan, zw = flow_offset
+    lock_alpha: vec4<f32>,           // x = lock_amount, y = alpha
+    params: array<vec4<f32>, 4>,     // shader-authored @prop values (16 floats)
 };
 var<immediate> pc: Push;
 
@@ -93,18 +94,29 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let flow = pc.pan_flow.zw;
     let lock_amount = pc.lock_alpha.x;
     let alpha = pc.lock_alpha.y;
+    // @prop-driven knobs (see shader.builtin): drift / density / nebula, plus the
+    // vignette amount / radius / softness (slots 3..5).
+    let drift_speed = pc.params[0].x;
+    let star_density = pc.params[0].y;
+    let nebula = pc.params[0].z;
+    let vignette = pc.params[0].w;
+    let vig_radius = pc.params[1].x;
+    let vig_softness = pc.params[1].y;
 
     var uv = (frag - 0.5 * res) / res.y;
+    // screen_uv is zoom-independent so the vignette frames the display, not the
+    // world; the scene uv below is divided by zoom as usual.
+    let screen_uv = uv;
     uv = uv / zoom;
     let pan = vec2<f32>(pan_in.x, -pan_in.y);
 
     var col = mix(vec3<f32>(0.01, 0.015, 0.04), vec3<f32>(0.04, 0.02, 0.09), frag.y / res.y);
 
-    let neb_uv = uv * 1.5 + pan * 0.0002 + flow * 0.0003 + vec2<f32>(time * 0.01, time * 0.005);
+    let neb_uv = uv * 1.5 + pan * 0.0002 + flow * 0.0003 + vec2<f32>(time * 0.01, time * 0.005) * drift_speed;
     let n = fbm(neb_uv);
-    let n2 = fbm(neb_uv * 2.5 - vec2<f32>(time * 0.015, time * 0.015));
-    col = col + mix(vec3<f32>(0.25, 0.05, 0.35), vec3<f32>(0.05, 0.20, 0.45), n) * pow(n, 1.8) * 0.5;
-    col = col + vec3<f32>(0.1, 0.3, 0.4) * pow(n2, 3.0) * 0.25;
+    let n2 = fbm(neb_uv * 2.5 - vec2<f32>(time * 0.015, time * 0.015) * drift_speed);
+    col = col + mix(vec3<f32>(0.25, 0.05, 0.35), vec3<f32>(0.05, 0.20, 0.45), n) * pow(n, 1.8) * 0.5 * nebula;
+    col = col + vec3<f32>(0.1, 0.3, 0.4) * pow(n2, 3.0) * 0.25 * nebula;
 
     for (var i = 1; i <= 3; i = i + 1) {
         let depth = f32(i) * 0.5;
@@ -112,7 +124,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let id = floor(sp);
         let fp = fract(sp) - 0.5;
         let h = hash(id);
-        if (h > 0.96) {
+        if (h > 1.0 - 0.04 * star_density) {
             let twink = 0.5 + 0.5 * sin(time * 1.5 + h * 50.0);
             let dd = length(fp);
             let star_col = mix(vec3<f32>(0.7, 0.9, 1.0), vec3<f32>(1.0, 0.85, 0.7), fract(h * 133.7));
@@ -122,7 +134,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
 
     {
-        let drift = -flow * 0.0007 + vec2<f32>(time * 0.12, 0.0);
+        let drift = -flow * 0.0007 + vec2<f32>(time * 0.12 * drift_speed, 0.0);
         let p = uv * vec2<f32>(1.8, 12.0) + drift;
         let id = floor(p);
         let f = fract(p) - 0.5;
@@ -180,5 +192,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         col = mix(col, lcol, l);
     }
 
+    // Optional vignette (slots 3..5): darken toward the edges when amount > 0.
+    // Evaluated in screen space (zoom-independent) with knob-driven radius /
+    // softness so the framing stays consistent as the world zooms.
+    let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
+    col = col * mix(1.0, vig, clamp(vignette, 0.0, 1.0));
     return vec4<f32>(col, 1.0) * (alpha * 0.75);
 }

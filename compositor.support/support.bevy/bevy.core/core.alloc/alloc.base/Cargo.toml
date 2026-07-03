@@ -9,5 +9,7 @@ path = "lib.rs"
 [dependencies]
 compositor_support_bevy_core_fault_base = { workspace = true }
 compositor_developer_debug_instance_record = { workspace = true }
+compositor_developer_stats_registry_gpu = { workspace = true }
+compositor_kernel_graphic_bridge_negotiate_classify = { workspace = true }
 gbm = { workspace = true }
 smithay = { workspace = true }

@@ -13,5 +13,6 @@ compositor_support_bevy_core_fault_base = { workspace = true }
 compositor_support_bevy_core_gles_base = { workspace = true }
 compositor_support_bevy_core_import_base = { workspace = true }
 compositor_developer_debug_instance_record = { workspace = true }
+compositor_kernel_graphic_bridge_negotiate_base = { workspace = true }
 smithay = { workspace = true }
 wgpu = { workspace = true }

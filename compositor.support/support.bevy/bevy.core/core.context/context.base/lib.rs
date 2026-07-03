@@ -1,7 +1,5 @@
-//! WGPU Vulkan context with dmabuf-import features enabled.
-//!
-//! Create one per process for the Bevy subsystem (Iced keeps its own — they
-//! don't share, mirroring the iced runtime crate's note).
+//! WGPU Vulkan context with dmabuf-import features enabled. One per process for
+//! the Bevy subsystem (Iced keeps its own — they don't share).
 
 use std::sync::Arc;
 
@@ -12,17 +10,19 @@ use wgpu::{
 
 use compositor_support_bevy_core_fault_base::WgpuContextError;
 use compositor_developer_debug_instance_record::info;
+use compositor_developer_environment_experimental_base::base as experimental;
 
 pub struct WgpuVulkanContext {
     pub instance: Instance,
     pub adapter: Adapter,
     pub device: Device,
     pub queue: Queue,
+    /// The `(fourcc × modifier)` set this device can import (bridge intersection input).
+    pub importable: smithay::backend::allocator::format::FormatSet,
 }
 
 impl WgpuVulkanContext {
-    /// Wrap in `Arc` for sharing across `BevySurface` allocations and
-    /// across threads.
+    /// Wrap in `Arc` for sharing across `BevySurface` allocations and threads.
     pub fn into_arc(self) -> Arc<Self> {
         Arc::new(self)
     }
@@ -42,13 +42,24 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
     });
     info!("Created wgpu::Instance (Vulkan backend)");
 
-    let adapter = pollster::block_on(instance.request_adapter(&RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        force_fallback_adapter: false,
-        compatible_surface: None,
-        apply_limit_buckets: false,
-    }))
-    .map_err(|_| WgpuContextError::NoAdapter)?;
+    // Pin the wgpu adapter to the render node by default; opt out via gpu_no_pin_wgpu_node.
+    let pinned = (!experimental::get().contains(experimental::GpuFlags::NO_PIN_WGPU_NODE)).then(|| {
+        let node = compositor_developer_environment_config_base::base::get().render_node.clone();
+        compositor_kernel_graphic_bridge_negotiate_wgpu::query::pick_adapter(&instance, &node)
+    });
+    let adapter = match pinned.flatten() {
+        Some(a) => {
+            info!("pinned wgpu adapter to render node");
+            a
+        }
+        None => pollster::block_on(instance.request_adapter(&RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: false,
+            compatible_surface: None,
+            apply_limit_buckets: false,
+        }))
+        .map_err(|_| WgpuContextError::NoAdapter)?,
+    };
 
     let info = adapter.get_info();
     info!(
@@ -83,10 +94,19 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
 
     info!("Created Vulkan Device + Queue with dmabuf import features");
 
+    // Enumerate importable dmabuf modifiers via raw ash (wgpu has no such query).
+    let importable = compositor_kernel_graphic_bridge_negotiate_wgpu::query::query_importable(
+        &instance,
+        &adapter,
+        experimental::get().contains(experimental::GpuFlags::ALLOW_DCC),
+        experimental::get().contains(experimental::GpuFlags::PROBE_MODIFIERS),
+    );
+
     Ok(WgpuVulkanContext {
         instance,
         adapter,
         device,
         queue,
+        importable,
     })
 }

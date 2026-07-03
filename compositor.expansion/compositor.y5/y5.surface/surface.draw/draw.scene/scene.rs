@@ -27,7 +27,7 @@ pub fn scene(
         Vec<IcedRenderElement>,
     ) = (vec![], vec![], vec![]);
 
-    let scale = _loop.size_context().scale;
+    let scale = _loop.size_ctx_all().scale;
     // Hoist the camera + GPU reads before the surface-registry borrow: surface_mut()
     // borrows the whole Orchestrator, so other inner fields must be read first.
     let camera_transform = _loop.inner.camera().transform.clone();

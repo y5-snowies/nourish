@@ -6,10 +6,11 @@ edition = "2024"
 [dependencies]
 compositor_y5_picker_three_orient = { workspace = true }
 compositor_developer_debug_instance_record = { workspace = true }
+compositor_developer_stats_registry_base = { workspace = true }
 compositor_orchestration_core_state_base = { workspace = true }
 compositor_orchestration_draw_platform_base = { workspace = true }
 compositor_support_system_world_frame_base = { workspace = true }
-compositor_background_two_system_base = { workspace = true }
+compositor_background_two_storage_base = { workspace = true }
 compositor_background_two_draw_element = { workspace = true }
 compositor_y5_picker_system_base = { workspace = true }
 compositor_y5_picker_command_base = { workspace = true }

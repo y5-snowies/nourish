@@ -71,15 +71,31 @@ pub fn register(
                     // class — the watchdog drives recovery.
                     {
                         let manager = ctx_ref.drm_output_manager.clone();
-                        let output_for_map = ctx_ref.output.clone();
                         let space = &mut state.inner.space_state_mut().state;
+                        // Remap EVERY live output back at its current global-space
+                        // position (multi-output: not just the primary — a secondary
+                        // monitor would otherwise stay unmapped/dark after a VT switch).
+                        // Its existing geometry loc is the layout to restore.
+                        let remap_list: Vec<(smithay::output::Output, Point<i32, Logical>)> = ctx_ref
+                            .outputs
+                            .iter()
+                            .map(|p| {
+                                let loc = space
+                                    .output_geometry(&p.output)
+                                    .map(|g| g.loc)
+                                    .unwrap_or_else(|| Point::from((0, 0)));
+                                (p.output.clone(), loc)
+                            })
+                            .collect();
                         let libinput = &mut ctx_ref.libinput_context;
-                        // `Option` because a monitor switch briefly tears the output
-                        // down before rebuilding. That can't overlap this session
-                        // callback (calloop runs sources serially), but the resume
-                        // path is the self-recovering class — skip the surface reset
-                        // rather than panic if there is somehow no output.
-                        let mut drm_output = ctx_ref.drm_output.as_mut();
+                        // `Option` (per pipe) because a monitor switch briefly tears an
+                        // output down before rebuilding. That can't overlap this session
+                        // callback (calloop runs sources serially), but the resume path
+                        // is the self-recovering class — skip a missing surface rather
+                        // than panic. Direct `outputs` field access (not `pipe_mut()`)
+                        // so this borrows only `outputs`, leaving the other `ctx_ref`
+                        // fields the resume closures capture (libinput, …) borrowable.
+                        let pipes = &mut ctx_ref.outputs;
 
                         compositor_kernel_seat_lifecycle_resume_base::resume::resume(
                             compositor_kernel_seat_lifecycle_resume_base::resume::ResumeSteps {
@@ -94,18 +110,27 @@ pub fn register(
                                         force,
                                     )
                                 },
-                                reset_surface: || match drm_output.as_deref_mut() {
-                                    Some(o) => {
-                                        compositor_kernel_scanout_surface_output_base::output::reset(o)
+                                // Reset EVERY live pipe's surface, not just the primary,
+                                // and clear its in-flight flag: any frame queued before
+                                // the switch will never deliver a vblank, so the flag
+                                // must not wedge the pipe out of the render loop.
+                                reset_surface: || {
+                                    let mut result = Ok(());
+                                    for p in pipes.iter_mut() {
+                                        p.in_flight = false;
+                                        if let Some(o) = p.drm_output.as_mut() {
+                                            if let Err(e) = compositor_kernel_scanout_surface_output_base::output::reset(o) {
+                                                result = Err(e);
+                                            }
+                                        }
                                     }
-                                    None => Ok(()),
+                                    result
                                 },
                                 reset_buffers: || {},
                                 remap_output: || {
-                                    space.map_output(
-                                        &output_for_map,
-                                        Point::<i32, Logical>::from((0, 0)),
-                                    );
+                                    for (output, loc) in &remap_list {
+                                        space.map_output(output, *loc);
+                                    }
                                     space.refresh();
                                 },
                             },

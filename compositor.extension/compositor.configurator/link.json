@@ -4,5 +4,7 @@
   "../../compositor.extension/compositor.monitor",
   "../../compositor.support/support.iced",
   "../../compositor.support/support.smithay",
+  "../../compositor.support/support.system",
+  "../../compositor.expansion/compositor.background",
   "../../compositor.expansion/compositor.y5"
 ]

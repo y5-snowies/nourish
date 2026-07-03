@@ -16,7 +16,7 @@ pub fn hooks(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Phys
     // physical output size from here (SCREEN) — the former background.shared
     // OUTPUT_SIZE world token is gone.
     {
-        let scale = state.size_context().scale;
+        let scale = state.size_ctx_all().scale;
         compositor_orchestration_smithay_data_base::data::update_screen(
             &mut state.inner.kernel,
             compositor_orchestration_smithay_data_base::data::ScreenContext { size, scale },

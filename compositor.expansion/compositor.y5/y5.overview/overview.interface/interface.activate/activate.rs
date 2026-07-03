@@ -32,15 +32,22 @@ pub fn activate_world(state: &mut Loop) {
     compositor_y5_overview_interface_surface::surface::close(state);
     state.inner.overview_mut().visible = false;
 
-    let output = state.inner.space_state().state.outputs().next().cloned();
+    // Capture EVERY mapped output with its global-space position before the world
+    // switch — multi-output: the target world's fresh Space must receive all of
+    // them at their real (tiled) positions, not just the first at the origin.
+    let outputs: Vec<(smithay::output::Output, smithay::utils::Point<i32, smithay::utils::Logical>)> =
+        state.inner.space_state().state.outputs().map(|o| {
+            let loc = state.inner.space_state().state.output_geometry(o).map(|g| g.loc).unwrap_or_default();
+            (o.clone(), loc)
+        }).collect();
     {
         let (worlds, kernel) = (&mut state.inner.worlds, &state.inner.kernel);
         worlds.switch(target, kernel);
     }
     state.inner.worlds.set_spawn_target(target);
-    if let Some(output) = output {
-        if state.inner.space_state().state.outputs().next().is_none() {
-            state.inner.space_state_mut().state.map_output(&output, smithay::utils::Point::from((0, 0)));
+    if state.inner.space_state().state.outputs().next().is_none() {
+        for (output, loc) in &outputs {
+            state.inner.space_state_mut().state.map_output(output, *loc);
         }
     }
 }

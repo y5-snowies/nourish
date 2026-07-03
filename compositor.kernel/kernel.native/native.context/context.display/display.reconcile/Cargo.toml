@@ -1,5 +1,5 @@
 [package]
-name = "compositor_kernel_native_context_display_switch"
+name = "compositor_kernel_native_context_display_reconcile"
 version = "0.0.1"
 edition = "2024"
 
@@ -7,6 +7,8 @@ edition = "2024"
 smithay = { workspace = true }
 compositor_kernel_native_context_render_base = { workspace = true }
 compositor_kernel_native_context_display_build = { workspace = true }
+compositor_kernel_drm_output_physical_base = { workspace = true }
+compositor_support_smithay_dispatch_state_base = { workspace = true }
 compositor_kernel_native_context_display_enumerate = { workspace = true }
 compositor_kernel_native_context_display_base = { workspace = true }
 compositor_kernel_drm_connector_scan_base = { workspace = true }

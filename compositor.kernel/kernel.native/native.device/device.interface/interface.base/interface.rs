@@ -36,6 +36,7 @@ pub fn apply(ctx: &mut NativeRenderContext, setting: DeviceSetting) {
                 .expect("renderer unavailable for mode application");
 
             let output = ctx
+                .pipe_mut()
                 .drm_output
                 .as_mut()
                 .unwrap_or_else(|| abort!("mode application with no active output"));
@@ -47,8 +48,8 @@ pub fn apply(ctx: &mut NativeRenderContext, setting: DeviceSetting) {
 
             // Propagate to the smithay Output so clients observe the change.
             let mode = smithay::output::Mode::from(drm_mode);
-            ctx.mode = mode;
-            ctx.output.change_current_state(Some(mode), None, None, None);
+            ctx.pipe_mut().mode = mode;
+            ctx.pipe().output.change_current_state(Some(mode), None, None, None);
             info!(
                 "device.interface: mode applied {}x{}@{}",
                 drm_mode.size().0,

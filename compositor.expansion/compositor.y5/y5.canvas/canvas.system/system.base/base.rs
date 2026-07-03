@@ -56,6 +56,9 @@ impl System for CanvasSystem {
 
     fn register(&mut self, builder: &mut WorldBuilder) {
         builder.storage.insert(&CANVAS, CanvasState::new());
+        // Generic teleport-suppression lock (refcount) lives in world storage so any
+        // system can acquire/release it; seeded to 0 here (canvas is its first client).
+        builder.storage.insert(&compositor_orchestration_driver_output_base::base::TELEPORT_SUPPRESS, 0u32);
         builder.input(input_layer::WORLD);
     }
 
@@ -126,7 +129,19 @@ impl System for CanvasSystem {
     fn buffer(&mut self, cx: &mut BufferCx, message: Box<dyn Any>) {
         match *message.downcast::<CanvasCmd>().expect("canvas buffer type") {
             CanvasCmd::SetGrab(grab) => cx.storage.get_mut(&CANVAS_MUT).Grab = grab,
-            CanvasCmd::PanUpdating(value) => cx.storage.get_mut(&CANVAS_MUT).position_updating = value,
+            CanvasCmd::PanUpdating(value) => {
+                let canvas = cx.storage.get_mut(&CANVAS_MUT);
+                let was = canvas.position_updating;
+                canvas.position_updating = value;
+                // Pan is one client of the teleport-suppression lock: acquire on pan
+                // START (edge false→true), release on END (true→false). Edge-detected so
+                // the unconditional PanUpdating(false) on every button release doesn't
+                // decrement another system's lock when no pan was active.
+                if value != was {
+                    let lock = cx.storage.get_mut(&compositor_orchestration_driver_output_base::base::TELEPORT_SUPPRESS_MUT);
+                    *lock = if value { lock.saturating_add(1) } else { lock.saturating_sub(1) };
+                }
+            }
             CanvasCmd::SetSelectBoxCursor(c) => {
                 let canvas = cx.storage.get_mut(&CANVAS_MUT);
                 if let CanvasGrab::Active(ActiveOption::SelectBox { current_cursor, .. }) = &mut canvas.Grab {

@@ -23,7 +23,7 @@ pub fn scene(
         return bevy_elements;
     }
 
-    let scale = _loop.size_context().scale;
+    let scale = _loop.size_ctx_all().scale;
     let camera_transform = _loop.inner.camera().transform.clone();
     // The LOCK world owns its bevy registry (prewarmed); render from it.
     if let Some(bevy_registry) = _loop.inner.worlds.get_mut(compositor_y5_lock_system_base::base::LOCK_WORLD).storage_mut().try_get_mut(&compositor_background_three_system_base::base::BG_THREE_MUT).and_then(|b| b.registry.as_mut()) {

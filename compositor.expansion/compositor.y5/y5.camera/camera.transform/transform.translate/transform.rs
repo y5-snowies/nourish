@@ -39,7 +39,7 @@
 //! ## Usage
 //!
 //! ```ignore
-//! let ctx = state.size_context();
+//! let ctx = state.size_ctx_all();
 //!
 //! // Construct (one of):
 //! let t: Transform = (window_bbox, ctx).into();        // smithay logical rect
@@ -65,14 +65,21 @@ pub struct Context {
     pub camera_pos: (f64, f64),
     /// Camera zoom (1.0 = no zoom).
     pub camera_zoom: f64,
-    /// Panel mode size in **physical** pixels (`output.current_mode().unwrap().size`).
-    /// Source of truth.
+    /// The render **region** size in **physical** pixels. For a full-output view
+    /// this is `output.current_mode().unwrap().size`; for a split/floating
+    /// viewport it is that pane's physical rect size. Content is centred within
+    /// this region (see `screen_half_logical`).
     pub screen_size_physical: (f64, f64),
+    /// Top-left of the render region in **logical** screen pixels. `(0, 0)` for a
+    /// full-output view; the pane's logical origin when rendering into a
+    /// sub-region, so the projection lands inside that pane instead of the output.
+    pub region_origin: (f64, f64),
     /// Fractional scale (`output.current_scale().fractional_scale()`).
     pub scale: f64,
 }
 
 impl Context {
+    /// Full-output context (region origin `(0, 0)`, region = whole output).
     pub fn new(
         camera_pos: (f64, f64),
         camera_zoom: f64,
@@ -83,6 +90,26 @@ impl Context {
             camera_pos,
             camera_zoom,
             screen_size_physical,
+            region_origin: (0.0, 0.0),
+            scale,
+        }
+    }
+
+    /// Sub-region context: render `region_size_physical` at logical
+    /// `region_origin`, projecting `camera` to the region's centre. Used to draw
+    /// one world through several viewports (split / floating panes).
+    pub fn new_region(
+        camera_pos: (f64, f64),
+        camera_zoom: f64,
+        region_origin: (f64, f64),
+        region_size_physical: (f64, f64),
+        scale: f64,
+    ) -> Self {
+        Self {
+            camera_pos,
+            camera_zoom,
+            screen_size_physical: region_size_physical,
+            region_origin,
             scale,
         }
     }
@@ -187,9 +214,11 @@ impl Transform {
         let zoom = self.ctx.camera_zoom;
         let (cam_x, cam_y) = self.ctx.camera_pos;
         let (half_w, half_h) = self.ctx.screen_half_logical();
-        // Position: subtract camera, scale by zoom, re-anchor.
-        let x = (self.pos.0 - cam_x) * zoom + half_w;
-        let y = (self.pos.1 - cam_y) * zoom + half_h;
+        let (ox, oy) = self.ctx.region_origin;
+        // Position: subtract camera, scale by zoom, re-anchor to the region centre
+        // (region origin + half the region), so a sub-region pane lands in place.
+        let x = (self.pos.0 - cam_x) * zoom + half_w + ox;
+        let y = (self.pos.1 - cam_y) * zoom + half_h + oy;
         // Size: only zoom (no pan, no anchor).
         let w = self.size.0 * zoom;
         let h = self.size.1 * zoom;
@@ -297,8 +326,9 @@ fn physical_in_to_world(
     let zoom = ctx.camera_zoom;
     let (cam_x, cam_y) = ctx.camera_pos;
     let (half_w, half_h) = ctx.screen_half_logical();
-    let world_x = (lx - half_w) / zoom + cam_x;
-    let world_y = (ly - half_h) / zoom + cam_y;
+    let (ox, oy) = ctx.region_origin;
+    let world_x = (lx - half_w - ox) / zoom + cam_x;
+    let world_y = (ly - half_h - oy) / zoom + cam_y;
     let world_w = lw / zoom;
     let world_h = lh / zoom;
     ((world_x, world_y), (world_w, world_h))

@@ -1,0 +1,16 @@
+[package]
+name = "compositor_configurator_settings_surface_world"
+version = "0.0.1"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+compositor_configurator_settings_surface_message = { workspace = true }
+compositor_configurator_settings_surface_style = { workspace = true }
+compositor_configurator_settings_surface_control = { workspace = true }
+compositor_configurator_settings_surface_preview = { workspace = true }
+compositor_support_iced_core_engine_base = { workspace = true }
+iced_core = { workspace = true }
+iced_widget = { workspace = true }

@@ -213,6 +213,15 @@ pub struct IcedItem {
     /// without intercepting pointer input or stealing events from what's
     /// behind it. Tooltips set this.
     passthrough: bool,
+    /// Optional owning physical output (an opaque caller-supplied tag, e.g. an
+    /// `output_key`). `None` = the surface is not bound to a specific monitor
+    /// and follows the compositor's default single-output placement (launcher,
+    /// dialogs, cursor). `Some(tag)` = the surface belongs to exactly that
+    /// output; the scene builder draws it only on that monitor and the pointer
+    /// path hit-tests it only when the cursor is on that monitor. Lets a screen
+    /// overlay (e.g. a per-monitor capture stop button) be replicated once per
+    /// output without duplicating/mispositioning on the others.
+    output: Option<String>,
 }
 
 impl IcedItem {
@@ -224,6 +233,7 @@ impl IcedItem {
             layer,
             visible: true,
             passthrough: false,
+            output: None,
         }
     }
 
@@ -248,6 +258,16 @@ impl IcedItem {
 
     pub fn set_passthrough(&mut self, passthrough: bool) {
         self.passthrough = passthrough;
+    }
+
+    /// The output this surface is bound to, if any (see the `output` field).
+    pub fn output(&self) -> Option<&str> {
+        self.output.as_deref()
+    }
+
+    /// Bind (or unbind, with `None`) this surface to a specific physical output.
+    pub fn set_output(&mut self, output: Option<String>) {
+        self.output = output;
     }
 
     /// True if the runtime still wants to be rendered next frame (dirty or
@@ -472,6 +492,7 @@ impl IcedItem {
             world_zoom,
             id: self.inner.smithay_id().clone(),
             commit_counter: self.inner.commit(),
+            output: self.output.clone(),
         }
     }
 

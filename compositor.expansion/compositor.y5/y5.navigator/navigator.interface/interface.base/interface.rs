@@ -79,12 +79,10 @@ pub fn fit(state: &mut Loop, zoom_1: bool, fit_1: bool) {
         let window_size = window_geometry.size;
         let window_location = window_geometry.loc;
 
-        let output = state
-            .inner.space_state()
-            .state
-            .outputs()
-            .next()
-            .unwrap_or_else(|| abort!("at least one output"));
+        // The ACTIVE output (the one whose camera is being fitted), not the
+        // primary/first — otherwise on multi-monitor the fit is computed against
+        // the wrong screen size. Matches `camera()`/`size_ctx_all()`.
+        let output = state.inner.current_output();
         let output_geom_i32 = state
             .inner.space_state()
             .state

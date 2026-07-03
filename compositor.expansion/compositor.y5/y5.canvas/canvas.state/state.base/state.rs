@@ -24,4 +24,12 @@ impl CanvasState {
             finger_pan: false,
         }
     }
+
+    /// A canvas/world pointer drag is in progress (window/pane move, scale,
+    /// select-box, hand). During these the cursor may cross monitors (grab-to-move a
+    /// window between them), so teleport must stay enabled — unlike a screen-surface
+    /// drag (settings layout-canvas pan) where it's suppressed.
+    pub fn active_grab(&self) -> bool {
+        matches!(self.Grab, CanvasGrab::Active(_))
+    }
 }

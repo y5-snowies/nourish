@@ -38,13 +38,9 @@ pub fn open(state: &mut Loop, renderer: &mut GlesRenderer) {
     }
 
     let screen = {
-        let output = state
-            .inner
-            .space_state()
-            .state
-            .outputs()
-            .next()
-            .unwrap_or_else(|| abort!("at least one output"));
+        // Size the menu bar for the ACTIVE monitor (the one the user is on), not the
+        // primary — screen-space surfaces live on the active output.
+        let output = state.inner.active_output();
         output.current_mode().unwrap_or_else(|| abort!("output has a mode")).size
     };
 

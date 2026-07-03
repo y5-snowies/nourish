@@ -22,7 +22,10 @@ where
     let cursor_world = pointer.current_location();
     // let hotspot = state.inner.pointer_mut().element.get_current_hotspot();
 
-    let size_context = state.size_context();
+    // Project the world pointer location through the pane the cursor is in (not
+    // the full output), so the rendered cursor lands at the physical hardware
+    // position even when a split pane's camera is panned/zoomed.
+    let size_context = state.focus_pane_context();
 
     let hotspot_logical = state.inner.pointer_mut().element.get_current_hotspot();
     // hotspot is in surface logical buffer space; convert to physical:

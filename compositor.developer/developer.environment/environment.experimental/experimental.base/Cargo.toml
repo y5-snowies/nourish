@@ -1,0 +1,16 @@
+[package]
+name = "compositor_developer_environment_experimental_base"
+version = "0.0.1"
+edition = "2024"
+
+# Deliberately at the very bottom of the dep graph (like environment.config): NO
+# logging dep, so init() can run in main() BEFORE the logging system is up.
+# Reuses environment.config ONLY for the shared config-dir path resolver.
+[dependencies]
+compositor_developer_environment_config_base = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bitflags = { workspace = true }
+
+[lib]
+path = "lib.rs"

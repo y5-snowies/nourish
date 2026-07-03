@@ -29,6 +29,16 @@ thread_local! {
 
 /// Called from the overview GLES prepare while the overlay is open.
 pub fn per_frame(state: &mut Loop, size: Size<i32, Physical>) {
+    // This runs once per output in the render loop; the menu bar is a screen-space
+    // surface on the ACTIVE monitor only. Act only on the active output's pass so
+    // `size` is that monitor's — otherwise every OTHER output's width thrashes the
+    // bar's resize each frame. (render_output None = single/non-loop pass → run.)
+    // Mirrors the gate in overview.draw/draw.settings/settings.rs.
+    if let Some(k) = &state.inner.render_output {
+        if *k != state.inner.active_output_key() {
+            return;
+        }
+    }
     resize_menu(state, size);
     clock(state);
     battery(state);

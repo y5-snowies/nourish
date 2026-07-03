@@ -63,6 +63,9 @@ impl Motion {
 }
 
 /// GLES uniforms + the renderer-agnostic uniforms (same values) for one draw.
+/// `params` are the shader-authored `@prop` values, packed into four `vec4`
+/// uniforms `u_param0`..`u_param3` (matching the fixed params block on Vulkan).
+#[allow(clippy::too_many_arguments)]
 pub fn uniforms(
     time: f32,
     lock_amount: f32,
@@ -71,6 +74,7 @@ pub fn uniforms(
     velocity: (f32, f32),
     zoom: f32,
     resolution: (f32, f32),
+    params: &[f32; 16],
 ) -> (Vec<Uniform<'static>>, ParallaxUniforms) {
     let gles = vec![
         Uniform::new("u_time", time),
@@ -80,6 +84,10 @@ pub fn uniforms(
         Uniform::new("pan_velocity", [velocity.0, velocity.1]),
         Uniform::new("u_zoom", zoom),
         Uniform::new("u_resolution", [resolution.0, resolution.1]),
+        Uniform::new("u_param0", [params[0], params[1], params[2], params[3]]),
+        Uniform::new("u_param1", [params[4], params[5], params[6], params[7]]),
+        Uniform::new("u_param2", [params[8], params[9], params[10], params[11]]),
+        Uniform::new("u_param3", [params[12], params[13], params[14], params[15]]),
     ];
 
     let vk = ParallaxUniforms {

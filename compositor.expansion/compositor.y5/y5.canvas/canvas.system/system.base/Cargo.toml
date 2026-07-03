@@ -21,9 +21,10 @@ compositor_y5_group_protocol_base = { workspace = true }
 compositor_y5_surface_protocol_base = { workspace = true }
 compositor_y5_placeholder_system_base = { workspace = true }
 compositor_y5_window_interface_record = { workspace = true }
-compositor_y5_camera_state_base = { workspace = true }
+compositor_y5_viewport_state_base = { workspace = true }
 compositor_y5_overview_state_base = { workspace = true }
 compositor_orchestration_storage_state_base = { workspace = true }
+compositor_orchestration_driver_output_base = { workspace = true }
 compositor_y5_camera_transform_translate = { workspace = true }
 compositor_orchestration_draw_layer_base = { workspace = true }
 compositor_orchestration_draw_platform_base = { workspace = true }

@@ -1,14 +1,6 @@
-use compositor_support_system_storage_token_base::base::{Token, TokenMut};
-
-/// World-storage tokens for the camera slot (beside the type — no
-/// system-crate dependency needed to read camera state).
-pub static CAMERA: Token<Camera> = Token::new();
-/// TRANSITIONAL pub: legacy input/draw paths still write directly.
-pub static CAMERA_MUT: TokenMut<Camera> = TokenMut::new(&CAMERA);
-
-use std::collections::HashMap;
-use compositor_y5_camera_transform_state::state::Transform;
-use compositor_y5_camera_zone_state::state::CameraZone;
+// The camera no longer has its own world-storage slot: it lives on a viewport
+// `Slot` (see `compositor_y5_viewport_state_base`). The rim reaches the focused
+// camera via the `VIEWPORTS` slot's active-slot accessors.
 
 #[derive(Default)]
 pub struct Camera {

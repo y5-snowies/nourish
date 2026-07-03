@@ -6,7 +6,7 @@
 
 pub mod dmabuf_alloc {
     pub use compositor_support_bevy_core_alloc_base::{
-        AllocatedDmabuf, allocate_dmabuf, allocate_dmabuf_on,
+        AllocatedDmabuf, allocate_dmabuf, allocate_dmabuf_negotiated, allocate_dmabuf_on,
     };
 }
 pub mod error {
@@ -31,7 +31,9 @@ pub mod wgpu_import {
     };
 }
 
-pub use dmabuf_alloc::{AllocatedDmabuf, allocate_dmabuf, allocate_dmabuf_on};
+pub use dmabuf_alloc::{
+    AllocatedDmabuf, allocate_dmabuf, allocate_dmabuf_negotiated, allocate_dmabuf_on,
+};
 pub use error::{AllocError, GlesImportError, SurfaceError, WgpuContextError, WgpuImportError};
 pub use gles_import::import_dmabuf_to_gles;
 pub use surface::BevySurface;

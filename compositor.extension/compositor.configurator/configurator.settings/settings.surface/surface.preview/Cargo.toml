@@ -1,0 +1,14 @@
+[package]
+name = "compositor_configurator_settings_surface_preview"
+version = "0.0.1"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+compositor_configurator_settings_surface_message = { workspace = true }
+iced_core = { workspace = true }
+iced_widget = { workspace = true }
+iced_wgpu = { workspace = true }
+naga = { workspace = true }

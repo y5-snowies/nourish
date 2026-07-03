@@ -1,5 +1,5 @@
 //! The output-presence lifecycle event, fired exactly once per real output
-//! transition by the kernel hotplug path (`display.switch::reconcile` →
+//! transition by the kernel hotplug path (`display.reconcile::reconcile` →
 //! `wire.plugin`). Event-driven ONLY — never polled per-frame or on a timer.
 
 use compositor_support_system_channel_router_base::base::ChannelRouter;

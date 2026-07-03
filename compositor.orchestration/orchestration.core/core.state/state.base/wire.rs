@@ -110,8 +110,10 @@ impl WireTrait for Orchestrator {
         // Read the hosted space's output geometry, then drop the borrow before
         // mutating camera/pointer (both live in the same world storage).
         let (mode_size, scale) = {
-            let space = self.space_state();
-            let output = space.state.outputs().next().unwrap();
+            // The cursor's output (via current/cursor resolution), not the primary —
+            // a pointer warp onto a secondary monitor must project through THAT
+            // monitor's mode/scale to land at the right physical position.
+            let output = self.current_output();
             let mode = output.current_mode().unwrap_or_else(|| abort!("output has a current mode"));
             (mode.size, output.current_scale().fractional_scale())
         };

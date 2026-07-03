@@ -22,5 +22,5 @@ pub fn get(_loop: &mut Loop, group: &Group) -> Transform {
 
     // let loc_logical: Point<i32, Logical> = Point::new(rect.position.x, rect.position.y);
     // let size_logical: Size<i32, Logical> = Size::new(rect.size.w, rect.size.h);
-    (rect, _loop.size_context()).into()
+    (rect, _loop.size_ctx_all()).into()
 }

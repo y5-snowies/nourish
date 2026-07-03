@@ -8,7 +8,7 @@
 //! - Changed(primary)                -> connector rescan + diff; ANY change on the
 //!   driven device returns `true` so the caller reconciles the active output
 //!   (fail over to another connected monitor, or go dark + wait — see
-//!   `display.switch::reconcile`). No longer panics on active-connector loss.
+//!   `display.reconcile::reconcile`). No longer panics on active-connector loss.
 //! - Removed(primary)                -> panic (the device under the running
 //!   pipe is gone; not self-recovering)
 //! - Removed(secondary)              -> bookkeeping cleanup

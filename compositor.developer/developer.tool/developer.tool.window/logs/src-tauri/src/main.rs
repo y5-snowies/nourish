@@ -83,6 +83,18 @@ struct CompositorStats {
     hdr_max_luminance: f32,
     hdr_bt2020: bool,
     color_format: String,
+    device_formats: Vec<DeviceFormat>,
+}
+
+/// Serde mirror of the proto `DeviceFormat` (GPU formats panel).
+#[derive(Clone, Serialize)]
+struct DeviceFormat {
+    kind: String,
+    fourcc: String,
+    modifier: String,
+    class: String,
+    plane_count: u32,
+    multiplane: bool,
 }
 
 /// Connect to the compositor and pull a one-shot diagnostics snapshot.
@@ -132,6 +144,18 @@ async fn get_compositor_stats() -> Result<CompositorStats, String> {
         hdr_max_luminance: s.hdr_max_luminance,
         hdr_bt2020: s.hdr_bt2020,
         color_format: s.color_format,
+        device_formats: s
+            .device_formats
+            .into_iter()
+            .map(|d| DeviceFormat {
+                kind: d.kind,
+                fourcc: d.fourcc,
+                modifier: d.modifier,
+                class: d.class,
+                plane_count: d.plane_count,
+                multiplane: d.multiplane,
+            })
+            .collect(),
     })
 }
 

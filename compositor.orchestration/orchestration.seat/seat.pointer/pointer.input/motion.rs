@@ -16,23 +16,37 @@ pub fn absolute<I: InputBackend>(
     // point BEFORE the bus so the motion systems receive precisely what the rim
     // computed (the pan delta uses the physical screen, transforms +
     // pointer.motion use the world point).
-    let ctx = _loop.size_context();
+    // Full-output context maps the normalized absolute event → physical cursor.
+    let screen = _loop.size_ctx_all();
 
     // position_transformed wants Size<_, Logical>. Pass the panel's
     // physical size wrapped as Logical — the values are physical even
     // if the marker says otherwise. We immediately re-tag the result
     // as Physical (which is what it really is).
     let physical_size_as_logical = smithay::utils::Size::<i32, Logical>::from((
-        ctx.screen_size_physical.0.round() as i32,
-        ctx.screen_size_physical.1.round() as i32,
+        screen.screen_size_physical.0.round() as i32,
+        screen.screen_size_physical.1.round() as i32,
     ));
     let raw_pos: Point<f64, Logical> = event.position_transformed(physical_size_as_logical);
 
     // The numbers are in physical units; re-tag.
     let position_screen = Point::<f64, Physical>::from((raw_pos.x, raw_pos.y));
 
+    // Resolve the pane under the cursor (records it as the `pointer` slot) and map
+    // physical → world through THAT pane's camera/region, so input follows the
+    // pane the cursor is over, not the keyboard-active pane.
+    let ctx = _loop.pointer_context(position_screen);
     let t: Transform = (position_screen, ctx).into();
     let position_normalized = &t.into_storage_point_f64();
+
+    // Separator / floating-pane drag in progress → apply it and move the cursor,
+    // but do not route to the canvas/window grab systems.
+    if compositor_y5_viewport_interaction_base::interaction::update_separator(_loop.inner.output_views_mut(), position_screen)
+        || compositor_y5_viewport_interaction_base::interaction::update_floating(_loop.inner.output_views_mut(), position_screen)
+    {
+        native_motion::absolute::input_received_normalized::<I>(event, _loop, position_normalized, &raw_pos);
+        return;
+    }
 
     {
         // World input bus first (Pass-1): CameraSystem handles the canvas PAN
@@ -53,7 +67,7 @@ pub fn absolute<I: InputBackend>(
         }
     }
 
-    // let ctx = _loop.size_context();
+    // let ctx = _loop.size_ctx_all();
     // let output = _loop.inner.space_state().state.outputs().next().unwrap();
     // let logical_geom = _loop.inner.space_state().state.output_geometry(output).unwrap();
 
@@ -75,7 +89,7 @@ pub fn absolute<I: InputBackend>(
     // let position_screen = event.position_transformed(compositor_output_geometry.size)
     //     + compositor_output_geometry.loc.to_f64();
 
-    // let ctx = _loop.size_context();
+    // let ctx = _loop.size_ctx_all();
     // let cursor_phys = Point::<f64, Physical>::from((position_screen.x, position_screen.y));
 
     // let t: Transform = (cursor_phys, ctx).into();
@@ -102,13 +116,84 @@ pub fn absolute<I: InputBackend>(
     );
 }
 
+/// Try to cross the cursor to an adjacent monitor when it leaves this output's
+/// bounds. On success updates `cursor_output`/`cursor_placement` + the per-output
+/// current view, and returns the entry point in the NEW output's physical space
+/// plus that output's pointer context. `None` when there is no teleport layout, the
+/// cursor is still in-bounds, or no placement abuts the crossed edge (clamp).
+fn teleport_cross(
+    _loop: &mut Loop,
+    mx: f64,
+    my: f64,
+    pw: f64,
+    ph: f64,
+) -> Option<(Point<f64, Physical>, compositor_y5_camera_transform_translate::transform::Context)> {
+    use compositor_orchestration_driver_output_base::base::{Edge, CURSOR_PLACEMENT_MUT, TELEPORT_LAYOUT};
+    // Teleport is suppressed while ANY system holds the suppression lock (a refcount);
+    // a canvas pan is the built-in client (it pins the cursor to its output for the pan's
+    // duration). This path knows nothing about pan specifically — just the lock.
+    if _loop.inner.teleport_suppressed() || _loop.inner.kernel.get(&TELEPORT_LAYOUT).is_empty() {
+        return None;
+    }
+    // Which edge did the cursor cross, and where along it (proportionally 0..1)?
+    let (edge, frac) = if mx < 0.0 {
+        (Edge::Left, (my / ph) as f32)
+    } else if mx > pw {
+        (Edge::Right, (my / ph) as f32)
+    } else if my < 0.0 {
+        (Edge::Top, (mx / pw) as f32)
+    } else if my > ph {
+        (Edge::Bottom, (mx / pw) as f32)
+    } else {
+        return None; // still inside the output → not a crossing
+    };
+    let from_id = current_placement(_loop)?;
+    let n = _loop.inner.kernel.get(&TELEPORT_LAYOUT).neighbor(from_id, edge, frac)?;
+    // Adopt the entered monitor + zone. The teleport layout and `output_key` share
+    // the same EDID identity, so the placement key IS the output key. Point the
+    // per-output view state at it so the input systems (pan/zoom on this monitor)
+    // operate on THIS monitor's own camera.
+    _loop.inner.cursor_output = Some(n.key.clone());
+    _loop.inner.output_views_mut().set_current(&n.key);
+    *_loop.inner.kernel.get_mut(&CURSOR_PLACEMENT_MUT) = Some(n.id);
+    // Entry point on the new output (opposite the crossed edge, 1px inset).
+    let (npw, nph) = _loop.size_ctx_all().screen_size_physical;
+    const INSET: f64 = 1.0;
+    let ef = n.entry_frac as f64;
+    let entry: Point<f64, Physical> = match n.entry_edge {
+        Edge::Left => Point::from((INSET, ef * nph)),
+        Edge::Right => Point::from((npw - INSET, ef * nph)),
+        Edge::Top => Point::from((ef * npw, INSET)),
+        Edge::Bottom => Point::from((ef * npw, nph - INSET)),
+    };
+    let new_ctx = _loop.pointer_context(entry);
+    Some((entry, new_ctx))
+}
+
+/// The placement the cursor currently occupies, seeded on first use to the current
+/// output's first placement (else the first placement overall).
+fn current_placement(_loop: &mut Loop) -> Option<u64> {
+    use compositor_orchestration_driver_output_base::base::{CURSOR_PLACEMENT, CURSOR_PLACEMENT_MUT, TELEPORT_LAYOUT};
+    if let Some(id) = *_loop.inner.kernel.get(&CURSOR_PLACEMENT) {
+        if _loop.inner.kernel.get(&TELEPORT_LAYOUT).get(id).is_some() {
+            return Some(id);
+        }
+    }
+    let key = _loop.inner.current_output_key();
+    let id = {
+        let t = _loop.inner.kernel.get(&TELEPORT_LAYOUT);
+        t.first_of(&key).or_else(|| t.placements.first()).map(|p| p.id)?
+    };
+    *_loop.inner.kernel.get_mut(&CURSOR_PLACEMENT_MUT) = Some(id);
+    Some(id)
+}
+
 pub fn relative<I: InputBackend>(
     event: &<I as InputBackend>::PointerMotionEvent,
     _loop: &mut Loop,
 ) {
-    let ctx = _loop.size_context();
-
-    let ctx = _loop.size_context();
+    // Full-output context for the physical-accumulator clamp bounds.
+    let screen = _loop.size_ctx_all();
 
     let dt = event.delta();
     let dt_unaccelerated = event.delta_unaccel();
@@ -122,6 +207,8 @@ pub fn relative<I: InputBackend>(
 
     // Snapshot previous position in both spaces.
     let previous_phys = _loop.inner.pointer_mut().motion.clone();
+    // Pane under the cursor (records the `pointer` slot); map world through it.
+    let ctx = _loop.pointer_context(Point::<f64, Physical>::from((previous_phys.x, previous_phys.y)));
     let previous_world: Point<f64, Logical> = {
         let pt = Point::<f64, Physical>::from((previous_phys.x, previous_phys.y));
         let t: Transform = (pt, ctx).into();
@@ -159,18 +246,43 @@ pub fn relative<I: InputBackend>(
         _loop.inner.pointer_mut().motion.y = final_phys.y;
         constrained_world
     } else {
-        // No constraint: clamp physical to panel, re-derive world.
-        let (pw, ph) = ctx.screen_size_physical;
-        _loop.inner.pointer_mut().motion.x = _loop.inner.pointer_mut().motion.x.clamp(0.0, pw);
-        _loop.inner.pointer_mut().motion.y = _loop.inner.pointer_mut().motion.y.clamp(0.0, ph);
-
-        let pt = Point::<f64, Physical>::from((
-            _loop.inner.pointer_mut().motion.x,
-            _loop.inner.pointer_mut().motion.y,
-        ));
-        let t: Transform = (pt, ctx).into();
-        t.into_storage_point_f64()
+        // No constraint. If the cursor left this output's bounds and a teleport
+        // layout places an adjacent monitor across that edge, cross to it; else
+        // clamp to this output's bounds (the edge is a layout boundary).
+        let (pw, ph) = screen.screen_size_physical;
+        let mx = _loop.inner.pointer_mut().motion.x;
+        let my = _loop.inner.pointer_mut().motion.y;
+        match teleport_cross(_loop, mx, my, pw, ph) {
+            Some((entry, new_ctx)) => {
+                _loop.inner.pointer_mut().motion.x = entry.x;
+                _loop.inner.pointer_mut().motion.y = entry.y;
+                let t: Transform = (entry, new_ctx).into();
+                t.into_storage_point_f64()
+            }
+            None => {
+                _loop.inner.pointer_mut().motion.x = mx.clamp(0.0, pw);
+                _loop.inner.pointer_mut().motion.y = my.clamp(0.0, ph);
+                let pt = Point::<f64, Physical>::from((
+                    _loop.inner.pointer_mut().motion.x,
+                    _loop.inner.pointer_mut().motion.y,
+                ));
+                let t: Transform = (pt, ctx).into();
+                t.into_storage_point_f64()
+            }
+        }
     };
+
+    // Keep the per-output view state's `current` on the output the cursor is on, so
+    // the input systems (pan/zoom, hit-test) operate on THIS monitor's own viewport
+    // — not the last-rendered one. `cursor_output` is maintained by teleport
+    // crossings and persists between them; initialize it to the primary on first use.
+    if _loop.inner.cursor_output.is_none() {
+        _loop.inner.cursor_output =
+            Some(compositor_orchestration_core_state_base::state::output_key(_loop.inner.current_output()));
+    }
+    if let Some(co) = _loop.inner.cursor_output.clone() {
+        _loop.inner.output_views_mut().set_current(&co);
+    }
 
     let position_screen = _loop.inner.pointer_mut().motion;
     let position_normalized = final_world;
@@ -269,6 +381,23 @@ pub fn relative<I: InputBackend>(
     //     _loop.inner.space_state().default_scale()
     // );
     // 4. Notify canvas of input to handle camera movement
+
+    // Separator / floating drag in progress → apply + move cursor, skip canvas.
+    // `position_screen` carries physical values under a Logical marker; re-tag.
+    let cursor_phys = Point::<f64, Physical>::from((position_screen.x, position_screen.y));
+    if compositor_y5_viewport_interaction_base::interaction::update_separator(_loop.inner.output_views_mut(), cursor_phys)
+        || compositor_y5_viewport_interaction_base::interaction::update_floating(_loop.inner.output_views_mut(), cursor_phys)
+    {
+        native_motion::relative::input_received_normalized::<I>(
+            event,
+            _loop,
+            position_normalized,
+            &position_screen,
+            (dt, dt_unaccelerated),
+            was_constrained_locked,
+        );
+        return;
+    }
 
     // World input bus first (Pass-1), AFTER position_normalized + the
     // pointer-constraint reconciliation: the systems receive the post-constraint

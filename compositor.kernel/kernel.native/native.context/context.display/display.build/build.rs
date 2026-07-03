@@ -19,6 +19,8 @@ use std::rc::Rc;
 /// The runtime-built pipe plus the metadata the switch gate swaps into the context.
 pub struct BuiltOutput {
     pub drm_output: NativeDrmOutput,
+    /// The CRTC this pipe was claimed on (routes VBlanks; identifies the pipe).
+    pub crtc: crtc::Handle,
     pub drm_mode: DrmMode,
     pub modes: Vec<DrmMode>,
     pub connector: connector::Handle,
@@ -105,6 +107,7 @@ pub fn build(
 
     Ok(BuiltOutput {
         drm_output: slot.ok_or_else(|| "try_chain ok without output".to_string())?,
+        crtc: pipe,
         drm_mode: chosen,
         modes: target.modes().to_vec(),
         connector: target.handle(),

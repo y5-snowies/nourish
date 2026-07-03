@@ -219,8 +219,19 @@ fn make_copy_snapshot(
 
     // Allocate the fresh dmabuf + imports. The GLES import is kept only so the
     // SnapshotData stays well-formed; bevy samples the wgpu texture.
-    let dmabuf =
-        compositor_support_bevy_core_runtime_base::allocate_dmabuf(render_node, size.w as u32, size.h as u32)?;
+    let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
+    let mods = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_modifiers(
+        smithay::backend::renderer::ImportDma::dmabuf_formats(gles),
+        wgpu_ctx.importable.clone(),
+        fourcc,
+    );
+    let dmabuf = compositor_support_bevy_core_runtime_base::allocate_dmabuf_negotiated(
+        render_node,
+        size.w as u32,
+        size.h as u32,
+        fourcc,
+        &mods,
+    )?;
     let gles_tex = compositor_support_bevy_core_runtime_base::import_dmabuf_to_gles(gles, &dmabuf.dmabuf)?;
     let wgpu_tex = compositor_support_bevy_core_runtime_base::import_dmabuf_to_wgpu(&wgpu_ctx, &dmabuf.dmabuf)?;
 

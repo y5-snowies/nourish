@@ -21,10 +21,20 @@ fn solid(rect: Rectangle<i32, Physical>, color: [f32; 4]) -> SolidColorRenderEle
     SolidColorRenderElement::new(Id::new(), rect, CommitCounter::default(), color, Kind::Unspecified)
 }
 
+/// The overview overlay is active-monitor-only. `prepare`/`band` run once PER OUTPUT
+/// in the render loop, so act only on the active output's pass — else the embedded
+/// globe (keyed on one `GLOBE_SIZE`) thrashes between differently-sized monitors and
+/// never renders. `render_output == None` = winit/single pass → act.
+fn on_active_output(s: &Loop) -> bool {
+    s.inner.render_output.as_ref().is_none_or(|k| *k == s.inner.active_output_key())
+}
+
 /// GLES phase: advance the freeze-backdrop capture, and on the World tab render
 /// the embedded picker globe (else tear it down). Returns the globe's bevy
 /// elements for `band`.
 pub fn prepare(state: &mut Loop, gles: &mut GlesRenderer, size: Size<i32, Physical>) -> Vec<BevyRenderElement> {
+    // Active monitor only (keeps the embedded globe's GLOBE_SIZE stable).
+    if !on_active_output(state) { return Vec::new(); }
     compositor_y5_overview_draw_backdrop::backdrop::arm(state, gles, size);
     // Settings tab: reconcile the embedded settings iced surface (no-op off-tab).
     compositor_y5_overview_draw_settings::settings::per_frame(state, gles, size);
@@ -56,6 +66,8 @@ where
     if !(state.inner.overview().visible && state.inner.overview().overlay_ready()) {
         return None;
     }
+    // Active monitor only — else the caller draws that output's normal canvas.
+    if !on_active_output(state) { return None; }
     let full = Rectangle::new(Point::from((0, 0)), size);
     let mut have_snapshot = false;
     if let Some(dmabuf) = compositor_y5_overview_draw_backdrop::backdrop::snapshot_dmabuf(state) {

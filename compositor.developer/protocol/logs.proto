@@ -21,6 +21,17 @@ message EnvFlag {
   string value = 2;
 }
 
+// Post-determined dmabuf format for one device (bridge/scanout), for the
+// "GPU formats" panel.
+message DeviceFormat {
+  string kind = 1;         // gbm-bevy | gbm-iced | wgpu-* | vulkan | drm-scanout
+  string fourcc = 2;       // e.g. Argb8888
+  string modifier = 3;     // 0x… hex
+  string class = 4;        // linear | tiled | tiled+dcc | invalid
+  uint32 plane_count = 5;
+  bool multiplane = 6;     // true = a DCC/CCS multi-plane modifier is in use
+}
+
 // A point-in-time snapshot of the compositor's diagnostics registry.
 message CompositorStats {
   string renderer = 1;          // gles | vulkan | unknown
@@ -45,6 +56,7 @@ message CompositorStats {
   float hdr_max_luminance = 20;   // cd/m² from EDID, 0 if unknown
   bool hdr_bt2020 = 21;           // display advertises BT.2020 RGB
   string color_format = 22;       // 8-bit sRGB | fp16→10-bit PQ
+  repeated DeviceFormat device_formats = 23;  // GPU formats panel
 }
 
 // Live HDR encode tuning, pushed from the developer tool sliders. Mirrors the

@@ -181,10 +181,22 @@ pub fn wire(
 
     let ctx_rc = Rc::new(RefCell::new(NativeRenderContext {
         display_handle: _loop.inner.loader.display_handle.clone(),
-        mode: display.mode,
-        output: display.output.clone(),
-        damage_tracker,
-        drm_output: Some(renderer.drm_output),
+        outputs: vec![compositor_kernel_native_context_render_base::render::OutputPipe {
+            crtc: display.pipe,
+            mode: display.mode,
+            output: display.output.clone(),
+            damage_tracker,
+            drm_output: Some(renderer.drm_output),
+            hdr_caps,
+            hdr_active,
+            hdr_signalled: false,
+            connector: display.connector.handle(),
+            current_drm_mode: display.drm_mode,
+            modes: display.connector.modes().to_vec(),
+            mode_revert: None,
+            global: None,
+            in_flight: false,
+        }],
         drm_output_manager: renderer.drm_output_manager,
         gpu_binding: renderer.gpu_binding.clone(),
         libinput_context,
@@ -192,15 +204,7 @@ pub fn wire(
         safety: compositor_kernel_graphic_preference_enable_safety::safety::get(),
         vulkan_mode,
         vulkan,
-        hdr_caps,
-        hdr_active,
-        hdr_signalled: false,
         drm_fd: display.drm_fd.clone(),
-        connector: display.connector.handle(),
-        current_drm_mode: display.drm_mode,
-        modes: display.connector.modes().to_vec(),
-        mode_revert: None,
-        output_revert: None,
         dark_tick: None,
     }));
 
@@ -275,7 +279,7 @@ pub fn wire(
 
     // ---- Full connected-monitor list for the settings preferred-monitor picker
     //      (kernel → rim). Lists the active connector plus connected-but-inactive
-    //      monitors; refreshed on a live switch by `display.switch`.
+    //      monitors; refreshed on a live switch by `display.reconcile`.
     {
         use compositor_orchestration_driver_output_base::base::ModeInfo;
         let active_mode = ModeInfo {
@@ -285,10 +289,13 @@ pub fn wire(
         };
         let ctx = ctx_rc.borrow();
         let manager = ctx.drm_output_manager.borrow();
+        // Only the primary pipe exists at boot; secondaries are added by the hotplug
+        // reconcile, which rewrites this snapshot with every lit pipe's current mode.
+        let lit = [(display.connector.handle(), active_mode)];
         let snap = compositor_kernel_native_context_display_enumerate::enumerate::enumerate(
             manager.device(),
             display.connector.handle(),
-            active_mode,
+            &lit,
         );
         drop(manager);
         drop(ctx);
@@ -310,6 +317,7 @@ pub fn wire(
             let handle = state.loop_handle.clone();
             let _ = compositor_kernel_native_render_execute_base::execute::execute(
                 ctx, handle, state,
+                compositor_kernel_native_render_execute_base::execute::RenderScope::All,
             );
         },
     );
@@ -342,7 +350,9 @@ pub fn wire(
             .insert_source(source, move |_, _, state| {
                 compositor_kernel_native_context_display_apply::apply::drain(state, &ctx);
                 compositor_kernel_native_context_display_mode::mode::drain(state, &ctx);
-                compositor_kernel_native_context_display_switch::switch::drain(state, &ctx);
+                // Multi-output branch: the single-output active-switch transaction was
+                // replaced by the set-reconciler (activate/deactivate/hotplug).
+                compositor_kernel_native_context_display_reconcile::reconcile::drain_reconcile(state, &ctx);
                 compositor_y5_lock_interface_base::interface::drain_engage(state);
             })
             .expect("control-plane ping source registration failed");
@@ -358,6 +368,11 @@ pub fn wire(
         topology,
         ctx_rc.clone(),
     );
+
+    // Light up every OTHER connected monitor as an additional output (the primary
+    // is already up from assembly). The set-reconciler adds one pipe per connected
+    // connector not yet driven — the same path a runtime hotplug takes.
+    compositor_kernel_native_context_display_reconcile::reconcile::reconcile(_loop, &ctx_rc);
 
     NativeHandles { ctx: ctx_rc }
 }

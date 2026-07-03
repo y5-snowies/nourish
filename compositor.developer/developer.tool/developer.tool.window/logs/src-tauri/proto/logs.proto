@@ -21,6 +21,16 @@ message EnvFlag {
   string value = 2;
 }
 
+// Post-determined dmabuf format for one device (bridge/scanout).
+message DeviceFormat {
+  string kind = 1;
+  string fourcc = 2;
+  string modifier = 3;
+  string class = 4;
+  uint32 plane_count = 5;
+  bool multiplane = 6;
+}
+
 // A point-in-time snapshot of the compositor's diagnostics registry.
 message CompositorStats {
   string renderer = 1;          // gles | vulkan | unknown
@@ -45,6 +55,7 @@ message CompositorStats {
   float hdr_max_luminance = 20;   // cd/m² from EDID, 0 if unknown
   bool hdr_bt2020 = 21;           // display advertises BT.2020 RGB
   string color_format = 22;       // 8-bit sRGB | fp16→10-bit PQ
+  repeated DeviceFormat device_formats = 23;
 }
 
 // Live HDR encode tuning, pushed from the developer tool sliders. Mirrors the

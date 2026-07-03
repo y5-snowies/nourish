@@ -79,7 +79,7 @@ fn drive_tooltip(state: &mut Loop, size: Size<i32, Physical>) {
     };
     let last_tip = st.last_tip.clone();
 
-    let scale = state.size_context().scale;
+    let scale = state.size_ctx_all().scale;
     let cam = state.inner.camera().transform.clone();
     let cam_t = Transform {
         zoom: cam.zoom,
@@ -464,7 +464,7 @@ fn world_loc(state: &Loop) -> Point<i32, Physical> {
         .map(|p| p.current_location())
         .unwrap_or_default();
     let zoom = state.inner.camera().transform.zoom;
-    world_loc_under_cursor((cursor.x, cursor.y), state.size_context().scale, zoom)
+    world_loc_under_cursor((cursor.x, cursor.y), state.size_ctx_all().scale, zoom)
 }
 
 // --- font / registry plumbing ---------------------------------------------

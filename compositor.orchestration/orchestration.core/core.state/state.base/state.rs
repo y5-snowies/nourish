@@ -39,8 +39,52 @@ pub enum SetPickerRequest {
 }
 /// The loop object must implement various things like decoration, "resize and movement" modes, and input management.
 /// The trait must be implemented in this crate and can be delegated if necessary.
+/// While the per-region render loop draws one viewport pane (split / floating),
+/// this overrides the focus accessors: `camera()`/`camera_mut()`/`size_context()`
+/// resolve to THIS pane's slot + region rect instead of the focused slot + full
+/// output. `None` everywhere outside that loop (normal full-output rendering and
+/// all input/logic paths). This is the single seam that lets one world render
+/// through several cameras into several screen regions in one frame.
+#[derive(Clone, Copy)]
+pub struct RenderTarget {
+    pub slot: compositor_y5_viewport_state_base::state::SlotId,
+    /// Region top-left in logical screen pixels.
+    pub origin_logical: (f64, f64),
+    /// Region size in physical pixels.
+    pub size_physical: (f64, f64),
+}
+
+/// The stable per-monitor identity of a smithay `Output`: its EDID key
+/// "make model serial", matching `DisplayInfo::edid_key` / `MonitorIdentity::key()`
+/// and the per-monitor preference keys. The kernel's EDID identity falls back to the
+/// connector name for the serial when the EDID is unreadable / serial-less, so this
+/// is UNIQUE per physical output even for two identical / EDID-less monitors — the
+/// key the per-output render loop, coordinate contexts, settings and teleport all
+/// resolve against.
+pub fn output_key(output: &smithay::output::Output) -> compositor_orchestration_driver_output_base::base::OutputKey {
+    let p = output.physical_properties();
+    format!("{} {} {}", p.make, p.model, p.serial_number)
+}
+
 pub struct Orchestrator {
     pub start_time: std::time::Instant,
+    /// Active per-region render override (see [`RenderTarget`]). Set only inside
+    /// the `scene.frame` region loop.
+    pub render_target: Option<RenderTarget>,
+    /// The physical output currently being drawn, by [`output_key`]. Set by the
+    /// kernel's per-output render loop around each output's `scene()` call and
+    /// cleared after (mirrors [`RenderTarget`], but at output granularity).
+    /// [`current_output`](Self::current_output) resolves THIS output's mode
+    /// size/scale while set, so the coordinate contexts build against the framebuffer
+    /// being drawn. `None` outside the render loop and on single-output hardware,
+    /// where the resolver falls back to the sole output. The shared `Viewports`
+    /// view state is unchanged — this only selects which output's geometry is used.
+    pub render_output: Option<compositor_orchestration_driver_output_base::base::OutputKey>,
+    /// The physical output currently under the cursor, by [`output_key`]. Updated by
+    /// the pointer path as the cursor crosses between monitors (teleport). Selects
+    /// which output's size/scale the input-path contexts use. `None` until the first
+    /// crossing resolves it; the resolver falls back to the sole/primary output.
+    pub cursor_output: Option<compositor_orchestration_driver_output_base::base::OutputKey>,
     pub status: Status,
     /// One-shot request to run the renderer-free lock engage (`lock_logical`) off
     /// the render loop. The lock keybinding sets `Status::Locked` synchronously and
@@ -94,6 +138,11 @@ pub struct Orchestrator {
     /// handler. Read by the overlay shortcut path on every keypress (parse-or-
     /// default). The inline-reloaded counterpart to the read-once settings.
     pub keybinding: compositor_developer_environment_keybinding_base::base::KeyBindings,
+    // Cursor-teleport state moved OUT of the Orchestrator into `driver.output` storage
+    // tokens: the layout + current placement (`TELEPORT_LAYOUT` / `CURSOR_PLACEMENT`, in
+    // kernel storage) and the suppression lock (`TELEPORT_SUPPRESS`, a refcount in world
+    // storage that any system raises to pin the cursor — see `teleport_suppressed`).
+    // They are output-arrangement / seat state, not core state.
 }
 
 pub struct StateDRMBinding {
@@ -157,6 +206,11 @@ impl Orchestrator {
         // Live user preferences (cursor speed, touch natural-scroll) loaded fresh
         // from preferences.json to seed the runtime cells below.
         let prefs = compositor_developer_environment_preference_base::base::load();
+        // Seed the process-global default background shader so `background.two`'s
+        // system (no preference access in `update()`) can resolve it per world.
+        compositor_developer_stats_registry_base::base::set_background_shader_default(
+            prefs.background_shader.clone(),
+        );
         // Keyboard-shortcut overrides loaded fresh from keybinding.json.
         let keybinding = compositor_developer_environment_keybinding_base::base::load();
 
@@ -195,17 +249,31 @@ impl Orchestrator {
         kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUT_MODE_REQUEST, None);
         kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUT_MODES_SNAPSHOT, Default::default());
         kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUT_MODE_RESULT, None);
-        // Active-output switch driver: rim-issued switch request + kernel-written
-        // full connector list and switch result (preferred-monitor change gate).
+        // Kernel-written full connector list (the settings Display panel's monitor
+        // picker + advertised modes).
         kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUTS_SNAPSHOT, Default::default());
-        kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUT_SWITCH_REQUEST, None);
-        kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUT_SWITCH_RESULT, None);
+        // Rim→kernel: request a reconcile pass after an activate/deactivate.
+        kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUT_RECONCILE_REQUEST, false);
+        // Baseline of a provisional activate/deactivate awaiting the "check changes"
+        // confirm/revert gate (auto-reverts on timeout). `None` until the first toggle.
+        kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUT_ACTIVE_REVERT, None);
+        // Cursor-teleport layout + current placement (output-arrangement state; not on
+        // the Orchestrator). Seeded from prefs with no connected outputs yet — the
+        // kernel's first `reconcile` rebuilds it with the connected set.
+        kernel_data.insert(
+            &compositor_orchestration_driver_output_base::base::TELEPORT_LAYOUT,
+            compositor_orchestration_driver_output_base::base::build_teleport(&prefs, &[]),
+        );
+        kernel_data.insert(&compositor_orchestration_driver_output_base::base::CURSOR_PLACEMENT, None);
 
         // Settings-window driver: the open/handle/dirty state for the Super+. surface.
         kernel_data.insert(&compositor_orchestration_driver_settings_base::base::SETTINGS, Default::default());
 
         Self {
             environment,
+            render_target: None,
+            render_output: None,
+            cursor_output: None,
             lock_engage: false,
             control_ping: None,
             __set_picker: None,
@@ -252,9 +320,60 @@ impl Orchestrator {
             .inner
     }
 
-    /// FOCUS ACCESSOR (document/WORLD_DELEGATION.md): the camera/viewport of the
-    /// focused world. The rim must read/write the camera through this — never a
-    /// literal world id — so view state follows the active/spawn-target world.
+    /// The [`OutputKey`](compositor_orchestration_driver_output_base::base::OutputKey)
+    /// of the output the focus accessors resolve against: the one being rendered
+    /// (`render_output`, inside the per-output render loop), else the one under the
+    /// cursor (`cursor_output`), else `""` (the sole / not-yet-identified output,
+    /// whose bootstrap view tree is always present).
+    pub fn current_output_key(&self) -> compositor_orchestration_driver_output_base::base::OutputKey {
+        self.render_output
+            .clone()
+            .or_else(|| self.cursor_output.clone())
+            .unwrap_or_default()
+    }
+
+    /// The ACTIVE output's key: the one under the cursor (`cursor_output`), else the
+    /// primary/first. Unlike [`current_output_key`](Self::current_output_key) this
+    /// IGNORES `render_output` — screen-space surfaces (launcher/settings/menu) live
+    /// on the monitor the user is on, not on whichever output the render loop is
+    /// currently drawing. `None` until the pointer resolves an output.
+    pub fn active_output_key(&self) -> compositor_orchestration_driver_output_base::base::OutputKey {
+        self.cursor_output.clone().unwrap_or_else(|| {
+            self.space_state()
+                .state
+                .outputs()
+                .next()
+                .map(output_key)
+                .unwrap_or_default()
+        })
+    }
+
+    /// The smithay `Output` the user is on (cursor's output, else primary) — the
+    /// target + size source for screen-space surfaces.
+    pub fn active_output(&self) -> &smithay::output::Output {
+        let key = self.active_output_key();
+        let space = self.space_state();
+        space
+            .state
+            .outputs()
+            .find(|o| output_key(o) == key)
+            .or_else(|| space.state.outputs().next())
+            .expect("at least one mapped output")
+    }
+
+    /// The smithay `Output` matching [`current_output_key`](Self::current_output_key),
+    /// falling back to the first mapped output (so single-output paths are unchanged).
+    pub fn current_output(&self) -> &smithay::output::Output {
+        let key = self.current_output_key();
+        let space = self.space_state();
+        space
+            .state
+            .outputs()
+            .find(|o| output_key(o) == key)
+            .or_else(|| space.state.outputs().next())
+            .expect("at least one mapped output")
+    }
+
     /// Wake the native control-plane ping so the display request queues drain on
     /// the next loop iteration. Call after queuing a mode/switch/lid request. A
     /// no-op on winit (no ping registered), where those requests don't apply.
@@ -264,14 +383,94 @@ impl Orchestrator {
         }
     }
 
+    /// FOCUS ACCESSOR (document/WORLD_DELEGATION.md): the camera/viewport of the
+    /// focused world, for the CURRENT output — each monitor is its own viewport with
+    /// its own camera. Resolves the current output's `Viewports` (render output while
+    /// drawing, else cursor output), then the pane within it.
     pub fn camera(&self) -> &compositor_y5_camera_state_base::state::Camera {
         let target = self.worlds.spawn_target();
-        self.worlds.get(target).storage().get(&compositor_y5_camera_state_base::state::CAMERA)
+        let key = self.current_output_key();
+        let viewports = self.worlds.get(target).storage().get(&compositor_y5_viewport_state_base::state::OUTPUT_VIEWS).views(&key);
+        // Inside the per-region render loop, resolve the pane being drawn; else
+        // the focused (active) slot.
+        match self.render_target {
+            Some(rt) => viewports.camera_of(rt.slot).unwrap_or_else(|| viewports.focus_camera()),
+            None => viewports.focus_camera(),
+        }
     }
 
     pub fn camera_mut(&mut self) -> &mut compositor_y5_camera_state_base::state::Camera {
         let target = self.worlds.spawn_target();
-        self.worlds.get_mut(target).storage_mut().get_mut(&compositor_y5_camera_state_base::state::CAMERA_MUT)
+        let key = self.current_output_key();
+        let render_slot = self.render_target.map(|rt| rt.slot);
+        let viewports = self.worlds.get_mut(target).storage_mut().get_mut(&compositor_y5_viewport_state_base::state::OUTPUT_VIEWS_MUT).views_mut(&key);
+        // Render target may be a floating pane's slot, so search all panes.
+        match render_slot.filter(|id| viewports.camera_of(*id).is_some()) {
+            Some(id) => viewports.camera_of_mut(id).expect("checked present"),
+            None => viewports.focus_camera_mut(),
+        }
+    }
+
+    /// The ACTIVE output's focused camera: the monitor the user is on (cursor's
+    /// output, else primary), IGNORING `render_output`. Unlike [`camera`](Self::camera)
+    /// — which resolves against `current_output_key` and so returns whichever output
+    /// the per-output render loop is currently DRAWING — this follows the user's
+    /// monitor. Use it for spawn-time placement (new windows must land on the active
+    /// screen, not the one whose render pass happens to be draining the map queue).
+    /// Mirrors [`active_output`](Self::active_output) for screen-space surfaces.
+    pub fn active_camera(&self) -> &compositor_y5_camera_state_base::state::Camera {
+        let target = self.worlds.spawn_target();
+        let key = self.active_output_key();
+        self.worlds
+            .get(target)
+            .storage()
+            .get(&compositor_y5_viewport_state_base::state::OUTPUT_VIEWS)
+            .views(&key)
+            .focus_camera()
+    }
+
+    /// FOCUS ACCESSOR: the CURRENT output's viewport tree (slots + cameras).
+    pub fn viewports(&self) -> &compositor_y5_viewport_state_base::state::Viewports {
+        let target = self.worlds.spawn_target();
+        let key = self.current_output_key();
+        self.worlds.get(target).storage().get(&compositor_y5_viewport_state_base::state::OUTPUT_VIEWS).views(&key)
+    }
+
+    pub fn viewports_mut(&mut self) -> &mut compositor_y5_viewport_state_base::state::Viewports {
+        let target = self.worlds.spawn_target();
+        let key = self.current_output_key();
+        self.worlds.get_mut(target).storage_mut().get_mut(&compositor_y5_viewport_state_base::state::OUTPUT_VIEWS_MUT).views_mut(&key)
+    }
+
+    /// The per-output view map. Used to select/create the current output's view tree
+    /// (the render loop ensures each drawn output has its own `Viewports`; the
+    /// pointer path points `current` at the cursor's output for the systems).
+    pub fn output_views_mut(&mut self) -> &mut compositor_y5_viewport_state_base::state::OutputViews {
+        let target = self.worlds.spawn_target();
+        self.worlds.get_mut(target).storage_mut().get_mut(&compositor_y5_viewport_state_base::state::OUTPUT_VIEWS_MUT)
+    }
+
+    /// Read-only per-output view map — every output's `Viewports` (cameras + visible
+    /// sets). Used to derive cross-output state (e.g. a window's best-resolution
+    /// fractional scale = highest zoom of any viewport across ALL outputs showing it).
+    pub fn output_views(&self) -> &compositor_y5_viewport_state_base::state::OutputViews {
+        let target = self.worlds.spawn_target();
+        self.worlds.get(target).storage().get(&compositor_y5_viewport_state_base::state::OUTPUT_VIEWS)
+    }
+
+    /// Cursor teleportation between monitors is currently suppressed: some system holds
+    /// the [`TELEPORT_SUPPRESS`] lock (refcount > 0) to pin the cursor to its output — a
+    /// canvas pan is the built-in client. Read by the relative-motion path; it knows
+    /// nothing about WHY (which operation raised the lock). Reads the spawn-target world's
+    /// storage, exactly like [`canvas`](Self::canvas).
+    pub fn teleport_suppressed(&self) -> bool {
+        let target = self.worlds.spawn_target();
+        *self
+            .worlds
+            .get(target)
+            .storage()
+            .get(&compositor_orchestration_driver_output_base::base::TELEPORT_SUPPRESS)
+            > 0
     }
 
     /// FOCUS ACCESSOR: the focused world's canvas slot (input grab, …).
@@ -453,32 +652,186 @@ impl Orchestrator {
 }
 
 pub trait CoordinateTrait {
-    fn size_context(&self) -> compositor_y5_camera_transform_translate::transform::Context;
+    /// Full-output projection context: anchored to the whole output's centre.
+    /// Use for screen-space content (screen iced surfaces, pointer, layer-shell,
+    /// lock/overview/picker) — anything that spans the physical screen, NOT an
+    /// individual viewport pane. Always full-output, even inside the per-region
+    /// render loop.
+    fn size_ctx_all(&self) -> compositor_y5_camera_transform_translate::transform::Context;
+
+    /// Projection context for a SPECIFIC viewport pane (`slot`): its camera
+    /// anchored to its on-screen region rect, independent of the render loop /
+    /// `render_target`. Use anywhere that must be truly per-viewport (e.g.
+    /// snapping to a pane's extent). Falls back to full-output if the slot is gone.
+    fn size_ctx_viewport(
+        &self,
+        slot: compositor_y5_viewport_state_base::state::SlotId,
+    ) -> compositor_y5_camera_transform_translate::transform::Context;
+
+    /// Per-viewport projection context. Inside the per-region render loop it
+    /// anchors to the pane being drawn (its rect + that slot's camera); outside
+    /// the loop it equals [`size_ctx_all`]. Use for world content drawn into a
+    /// viewport (windows, decorations, canvas cursor, selection) so it projects
+    /// into — and is clipped to — the active pane.
+    fn viewport_context(&self) -> compositor_y5_camera_transform_translate::transform::Context;
+
+    /// Resolve which viewport pane the physical cursor `phys` is over, record it
+    /// as the focused world's `pointer` slot (so `camera()` / camera systems / the
+    /// cursor now operate on THAT pane), and return that pane's region context for
+    /// mapping the physical cursor to world coordinates. Used by the pointer input
+    /// path so input always follows the pane under the cursor, never the
+    /// keyboard-`active` pane.
+    fn pointer_context(
+        &mut self,
+        phys: smithay::utils::Point<f64, smithay::utils::Physical>,
+    ) -> compositor_y5_camera_transform_translate::transform::Context;
+
+    /// Read-only region context for the CURRENT pointer pane (the `pointer` slot,
+    /// already set by the last motion). Use to project the world pointer location
+    /// back to physical for the cursor — outside the per-region render loop, where
+    /// `viewport_context` would otherwise fall back to full-output.
+    fn focus_pane_context(&self) -> compositor_y5_camera_transform_translate::transform::Context;
 }
 impl CoordinateTrait for Loop {
-    fn size_context(&self) -> compositor_y5_camera_transform_translate::transform::Context {
-        let output = self.inner.space_state().state.outputs().next().unwrap();
+    fn size_ctx_all(&self) -> compositor_y5_camera_transform_translate::transform::Context {
+        let output = self.inner.current_output();
         let mode = output.current_mode().unwrap_or_else(|| abort!("output has a current mode"));
         let scale = output.current_scale().fractional_scale();
         let camera = &self.inner.camera().transform;
-
         compositor_y5_camera_transform_translate::transform::Context::new(
             (camera.position.x, camera.position.y),
             camera.zoom,
             (mode.size.w as f64, mode.size.h as f64),
             scale,
         )
-
-        // let physical = self.inner.space_state().default_physical_precise();
-        //
-        // compositor_y5_camera_transform_translate::transform::Context::new(
-        //     (
-        //         self.inner.camera_mut().transform.position.x,
-        //         self.inner.camera_mut().transform.position.y,
-        //     ),
-        //     self.inner.camera_mut().transform.zoom,
-        //     (physical.size.w, physical.size.h),
-        //     self.inner.space_state().default_scale().fractional_scale(),
-        // )
     }
+
+    fn size_ctx_viewport(
+        &self,
+        slot: compositor_y5_viewport_state_base::state::SlotId,
+    ) -> compositor_y5_camera_transform_translate::transform::Context {
+        let (mode_w, mode_h, scale) = {
+            let output = self.inner.current_output();
+            let mode = output.current_mode().unwrap_or_else(|| abort!("output has a current mode"));
+            (mode.size.w, mode.size.h, output.current_scale().fractional_scale())
+        };
+        let bounds = smithay::utils::Rectangle::new(smithay::utils::Point::from((0, 0)), smithay::utils::Size::from((mode_w, mode_h)));
+        let viewports = self.inner.viewports();
+        // Slot missing → full output.
+        let Some(rect) = compositor_y5_viewport_layout_base::layout::compute(viewports, bounds)
+            .regions
+            .iter()
+            .find(|r| r.slot == slot)
+            .map(|r| r.rect)
+        else {
+            return self.size_ctx_all();
+        };
+        let camera = viewports.camera_of(slot).map(|c| &c.transform).unwrap_or(&viewports.focus_camera().transform);
+        compositor_y5_camera_transform_translate::transform::Context::new_region(
+            (camera.position.x, camera.position.y),
+            camera.zoom,
+            (rect.loc.x as f64 / scale, rect.loc.y as f64 / scale),
+            (rect.size.w as f64, rect.size.h as f64),
+            scale,
+        )
+    }
+
+    fn viewport_context(&self) -> compositor_y5_camera_transform_translate::transform::Context {
+        // No active pane → full output (identical to `size_ctx_all`).
+        let Some(rt) = self.inner.render_target else {
+            return self.size_ctx_all();
+        };
+        let output = self.inner.current_output();
+        let scale = output.current_scale().fractional_scale();
+        // `camera()` already resolves to the render-target pane's slot camera.
+        let camera = &self.inner.camera().transform;
+        compositor_y5_camera_transform_translate::transform::Context::new_region(
+            (camera.position.x, camera.position.y),
+            camera.zoom,
+            rt.origin_logical,
+            rt.size_physical,
+            scale,
+        )
+    }
+
+    fn pointer_context(
+        &mut self,
+        phys: smithay::utils::Point<f64, smithay::utils::Physical>,
+    ) -> compositor_y5_camera_transform_translate::transform::Context {
+        let (mode_w, mode_h, scale) = {
+            let output = self.inner.current_output();
+            let mode = output.current_mode().unwrap_or_else(|| abort!("output has a current mode"));
+            (mode.size.w, mode.size.h, output.current_scale().fractional_scale())
+        };
+        let bounds = smithay::utils::Rectangle::new(
+            smithay::utils::Point::from((0, 0)),
+            smithay::utils::Size::from((mode_w, mode_h)),
+        );
+        let computed = compositor_y5_viewport_layout_base::layout::compute(self.inner.viewports(), bounds);
+        let p = smithay::utils::Point::<i32, smithay::utils::Physical>::from((phys.x.round() as i32, phys.y.round() as i32));
+        // During a viewport drag (separator / floating move-resize), FREEZE the
+        // operative pane so the cursor mapping stays put and can't jump between
+        // viewports mid-drag. Otherwise: over a leaf → that pane; over a
+        // separator/gap → keep the current pane (so the round-trip still lands on
+        // the separator for hit-testing and the cursor doesn't jump).
+        let dragging = {
+            let views = self.inner.output_views();
+            views.separator_drag.is_some() || views.floating_drag.is_some()
+        };
+        let (slot, rect) = if dragging {
+            let current = self.inner.viewports().pointer;
+            let rect = computed.regions.iter().find(|reg| reg.slot == current).map(|reg| reg.rect).unwrap_or(bounds);
+            (current, rect)
+        } else {
+            match compositor_y5_viewport_layout_base::layout::slot_at(&computed, p) {
+                Some((s, r)) => (s, r),
+                None => {
+                    let current = self.inner.viewports().pointer;
+                    let rect = computed.regions.iter().find(|reg| reg.slot == current).map(|reg| reg.rect).unwrap_or(bounds);
+                    (current, rect)
+                }
+            }
+        };
+        self.inner.viewports_mut().pointer = slot;
+        // `camera()` now resolves to the pointer pane (just set).
+        let (cx, cy, cz) = {
+            let c = &self.inner.camera().transform;
+            (c.position.x, c.position.y, c.zoom)
+        };
+        compositor_y5_camera_transform_translate::transform::Context::new_region(
+            (cx, cy),
+            cz,
+            (rect.loc.x as f64 / scale, rect.loc.y as f64 / scale),
+            (rect.size.w as f64, rect.size.h as f64),
+            scale,
+        )
+    }
+
+    fn focus_pane_context(&self) -> compositor_y5_camera_transform_translate::transform::Context {
+        let (mode_w, mode_h, scale) = {
+            let output = self.inner.current_output();
+            let mode = output.current_mode().unwrap_or_else(|| abort!("output has a current mode"));
+            (mode.size.w, mode.size.h, output.current_scale().fractional_scale())
+        };
+        let bounds = smithay::utils::Rectangle::new(
+            smithay::utils::Point::from((0, 0)),
+            smithay::utils::Size::from((mode_w, mode_h)),
+        );
+        let pointer = self.inner.viewports().pointer;
+        let computed = compositor_y5_viewport_layout_base::layout::compute(self.inner.viewports(), bounds);
+        let rect = computed.regions.iter().find(|r| r.slot == pointer).map(|r| r.rect).unwrap_or(bounds);
+        // `camera()` resolves to the pointer pane (focus_camera) outside the render loop.
+        let (cx, cy, cz) = {
+            let c = &self.inner.camera().transform;
+            (c.position.x, c.position.y, c.zoom)
+        };
+        compositor_y5_camera_transform_translate::transform::Context::new_region(
+            (cx, cy),
+            cz,
+            (rect.loc.x as f64 / scale, rect.loc.y as f64 / scale),
+            (rect.size.w as f64, rect.size.h as f64),
+            scale,
+        )
+    }
+
 }

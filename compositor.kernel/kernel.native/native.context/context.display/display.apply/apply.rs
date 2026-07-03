@@ -62,7 +62,7 @@ fn panel_dpms(state: &mut Loop, ctx_rc: &Rc<RefCell<NativeRenderContext>>, on: b
     if on {
         // Power on first, then a forced modeset + surface/buffer reset to repaint
         // (same recovery the session-resume path performs).
-        if let Some(o) = ctx_ref.drm_output.as_ref() {
+        if let Some(o) = ctx_ref.pipe().drm_output.as_ref() {
             if let Err(e) = output::set_dpms(o, true) {
                 warn!("DPMS on failed: {e}");
             }
@@ -70,7 +70,7 @@ fn panel_dpms(state: &mut Loop, ctx_rc: &Rc<RefCell<NativeRenderContext>>, on: b
         if let Err(e) = output::activate(&mut ctx_ref.drm_output_manager.borrow_mut(), true) {
             warn!("DPMS-on modeset failed: {e}");
         }
-        if let Some(o) = ctx_ref.drm_output.as_mut() {
+        if let Some(o) = ctx_ref.pipe_mut().drm_output.as_mut() {
             if let Err(e) = output::reset(o) {
                 warn!("DPMS-on surface reset failed: {e}");
             }
@@ -82,7 +82,7 @@ fn panel_dpms(state: &mut Loop, ctx_rc: &Rc<RefCell<NativeRenderContext>>, on: b
     } else {
         // Gate the executor before blanking so no stray flip re-powers it.
         *state.inner.kernel.get_mut(&DISPLAY_OFF_MUT) = true;
-        if let Some(o) = ctx_ref.drm_output.as_ref() {
+        if let Some(o) = ctx_ref.pipe().drm_output.as_ref() {
             if let Err(e) = output::set_dpms(o, false) {
                 warn!("DPMS off failed: {e}");
             }

@@ -9,6 +9,7 @@ use compositor_developer_stats_registry_counter::{
     FENCE_FALLBACK, FENCE_KMS_INFENCE, FENCE_SYNCHRONOUS, FRAMES, VBLANKS,
 };
 use compositor_developer_stats_registry_meta::meta;
+pub use compositor_developer_stats_registry_gpu::gpu::DeviceFormat;
 
 #[derive(Debug, Clone)]
 pub struct Snapshot {
@@ -34,6 +35,9 @@ pub struct Snapshot {
     pub fence_fallback: u64,
     pub env_flags: Vec<(String, String)>,
     pub uptime_secs: f64,
+    /// Post-determined per-device dmabuf formats (bridge/scanout), for the
+    /// "GPU formats" panel.
+    pub device_formats: Vec<DeviceFormat>,
 }
 
 /// Read all stats and derive FPS / vblank-rate over the interval since the last
@@ -78,5 +82,6 @@ pub fn snapshot() -> Snapshot {
         fence_fallback: FENCE_FALLBACK.load(Relaxed),
         env_flags: m.env_flags.clone(),
         uptime_secs: now.duration_since(m.start).as_secs_f64(),
+        device_formats: compositor_developer_stats_registry_gpu::gpu::device_formats(),
     }
 }

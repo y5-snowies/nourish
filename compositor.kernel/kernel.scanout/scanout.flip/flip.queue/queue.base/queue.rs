@@ -32,6 +32,11 @@ pub enum QueueOutcome {
     Queued,
     /// Queue failed inside the tolerated resume window; the watchdog recovers.
     DeferredToWatchdog,
+    /// Queue failed outside the resume window. Multi-output policy: rather than
+    /// crash the whole compositor for one connector, the caller tears down THIS
+    /// pipe (it goes dark) and the others keep running. The failing pipe is
+    /// recovered on the next hotplug reconcile.
+    Failed,
 }
 
 pub fn queue(
@@ -49,6 +54,9 @@ pub fn queue(
             warn!("queue_frame lost DRM master (VT switch / session deactivating); deferring to resume: {err:?}");
             QueueOutcome::DeferredToWatchdog
         }
-        Err(err) => abort!("queue_frame failed outside the resume window: {err:?}"),
+        Err(err) => {
+            warn!("queue_frame failed outside the resume window; tearing down this pipe (others keep running): {err:?}");
+            QueueOutcome::Failed
+        }
     }
 }

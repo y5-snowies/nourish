@@ -1,0 +1,13 @@
+[package]
+name = "compositor_developer_stats_registry_gpu"
+version = "0.0.1"
+
+edition = "2024"
+
+# No deps: a plain process-global registry of post-determined GPU dmabuf formats,
+# mirroring registry.meta. Publishers pass pre-formatted strings so this crate
+# needs neither smithay nor logging.
+[dependencies]
+
+[lib]
+path = "lib.rs"

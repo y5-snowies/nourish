@@ -39,7 +39,7 @@ where
         ([0.2, 0.2, 0.2, 0.0], 3.0)
     };
 
-    // let ctx = state.size_context();
+    // let ctx = state.viewport_context();
     // let bbox = state
     //     .state
     //     .space
@@ -58,7 +58,7 @@ where
     //     (render_with.size.w, bw_screen),
     // );
 
-    let ctx = state.size_context();
+    let ctx = state.viewport_context();
 
     // Frame the compositor-decided **slot** (`bound.Screen`, already projected from the slot
     // rect in `bound::calculate`), NOT `element_geometry`. The slot is the region the window
@@ -117,8 +117,24 @@ where
     //     (bw_screen, bound.Screen.Height),
     // );
 
+    // When drawing a split/floating viewport pane, clip the borders to the pane's
+    // physical rect so they don't bleed past it (full-output render → no clip).
+    let pane = state.inner.render_target.map(|rt| {
+        Rectangle::new(
+            Point::from(((rt.origin_logical.0 * ctx.scale).round() as i32, (rt.origin_logical.1 * ctx.scale).round() as i32)),
+            Size::from((rt.size_physical.0.round() as i32, rt.size_physical.1.round() as i32)),
+        )
+    });
+
     // 3. Create and push elements
     for rect in [top_rect, left_rect, right_rect, bottom_rect] {
+        let rect = match pane {
+            Some(p) => match rect.intersection(p) {
+                Some(clipped) => clipped,
+                None => continue,
+            },
+            None => rect,
+        };
         elements.push(SolidColorRenderElement::new(
             Id::new(),
             rect,

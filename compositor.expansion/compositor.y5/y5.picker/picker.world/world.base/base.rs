@@ -65,19 +65,25 @@ pub fn start(state: &mut Loop) {
     };
     info!("picker.start: cell {cell} -> world {target}; switching");
 
-    // Grab the current output (on the old session space) before switching.
-    let output = state.inner.space_state().state.outputs().next().cloned();
+    // Grab every current output WITH its global-space position (on the old session
+    // space) before switching — multi-output: the target world's fresh Space must
+    // receive all of them at their real (tiled) positions, not just the first at 0.
+    let outputs: Vec<(smithay::output::Output, Point<i32, smithay::utils::Logical>)> =
+        state.inner.space_state().state.outputs().map(|o| {
+            let loc = state.inner.space_state().state.output_geometry(o).map(|g| g.loc).unwrap_or_default();
+            (o.clone(), loc)
+        }).collect();
 
     // Tear down the picker scene + clear active + switch, then make `target` the
-    // spawn-target so new windows map into it, mapping the output on first entry.
+    // spawn-target so new windows map into it, mapping the outputs on first entry.
     compositor_y5_picker_interface_base::base::enter(state, target);
     state.inner.worlds.set_spawn_target(target);
     info!("picker.start: spawn-target set to {target}");
-    if let Some(output) = output {
-        if state.inner.space_state().state.outputs().next().is_none() {
-            state.inner.space_state_mut().state.map_output(&output, Point::from((0, 0)));
-            info!("picker.start: mapped output into world {target}");
+    if state.inner.space_state().state.outputs().next().is_none() {
+        for (output, loc) in &outputs {
+            state.inner.space_state_mut().state.map_output(output, *loc);
         }
+        info!("picker.start: mapped {} output(s) into world {target}", outputs.len());
     }
     info!("picker.start: entered world {target} OK");
 }

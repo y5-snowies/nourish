@@ -106,9 +106,10 @@ pub fn lock_visual(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32
             surface_element.push(surface.id);
             surface_input = Some(surface);
         }
+        let output_id = OutputId::from_key(&state.inner.active_output_key());
         let capture = if let Some(registry_capture) = state.inner.kernel.get_mut(&compositor_orchestration_driver_capture_base::base::CAPTURE_REGISTRY_MUT).as_mut() {
             if let Some(cap) = registry_capture
-                .request(&state.inner.environment.GPU.as_str(), renderer, CaptureSource::OutputFramebuffer(OutputId(0)))
+                .request(&state.inner.environment.GPU.as_str(), renderer, CaptureSource::OutputFramebuffer(output_id))
                 .ok()
             {
                 LockActiveCapture::Capture(cap)
@@ -207,7 +208,7 @@ fn lock_done_logical(state: &mut Loop) {
     // set lock time on ParallaxBackground (the session world being locked ==
     // spawn_target; locking only moved `active` to LOCK_WORLD).
     let session = state.inner.worlds.spawn_target();
-    if let Some(ref mut instance) = state.inner.worlds.get_mut(session).storage_mut().get_mut(&compositor_background_two_system_base::base::BG_TWO_MUT).instance {
+    if let Some(ref mut instance) = state.inner.worlds.get_mut(session).storage_mut().get_mut(&compositor_background_two_storage_base::base::BG_TWO_MUT).instance {
         instance.lock_time = Some(Instant::now());
         instance.pan = (0.0, 0.0);
         instance.zoom = 1.0;
@@ -298,7 +299,7 @@ pub fn unlock(state: &mut Loop) {
     }
 
     let session = state.inner.worlds.spawn_target();
-    if let Some(bg) = &mut state.inner.worlds.get_mut(session).storage_mut().get_mut(&compositor_background_two_system_base::base::BG_TWO_MUT).instance {
+    if let Some(bg) = &mut state.inner.worlds.get_mut(session).storage_mut().get_mut(&compositor_background_two_storage_base::base::BG_TWO_MUT).instance {
         bg.lock_time = None;
     }
 

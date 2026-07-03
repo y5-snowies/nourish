@@ -31,9 +31,15 @@ fn preferred_mode(edid_key: &str) -> Option<ModeInfo> {
         })
 }
 
-/// One `DisplayInfo` per CONNECTED connector. `active`/`active_mode` identify the
-/// connector currently driving the compositor (marked active, current mode set).
-pub fn enumerate(drm: &DrmDevice, active: connector::Handle, active_mode: ModeInfo) -> OutputsSnapshot {
+/// One `DisplayInfo` per CONNECTED connector. `active` marks the connector treated
+/// as primary; `lit` gives the current mode of EVERY driven pipe (by connector), so
+/// each connected monitor reports its own `current` (multi-output) — not just the
+/// primary. A connector absent from `lit` (connected but not driven) has no current.
+pub fn enumerate(
+    drm: &DrmDevice,
+    active: connector::Handle,
+    lit: &[(connector::Handle, ModeInfo)],
+) -> OutputsSnapshot {
     let res = compositor_kernel_drm_connector_scan_base::scan::resources(drm);
     let infos = compositor_kernel_drm_connector_scan_base::scan::connectors(drm, &res);
     let mut displays = Vec::new();
@@ -48,7 +54,7 @@ pub fn enumerate(drm: &DrmDevice, active: connector::Handle, active_mode: ModeIn
         let conn_name = format!("{:?}-{}", info.interface(), info.interface_id());
         let raw = parse::read(drm, info);
         let parsed = raw.as_ref().and_then(parse::parse);
-        let id = identity::identity(parsed.as_ref());
+        let id = identity::identity(parsed.as_ref(), &conn_name);
         let edid_key = id.key();
         let label = if parsed.is_some() {
             format!("{} {} ({conn_name})", id.make, id.model)
@@ -57,15 +63,18 @@ pub fn enumerate(drm: &DrmDevice, active: connector::Handle, active_mode: ModeIn
         };
         let is_active = info.handle() == active;
         let available: Vec<ModeInfo> = info.modes().iter().map(to_info).collect();
-        // Inactive connectors aren't driven, so they have no "current" mode; the
-        // UI defaults a selection from `available`.
-        let current = if is_active { Some(active_mode) } else { None };
+        // Each DRIVEN connector reports its own live mode; a connected-but-undriven
+        // one has no "current" and the UI defaults a selection from `available`.
+        let current = lit.iter().find(|(h, _)| *h == info.handle()).map(|(_, m)| *m);
         let preferred = preferred_mode(&edid_key);
+        // User enable/disable (the settings "Inactive" toggle); profile-less → enabled.
+        let enabled = compositor_kernel_graphic_preference_output_profile::profile::active(&edid_key);
         displays.push(DisplayInfo {
             edid_key,
             name: label,
             connected: true,
             active: is_active,
+            enabled,
             current,
             preferred,
             available,

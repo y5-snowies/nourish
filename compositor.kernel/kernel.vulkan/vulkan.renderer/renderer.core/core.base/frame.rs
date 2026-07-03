@@ -80,9 +80,12 @@ impl Drop for VulkanFramebuffer<'_> {
 /// specifics; the renderer just runs it.
 pub(crate) struct ShaderVariant {
     pub id: u64,
-    pub spv: &'static [u8],
-    pub vert_entry: &'static str,
-    pub frag_entry: &'static str,
+    pub spv: Vec<u8>,
+    /// Separate vertex-stage module (set when the fragment was compiled alone,
+    /// e.g. a `glsl/` bundle paired with a fullscreen vertex).
+    pub vert_spv: Option<Vec<u8>>,
+    pub vert_entry: String,
+    pub frag_entry: String,
     pub push: Vec<u8>,
 }
 

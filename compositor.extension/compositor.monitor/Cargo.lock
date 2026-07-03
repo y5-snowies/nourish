@@ -418,6 +418,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_developer_environment_config_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "compositor_developer_environment_experimental_base"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.11.1",
+ "compositor_developer_environment_config_base",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "compositor_developer_stats_registry_gpu"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_negotiate_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_environment_experimental_base",
+ "compositor_kernel_graphic_bridge_negotiate_classify",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_negotiate_classify"
+version = "0.0.1"
+dependencies = [
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_negotiate_wgpu"
+version = "0.0.1"
+dependencies = [
+ "ash",
+ "libc",
+ "pollster",
+ "smithay",
+ "wgpu",
+]
+
+[[package]]
 name = "compositor_monitor_compositor_iced_base"
 version = "0.1.0"
 dependencies = [
@@ -455,6 +504,12 @@ name = "compositor_monitor_runtime_surface_base"
 version = "0.1.0"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_base",
+ "compositor_developer_environment_experimental_base",
+ "compositor_developer_stats_registry_gpu",
+ "compositor_kernel_graphic_bridge_negotiate_base",
+ "compositor_kernel_graphic_bridge_negotiate_classify",
+ "compositor_kernel_graphic_bridge_negotiate_wgpu",
  "compositor_y5_graphic_card_constant",
  "gbm",
  "pollster",

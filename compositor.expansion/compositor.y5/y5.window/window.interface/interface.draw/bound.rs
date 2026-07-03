@@ -39,7 +39,7 @@ where
     R: smithay::backend::renderer::Renderer + ImportAll + ImportMem,
     R::TextureId: Texture + Clone + Send + 'static,
 {
-    let ctx = state.size_context();
+    let ctx = state.viewport_context();
 
     // Recognized bounds = the compositor-decided **slot** (the size the window is enforced at,
     // and the rect content is letterboxed into), so decoration borders frame the slot rather
@@ -151,7 +151,7 @@ where
 //     // let world_offset_x = loc.x as f64;
 //     // let world_offset_y = loc.y as f64;
 
-//     let world: Transform = (window_bbox, state.size_context()).into();
+//     let world: Transform = (window_bbox, state.viewport_context()).into();
 //     // let world_transform = world_to_screen(&state.camera, Size::new(size.w as f64, size.h as f64), Point::new(
 //     //     world_offset_x,
 //     //     world_offset_y,

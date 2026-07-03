@@ -744,6 +744,25 @@ impl IcedRegistry {
         }
     }
 
+    /// Bind a surface to a physical output (or unbind with `None`). A bound
+    /// screen surface is drawn — and hit-tested — only on that output, so an
+    /// overlay can be replicated once per monitor (e.g. the capture stop button)
+    /// without the others picking it up. See [`IcedItem::output`].
+    pub fn set_output_affinity_by_id(&mut self, id: HandleId, output: Option<String>) -> bool {
+        match self.get_mut(id) {
+            Some(item) => {
+                item.set_output(output);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The output a surface is bound to, if any.
+    pub fn output_affinity(&self, id: HandleId) -> Option<String> {
+        self.get(id).and_then(|i| i.output().map(str::to_owned))
+    }
+
     pub fn is_passthrough(&self, id: HandleId) -> bool {
         self.get(id).map(|i| i.is_passthrough()).unwrap_or(false)
     }

@@ -154,14 +154,11 @@ fn is_dark(_loop: &Loop) -> bool {
 /// the user's Keep/Revert (the settings window shows the countdown dialog). True
 /// only inside that confirm window — cleared once the transaction confirms/reverts.
 fn output_provisioning(_loop: &Loop) -> bool {
-    use compositor_orchestration_driver_output_base::base::{
-        ApplyResult, OUTPUT_MODE_RESULT, OUTPUT_SWITCH_RESULT,
-    };
+    use compositor_orchestration_driver_output_base::base::{ApplyResult, OUTPUT_MODE_RESULT};
+    // Multi-output branch: only the per-pipe mode change has a provisional confirm gate;
+    // the single-output active-switch transaction (OUTPUT_SWITCH_RESULT) was removed.
     matches!(
         _loop.inner.kernel.get(&OUTPUT_MODE_RESULT),
-        Some(ApplyResult::Provisional)
-    ) || matches!(
-        _loop.inner.kernel.get(&OUTPUT_SWITCH_RESULT),
         Some(ApplyResult::Provisional)
     )
 }

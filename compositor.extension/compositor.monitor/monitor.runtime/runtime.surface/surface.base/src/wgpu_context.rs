@@ -23,6 +23,9 @@ pub struct WgpuVulkanContext {
     pub adapter: Adapter,
     pub device: Device,
     pub queue: Queue,
+    /// The `(fourcc × modifier)` set this device can import (bridge intersection
+    /// input). Multi-plane modifiers survive only under `gpu_allow_dcc`.
+    pub importable: smithay::backend::allocator::format::FormatSet,
 }
 
 impl WgpuVulkanContext {
@@ -98,13 +101,25 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
     });
     info!("Created wgpu::Instance (Vulkan backend)");
 
-    let adapter = pollster::block_on(instance.request_adapter(&RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        force_fallback_adapter: false,
-        compatible_surface: None,
-        apply_limit_buckets: false,
-    }))
-    .map_err(|_| WgpuContextError::NoAdapter)?;
+    use compositor_developer_environment_experimental_base::base as experimental;
+    // Pin the wgpu adapter to the render node by default; opt out via gpu_no_pin_wgpu_node.
+    let pinned = (!experimental::get().contains(experimental::GpuFlags::NO_PIN_WGPU_NODE)).then(|| {
+        let node = compositor_developer_environment_config_base::base::get().render_node.clone();
+        compositor_kernel_graphic_bridge_negotiate_wgpu::query::pick_adapter(&instance, &node)
+    });
+    let adapter = match pinned.flatten() {
+        Some(a) => {
+            info!("pinned wgpu adapter to render node");
+            a
+        }
+        None => pollster::block_on(instance.request_adapter(&RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: false,
+            compatible_surface: None,
+            apply_limit_buckets: false,
+        }))
+        .map_err(|_| WgpuContextError::NoAdapter)?,
+    };
 
     let info = adapter.get_info();
     info!(
@@ -141,10 +156,20 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
 
     info!("Created Vulkan Device + Queue with dmabuf import features");
 
+    // Enumerate importable dmabuf modifiers via raw ash (wgpu has no such query).
+    let importable = compositor_kernel_graphic_bridge_negotiate_wgpu::query::query_importable(
+        &instance,
+        &adapter,
+        experimental::get().contains(experimental::GpuFlags::ALLOW_DCC),
+        experimental::get().contains(experimental::GpuFlags::PROBE_MODIFIERS),
+    );
+    info!("iced wgpu importable dmabuf formats: {}", importable.iter().count());
+
     Ok(WgpuVulkanContext {
         instance,
         adapter,
         device,
         queue,
+        importable,
     })
 }

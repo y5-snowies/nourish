@@ -1,6 +1,6 @@
 use compositor_support_library_ease_velocity_base::velocity::velocity::{Solver, solve};
 use compositor_support_system_trait_system_base::base::SystemCx;
-use compositor_y5_camera_state_base::state::CAMERA;
+use compositor_y5_viewport_state_base::state::OUTPUT_VIEWS;
 use compositor_y5_navigator_state_base::state::{NavigatorOutput, State};
 use compositor_y5_navigator_tick_warp::warp::warp_intent;
 use compositor_y5_navigator_travel_state::state::Travel;
@@ -25,7 +25,7 @@ pub fn travel_tick(
         return (State::Idle, None, None);
     }
 
-    let camera = cx.storage.get(&CAMERA);
+    let camera = cx.storage.get(&OUTPUT_VIEWS).current_views().focus_camera();
     let transform_previous = camera.transform.clone();
 
     let time_start = *machine.time_start.get_or_insert_with(Instant::now);

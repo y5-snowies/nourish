@@ -48,16 +48,16 @@ pub fn register(
             // with — avoids warping the cursor / refocusing against a dead space).
             let dark = *state.inner.kernel.get(
                 &compositor_orchestration_driver_lid_base::base::DISPLAY_OFF,
-            ) || ctx_rc.borrow().drm_output.is_none();
+            ) || ctx_rc.borrow().pipe().drm_output.is_none();
             if !dark || matches!(event, InputEvent::Keyboard { .. }) {
                 compositor_orchestration_draw_state_lifecycle::lifecycle::input(state, &event);
             }
-            // Display request queues (lid apply, settings mode/switch) and the
-            // lock engage are NO LONGER drained here — draining them on the
-            // libinput source made them depend on input arriving. They now run
-            // input-independently: the display queues via the control-plane ping
-            // (`wire.entry`, pinged by `ping_control()`), and the lock engage via
-            // the loader's post-dispatch tick (`loader.main` run closure).
+            // Display request queues (lid apply, settings mode change, activate/
+            // deactivate reconcile) and the lock engage are NOT drained here —
+            // draining them on the libinput source made them depend on input
+            // arriving. They run input-independently via the control-plane ping
+            // (`wire.entry`, woken by `ping_control()`, which drains apply / mode /
+            // reconcile / lock-engage on its own loop iteration).
             state.schedule_redraw();
         })
         .unwrap();

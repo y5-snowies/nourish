@@ -13,6 +13,16 @@ export interface EnvFlag {
   readonly value: string;
 }
 
+/** Post-determined dmabuf format for one device (mirrors proto `DeviceFormat`). */
+export interface DeviceFormat {
+  readonly kind: string;
+  readonly fourcc: string;
+  readonly modifier: string;
+  readonly class: string;
+  readonly plane_count: number;
+  readonly multiplane: boolean;
+}
+
 /** Compositor diagnostics snapshot (mirrors logs.proto `CompositorStats`). */
 export interface CompositorStats {
   readonly renderer: string;
@@ -37,6 +47,7 @@ export interface CompositorStats {
   readonly hdr_max_luminance: number;
   readonly hdr_bt2020: boolean;
   readonly color_format: string;
+  readonly device_formats: readonly DeviceFormat[];
 }
 
 /** Live HDR encode tuning (mirrors proto `HdrParams` / the WGSL `Tuning`). */

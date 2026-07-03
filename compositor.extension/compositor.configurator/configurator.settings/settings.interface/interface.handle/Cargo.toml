@@ -17,6 +17,11 @@ compositor_y5_audio_controller_interface = { workspace = true }
 compositor_configurator_network_backend_base = { workspace = true }
 compositor_configurator_bluetooth_backend_base = { workspace = true }
 compositor_configurator_settings_surface_message = { workspace = true }
+compositor_background_two_storage_base = { workspace = true }
+compositor_background_two_shader_load = { workspace = true }
+compositor_background_two_shader_builtin = { workspace = true }
+compositor_developer_stats_registry_base = { workspace = true }
+compositor_support_system_persist_mark_base = { workspace = true }
 
 [lib]
 path = "lib.rs"

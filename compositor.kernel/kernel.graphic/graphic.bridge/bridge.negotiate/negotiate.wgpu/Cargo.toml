@@ -1,0 +1,14 @@
+[package]
+name = "compositor_kernel_graphic_bridge_negotiate_wgpu"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+smithay = { workspace = true }
+wgpu = { workspace = true }
+ash = { workspace = true }
+libc = { workspace = true }
+pollster = { workspace = true }
+
+[lib]
+path = "lib.rs"

@@ -92,16 +92,6 @@ project links against. On Fedora you can install them with
 `environment/install-deps.sh`. On another distribution, feed that script to your
 AI agent and ask which equivalent packages it needs.
 
-
-## Short term roadmap (~V1.5)
-
-1. AMD support for the Vulkan renderer.
-2. Multimonitor features — a few ideas and options are available, some of which
-   imply additional new features. Feel free to send a cool idea over Discord.
-3. Multiple binaries (i.e. common distribution and architecture configurations)
-   created as part of the CD pipeline and added as release artifacts on GitHub,
-   with one universal one-click installer.
-
 ## Contributing
  
 Contributions are welcome! If you hit a bug or have an idea, please

@@ -11,3 +11,9 @@ gbm = { workspace = true }
 pollster = { workspace = true }
 thiserror = { workspace = true }
 compositor_y5_graphic_card_constant.workspace = true
+compositor_developer_environment_experimental_base = { workspace = true }
+compositor_developer_environment_config_base = { workspace = true }
+compositor_developer_stats_registry_gpu = { workspace = true }
+compositor_kernel_graphic_bridge_negotiate_wgpu = { workspace = true }
+compositor_kernel_graphic_bridge_negotiate_base = { workspace = true }
+compositor_kernel_graphic_bridge_negotiate_classify = { workspace = true }

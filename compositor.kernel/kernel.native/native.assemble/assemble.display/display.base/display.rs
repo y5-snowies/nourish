@@ -137,7 +137,10 @@ pub fn assemble() -> DisplayAssembly {
     let parsed = raw
         .as_ref()
         .and_then(compositor_kernel_drm_edid_parse_base::parse::parse);
-    let identity = compositor_kernel_drm_edid_identity_base::identity::identity(parsed.as_ref());
+    let identity = compositor_kernel_drm_edid_identity_base::identity::identity(
+        parsed.as_ref(),
+        &format!("{:?}-{}", connector.interface(), connector.interface_id()),
+    );
     let hdr = raw
         .as_ref()
         .map(compositor_kernel_drm_edid_parse_base::parse::parse_hdr)
@@ -205,7 +208,7 @@ fn resolve_mode(
         // advertised request inside mode.select falls back to default policy too.
         None => {
             let dm = compositor_kernel_graphic_preference_output_profile::profile::default_mode()
-                .map(|mode| OutputProfile { identity: None, mode: Some(mode) });
+                .map(|mode| OutputProfile { identity: None, mode: Some(mode), active: true });
             compositor_kernel_drm_mode_select_base::select::select(connector, dm.as_ref())
                 .expect("connector advertises no modes")
         }

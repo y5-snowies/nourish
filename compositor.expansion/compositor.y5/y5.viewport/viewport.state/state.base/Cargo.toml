@@ -1,0 +1,13 @@
+[package]
+name = "compositor_y5_viewport_state_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+smithay = { workspace = true }
+compositor_support_system_storage_token_base = { workspace = true }
+compositor_y5_camera_state_base = { workspace = true }
+uuid = { workspace = true }
+
+[lib]
+path = "lib.rs"

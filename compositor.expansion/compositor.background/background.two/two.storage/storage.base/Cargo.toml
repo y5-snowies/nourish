@@ -1,0 +1,14 @@
+[package]
+name = "compositor_background_two_storage_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_background_two_state_base = { workspace = true }
+compositor_support_system_storage_token_base = { workspace = true }
+compositor_support_system_persist_trait_base = { workspace = true }
+compositor_support_system_persist_entry_base = { workspace = true }
+serde = { workspace = true }
+
+[lib]
+path = "lib.rs"

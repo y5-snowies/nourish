@@ -8,12 +8,13 @@
 // by the SDR variant (NOT a `fract(sin(...))` sine hash), so the cloud/nebula
 // noise has no rectangular artifacts under Vulkan.
 
-// Matches draw.vulkan's HdrPush (4×vec4 = 64 bytes).
+// Matches draw.vulkan's HdrPush (8×vec4 = 128 bytes).
 struct Push {
-    res_zoom_time: vec4<f32>, // xy = resolution, z = zoom, w = time
-    pan_flow: vec4<f32>,      // xy = pan, zw = flow_offset
-    lock_alpha: vec4<f32>,    // x = lock_amount, y = alpha
-    hdr: vec4<f32>,           // x = sdr_white_nits, y = max_nits, z/w reserved
+    res_zoom_time: vec4<f32>,    // xy = resolution, z = zoom, w = time
+    pan_flow: vec4<f32>,         // xy = pan, zw = flow_offset
+    lock_alpha: vec4<f32>,       // x = lock_amount, y = alpha
+    params: array<vec4<f32>, 4>, // shader-authored @prop values (16 floats)
+    hdr: vec4<f32>,              // x = sdr_white_nits, y = max_nits, z/w reserved
 };
 var<immediate> pc: Push;
 

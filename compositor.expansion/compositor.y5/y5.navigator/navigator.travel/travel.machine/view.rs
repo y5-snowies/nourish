@@ -16,8 +16,10 @@ pub struct Results {
 // WIth fit- it is an exact fit, it wont go to center
 
 pub fn view(state: &mut Loop, elements: Vec<&Window>, fit_absolute: bool) -> Results{
-    let output = state.inner.space_state().state.outputs().next()
-        .unwrap_or_else(|| abort!("at least one output"));
+    // The ACTIVE output (the one the camera being moved belongs to), not the
+    // primary/first — otherwise on multi-monitor the fit is computed against the
+    // wrong screen size. Matches the output `camera()`/`size_ctx_all()` resolve.
+    let output = state.inner.current_output();
     let output_geom_i32 = state.inner.space_state().state
         .output_geometry(output)
         .unwrap_or_else(|| abort!("output has geometry"));

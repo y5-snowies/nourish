@@ -31,13 +31,14 @@ pub fn arm(state: &mut Loop, gles: &mut GlesRenderer, _size: Size<i32, Physical>
     match &state.inner.overview().phase {
         Phase::Closed => {
             let gpu = state.inner.environment.GPU.clone();
+            let output_id = OutputId::from_key(&state.inner.active_output_key());
             let entry = state
                 .inner
                 .kernel
                 .get_mut(&compositor_orchestration_driver_capture_base::base::CAPTURE_REGISTRY_MUT)
                 .as_mut()
                 .and_then(|reg| {
-                    reg.request(&gpu, gles, CaptureSource::OutputFramebuffer(OutputId(0))).ok()
+                    reg.request(&gpu, gles, CaptureSource::OutputFramebuffer(output_id)).ok()
                 });
             state.inner.overview_mut().phase = match entry {
                 Some(entry) => Phase::Arming { entry, countdown: 2 },

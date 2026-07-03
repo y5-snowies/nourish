@@ -28,6 +28,8 @@ smithay = { workspace = true }
 compositor_orchestration_draw_scene_element.workspace = true
 compositor_orchestration_core_state_base.workspace = true
 compositor_orchestration_seat_pointer_draw.workspace = true
+compositor_y5_viewport_layout_base.workspace = true
+compositor_y5_viewport_state_base.workspace = true
 compositor_y5_canvas_draw_scene.workspace = true
 compositor_y5_overview_draw_frame.workspace = true
 compositor_remote_client_handle_base.workspace = true

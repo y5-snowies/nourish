@@ -1,0 +1,18 @@
+[package]
+name = "compositor_background_two_draw_select"
+version = "0.0.1"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+compositor_background_two_draw_program = { workspace = true }
+compositor_background_two_draw_vulkan = { workspace = true }
+compositor_background_two_shader_load = { workspace = true }
+compositor_background_two_shader_spirv = { workspace = true }
+compositor_background_two_shader_property = { workspace = true }
+compositor_background_two_shader_builtin = { workspace = true }
+compositor_developer_stats_registry_base = { workspace = true }
+compositor_orchestration_draw_dispatch_frame = { workspace = true }
+smithay = { workspace = true }

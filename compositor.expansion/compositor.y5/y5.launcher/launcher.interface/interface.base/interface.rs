@@ -14,12 +14,9 @@ pub fn start(_loop: &mut Loop, renderer: &mut GlesRenderer) {
         return;
     }
 
-    let output = _loop
-        .inner.space_state()
-        .state
-        .outputs()
-        .next()
-        .unwrap_or_else(|| abort!("at least one output"));
+    // The ACTIVE monitor (cursor's output) — the launcher opens on the monitor the
+    // user is on, sized for it, not the primary.
+    let output = _loop.inner.active_output();
     // let output_geom_i32 = _loop
     //     .state
     //     .space

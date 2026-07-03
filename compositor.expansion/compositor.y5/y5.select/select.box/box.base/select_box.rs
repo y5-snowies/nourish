@@ -53,7 +53,7 @@ where
 
     {
         let size = size.to_f64();
-        let ctx = state.size_context();
+        let ctx = state.viewport_context();
 
         let start_xform: Transform = (start_cursor, ctx).into();
         let start_cursor: Point<f64, Physical> = start_xform.into();
@@ -90,13 +90,26 @@ where
         let box_geometry =
             Rectangle::from_loc_and_size((x as i32, y as i32), (width as i32, height as i32));
 
-        elements.push(SolidColorRenderElement::new(
-            Id::new(),
-            box_geometry,
-            CommitCounter::default(),
-            fill_color,
-            Kind::Unspecified,
-        ));
+        // Clip the selection box to the viewport pane being drawn (no leak past it);
+        // full-output render (no render target) → unchanged.
+        let pane = state.inner.render_target.map(|rt| {
+            Rectangle::<i32, Physical>::from_loc_and_size(
+                ((rt.origin_logical.0 * ctx.scale).round() as i32, (rt.origin_logical.1 * ctx.scale).round() as i32),
+                (rt.size_physical.0.round() as i32, rt.size_physical.1.round() as i32),
+            )
+        });
+        let mut push_solid = |rect: Rectangle<i32, Physical>, color: [f32; 4]| {
+            let rect = match pane {
+                Some(p) => match rect.intersection(p) {
+                    Some(clipped) => clipped,
+                    None => return,
+                },
+                None => rect,
+            };
+            elements.push(SolidColorRenderElement::new(Id::new(), rect, CommitCounter::default(), color, Kind::Unspecified));
+        };
+
+        push_solid(box_geometry, fill_color);
 
         // 2. Draw the borders (Top, Bottom, Left, Right)
         let top_border =
@@ -112,19 +125,8 @@ where
             (border_thickness, box_geometry.size.h),
         );
 
-        for border in [
-            top_border,
-            bottom_border,
-            left_border,
-            right_border, /* , etc */
-        ] {
-            elements.push(SolidColorRenderElement::new(
-                Id::new(),
-                border,
-                CommitCounter::default(),
-                border_color,
-                Kind::Unspecified,
-            ));
+        for border in [top_border, bottom_border, left_border, right_border] {
+            push_solid(border, border_color);
         }
     }
 

@@ -9,6 +9,7 @@ use compositor_support_action_camera_fit_aspect::aspect;
 use compositor_y5_camera_zone_state::state::{Zone, ZoneSpecifier};
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_core_state_base::state::Status;
+use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_y5_navigator_interface_base::interface::move_direction;
 use compositor_y5_navigator_travel_state::state::{Target, Travel};
 use compositor_support_library_input_keyboard_base::keyboard::combo::KeyCombo;

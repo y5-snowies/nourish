@@ -57,7 +57,7 @@ pub fn capture_backdrop(state: &Loop, job: &WindowRenderJob) -> Option<ParallaxB
         return None;
     }
     let target = state.inner.worlds.spawn_target();
-    let mut bg = state.inner.worlds.get(target).storage().get(&compositor_background_two_system_base::base::BG_TWO).instance.clone()?;
+    let mut bg = state.inner.worlds.get(target).storage().get(&compositor_background_two_storage_base::base::BG_TWO).instance.clone()?;
     bg.pan = (job.origin.x as f32, job.origin.y as f32);
     bg.zoom = job.backdrop_zoom;
     bg.output_size = (job.size.w as f32, job.size.h as f32);
@@ -109,7 +109,7 @@ pub fn window_render_job(state: &Loop) -> Option<WindowRenderJob> {
         return None;
     };
     let entry_id = a.capture.entry_id();
-    let scale = state.size_context().scale;
+    let scale = state.size_ctx_all().scale;
 
     let size = a.capture.size()?;
     if size.w < 1 || size.h < 1 {

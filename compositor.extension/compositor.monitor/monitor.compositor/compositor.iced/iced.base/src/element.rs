@@ -45,6 +45,10 @@ pub struct IcedRenderElement {
     pub world_zoom: f64,
     pub id: Id,
     pub commit_counter: CommitCounter,
+    /// Owning physical output tag, if the source surface is bound to one (see
+    /// `IcedItem::output`). The scene builder draws a bound element only on its
+    /// output; `None` follows the default single-output placement.
+    pub output: Option<String>,
 }
 
 impl std::fmt::Debug for IcedRenderElement {

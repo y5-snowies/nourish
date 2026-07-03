@@ -11,9 +11,11 @@ use smithay::utils::{Size, Transform};
 pub fn create(info: &connector::Info, identity: &MonitorIdentity) -> Output {
     let (size_x, size_y) = info.size().unwrap_or((0, 0));
     Output::new(
-        // The original used "Native" as the output name; identity-aware naming
-        // is preference-side concern. Keep behavior.
-        "Native".to_string(),
+        // Output NAME kept as the connector name so it is unique per output (used
+        // as a friendly label / debug id). The IDENTITY that keys everything
+        // (render, settings, prefs, teleport) lives in `PhysicalProperties` below
+        // and already falls back to the connector when the EDID has no serial.
+        format!("{:?}-{}", info.interface(), info.interface_id()),
         PhysicalProperties {
             size: Size::new(size_x as i32, size_y as i32),
             subpixel: Subpixel::Unknown,

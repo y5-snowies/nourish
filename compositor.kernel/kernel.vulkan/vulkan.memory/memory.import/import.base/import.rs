@@ -63,9 +63,12 @@ pub fn import(
     if fds.is_empty() {
         return Err(ImportError::Vk("dmabuf has no planes".into()));
     }
-    // Disjoint = more than one plane referencing distinct fd regions.
-    let first_fd = fds[0].as_raw_fd();
-    let disjoint = fds.len() > 1 && fds.iter().any(|fd| fd.as_raw_fd() != first_fd);
+    // Disjoint = planes living in genuinely DISTINCT memory objects (e.g. Intel
+    // CCS with the aux plane on a separate BO). Keyed by (st_dev, st_ino), NOT the
+    // raw fd number: gbm dups the fd per plane, so an AMD DCC single-BO buffer
+    // (metadata plane at an offset in the SAME memory) has different raw fds but
+    // one memory object — it MUST take the non-disjoint bind_single path.
+    let disjoint = is_disjoint(&fds);
     if disjoint && !MULTIPLANE_SUPPORT {
         return Err(ImportError::Disjoint);
     }
@@ -313,6 +316,27 @@ fn pick_memory_type(
         ));
     }
     Ok(compatible.trailing_zeros())
+}
+
+/// Memory identity of a plane fd: `(st_dev, st_ino)`. dup'd fds of one BO share it,
+/// so single-BO multi-plane (AMD DCC) resolves to a single object. On fstat failure
+/// fall back to a per-fd pseudo-id so distinct fds are treated as distinct.
+fn mem_id(fd: &BorrowedFd<'_>) -> (u64, u64) {
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstat(fd.as_raw_fd(), &mut st) } == 0 {
+        (st.st_dev as u64, st.st_ino as u64)
+    } else {
+        (u64::MAX, fd.as_raw_fd() as u64)
+    }
+}
+
+/// True iff the plane fds span more than one underlying memory object.
+fn is_disjoint(fds: &[BorrowedFd<'_>]) -> bool {
+    if fds.len() < 2 {
+        return false;
+    }
+    let first = mem_id(&fds[0]);
+    fds.iter().any(|fd| mem_id(fd) != first)
 }
 
 fn plane_aspect(i: usize) -> Option<vk::ImageAspectFlags> {

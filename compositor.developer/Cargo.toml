@@ -11,6 +11,7 @@ members = [
 tower = { version = "0.5", features = ["util"] }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
+bitflags = "2.2.1"
 hyper-util = "0.1"
 # crates.io — versions kept in lockstep with compositor.rpc so the whole compositor
 # build resolves a single tonic/prost/tokio.
@@ -42,6 +43,8 @@ compositor_developer_log_process_instance_serve = { path = "developer.log/log.pr
 compositor_developer_log_process_instance_shared = { path = "developer.log/log.process/process.instance.shared" }
 compositor_developer_stats_registry_base = { path = "developer.stats/stats.registry/registry.base" }
 compositor_developer_stats_registry_counter = { path = "developer.stats/stats.registry/registry.counter" }
+compositor_developer_stats_registry_gpu = { path = "developer.stats/stats.registry/registry.gpu" }
 compositor_developer_stats_registry_hdr = { path = "developer.stats/stats.registry/registry.hdr" }
 compositor_developer_stats_registry_meta = { path = "developer.stats/stats.registry/registry.meta" }
+compositor_developer_stats_registry_shader = { path = "developer.stats/stats.registry/registry.shader" }
 compositor_developer_stats_registry_snapshot = { path = "developer.stats/stats.registry/registry.snapshot" }

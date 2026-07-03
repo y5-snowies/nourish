@@ -12,7 +12,7 @@ pub fn absolute<I: InputBackend>(
     event: &<I as InputBackend>::PointerMotionAbsoluteEvent,
     _loop: &mut Loop,
 ) {
-    let ctx = _loop.size_context();
+    let ctx = _loop.size_ctx_all();
     let physical_size_as_logical = smithay::utils::Size::<i32, Logical>::from((
         ctx.screen_size_physical.0.round() as i32,
         ctx.screen_size_physical.1.round() as i32,
@@ -42,7 +42,7 @@ pub fn relative<I: InputBackend>(
     event: &<I as InputBackend>::PointerMotionEvent,
     _loop: &mut Loop,
 ) {
-    let ctx = _loop.size_context();
+    let ctx = _loop.size_ctx_all();
     let dt = event.delta();
     let previous_phys = _loop.inner.pointer_mut().motion.clone();
 
@@ -101,7 +101,7 @@ pub fn dispatch(
     let iced_screen_point = match under.as_ref().and_then(|h| h.screen_point()) {
         Some(p) => p,
         None => {
-            let ctx = _loop.size_context();
+            let ctx = _loop.size_ctx_all();
             let t: Transform = (position_normalized, ctx).into();
             let p: Point<f64, Physical> = t.into();
             p

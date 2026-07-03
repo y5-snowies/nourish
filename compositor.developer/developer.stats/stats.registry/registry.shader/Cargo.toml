@@ -1,0 +1,9 @@
+[package]
+name = "compositor_developer_stats_registry_shader"
+version = "0.0.1"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]

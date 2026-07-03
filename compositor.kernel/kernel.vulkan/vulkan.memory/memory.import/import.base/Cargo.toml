@@ -9,6 +9,7 @@ bitflags.workspace = true
 smithay.workspace = true
 ash.workspace = true
 thiserror.workspace = true
+libc.workspace = true
 
 # Compositor dependencies (CI ensures availability in workspace)
 compositor_kernel_vulkan_device_factory_base.workspace = true

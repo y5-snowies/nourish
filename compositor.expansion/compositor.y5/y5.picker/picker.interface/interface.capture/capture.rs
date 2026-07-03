@@ -15,13 +15,16 @@ pub fn arm(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physic
     }
     let origin = state.inner.worlds.active_id();
     let gpu = state.inner.environment.GPU.clone();
+    // Capture the ACTIVE monitor's framebuffer (stable EDID-derived id), not always
+    // the primary — the picker opens on the monitor the user is on.
+    let output_id = OutputId::from_key(&state.inner.active_output_key());
     let capture = state
         .inner
         .kernel
         .get_mut(&compositor_orchestration_driver_capture_base::base::CAPTURE_REGISTRY_MUT)
         .as_mut()
         .and_then(|reg| {
-            reg.request(&gpu, renderer, CaptureSource::OutputFramebuffer(OutputId(0)))
+            reg.request(&gpu, renderer, CaptureSource::OutputFramebuffer(output_id))
                 .ok()
         });
     match capture {

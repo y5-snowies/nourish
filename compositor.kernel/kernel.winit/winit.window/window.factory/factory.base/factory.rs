@@ -19,6 +19,10 @@ pub fn create() -> Result<WinitWindow, String> {
     let (backend, winit) = WinitBackend::init::<GlesRenderer>()
         .map_err(|e| format!("winit init failed: {e:?}"))?;
 
+    // Hide the host OS cursor: y5 draws (and pane-clamps) its own cursor, so the
+    // unconfined host cursor would otherwise cross viewport edges under nesting.
+    backend.window().set_cursor_visible(false);
+
     let mode = Mode {
         size: backend.window_size(),
         refresh: 60_000,

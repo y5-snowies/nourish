@@ -22,12 +22,15 @@ fn shader_module(dev: &ash::Device, spv: &[u8]) -> Result<vk::ShaderModule, Vulk
 }
 
 impl FullscreenPass {
-    /// Build the pipeline. `spv` is one module holding both entry points;
+    /// Build the pipeline. `spv` holds the fragment stage (and the vertex stage
+    /// too, unless `vert_spv` is `Some`, in which case the vertex stage comes
+    /// from that separate module — used for `glsl/` fragment-only bundles).
     /// `push_size` is the push-constant range in bytes (visible to vert+frag).
     pub fn create(
         device: &VulkanDevice,
         color_format: vk::Format,
         spv: &[u8],
+        vert_spv: Option<&[u8]>,
         vert_entry: &str,
         frag_entry: &str,
         push_size: u32,
@@ -48,17 +51,22 @@ impl FullscreenPass {
             .map_err(|e| VulkanError::Vk(format!("fullscreen pipeline layout: {e}")))?
         };
 
-        let module = shader_module(dev, spv)?;
+        // One module for both stages, or a separate vertex module when given.
+        let frag_module = shader_module(dev, spv)?;
+        let vert_module = match vert_spv {
+            Some(vs) => shader_module(dev, vs)?,
+            None => frag_module,
+        };
         let vs = std::ffi::CString::new(vert_entry).unwrap();
         let fs = std::ffi::CString::new(frag_entry).unwrap();
         let stages = [
             vk::PipelineShaderStageCreateInfo::default()
                 .stage(vk::ShaderStageFlags::VERTEX)
-                .module(module)
+                .module(vert_module)
                 .name(&vs),
             vk::PipelineShaderStageCreateInfo::default()
                 .stage(vk::ShaderStageFlags::FRAGMENT)
-                .module(module)
+                .module(frag_module)
                 .name(&fs),
         ];
 
@@ -109,7 +117,12 @@ impl FullscreenPass {
                 .map_err(|(_, e)| VulkanError::Vk(format!("fullscreen graphics pipeline: {e}")))?[0]
         };
 
-        unsafe { dev.destroy_shader_module(module, None) };
+        unsafe {
+            dev.destroy_shader_module(frag_module, None);
+            if vert_module != frag_module {
+                dev.destroy_shader_module(vert_module, None);
+            }
+        };
 
         Ok(Self {
             pipeline,

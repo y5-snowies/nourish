@@ -9,7 +9,7 @@ use smithay::backend::renderer::TextureFilter;
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTarget, GlesTexture};
 use smithay::utils::{Physical, Rectangle, Size};
 use compositor_support_bevy_core_runtime_base::{
-    WgpuVulkanContext, allocate_dmabuf, import_dmabuf_to_gles, import_dmabuf_to_wgpu,
+    WgpuVulkanContext, allocate_dmabuf_negotiated, import_dmabuf_to_gles, import_dmabuf_to_wgpu,
 };
 
 use crate::entry::{CaptureEntry, EntryId};
@@ -406,7 +406,14 @@ impl RegistryInner {
             });
         }
 
-        let dmabuf = allocate_dmabuf(render_node, size.w as u32, size.h as u32)?;
+        let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
+        let mods = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_modifiers(
+            smithay::backend::renderer::ImportDma::dmabuf_formats(gles),
+            self.wgpu_ctx.importable.clone(),
+            fourcc,
+        );
+        let dmabuf =
+            allocate_dmabuf_negotiated(render_node, size.w as u32, size.h as u32, fourcc, &mods)?;
         let gles_tex = import_dmabuf_to_gles(gles, &dmabuf.dmabuf)?;
         let wgpu_tex = import_dmabuf_to_wgpu(&self.wgpu_ctx, &dmabuf.dmabuf)?;
 
@@ -445,7 +452,19 @@ impl RegistryInner {
         let source = entry.source;
         let refcount = entry.refcount;
 
-        let dmabuf = allocate_dmabuf(render_node, new_size.w as u32, new_size.h as u32)?;
+        let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
+        let mods = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_modifiers(
+            smithay::backend::renderer::ImportDma::dmabuf_formats(gles),
+            self.wgpu_ctx.importable.clone(),
+            fourcc,
+        );
+        let dmabuf = allocate_dmabuf_negotiated(
+            render_node,
+            new_size.w as u32,
+            new_size.h as u32,
+            fourcc,
+            &mods,
+        )?;
         let gles_tex = import_dmabuf_to_gles(gles, &dmabuf.dmabuf)?;
         let wgpu_tex = import_dmabuf_to_wgpu(&self.wgpu_ctx, &dmabuf.dmabuf)?;
 

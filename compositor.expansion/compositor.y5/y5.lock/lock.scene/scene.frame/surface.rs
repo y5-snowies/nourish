@@ -25,7 +25,7 @@ pub fn scene(
         return iced_elements;
     }
 
-    let scale = _loop.size_context().scale;
+    let scale = _loop.size_ctx_all().scale;
     let camera_transform = _loop.inner.camera().transform.clone();
     let gpu = _loop.inner.environment.GPU.clone();
     let mut wants_frame = false;

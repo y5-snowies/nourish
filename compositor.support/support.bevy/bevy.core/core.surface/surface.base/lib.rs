@@ -2,7 +2,7 @@
 //! `GlesTexture`. One per Bevy instance. The engine renders into the wgpu
 //! texture; the compositor samples the GLES texture.
 
-use compositor_support_bevy_core_alloc_base::{AllocatedDmabuf, allocate_dmabuf};
+use compositor_support_bevy_core_alloc_base::{AllocatedDmabuf, allocate_dmabuf_negotiated};
 use compositor_support_bevy_core_context_base::WgpuVulkanContext;
 use compositor_support_bevy_core_fault_base::SurfaceError;
 use compositor_support_bevy_core_gles_base::import_dmabuf_to_gles;
@@ -23,8 +23,7 @@ pub struct BevySurface {
     pub wgpu_texture: wgpu::Texture,
     /// Underlying allocation.
     pub allocated: AllocatedDmabuf,
-    /// Logical size. Equals texture extent today; kept separate so resize-
-    /// with-oversize-allocation can diverge later.
+    /// Logical size (equals texture extent today).
     pub size: Size<i32, Physical>,
 }
 
@@ -47,7 +46,15 @@ impl BevySurface {
     ) -> Result<Self, SurfaceError> {
         info!("BevySurface::allocate {}x{}", size.w, size.h);
 
-        let allocated = allocate_dmabuf(render_node, size.w as u32, size.h as u32)?;
+        // Negotiate an explicit modifier across gles ∩ wgpu (empty ⇒ implicit path).
+        let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
+        let mods = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_modifiers(
+            smithay::backend::renderer::ImportDma::dmabuf_formats(gles),
+            wgpu_ctx.importable.clone(),
+            fourcc,
+        );
+        let allocated =
+            allocate_dmabuf_negotiated(render_node, size.w as u32, size.h as u32, fourcc, &mods)?;
         let gles_texture = import_dmabuf_to_gles(gles, &allocated.dmabuf)?;
         let wgpu_texture = import_dmabuf_to_wgpu(wgpu_ctx, &allocated.dmabuf)?;
 

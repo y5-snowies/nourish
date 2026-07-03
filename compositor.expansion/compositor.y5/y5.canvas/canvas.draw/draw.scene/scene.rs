@@ -41,7 +41,7 @@ where
         .elements().filter_map(|w| w.uuid().map(|u| (u, w.clone()))).collect();
     let ordered: HashSet<Uuid> = order.iter().copied().collect();
     // iced camera transform (mirrors the surface scene): world items pan/zoom.
-    let scale = state.size_context().scale;
+    let scale = state.viewport_context().scale;
     let cam = state.inner.camera().transform.clone();
     let iced_transform = IcedTransform { zoom: cam.zoom, position: Point::new(cam.position.x * scale, cam.position.y * scale) };
     let size_f64 = size.to_f64();
@@ -66,9 +66,17 @@ where
         draw_window(state, renderer, &window, &mut content, &mut visible_windows);
     }
 
-    // Canvas cursor on the viewport (back-most within the band).
-    for e in compositor_y5_canvas_cursor_element::scene::scene(state, renderer, size, &canvas_context) {
-        content.push(ContentItem::Canvas(Element::SolidBox(e)));
+    // Canvas cursor: drawn only on the pane under the physical cursor (the
+    // `pointer` slot) — it would otherwise appear once per pane. Outside the
+    // per-region loop (no render target) it always draws.
+    let cursor_here = state
+        .inner
+        .render_target
+        .map_or(true, |rt| rt.slot == state.inner.viewports().pointer);
+    if cursor_here {
+        for e in compositor_y5_canvas_cursor_element::scene::scene(state, renderer, size, &canvas_context) {
+            content.push(ContentItem::Canvas(Element::SolidBox(e)));
+        }
     }
 
     (content, visible_windows)

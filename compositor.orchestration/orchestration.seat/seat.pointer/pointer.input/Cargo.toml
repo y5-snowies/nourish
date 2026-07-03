@@ -11,6 +11,7 @@ compositor_y5_lock_system_base = { workspace = true }
 compositor_y5_camera_system_base = { workspace = true }
 compositor_y5_surface_system_base = { workspace = true }
 compositor_y5_canvas_system_base = { workspace = true }
+compositor_y5_canvas_input_state = { workspace = true }
 compositor_orchestration_seat_system_pointer = { workspace = true }
 compositor_support_system_input_event_base = { workspace = true }
 compositor_orchestration_input_drive_base = { workspace = true }
@@ -21,6 +22,8 @@ tracing-subscriber = { workspace = true }
 bitflags = { workspace = true }
 smithay = { workspace = true }
 compositor_orchestration_core_state_base.workspace = true
+compositor_y5_viewport_interaction_base.workspace = true
+compositor_orchestration_driver_output_base.workspace = true
 compositor_y5_canvas_input_keyboard.workspace = true
 compositor_y5_surface_interface_base.workspace = true
 compositor_y5_overview_input_pointer.workspace = true

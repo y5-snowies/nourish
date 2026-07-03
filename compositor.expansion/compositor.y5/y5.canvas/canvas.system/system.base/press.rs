@@ -16,7 +16,7 @@ use compositor_support_smithay_dispatch_state_base::state::Dispatch;
 use compositor_y5_canvas_input_state::state::{
     ActiveOption, ActiveTransformCandidate, Anchor, CanvasGrab, SnapMap, SnapSource, TargetOption,
 };
-use compositor_y5_camera_state_base::state::CAMERA;
+use compositor_y5_viewport_state_base::state::OUTPUT_VIEWS;
 use compositor_y5_group_state_base::state::{Group, GroupVisibility, GROUP};
 use compositor_y5_placeholder_system_base::base::PLACEHOLDER;
 use compositor_y5_select_state_base::request::{announce_selection, SelectionCmd};
@@ -424,7 +424,7 @@ fn build_snap_map(cx: &mut SystemCx, exclude: &HashSet<Uuid>) -> SnapMap {
 
     // Read camera + placeholders from storage BEFORE borrowing `cx.platform`.
     let (camera_pos, camera_zoom) = {
-        let camera = cx.storage.get(&CAMERA);
+        let camera = cx.storage.get(&OUTPUT_VIEWS).current_views().focus_camera();
         (camera.transform.position, camera.transform.zoom)
     };
     let placeholders: Vec<(Uuid, Rectangle<i32, Logical>)> = cx

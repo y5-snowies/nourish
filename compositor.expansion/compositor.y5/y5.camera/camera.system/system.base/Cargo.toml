@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 compositor_y5_navigator_state_base = { workspace = true }
+compositor_support_system_persist_document_entry = { workspace = true }
+compositor_y5_viewport_persist_doc = { workspace = true }
 compositor_support_system_world_frame_base = { workspace = true }
 compositor_support_system_channel_token_base = { workspace = true }
 compositor_support_system_buffer_token_base = { workspace = true }
@@ -14,6 +16,7 @@ compositor_support_system_input_event_base = { workspace = true }
 compositor_support_system_input_layer_base = { workspace = true }
 compositor_support_system_storage_slot_base = { workspace = true }
 compositor_y5_camera_state_base = { workspace = true }
+compositor_y5_viewport_state_base = { workspace = true }
 compositor_y5_canvas_system_base = { workspace = true }
 compositor_y5_canvas_input_state = { workspace = true }
 compositor_y5_group_state_base = { workspace = true }

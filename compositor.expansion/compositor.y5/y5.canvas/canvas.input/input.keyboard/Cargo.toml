@@ -36,6 +36,8 @@ compositor_y5_window_interface_draw.workspace = true
 compositor_y5_window_lifecycle_interface.workspace = true
 compositor_y5_launcher_interface_base.workspace = true
 compositor_y5_navigator_interface_base.workspace = true
+compositor_y5_viewport_state_base.workspace = true
+compositor_y5_viewport_interface_base.workspace = true
 compositor_y5_graphic_capture_interface.workspace = true
 [lib]
 path = "lib.rs"

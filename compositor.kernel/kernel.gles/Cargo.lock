@@ -1573,9 +1573,9 @@ name = "compositor_background_two_draw_parallax"
 version = "0.0.1"
 dependencies = [
  "compositor_background_two_draw_motion",
- "compositor_background_two_draw_program",
+ "compositor_background_two_draw_select",
  "compositor_background_two_draw_vulkan",
- "compositor_developer_stats_registry_base",
+ "compositor_background_two_shader_spirv",
  "compositor_orchestration_draw_dispatch_frame",
  "smithay",
 ]
@@ -1589,11 +1589,63 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_background_two_draw_select"
+version = "0.0.1"
+dependencies = [
+ "compositor_background_two_draw_program",
+ "compositor_background_two_draw_vulkan",
+ "compositor_background_two_shader_builtin",
+ "compositor_background_two_shader_load",
+ "compositor_background_two_shader_property",
+ "compositor_background_two_shader_spirv",
+ "compositor_developer_stats_registry_base",
+ "compositor_orchestration_draw_dispatch_frame",
+ "smithay",
+]
+
+[[package]]
 name = "compositor_background_two_draw_vulkan"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_stats_registry_base",
  "compositor_orchestration_draw_dispatch_frame",
+ "naga",
+]
+
+[[package]]
+name = "compositor_background_two_shader_builtin"
+version = "0.0.1"
+dependencies = [
+ "compositor_background_two_shader_property",
+]
+
+[[package]]
+name = "compositor_background_two_shader_load"
+version = "0.0.1"
+dependencies = [
+ "compositor_background_two_draw_program",
+ "compositor_background_two_shader_locate",
+ "compositor_background_two_shader_property",
+ "compositor_background_two_shader_spirv",
+ "compositor_developer_debug_instance_record",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_background_two_shader_locate"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_system_persist_path_base",
+]
+
+[[package]]
+name = "compositor_background_two_shader_property"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_background_two_shader_spirv"
+version = "0.0.1"
+dependencies = [
  "naga",
 ]
 
@@ -1629,17 +1681,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_developer_environment_experimental_base"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
+ "compositor_developer_environment_config_base",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "compositor_developer_stats_registry_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_stats_registry_counter",
+ "compositor_developer_stats_registry_gpu",
  "compositor_developer_stats_registry_hdr",
  "compositor_developer_stats_registry_meta",
+ "compositor_developer_stats_registry_shader",
  "compositor_developer_stats_registry_snapshot",
 ]
 
 [[package]]
 name = "compositor_developer_stats_registry_counter"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_developer_stats_registry_gpu"
 version = "0.0.1"
 
 [[package]]
@@ -1651,10 +1719,15 @@ name = "compositor_developer_stats_registry_meta"
 version = "0.0.1"
 
 [[package]]
+name = "compositor_developer_stats_registry_shader"
+version = "0.0.1"
+
+[[package]]
 name = "compositor_developer_stats_registry_snapshot"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_stats_registry_counter",
+ "compositor_developer_stats_registry_gpu",
  "compositor_developer_stats_registry_meta",
 ]
 
@@ -1729,6 +1802,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_kernel_graphic_bridge_negotiate_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_environment_experimental_base",
+ "compositor_kernel_graphic_bridge_negotiate_classify",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_negotiate_classify"
+version = "0.0.1"
+dependencies = [
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_negotiate_wgpu"
+version = "0.0.1"
+dependencies = [
+ "ash",
+ "libc",
+ "pollster",
+ "smithay",
+ "wgpu",
+]
+
+[[package]]
 name = "compositor_monitor_compositor_iced_base"
 version = "0.1.0"
 dependencies = [
@@ -1747,6 +1847,12 @@ name = "compositor_monitor_runtime_surface_base"
 version = "0.1.0"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_base",
+ "compositor_developer_environment_experimental_base",
+ "compositor_developer_stats_registry_gpu",
+ "compositor_kernel_graphic_bridge_negotiate_base",
+ "compositor_kernel_graphic_bridge_negotiate_classify",
+ "compositor_kernel_graphic_bridge_negotiate_wgpu",
  "compositor_y5_graphic_card_constant",
  "gbm",
  "pollster",
@@ -1833,6 +1939,8 @@ name = "compositor_support_bevy_core_alloc_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_stats_registry_gpu",
+ "compositor_kernel_graphic_bridge_negotiate_classify",
  "compositor_support_bevy_core_fault_base",
  "gbm",
  "smithay",
@@ -1880,8 +1988,12 @@ name = "compositor_support_bevy_core_context_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_base",
+ "compositor_developer_environment_experimental_base",
+ "compositor_kernel_graphic_bridge_negotiate_wgpu",
  "compositor_support_bevy_core_fault_base",
  "pollster",
+ "smithay",
  "wgpu",
 ]
 
@@ -2119,6 +2231,7 @@ name = "compositor_support_bevy_core_surface_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_support_bevy_core_alloc_base",
  "compositor_support_bevy_core_context_base",
  "compositor_support_bevy_core_fault_base",
@@ -2141,6 +2254,13 @@ dependencies = [
  "iced_widget",
  "thiserror 2.0.18",
  "wgpu",
+]
+
+[[package]]
+name = "compositor_support_system_persist_path_base"
+version = "0.0.1"
+dependencies = [
+ "uuid",
 ]
 
 [[package]]
@@ -2174,6 +2294,7 @@ name = "compositor_y5_graphic_capture_registry"
 version = "0.1.0"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_support_bevy_core_runtime_base",
  "smithay",
  "thiserror 2.0.18",

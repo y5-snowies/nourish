@@ -9,7 +9,7 @@
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::utils::{Physical, Size};
 
-use crate::dmabuf_alloc::{AllocatedDmabuf, allocate_dmabuf};
+use crate::dmabuf_alloc::{AllocatedDmabuf, allocate_dmabuf_negotiated};
 use crate::error::SurfaceError;
 use crate::gles_import::import_dmabuf_to_gles;
 use crate::wgpu_context::WgpuVulkanContext;
@@ -181,7 +181,15 @@ impl IcedSurface {
     ) -> Result<Self, SurfaceError> {
         info!("IcedSurface::allocate {}x{}", size.w, size.h);
 
-        let allocated = allocate_dmabuf(render_node, size.w as u32, size.h as u32)?;
+        // Negotiate an explicit modifier across gles ∩ wgpu (empty ⇒ implicit path).
+        let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
+        let mods = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_modifiers(
+            smithay::backend::renderer::ImportDma::dmabuf_formats(gles),
+            wgpu_ctx.importable.clone(),
+            fourcc,
+        );
+        let allocated =
+            allocate_dmabuf_negotiated(render_node, size.w as u32, size.h as u32, fourcc, &mods)?;
         let gles_texture = import_dmabuf_to_gles(gles, &allocated.dmabuf)?;
         let wgpu_texture = import_dmabuf_to_wgpu(wgpu_ctx, &allocated.dmabuf)?;
 

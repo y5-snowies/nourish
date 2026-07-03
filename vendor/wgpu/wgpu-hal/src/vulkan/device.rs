@@ -577,6 +577,82 @@ impl super::Device {
         }
     }
 
+    /// Import a multi-plane DMA-buf (e.g. AMD DCC / Intel CCS) whose planes live in
+    /// a SINGLE memory object (non-disjoint), described by `plane_layouts` as
+    /// `(offset, row_pitch)` per plane. `fd` is that one shared buffer object.
+    ///
+    /// # Safety
+    /// Same requirements as [`Self::texture_from_dmabuf_fd`]; additionally the
+    /// `plane_layouts` and `drm_modifier` must exactly match the DMA-buf.
+    #[cfg(unix)]
+    pub unsafe fn texture_from_dmabuf_fd_planar(
+        &self,
+        fd: std::os::unix::io::OwnedFd,
+        desc: &crate::TextureDescriptor,
+        drm_modifier: u64,
+        plane_layouts: &[(u64, u64)],
+    ) -> Result<super::Texture, crate::DeviceError> {
+        use std::os::unix::io::IntoRawFd;
+
+        if !self
+            .shared
+            .features
+            .contains(wgt::Features::VULKAN_EXTERNAL_MEMORY_DMA_BUF)
+        {
+            log::error!("Vulkan driver does not support the dmabuf import extensions");
+            return Err(crate::DeviceError::Unexpected);
+        }
+        let external_memory_fd_fn = self
+            .shared
+            .extension_fns
+            .external_memory_fd
+            .as_ref()
+            .ok_or_else(|| {
+                log::error!("VK_KHR_external_memory_fd extension not loaded");
+                crate::DeviceError::Unexpected
+            })?;
+
+        let mut external_memory_image_info = vk::ExternalMemoryImageCreateInfo::default()
+            .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+
+        let layouts: Vec<vk::SubresourceLayout> = plane_layouts
+            .iter()
+            .map(|&(offset, row_pitch)| vk::SubresourceLayout {
+                offset,
+                row_pitch,
+                size: 0,
+                array_pitch: 0,
+                depth_pitch: 0,
+            })
+            .collect();
+        let mut drm_modifier_info = vk::ImageDrmFormatModifierExplicitCreateInfoEXT::default()
+            .drm_format_modifier(drm_modifier)
+            .plane_layouts(&layouts);
+
+        let image = self.create_image_without_memory_with_tiling(
+            desc,
+            vk::ImageTiling::DRM_FORMAT_MODIFIER_EXT,
+            Some(&mut external_memory_image_info),
+            Some(&mut drm_modifier_info),
+        )?;
+
+        let fd_raw = fd.into_raw_fd();
+        match self.import_dmabuf_memory(
+            external_memory_fd_fn,
+            fd_raw,
+            image.raw,
+            &image.requirements,
+        ) {
+            Ok(memory) => Ok(unsafe {
+                self.texture_from_raw(image.raw, desc, None, super::TextureMemory::Dedicated(memory))
+            }),
+            Err(e) => {
+                unsafe { self.shared.raw.destroy_image(image.raw, None) };
+                Err(e)
+            }
+        }
+    }
+
     /// Import DMA-buf memory and bind it to the image.
     ///
     /// On failure, the raw fd is closed (if not yet consumed by Vulkan) and the

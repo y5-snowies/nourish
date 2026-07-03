@@ -129,7 +129,10 @@ pub struct CaptureState {
     pub setup_id: Option<HandleId>,
     pub border_id: Option<HandleId>,
     pub dim_id: Option<HandleId>,
-    pub stop_hud_id: Option<HandleId>,
+    /// One Stop button per physical output — each bound (output-affinity) to its
+    /// monitor and anchored to that monitor's top-right, so the control is
+    /// reachable on every screen while recording.
+    pub stop_hud_ids: Vec<HandleId>,
     pub continue_dialog_id: Option<HandleId>,
     pub save_dialog_id: Option<HandleId>,
     /// Window uuids the render path must keep rendering (and giving frame
@@ -152,7 +155,7 @@ impl CaptureState {
             setup_id: None,
             border_id: None,
             dim_id: None,
-            stop_hud_id: None,
+            stop_hud_ids: Vec::new(),
             continue_dialog_id: None,
             save_dialog_id: None,
             force_set: HashSet::new(),

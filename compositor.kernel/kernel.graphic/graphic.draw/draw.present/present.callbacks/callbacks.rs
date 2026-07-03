@@ -40,17 +40,18 @@ pub fn send_window_frames(state: &Loop, output: &Output, visible: &[Window]) {
     }
 }
 
-/// Send frame callbacks to every layer of every mapped output.
-/// (Identical block in both backends today.)
-pub fn send_layer_frames(state: &Loop) {
+/// Send frame callbacks to the layers of ONE output — the one that just
+/// presented. Multi-output: firing every output's layers on any output's flip
+/// would pace a slow monitor's bar/panel at a fast neighbour's refresh; layer
+/// surfaces are per-output (smithay keys layer maps by `Output`), so each
+/// output drives only its own layers on its own vblank.
+pub fn send_layer_frames(state: &Loop, output: &Output) {
     let frame_time = state.inner.start_time.elapsed();
-    for output in state.inner.space_state().state.outputs() {
-        let layer_map = layer_map_for_output(output);
-        for layer in layer_map.layers() {
-            layer.send_frame(output, frame_time, None, |_surface, _states| {
-                Some(output.clone())
-            });
-        }
+    let layer_map = layer_map_for_output(output);
+    for layer in layer_map.layers() {
+        layer.send_frame(output, frame_time, None, |_surface, _states| {
+            Some(output.clone())
+        });
     }
 }
 

@@ -37,7 +37,7 @@ where
             cursor_size,
             cursor_size,
         ),
-        state.size_context(),
+        state.viewport_context(),
     )
         .into();
 

@@ -1,21 +1,23 @@
 use compositor_background_two_draw_element::element::ParallaxBackground;
 use compositor_background_two_state_base::state::Two;
 use compositor_support_system_buffer_token_base::y5_buffer;
-use compositor_support_system_storage_token_base::base::{Token, TokenMut};
 use compositor_support_system_trait_system_base::base::{BufferCx, System, SystemCx, WorldBuilder};
 use compositor_support_system_world_frame_base::base::{self as layer, FramePlan, FrameTick};
 use smithay::backend::renderer::gles::GlesRenderer;
 use std::any::Any;
 
-pub static BG_TWO: Token<Two> = Token::new();
-/// TRANSITIONAL pub: lock/capture still mutate the instance directly.
-pub static BG_TWO_MUT: TokenMut<Two> = TokenMut::new(&BG_TWO);
+// The per-world background slot tokens live in `two.storage`; the system reads
+// and writes that slot in update/draw/buffer.
+use compositor_background_two_storage_base::base::{BG_TWO, BG_TWO_MUT};
 
 enum TwoCmd {
     SetInstance(ParallaxBackground),
     Tick,
     Pan(f32, f32),
     Zoom(f32),
+    /// New output size — applied IN PLACE (keeps `start_time`/`commit`), never a
+    /// recreate. See the size-change note in `update()`.
+    Resize(f32, f32),
 }
 y5_buffer!(TWO_BUF: TwoCmd);
 
@@ -44,18 +46,42 @@ impl System for TwoSystem {
         let size = cx.kernel.get(&compositor_orchestration_smithay_data_base::data::SCREEN).size;
         let size = (size.w as f32, size.h as f32);
         let state = cx.storage.get(&BG_TWO);
+        // A size change must NOT recreate the instance. With multiple outputs of
+        // differing sizes this `update()` runs once PER OUTPUT, each with that
+        // output's `SCREEN` size, so a size-triggered rebuild would fire every
+        // frame — resetting `start_time` (freezing the shader clock at ~0) and the
+        // `commit` counter (no damage → the per-frame reschedule dies and the
+        // parallax stops animating). Only a MISSING instance forces a full rebuild
+        // (shader/params edits null the slot from the rim); a size change resizes
+        // IN PLACE below (the shader is size-independent — `build()` ignores size,
+        // and `draw()`/`bind_pane` use the actual per-pane `dst` size).
         let stale = state.instance.as_ref().is_some_and(|i| i.output_size != size);
-        if state.instance.is_none() || stale {
+        let rebuild = state.instance.is_none();
+        // Resolve once: this world's override → preference default → built-in.
+        // (Setting `instance = None` from the rim forces a rebuild on change.)
+        let override_sel = state.background_shader.clone();
+        let params = state.params.clone();
+        if rebuild {
             if let Some(renderer) = cx
                 .platform
                 .as_deref_mut()
                 .and_then(|p| p.downcast_mut::<compositor_orchestration_draw_platform_base::platform::Platform>())
                 .and_then(|p| p.renderer())
             {
-                let instance = ParallaxBackground::new(renderer, size);
+                let sel = override_sel.or_else(
+                    compositor_developer_stats_registry_base::base::background_shader_default,
+                );
+                let instance = ParallaxBackground::new(renderer, size, sel.as_deref(), &params);
                 cx.write(&TWO_BUF, TwoCmd::SetInstance(instance));
             }
             return;
+        }
+        // Keep the instance's own size current (used by the non-pane overview /
+        // full-screen draw's `geometry()` damage rect) WITHOUT recreating it — each
+        // output's `update()`+draw run in the same prepare, so this hands the frame
+        // its output's size while the animation clock and commit counter survive.
+        if stale {
+            cx.write(&TWO_BUF, TwoCmd::Resize(size.0, size.1));
         }
         // Advance the parallax animation (mutation -> buffer, honoring read-only update).
         cx.write(&TWO_BUF, TwoCmd::Tick);
@@ -73,11 +99,24 @@ impl System for TwoSystem {
     fn buffer(&mut self, cx: &mut BufferCx, message: Box<dyn Any>) {
         let two = cx.storage.get_mut(&BG_TWO_MUT);
         match *message.downcast::<TwoCmd>().expect("two buffer type") {
-            TwoCmd::SetInstance(instance) => two.instance = Some(instance),
+            TwoCmd::SetInstance(instance) => {
+                two.shader_error = instance.shader_error.clone();
+                two.instance = Some(instance);
+            }
             TwoCmd::Tick => { if let Some(i) = &mut two.instance { i.update(); } }
             TwoCmd::Pan(x, y) => { if let Some(i) = &mut two.instance { i.pan = (x, y); } }
             TwoCmd::Zoom(z) => { if let Some(i) = &mut two.instance { i.zoom = z; } }
+            TwoCmd::Resize(w, h) => { if let Some(i) = &mut two.instance { i.output_size = (w, h); } }
         }
+    }
+
+    /// Persist this world's background selection + variable overrides into a
+    /// single per-world file `<world>/world.background.json`, rehydrated into the
+    /// `BG_TWO` slot at world build.
+    fn persist(
+        &self,
+    ) -> &'static [&'static compositor_support_system_persist_entry_base::base::PersistEntry] {
+        compositor_background_two_storage_base::base::BACKGROUND_PERSISTS
     }
 }
 

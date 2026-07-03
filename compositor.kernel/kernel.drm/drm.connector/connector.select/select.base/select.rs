@@ -42,5 +42,9 @@ pub fn select(
 fn identity_key(drm: &DrmDevice, info: &connector::Info) -> String {
     let raw = parse::read(drm, info);
     let parsed = raw.as_ref().and_then(|r| parse::parse(r));
-    identity::identity(parsed.as_ref()).key()
+    identity::identity(
+        parsed.as_ref(),
+        &format!("{:?}-{}", info.interface(), info.interface_id()),
+    )
+    .key()
 }

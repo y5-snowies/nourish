@@ -37,6 +37,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // required field is missing/malformed. It is the ONLY place env config is read.
     compositor_developer_environment_config_base::base::init();
 
+    // Aggregate the opt-in experimental `gpu_*` flags (experimental.json). Lenient:
+    // a missing/invalid file leaves the flag set empty, so defaults are unchanged.
+    // Read here, right after config; unrecognized flags are warned once below.
+    compositor_developer_environment_experimental_base::base::init();
+
     // Block SIGCHLD before any thread spawns, so the launch reaper's signalfd is
     // the sole consumer (no-op under the Direct backend).
     launch_executor::block_sigchld();
@@ -48,6 +53,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Levels come from COMPOSITOR_LOG_LEVEL.
     compositor_developer_log_process_main::spawn();
     info!("y5_compositor {VERSION}");
+
+    // Now that logging is up, surface the experimental flag state (the crate itself
+    // has no logging dep, so it can't warn at parse time).
+    {
+        use compositor_developer_environment_experimental_base::base as experimental;
+        let gpu_flags = experimental::get();
+        if !gpu_flags.is_empty() {
+            info!("experimental gpu flags active: {gpu_flags:?}");
+        }
+        if gpu_flags.contains(experimental::GpuFlags::NEGOTIATE_FORMATS) {
+            // Reserved: the bridge's wgpu engine format is fixed (Bgra8UnormSrgb) and
+            // the content is alpha-blended, so Argb8888 is the only correct fourcc.
+            warn!("gpu_negotiate_formats has no effect: the bridge render format is fixed");
+        }
+        for f in experimental::unknown() {
+            warn!("ignoring unrecognized experimental flag: {f:?}");
+        }
+    }
 
     // Arm the persistence engine (spawn its writer thread) before any world flushes.
     compositor_support_system_persist_engine_base::base::init();
@@ -71,6 +94,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("COMPOSITOR_VRR".to_string(), e.vrr.to_string()),
         ("COMPOSITOR_RENDER_NODE".to_string(), e.render_node.clone()),
         ("COMPOSITOR_LOG_LEVEL".to_string(), e.log_level.clone()),
+        (
+            "EXPERIMENTAL_GPU_FLAGS".to_string(),
+            format!("{:?}", compositor_developer_environment_experimental_base::base::get()),
+        ),
     ];
     compositor_developer_stats_registry_base::base::set_env_flags(env_flags);
 

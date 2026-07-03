@@ -305,6 +305,11 @@ fn begin_active(state: &mut Loop, renderer: &mut GlesRenderer) {
     // the per-element render fills it, so the screen position/clamp is
     // irrelevant. Blit-based (ScreenRegion) gets the on-screen crop; FullScreen
     // taps the whole framebuffer.
+    // Capture targets the ACTIVE monitor (the one the user is on), keyed by its
+    // stable EDID-derived id — the same id the render loop tags that output's
+    // capture entries with, so a capture from a secondary monitor reads that
+    // monitor's framebuffer instead of always the primary's (`OutputId(0)`).
+    let output_id = OutputId::from_key(&state.inner.active_output_key());
     let source = match &target {
         CaptureTarget::Windows(_) | CaptureTarget::WorldRegion(_) => {
             let Some(sz) = render_entry_size(state, &target) else {
@@ -312,13 +317,13 @@ fn begin_active(state: &mut Loop, renderer: &mut GlesRenderer) {
                 return;
             };
             CaptureSource::Region {
-                output: OutputId(0),
+                output: output_id,
                 rect: Rectangle::new(Point::from((0, 0)), sz),
             }
         }
         CaptureTarget::ScreenRegion(_) => match target_crop_physical(state, &target, sw, sh) {
             Some(rect) => CaptureSource::Region {
-                output: OutputId(0),
+                output: output_id,
                 rect,
             },
             None => {
@@ -326,7 +331,7 @@ fn begin_active(state: &mut Loop, renderer: &mut GlesRenderer) {
                 return;
             }
         },
-        CaptureTarget::FullScreen => CaptureSource::OutputFramebuffer(OutputId(0)),
+        CaptureTarget::FullScreen => CaptureSource::OutputFramebuffer(output_id),
     };
 
     let gpu = state.inner.environment.GPU.clone();
@@ -432,6 +437,11 @@ fn begin_active(state: &mut Loop, renderer: &mut GlesRenderer) {
     // Indicator rect is UNCLAMPED (the on-screen projection of the region/bbox),
     // so the teal border crops at the screen edge as the region pans off rather
     // than shrinking.
+    // Origin monitor: the one the capture started on. The region dim + border are
+    // BOUND to it (output affinity) so they dim/outline THAT monitor at its own
+    // size, instead of painting every monitor at the origin's dimensions.
+    let origin_key = state.inner.active_output_key();
+
     let crop_ov = indicator_rect(state, &target, sw, sh).unwrap_or(OverlayRect {
         x: 0,
         y: 0,
@@ -447,7 +457,9 @@ fn begin_active(state: &mut Loop, renderer: &mut GlesRenderer) {
         IcedSpace::Screen,
         (Layer::CAPTURE_DIM | Layer::CAPTURE_PASSTHROUGH).bits(),
     );
-    state.inner.kernel.get_mut(&compositor_orchestration_driver_capture_base::base::CAPTURE_MUT).dim_id = Some(dim.untyped());
+    let dim_id = dim.untyped();
+    bind_output(state, dim_id, &origin_key);
+    state.inner.kernel.get_mut(&compositor_orchestration_driver_capture_base::base::CAPTURE_MUT).dim_id = Some(dim_id);
 
     let border = load(
         state,
@@ -457,22 +469,31 @@ fn begin_active(state: &mut Loop, renderer: &mut GlesRenderer) {
         IcedSpace::Screen,
         (Layer::SCENE | Layer::CAPTURE_PASSTHROUGH).bits(),
     );
-    state.inner.kernel.get_mut(&compositor_orchestration_driver_capture_base::base::CAPTURE_MUT).border_id = Some(border.untyped());
+    let border_id = border.untyped();
+    bind_output(state, border_id, &origin_key);
+    state.inner.kernel.get_mut(&compositor_orchestration_driver_capture_base::base::CAPTURE_MUT).border_id = Some(border_id);
 
-    let stop_rect = Rectangle::new(
-        Point::from((sw - STOP_W - 12, 12)),
-        Size::from((STOP_W, STOP_H)),
-    );
-    let stop = load(
-        state,
-        renderer,
-        StopHud,
-        stop_rect,
-        IcedSpace::Screen,
-        Layer::SCENE.bits(),
-    );
-    state.inner.kernel.get_mut(&compositor_orchestration_driver_capture_base::base::CAPTURE_MUT).stop_hud_id = Some(stop.untyped());
-    forward(state, stop);
+    // One Stop button per monitor: anchored to each monitor's own top-right and
+    // bound to that output, so the control shows on every screen and is clickable
+    // on whichever monitor the cursor is on — not just the origin.
+    for (key, (ow, _oh)) in output_sizes(state) {
+        let stop_rect = Rectangle::new(
+            Point::from((ow - STOP_W - 12, 12)),
+            Size::from((STOP_W, STOP_H)),
+        );
+        let stop = load(
+            state,
+            renderer,
+            StopHud,
+            stop_rect,
+            IcedSpace::Screen,
+            Layer::SCENE.bits(),
+        );
+        let stop_id = stop.untyped();
+        bind_output(state, stop_id, &key);
+        forward(state, stop);
+        state.inner.kernel.get_mut(&compositor_orchestration_driver_capture_base::base::CAPTURE_MUT).stop_hud_ids.push(stop_id);
+    }
 
     state.inner.kernel.get_mut(&compositor_orchestration_driver_capture_base::base::CAPTURE_MUT).phase = CapturePhase::Active(ActiveState {
         media,
@@ -526,16 +547,19 @@ fn teardown(state: &mut Loop) {
         _ => {}
     }
 
-    let ids = {
+    let ids: Vec<HandleId> = {
         let c = &state.inner.kernel.get_mut(&compositor_orchestration_driver_capture_base::base::CAPTURE_MUT);
         [
             c.setup_id,
             c.border_id,
             c.dim_id,
-            c.stop_hud_id,
             c.continue_dialog_id,
             c.save_dialog_id,
         ]
+        .into_iter()
+        .flatten()
+        .chain(c.stop_hud_ids.iter().copied())
+        .collect()
     };
     {
         let c = &mut state.inner.kernel.get_mut(&compositor_orchestration_driver_capture_base::base::CAPTURE_MUT);
@@ -543,7 +567,7 @@ fn teardown(state: &mut Loop) {
         c.setup_id = None;
         c.border_id = None;
         c.dim_id = None;
-        c.stop_hud_id = None;
+        c.stop_hud_ids.clear();
         c.continue_dialog_id = None;
         c.save_dialog_id = None;
         c.force_set.clear();
@@ -551,7 +575,7 @@ fn teardown(state: &mut Loop) {
         c.setup_selection.clear();
     }
     if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-        for id in ids.into_iter().flatten() {
+        for id in ids {
             reg.destroy_by_id(id);
         }
         reg.set_keyboard_focus(None);
@@ -1010,19 +1034,23 @@ fn optimized_codec() -> OptimizedCodec {
 }
 
 fn destroy_indicators(state: &mut Loop) {
-    let ids = {
+    let ids: Vec<HandleId> = {
         let c = &state.inner.kernel.get_mut(&compositor_orchestration_driver_capture_base::base::CAPTURE_MUT);
-        [c.border_id, c.dim_id, c.stop_hud_id, c.continue_dialog_id]
+        [c.border_id, c.dim_id, c.continue_dialog_id]
+            .into_iter()
+            .flatten()
+            .chain(c.stop_hud_ids.iter().copied())
+            .collect()
     };
     {
         let c = &mut state.inner.kernel.get_mut(&compositor_orchestration_driver_capture_base::base::CAPTURE_MUT);
         c.border_id = None;
         c.dim_id = None;
-        c.stop_hud_id = None;
+        c.stop_hud_ids.clear();
         c.continue_dialog_id = None;
     }
     if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-        for id in ids.into_iter().flatten() {
+        for id in ids {
             reg.destroy_by_id(id);
         }
     }
@@ -1153,10 +1181,9 @@ fn set_countdown(state: &mut Loop, secs: u32) {
 // ---------------------------------------------------------------------------
 
 fn output_size(state: &Loop) -> (i32, i32) {
-    let Some(output) = state.inner.space_state().state.outputs().next() else {
-        return (0, 0);
-    };
-    match output.current_mode() {
+    // The ACTIVE monitor's mode (the one being captured), not the primary — a
+    // ScreenRegion crop on a secondary monitor must size to that monitor.
+    match state.inner.active_output().current_mode() {
         Some(m) => (m.size.w, m.size.h),
         None => (0, 0),
     }
@@ -1184,7 +1211,7 @@ fn target_crop_physical(
 /// the dmabuf allocation/import and silently discard the capture. The
 /// `window_render_job` fit-scale draws the content into whatever size we return.
 fn render_entry_size(state: &Loop, target: &CaptureTarget) -> Option<Size<i32, Physical>> {
-    let scale = state.size_context().scale;
+    let scale = state.size_ctx_all().scale;
     let world = match target {
         CaptureTarget::WorldRegion(r) => *r,
         CaptureTarget::Windows(_) => state.inner.kernel.get(&compositor_orchestration_driver_capture_base::base::CAPTURE).windows_bbox?,
@@ -1256,7 +1283,7 @@ fn live_windows_bbox(state: &Loop) -> Option<Rectangle<i32, Logical>> {
 }
 
 fn world_to_phys(state: &Loop, r: Rectangle<i32, Logical>) -> Rectangle<i32, Physical> {
-    let t: Transform = (r, state.size_context()).into();
+    let t: Transform = (r, state.size_ctx_all()).into();
     t.into()
 }
 
@@ -1265,7 +1292,7 @@ fn phys_to_world(state: &Loop, r: Rectangle<i32, Physical>) -> Rectangle<i32, Lo
     // coordinates inside the Transform; extract the RAW world rect via
     // `into_storage_rect()`. (A plain `.into()` would re-apply the forward
     // camera projection, double-projecting the region — the world-region bug.)
-    let t: Transform = (r, state.size_context()).into();
+    let t: Transform = (r, state.size_ctx_all()).into();
     t.into_storage_rect()
 }
 
@@ -1380,6 +1407,29 @@ fn from_overlay(r: OverlayRect) -> Rectangle<i32, Physical> {
 // ---------------------------------------------------------------------------
 // Iced registry plumbing
 // ---------------------------------------------------------------------------
+
+/// Every mapped output's `output_key` + physical mode size (w, h). Used to place
+/// one overlay instance per monitor. Outputs without a current mode are skipped.
+fn output_sizes(state: &Loop) -> Vec<(String, (i32, i32))> {
+    state
+        .inner.space_state()
+        .state
+        .outputs()
+        .filter_map(|o| {
+            let key = compositor_orchestration_core_state_base::state::output_key(o);
+            o.current_mode().map(|m| (key, (m.size.w, m.size.h)))
+        })
+        .collect()
+}
+
+/// Bind a screen-space overlay surface to a physical output, so the scene
+/// builder draws it only on that monitor and the pointer path hit-tests it only
+/// when the cursor is on that monitor (see `IcedItem::output`).
+fn bind_output(state: &mut Loop, id: HandleId, key: &str) {
+    if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
+        reg.set_output_affinity_by_id(id, Some(key.to_string()));
+    }
+}
 
 /// Install a message handler that forwards a capture UI's messages onto the
 /// surface message channel (drained by the surface pump → `handle`).

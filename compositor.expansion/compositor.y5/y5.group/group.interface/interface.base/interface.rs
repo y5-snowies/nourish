@@ -159,7 +159,7 @@ pub fn bbox_inner(_loop: &mut Loop, group: &Group) -> Transform {
         .map(|w| window_box(_loop, w))
         .fold(first, |acc, b| acc.merge(b));
 
-    (bbox, _loop.size_context()).into()
+    (bbox, _loop.size_ctx_all()).into()
 }
 
 pub fn bbox_padded(_loop: &mut Loop, group: &Group) -> Transform {
@@ -174,7 +174,7 @@ pub fn bbox_padded(_loop: &mut Loop, group: &Group) -> Transform {
         .pad(125)
         .pad_y(125);
 
-    (bbox, _loop.size_context()).into()
+    (bbox, _loop.size_ctx_all()).into()
 }
 
 pub trait PadExt {

@@ -8,7 +8,9 @@
 
 pub mod base {
     pub use compositor_developer_stats_registry_counter::*;
+    pub use compositor_developer_stats_registry_gpu::gpu::{DeviceFormat, set_device_format};
     pub use compositor_developer_stats_registry_hdr::*;
     pub use compositor_developer_stats_registry_meta::*;
+    pub use compositor_developer_stats_registry_shader::*;
     pub use compositor_developer_stats_registry_snapshot::*;
 }

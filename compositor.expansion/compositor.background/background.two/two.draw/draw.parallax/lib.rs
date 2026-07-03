@@ -1,6 +1,6 @@
 //! `ParallaxBackground`: the infinite-canvas background render element.
-
 use compositor_background_two_draw_motion::Motion;
+use compositor_background_two_shader_spirv::VulkanModule;
 use compositor_orchestration_draw_dispatch_frame::SceneDispatch;
 use smithay::backend::renderer::RendererSuper;
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement};
@@ -8,60 +8,74 @@ use smithay::backend::renderer::gles::{GlesPixelProgram, GlesRenderer};
 use smithay::backend::renderer::utils::{CommitCounter, DamageSet, OpaqueRegions};
 use smithay::utils::user_data::UserDataMap;
 use smithay::utils::{Buffer, Physical, Point, Rectangle, Scale, Size, Transform};
+use std::sync::Arc;
 use std::time::Instant;
-
 #[derive(Clone)]
 pub struct ParallaxBackground {
     id: Id,
     commit: CommitCounter,
-    /// `None` when compositing from dmabufs (Vulkan; the native shader runs).
+    /// `None` when compositing from dmabufs (Vulkan; a native shader runs).
     program: Option<GlesPixelProgram>,
+    /// A runtime-loaded Vulkan shader; `None` runs the built-in pass. `Arc` keeps
+    /// the element cheap to `Clone` (it is cloned per frame plan).
+    vulkan: Option<Arc<VulkanModule>>,
     start_time: Instant,
     pub lock_time: Option<Instant>,
     pub output_size: (f32, f32),
+    /// Render-rect top-left (physical px); a pane's origin per-pane, else `(0,0)`.
+    pub offset: (i32, i32),
     pub pan: (f32, f32), // state passed from your main loop
     pub zoom: f32,
+    /// Shader-authored `@prop` values (16 float slots), fed to the shader each
+    /// draw as `u_param0`..`u_param3` (GLES) / the push `params` block (Vulkan).
+    pub params: [f32; 16],
+    /// The selected shader's compile error for the active renderer, if it failed
+    /// (the built-in is rendering instead). Surfaced by the settings panel.
+    pub shader_error: Option<String>,
     motion: Motion,
 }
-
 impl ParallaxBackground {
-    pub fn new(renderer: &mut GlesRenderer, output_size: (f32, f32)) -> Self {
-        // In Vulkan mode the native Vulkan background shader renders the
-        // parallax; the GLES pixel program would never be sampled — skip it.
-        let program = if compositor_developer_stats_registry_base::base::compositor_prefers_dmabuf() {
-            None
-        } else {
-            Some(compositor_background_two_draw_program::compile_program(renderer))
-        };
-
+    /// Build the element. `selection` names a user shader bundle (folder name or
+    /// absolute path); if it compiles for the active renderer it replaces the
+    /// built-in parallax, else the built-in runs.
+    pub fn new(
+        renderer: &mut GlesRenderer,
+        output_size: (f32, f32),
+        selection: Option<&str>,
+        params_override: &[(String, f32)],
+    ) -> Self {
+        let (program, vulkan, params, shader_error) =
+            compositor_background_two_draw_select::build(renderer, selection, params_override);
         Self {
             output_size,
+            offset: (0, 0),
             id: Id::new(),
-            commit: CommitCounter::default(), // Initializes damage tracking
+            commit: CommitCounter::default(),
             program,
+            vulkan,
             lock_time: None,
             start_time: Instant::now(),
-            pan: (0.0, 0.0), zoom: 1.0, motion: Motion::new(),
+            pan: (0.0, 0.0), zoom: 1.0, params, shader_error, motion: Motion::new(),
         }
     }
-
-    // Call this right before draw to splice the previous pan
+    /// Call right before draw to splice the previous pan and bump damage.
     pub fn update(&mut self) {
         self.motion.tick(self.pan, self.lock_time.is_some());
-        // Commit is now incremented
         self.commit.increment();
     }
+    /// Rebind a clone to a viewport pane (render rect + pane camera + distinct id).
+    pub fn bind_pane(&mut self, offset: (i32, i32), size: (f32, f32), pan: (f32, f32), zoom: f32, id: Id) {
+        self.offset = offset; self.output_size = size; self.pan = pan; self.zoom = zoom; self.id = id;
+    }
 }
-
 impl Element for ParallaxBackground {
     fn id(&self) -> &Id { &self.id }
     fn current_commit(&self) -> CommitCounter { self.commit }
-    // src is arbitrary for a shader without an underlying texture buffer.
     fn src(&self) -> Rectangle<f64, Buffer> { Rectangle::from_loc_and_size((0.0, 0.0), (1.0, 1.0)) }
     fn geometry(&self, _scale: Scale<f64>) -> Rectangle<i32, Physical> {
-        Rectangle::from_loc_and_size((0, 0), (self.output_size.0 as i32, self.output_size.1 as i32))
+        Rectangle::from_loc_and_size(self.offset, (self.output_size.0 as i32, self.output_size.1 as i32))
     }
-    fn location(&self, _scale: Scale<f64>) -> Point<i32, Physical> { Point::from((0, 0)) }
+    fn location(&self, _scale: Scale<f64>) -> Point<i32, Physical> { Point::from(self.offset) }
     fn transform(&self) -> Transform { Transform::Normal }
     fn damage_since(&self, scale: Scale<f64>, commit: Option<CommitCounter>) -> DamageSet<i32, Physical> {
         if commit != Some(self.commit) {
@@ -75,8 +89,6 @@ impl Element for ParallaxBackground {
     fn kind(&self) -> Kind { Kind::Unspecified }
     fn is_framebuffer_effect(&self) -> bool { false }
 }
-
-// Renderer-agnostic: GlesFrame runs the pixel program; VulkanFrame runs the native pass.
 impl<R: SceneDispatch> RenderElement<R> for ParallaxBackground {
     fn draw(
         &self,
@@ -88,13 +100,20 @@ impl<R: SceneDispatch> RenderElement<R> for ParallaxBackground {
         let time = self.start_time.elapsed().as_secs_f32();
         let (uniforms, vk) = compositor_background_two_draw_motion::uniforms(
             time, self.motion.lock_amount, self.pan, self.motion.flow_offset,
-            self.motion.velocity, self.zoom, (dst.size.w as f32, dst.size.h as f32));
-        let pass = compositor_background_two_draw_vulkan::vulkan::ParallaxPass::new(&vk);
-        R::draw_pixel_program(
-            frame,
-            self.program.as_ref(),
-            Rectangle::from_loc_and_size((0.0, 0.0), (dst.size.w as f64, dst.size.h as f64)),
-            dst, Size::from((dst.size.w, dst.size.h)), damage, 1.0, &uniforms, pass.pass(),
-        )
+            self.motion.velocity, self.zoom, (dst.size.w as f32, dst.size.h as f32), &self.params);
+        let src = Rectangle::from_loc_and_size((0.0, 0.0), (dst.size.w as f64, dst.size.h as f64));
+        let size = Size::from((dst.size.w, dst.size.h));
+        match &self.vulkan {
+            Some(m) => R::draw_pixel_program(
+                frame, self.program.as_ref(), src, dst, size, damage, 1.0, &uniforms,
+                compositor_background_two_draw_select::loaded_pass(m, &vk, &self.params),
+            ),
+            None => {
+                let pass = compositor_background_two_draw_vulkan::vulkan::ParallaxPass::new(&vk, &self.params);
+                R::draw_pixel_program(
+                    frame, self.program.as_ref(), src, dst, size, damage, 1.0, &uniforms, pass.pass(),
+                )
+            }
+        }
     }
 }

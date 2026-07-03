@@ -1,0 +1,10 @@
+[package]
+name = "compositor_background_two_shader_spirv"
+version = "0.0.1"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+naga = { workspace = true }

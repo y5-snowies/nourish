@@ -1,0 +1,12 @@
+[package]
+name = "compositor_kernel_graphic_bridge_negotiate_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+smithay = { workspace = true }
+compositor_developer_environment_experimental_base = { workspace = true }
+compositor_kernel_graphic_bridge_negotiate_classify = { workspace = true }
+
+[lib]
+path = "lib.rs"

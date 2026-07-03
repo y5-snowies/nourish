@@ -53,9 +53,10 @@ impl VulkanRenderer {
         let pass = FullscreenPass::create(
             &self.dev,
             format,
-            v.spv,
-            v.vert_entry,
-            v.frag_entry,
+            &v.spv,
+            v.vert_spv.as_deref(),
+            &v.vert_entry,
+            &v.frag_entry,
             v.push.len() as u32,
         )?;
         self.shader_passes.insert((v.id, format), pass);

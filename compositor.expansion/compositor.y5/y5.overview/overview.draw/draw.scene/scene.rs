@@ -26,7 +26,7 @@ where
     if placed.is_empty() {
         return (Vec::new(), Vec::new());
     }
-    let scale = state.size_context().scale;
+    let scale = state.size_ctx_all().scale;
 
     let mut elements: Vec<CanvasElement<R>> = Vec::new();
     let mut drawn: Vec<Window> = Vec::new();

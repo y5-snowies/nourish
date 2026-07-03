@@ -119,7 +119,7 @@ where
         state, renderer, size, window, context,
     );
 
-    let ctx = state.size_context();
+    let ctx = state.viewport_context();
     let output_scale = ctx.scale * state.inner.camera_mut().transform.zoom();
     let zoom = ctx.camera_zoom;
     let cfg = compositor_developer_environment_config_base::base::get();
@@ -237,7 +237,20 @@ where
     let rescale = Scale::from((fit_sx * zoom, fit_sy * zoom));
     let reloc = project_point(ctx, fit_surf_x, fit_surf_y);
     let crop_slot = project_rect(ctx, elem_loc.x as f64, elem_loc.y as f64, slot_size.w as f64, slot_size.h as f64);
-    let crop_output = Rectangle::new(Point::from((0, 0)), size);
+    // When rendering a split/floating viewport pane, clamp content + popups to the
+    // pane's physical rect so a window near the pane edge can't bleed into the
+    // neighbour pane. Full-output render (no render target) → the whole output.
+    let pane = state.inner.render_target.map(|rt| {
+        Rectangle::new(
+            Point::from(((rt.origin_logical.0 * ctx.scale).round() as i32, (rt.origin_logical.1 * ctx.scale).round() as i32)),
+            Size::from((rt.size_physical.0.round() as i32, rt.size_physical.1.round() as i32)),
+        )
+    });
+    let crop_output = pane.unwrap_or(Rectangle::new(Point::from((0, 0)), size));
+    let crop_slot = match pane {
+        Some(p) => crop_slot.intersection(p).unwrap_or_default(),
+        None => crop_slot,
+    };
 
     // Popups (front): positioned in the SAME fit frame as the content so they stick to the
     // rendered window content, not the raw slot. A popup's `location` is geometry-relative, but

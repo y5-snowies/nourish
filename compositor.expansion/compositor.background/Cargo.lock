@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "accesskit"
-version = "0.24.0"
+version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5351dcebb14b579ccab05f288596b2ae097005be7ee50a7c3d4ca9d0d5a66f6a"
+checksum = "d3b7f7f85a7e5f68090000ed7622545829afd484d210358702ae4cb97dd0c320"
 dependencies = [
  "uuid",
 ]
@@ -58,7 +58,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f2a1bb052857d5dd49572219344a7332b31b76405648eabac5bc68978251bcd"
 dependencies = [
  "android-properties",
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "cc",
  "jni",
  "libc",
@@ -93,9 +93,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.102"
+version = "1.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
+checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "appendlist"
@@ -129,9 +129,9 @@ checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
 
 [[package]]
 name = "arrayvec"
-version = "0.7.6"
+version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
+checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
 name = "as-raw-xcb-connection"
@@ -156,7 +156,7 @@ checksum = "f548ad2c4031f2902e3edc1f29c29e835829437de49562d8eb5dc5584d3a1043"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -245,7 +245,7 @@ checksum = "3b43422f69d8ff38f95f1b2bb76517c91589a924d1559a0e935d7c8ce0274c11"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -265,7 +265,7 @@ checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -410,7 +410,7 @@ version = "0.19.0-dev"
 dependencies = [
  "bevy_macro_utils",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -472,7 +472,7 @@ dependencies = [
  "bevy_reflect",
  "bevy_tasks",
  "bevy_utils",
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "blake3",
  "crossbeam-channel",
  "derive_more",
@@ -502,7 +502,7 @@ dependencies = [
  "bevy_macro_utils",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -565,7 +565,7 @@ dependencies = [
  "bevy_transform",
  "bevy_utils",
  "bevy_window",
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "indexmap",
  "nonmax",
 ]
@@ -576,7 +576,7 @@ version = "0.19.0-dev"
 dependencies = [
  "bevy_macro_utils",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -605,7 +605,7 @@ dependencies = [
  "bevy_reflect",
  "bevy_tasks",
  "bevy_utils",
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "bumpalo",
  "concurrent-queue",
  "derive_more",
@@ -627,7 +627,7 @@ dependencies = [
  "bevy_macro_utils",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -638,7 +638,7 @@ dependencies = [
  "bevy_macro_utils",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -676,7 +676,7 @@ version = "0.19.0-dev"
 dependencies = [
  "bevy_macro_utils",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -751,7 +751,7 @@ dependencies = [
  "bevy_platform",
  "bevy_reflect",
  "bevy_utils",
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "bytemuck",
  "futures-lite",
  "guillotiere",
@@ -883,7 +883,7 @@ version = "0.19.0-dev"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
  "toml_edit",
 ]
 
@@ -914,7 +914,7 @@ version = "0.19.0-dev"
 dependencies = [
  "bevy_macro_utils",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -928,7 +928,7 @@ dependencies = [
  "glam 0.32.1",
  "itertools 0.14.0",
  "libm",
- "rand 0.10.1",
+ "rand 0.10.2",
  "rand_distr",
  "serde",
  "thiserror 2.0.18",
@@ -949,7 +949,7 @@ dependencies = [
  "bevy_platform",
  "bevy_reflect",
  "bevy_transform",
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "bytemuck",
  "derive_more",
  "encase",
@@ -994,7 +994,7 @@ dependencies = [
  "bevy_tasks",
  "bevy_transform",
  "bevy_utils",
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "bytemuck",
  "derive_more",
  "fixedbitset",
@@ -1090,7 +1090,7 @@ dependencies = [
  "indexmap",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
  "uuid",
 ]
 
@@ -1122,7 +1122,7 @@ dependencies = [
  "bevy_transform",
  "bevy_utils",
  "bevy_window",
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "bytemuck",
  "derive_more",
  "downcast-rs 2.0.2",
@@ -1153,7 +1153,7 @@ dependencies = [
  "bevy_macro_utils",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -1182,7 +1182,7 @@ dependencies = [
  "bevy_macro_utils",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -1222,7 +1222,7 @@ version = "0.19.0-dev"
 dependencies = [
  "bevy_macro_utils",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -1322,18 +1322,18 @@ version = "0.71.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f58bf3d7db68cfbac37cfc485a8d711e87e064c3d0fe0435b92f7a407f9d6b3"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "log",
  "prettyplease",
  "proc-macro2",
  "quote",
  "regex",
- "rustc-hash 2.1.2",
- "shlex",
- "syn 2.0.117",
+ "rustc-hash 2.1.3",
+ "shlex 1.3.0",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -1359,9 +1359,9 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
-version = "2.11.1"
+version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4512299f36f043ab09a583e57bceb5a5aab7a73db1805848e8fef3c9e8c78b3"
+checksum = "b4388bee8683e3d04af747c73422af53102d2bd24d9eadb6cbc100baef4b43f8"
 dependencies = [
  "bytemuck",
  "serde_core",
@@ -1444,7 +1444,7 @@ checksum = "f9abbd1bc6865053c427f7198e6af43bfdedc55ab791faed4fbd361d789575ff"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -1461,9 +1461,9 @@ checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
 
 [[package]]
 name = "bytes"
-version = "1.11.1"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
+checksum = "8ae3f5d315924270530207e2a68396c3cc547f6dca3fbdca317cfb1a51edb593"
 
 [[package]]
 name = "calloop"
@@ -1471,7 +1471,7 @@ version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b99da2f8558ca23c71f4fd15dc57c906239752dd27ff3c00a1d56b685b7cbfec"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "log",
  "polling",
  "rustix 0.38.44",
@@ -1485,7 +1485,7 @@ version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4dbf9978365bac10f54d1d4b04f7ce4427e51f71d61f2fe15e3fed5166474df7"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "polling",
  "rustix 1.1.4",
  "slab",
@@ -1506,14 +1506,14 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.62"
+version = "1.2.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1dce859f0832a7d088c4f1119888ab94ef4b5d6795d1ce05afb7fe159d79f98"
+checksum = "e228eec9be7c17ccb640b59b36a5cd805ea2a564a4c5e162c2f659fea30d3b96"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
  "libc",
- "shlex",
+ "shlex 2.0.1",
 ]
 
 [[package]]
@@ -1549,9 +1549,9 @@ dependencies = [
 
 [[package]]
 name = "chacha20"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f8d983286843e49675a4b7a2d174efe136dc93a18d69130dd18198a6c167601"
+checksum = "d524456ba66e72eb8b115ff89e01e497f8e6d11d78b70b1aa13c0fbd97540a81"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
@@ -1611,7 +1611,7 @@ dependencies = [
 name = "compositor_background_three_draw_element"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_bevy_core_compositor_base",
  "smithay",
  "tracing",
@@ -1622,7 +1622,7 @@ dependencies = [
 name = "compositor_background_three_draw_scene"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_background_three_draw_element",
  "compositor_background_three_lock_scene",
  "compositor_orchestration_core_state_base",
@@ -1754,7 +1754,7 @@ dependencies = [
 name = "compositor_background_three_state_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_background_three_lock_scene",
  "compositor_support_bevy_core_compositor_base",
  "compositor_y5_graphic_capture_registry",
@@ -1768,7 +1768,7 @@ dependencies = [
 name = "compositor_background_three_system_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_background_three_state_base",
  "compositor_developer_debug_instance_record",
  "compositor_support_bevy_core_compositor_base",
@@ -1810,9 +1810,9 @@ name = "compositor_background_two_draw_parallax"
 version = "0.0.1"
 dependencies = [
  "compositor_background_two_draw_motion",
- "compositor_background_two_draw_program",
+ "compositor_background_two_draw_select",
  "compositor_background_two_draw_vulkan",
- "compositor_developer_stats_registry_base",
+ "compositor_background_two_shader_spirv",
  "compositor_orchestration_draw_dispatch_frame",
  "smithay",
 ]
@@ -1829,15 +1829,30 @@ dependencies = [
 name = "compositor_background_two_draw_scene"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_background_three_system_base",
  "compositor_background_two_draw_element",
- "compositor_background_two_system_base",
+ "compositor_background_two_storage_base",
  "compositor_orchestration_core_state_base",
  "compositor_y5_lock_system_base",
  "smithay",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "compositor_background_two_draw_select"
+version = "0.0.1"
+dependencies = [
+ "compositor_background_two_draw_program",
+ "compositor_background_two_draw_vulkan",
+ "compositor_background_two_shader_builtin",
+ "compositor_background_two_shader_load",
+ "compositor_background_two_shader_property",
+ "compositor_background_two_shader_spirv",
+ "compositor_developer_stats_registry_base",
+ "compositor_orchestration_draw_dispatch_frame",
+ "smithay",
 ]
 
 [[package]]
@@ -1850,10 +1865,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_background_two_shader_builtin"
+version = "0.0.1"
+dependencies = [
+ "compositor_background_two_shader_property",
+]
+
+[[package]]
+name = "compositor_background_two_shader_load"
+version = "0.0.1"
+dependencies = [
+ "compositor_background_two_draw_program",
+ "compositor_background_two_shader_locate",
+ "compositor_background_two_shader_property",
+ "compositor_background_two_shader_spirv",
+ "compositor_developer_debug_instance_record",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_background_two_shader_locate"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_system_persist_path_base",
+]
+
+[[package]]
+name = "compositor_background_two_shader_property"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_background_two_shader_spirv"
+version = "0.0.1"
+dependencies = [
+ "naga",
+]
+
+[[package]]
 name = "compositor_background_two_state_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_background_two_draw_element",
  "smithay",
  "tracing",
@@ -1861,18 +1913,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_background_two_storage_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_background_two_state_base",
+ "compositor_support_system_persist_entry_base",
+ "compositor_support_system_persist_trait_base",
+ "compositor_support_system_storage_token_base",
+ "serde",
+]
+
+[[package]]
 name = "compositor_background_two_system_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_background_three_system_base",
  "compositor_background_two_draw_element",
  "compositor_background_two_state_base",
+ "compositor_background_two_storage_base",
  "compositor_developer_debug_instance_record",
+ "compositor_developer_stats_registry_base",
  "compositor_orchestration_draw_platform_base",
  "compositor_orchestration_smithay_data_base",
  "compositor_support_system_buffer_token_base",
- "compositor_support_system_storage_token_base",
+ "compositor_support_system_persist_entry_base",
  "compositor_support_system_trait_system_base",
  "compositor_support_system_world_frame_base",
  "compositor_y5_camera_system_base",
@@ -1900,6 +1965,7 @@ dependencies = [
  "compositor_configurator_bluetooth_backend_base",
  "compositor_configurator_network_backend_base",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_preference_base",
  "compositor_orchestration_driver_output_base",
  "compositor_y5_audio_controller_interface",
 ]
@@ -1936,6 +2002,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_developer_environment_experimental_base"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
+ "compositor_developer_environment_config_base",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "compositor_developer_environment_keybinding_base"
 version = "0.0.1"
 dependencies = [
@@ -1958,13 +2034,19 @@ name = "compositor_developer_stats_registry_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_stats_registry_counter",
+ "compositor_developer_stats_registry_gpu",
  "compositor_developer_stats_registry_hdr",
  "compositor_developer_stats_registry_meta",
+ "compositor_developer_stats_registry_shader",
  "compositor_developer_stats_registry_snapshot",
 ]
 
 [[package]]
 name = "compositor_developer_stats_registry_counter"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_developer_stats_registry_gpu"
 version = "0.0.1"
 
 [[package]]
@@ -1976,10 +2058,15 @@ name = "compositor_developer_stats_registry_meta"
 version = "0.0.1"
 
 [[package]]
+name = "compositor_developer_stats_registry_shader"
+version = "0.0.1"
+
+[[package]]
 name = "compositor_developer_stats_registry_snapshot"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_stats_registry_counter",
+ "compositor_developer_stats_registry_gpu",
  "compositor_developer_stats_registry_meta",
 ]
 
@@ -2740,6 +2827,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_kernel_graphic_bridge_negotiate_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_environment_experimental_base",
+ "compositor_kernel_graphic_bridge_negotiate_classify",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_negotiate_classify"
+version = "0.0.1"
+dependencies = [
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_negotiate_wgpu"
+version = "0.0.1"
+dependencies = [
+ "ash",
+ "libc",
+ "pollster",
+ "smithay",
+ "wgpu",
+]
+
+[[package]]
 name = "compositor_kernel_graphic_color_surface_base"
 version = "0.0.1"
 dependencies = [
@@ -2774,6 +2888,12 @@ name = "compositor_monitor_runtime_surface_base"
 version = "0.1.0"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_base",
+ "compositor_developer_environment_experimental_base",
+ "compositor_developer_stats_registry_gpu",
+ "compositor_kernel_graphic_bridge_negotiate_base",
+ "compositor_kernel_graphic_bridge_negotiate_classify",
+ "compositor_kernel_graphic_bridge_negotiate_wgpu",
  "compositor_y5_graphic_card_constant",
  "gbm",
  "pollster",
@@ -2786,7 +2906,7 @@ dependencies = [
 name = "compositor_monitor_selection_font_base"
 version = "0.1.0"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "iced_core",
  "iced_graphics",
  "iced_runtime",
@@ -2805,7 +2925,7 @@ dependencies = [
 name = "compositor_monitor_selection_scene_base"
 version = "0.1.0"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_monitor_selection_font_base",
  "compositor_support_iced_core_engine_base",
@@ -2832,10 +2952,11 @@ dependencies = [
 name = "compositor_orchestration_core_state_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_keybinding_base",
  "compositor_developer_environment_preference_base",
+ "compositor_developer_stats_registry_base",
  "compositor_introspection_sampler_window_base",
  "compositor_orchestration_bus_legacy_base",
  "compositor_orchestration_driver_audio_base",
@@ -2872,6 +2993,7 @@ dependencies = [
  "compositor_y5_audio_controller_interface",
  "compositor_y5_camera_state_base",
  "compositor_y5_camera_transform_translate",
+ "compositor_y5_canvas_input_state",
  "compositor_y5_canvas_state_base",
  "compositor_y5_canvas_system_base",
  "compositor_y5_graphic_capture_registry",
@@ -2888,6 +3010,8 @@ dependencies = [
  "compositor_y5_select_state_base",
  "compositor_y5_surface_state_base",
  "compositor_y5_surface_system_base",
+ "compositor_y5_viewport_layout_base",
+ "compositor_y5_viewport_state_base",
  "compositor_y5_window_interface_record",
  "compositor_y5_window_lifecycle_event",
  "compositor_y5_window_lifecycle_state",
@@ -2919,7 +3043,7 @@ dependencies = [
 name = "compositor_orchestration_draw_layer_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -2977,6 +3101,7 @@ dependencies = [
 name = "compositor_orchestration_driver_output_base"
 version = "0.0.1"
 dependencies = [
+ "compositor_developer_environment_preference_base",
  "compositor_support_system_storage_token_base",
 ]
 
@@ -3017,7 +3142,7 @@ dependencies = [
 name = "compositor_orchestration_environment_type_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_environment_config_base",
  "smithay",
  "tracing",
@@ -3041,7 +3166,7 @@ version = "0.0.1"
 name = "compositor_orchestration_seat_pointer_element"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_orchestration_seat_pointer_texture",
  "smithay",
@@ -3054,7 +3179,7 @@ dependencies = [
 name = "compositor_orchestration_seat_pointer_state"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_orchestration_seat_pointer_element",
  "compositor_orchestration_seat_pointer_texture",
  "smithay",
@@ -3066,7 +3191,7 @@ dependencies = [
 name = "compositor_orchestration_seat_pointer_texture"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "smithay",
  "xcursor",
@@ -3097,7 +3222,7 @@ dependencies = [
 name = "compositor_orchestration_storage_state_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_remote_message_client_base",
  "compositor_support_library_input_keyboard_base",
  "compositor_support_system_storage_token_base",
@@ -3119,7 +3244,7 @@ dependencies = [
 name = "compositor_remote_message_client_base"
 version = "0.1.0"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_remote_message_macro_base",
  "prost",
  "smithay",
@@ -3152,7 +3277,7 @@ version = "0.0.1"
 name = "compositor_remote_message_server_base"
 version = "0.1.0"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_remote_message_macro_base",
  "prost",
  "smithay",
@@ -3169,7 +3294,7 @@ dependencies = [
 name = "compositor_remote_message_state_base"
 version = "0.1.0"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_remote_message_client_base",
  "compositor_remote_message_server_base",
  "prost",
@@ -3186,6 +3311,8 @@ name = "compositor_support_bevy_core_alloc_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_stats_registry_gpu",
+ "compositor_kernel_graphic_bridge_negotiate_classify",
  "compositor_support_bevy_core_fault_base",
  "gbm",
  "smithay",
@@ -3233,8 +3360,12 @@ name = "compositor_support_bevy_core_context_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_base",
+ "compositor_developer_environment_experimental_base",
+ "compositor_kernel_graphic_bridge_negotiate_wgpu",
  "compositor_support_bevy_core_fault_base",
  "pollster",
+ "smithay",
  "wgpu",
 ]
 
@@ -3472,6 +3603,7 @@ name = "compositor_support_bevy_core_surface_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_support_bevy_core_alloc_base",
  "compositor_support_bevy_core_context_base",
  "compositor_support_bevy_core_fault_base",
@@ -3485,7 +3617,7 @@ dependencies = [
 name = "compositor_support_iced_core_engine_base"
 version = "0.1.0"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "iced_core",
  "iced_graphics",
@@ -3566,7 +3698,7 @@ version = "0.0.1"
 name = "compositor_support_smithay_dispatch_state_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_support_smithay_dispatch_wire_color",
  "compositor_support_smithay_dispatch_wire_colorsurf",
@@ -3646,7 +3778,7 @@ dependencies = [
 name = "compositor_support_smithay_dispatch_wire_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_config_base",
  "compositor_kernel_graphic_color_surface_base",
@@ -3728,7 +3860,7 @@ dependencies = [
 name = "compositor_support_smithay_dispatch_wire_trait"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_space_base",
  "smithay",
@@ -3740,7 +3872,7 @@ dependencies = [
 name = "compositor_support_smithay_state_buffer_dispatch"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "smithay",
  "tracing",
@@ -3751,7 +3883,7 @@ dependencies = [
 name = "compositor_support_smithay_state_clipboard_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -3761,7 +3893,7 @@ dependencies = [
 name = "compositor_support_smithay_state_clipboard_dispatch"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "smithay",
  "tracing",
@@ -3772,7 +3904,7 @@ dependencies = [
 name = "compositor_support_smithay_state_clipboard_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_clipboard_base",
  "smithay",
@@ -3784,7 +3916,7 @@ dependencies = [
 name = "compositor_support_smithay_state_compositor_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -3802,7 +3934,7 @@ dependencies = [
 name = "compositor_support_smithay_state_compositor_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_compositor_base",
  "smithay",
@@ -3836,7 +3968,7 @@ dependencies = [
 name = "compositor_support_smithay_state_cursor_shape_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -3846,7 +3978,7 @@ dependencies = [
 name = "compositor_support_smithay_state_cursor_shape_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_cursor_shape_base",
  "smithay",
@@ -3858,7 +3990,7 @@ dependencies = [
 name = "compositor_support_smithay_state_dmabuf_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -3868,7 +4000,7 @@ dependencies = [
 name = "compositor_support_smithay_state_dmabuf_dispatch"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_support_smithay_dispatch_state_base",
  "smithay",
@@ -3878,7 +4010,7 @@ dependencies = [
 name = "compositor_support_smithay_state_dmabuf_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_dmabuf_base",
  "smithay",
@@ -3890,7 +4022,7 @@ dependencies = [
 name = "compositor_support_smithay_state_dnd_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -3900,7 +4032,7 @@ dependencies = [
 name = "compositor_support_smithay_state_dnd_dispatch"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "smithay",
  "tracing",
@@ -3911,7 +4043,7 @@ dependencies = [
 name = "compositor_support_smithay_state_dnd_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_dnd_base",
  "smithay",
@@ -3942,8 +4074,9 @@ dependencies = [
 name = "compositor_support_smithay_state_fractional_dispatch"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
+ "compositor_support_smithay_state_fractional_debounce",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -3960,7 +4093,7 @@ dependencies = [
 name = "compositor_support_smithay_state_fractional_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_fractional_base",
  "smithay",
@@ -3991,7 +4124,7 @@ dependencies = [
 name = "compositor_support_smithay_state_grab_dispatch"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "smithay",
  "tracing",
@@ -4037,7 +4170,7 @@ dependencies = [
 name = "compositor_support_smithay_state_grab_resize_surface"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
 ]
 
@@ -4045,7 +4178,7 @@ dependencies = [
 name = "compositor_support_smithay_state_layershell_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4066,7 +4199,7 @@ dependencies = [
 name = "compositor_support_smithay_state_layershell_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_layershell_base",
  "smithay",
@@ -4093,7 +4226,7 @@ dependencies = [
 name = "compositor_support_smithay_state_output_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4103,7 +4236,7 @@ dependencies = [
 name = "compositor_support_smithay_state_output_dispatch"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "smithay",
  "tracing",
@@ -4114,7 +4247,7 @@ dependencies = [
 name = "compositor_support_smithay_state_output_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_output_base",
  "smithay",
@@ -4126,7 +4259,7 @@ dependencies = [
 name = "compositor_support_smithay_state_popup_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4145,7 +4278,7 @@ dependencies = [
 name = "compositor_support_smithay_state_popup_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_popup_base",
  "smithay",
@@ -4165,7 +4298,7 @@ dependencies = [
 name = "compositor_support_smithay_state_presentation_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4175,7 +4308,7 @@ dependencies = [
 name = "compositor_support_smithay_state_presentation_dispatch"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "smithay",
  "tracing",
@@ -4186,7 +4319,7 @@ dependencies = [
 name = "compositor_support_smithay_state_presentation_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_presentation_base",
  "smithay",
@@ -4214,9 +4347,10 @@ dependencies = [
 name = "compositor_support_smithay_state_seat_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_seat_base",
+ "compositor_support_smithay_state_seat_xkb",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4231,10 +4365,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_support_smithay_state_seat_xkb"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_environment_preference_base",
+ "smithay",
+]
+
+[[package]]
 name = "compositor_support_smithay_state_shm_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4244,7 +4386,7 @@ dependencies = [
 name = "compositor_support_smithay_state_shm_dispatch"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "smithay",
  "tracing",
@@ -4255,7 +4397,7 @@ dependencies = [
 name = "compositor_support_smithay_state_shm_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_shm_base",
  "smithay",
@@ -4267,7 +4409,7 @@ dependencies = [
 name = "compositor_support_smithay_state_singlepixel_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4277,7 +4419,7 @@ dependencies = [
 name = "compositor_support_smithay_state_singlepixel_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_singlepixel_base",
  "smithay",
@@ -4289,7 +4431,7 @@ dependencies = [
 name = "compositor_support_smithay_state_space_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4299,7 +4441,7 @@ dependencies = [
 name = "compositor_support_smithay_state_space_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_space_base",
  "smithay",
@@ -4311,7 +4453,7 @@ dependencies = [
 name = "compositor_support_smithay_state_text_input_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4321,10 +4463,20 @@ dependencies = [
 name = "compositor_support_smithay_state_text_input_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_text_input_base",
+ "compositor_support_smithay_state_text_input_launch",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_support_smithay_state_text_input_launch"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_preference_base",
  "smithay",
 ]
 
@@ -4332,7 +4484,7 @@ dependencies = [
 name = "compositor_support_smithay_state_viewporter_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4342,7 +4494,7 @@ dependencies = [
 name = "compositor_support_smithay_state_viewporter_dispatch"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "smithay",
  "tracing",
@@ -4353,7 +4505,7 @@ dependencies = [
 name = "compositor_support_smithay_state_viewporter_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_viewporter_base",
  "smithay",
@@ -4365,7 +4517,7 @@ dependencies = [
 name = "compositor_support_smithay_state_xdg_activation_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4384,7 +4536,7 @@ dependencies = [
 name = "compositor_support_smithay_state_xdg_activation_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_xdg_activation_base",
  "smithay",
@@ -4403,7 +4555,7 @@ dependencies = [
 name = "compositor_support_smithay_state_xdg_decoration_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4413,7 +4565,7 @@ dependencies = [
 name = "compositor_support_smithay_state_xdg_decoration_dispatch"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "smithay",
  "tracing",
@@ -4424,7 +4576,7 @@ dependencies = [
 name = "compositor_support_smithay_state_xdg_decoration_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_xdg_decoration_base",
  "smithay",
@@ -4436,7 +4588,7 @@ dependencies = [
 name = "compositor_support_smithay_state_xdg_foreign_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4446,7 +4598,7 @@ dependencies = [
 name = "compositor_support_smithay_state_xdg_foreign_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_xdg_foreign_base",
  "smithay",
@@ -4458,7 +4610,7 @@ dependencies = [
 name = "compositor_support_smithay_state_xdg_shell_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4479,7 +4631,7 @@ dependencies = [
 name = "compositor_support_smithay_state_xdg_shell_factory"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_xdg_shell_base",
  "smithay",
@@ -4520,7 +4672,7 @@ dependencies = [
 name = "compositor_support_smithay_wayland_connection_record"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4696,6 +4848,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_support_system_persist_trait_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_system_persist_entry_base",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "compositor_support_system_persist_write_base"
 version = "0.0.1"
 dependencies = [
@@ -4805,7 +4966,7 @@ dependencies = [
 name = "compositor_y5_audio_controller_interface"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "libpulse-binding",
  "mpris",
@@ -4818,7 +4979,7 @@ dependencies = [
 name = "compositor_y5_camera_state_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_system_storage_token_base",
  "compositor_y5_camera_transform_state",
  "compositor_y5_camera_zone_state",
@@ -4836,6 +4997,7 @@ dependencies = [
  "compositor_support_system_channel_token_base",
  "compositor_support_system_input_event_base",
  "compositor_support_system_input_layer_base",
+ "compositor_support_system_persist_document_entry",
  "compositor_support_system_storage_slot_base",
  "compositor_support_system_storage_token_base",
  "compositor_support_system_trait_system_base",
@@ -4846,6 +5008,8 @@ dependencies = [
  "compositor_y5_group_state_base",
  "compositor_y5_navigator_state_base",
  "compositor_y5_surface_interface_core",
+ "compositor_y5_viewport_persist_doc",
+ "compositor_y5_viewport_state_base",
  "compositor_y5_window_interface_record",
  "smithay",
 ]
@@ -4854,7 +5018,7 @@ dependencies = [
 name = "compositor_y5_camera_transform_state"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4864,7 +5028,7 @@ dependencies = [
 name = "compositor_y5_camera_transform_translate"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_y5_camera_transform_state",
  "smithay",
  "tracing",
@@ -4875,7 +5039,7 @@ dependencies = [
 name = "compositor_y5_camera_zone_state"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4886,7 +5050,7 @@ dependencies = [
 name = "compositor_y5_canvas_input_state"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4897,7 +5061,7 @@ dependencies = [
 name = "compositor_y5_canvas_state_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_y5_canvas_input_state",
  "compositor_y5_group_state_base",
  "compositor_y5_select_state_base",
@@ -4913,6 +5077,7 @@ dependencies = [
  "compositor_monitor_compositor_iced_base",
  "compositor_orchestration_draw_layer_base",
  "compositor_orchestration_draw_platform_base",
+ "compositor_orchestration_driver_output_base",
  "compositor_orchestration_storage_state_base",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_system_buffer_token_base",
@@ -4921,7 +5086,7 @@ dependencies = [
  "compositor_support_system_storage_slot_base",
  "compositor_support_system_storage_token_base",
  "compositor_support_system_trait_system_base",
- "compositor_y5_camera_state_base",
+ "compositor_support_world_order_track_base",
  "compositor_y5_camera_transform_translate",
  "compositor_y5_canvas_input_state",
  "compositor_y5_canvas_state_base",
@@ -4933,6 +5098,7 @@ dependencies = [
  "compositor_y5_surface_interface_core",
  "compositor_y5_surface_protocol_base",
  "compositor_y5_surface_system_base",
+ "compositor_y5_viewport_state_base",
  "compositor_y5_window_interface_record",
  "smithay",
  "uuid",
@@ -4954,6 +5120,7 @@ name = "compositor_y5_graphic_capture_registry"
 version = "0.1.0"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_support_bevy_core_runtime_base",
  "smithay",
  "thiserror 2.0.18",
@@ -4990,7 +5157,7 @@ dependencies = [
 name = "compositor_y5_graphic_card_constant"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -5000,7 +5167,7 @@ dependencies = [
 name = "compositor_y5_group_protocol_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_monitor_compositor_iced_base",
  "compositor_support_system_channel_router_base",
  "compositor_support_system_channel_token_base",
@@ -5015,7 +5182,7 @@ dependencies = [
 name = "compositor_y5_group_state_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_monitor_compositor_iced_base",
  "compositor_support_system_storage_token_base",
@@ -5030,7 +5197,7 @@ dependencies = [
 name = "compositor_y5_group_surface_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_iced_core_engine_base",
  "iced_core",
  "iced_widget",
@@ -5043,7 +5210,7 @@ dependencies = [
 name = "compositor_y5_launcher_draw_state"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_monitor_compositor_iced_base",
  "compositor_monitor_launcher_ui_base",
  "smithay",
@@ -5055,7 +5222,7 @@ dependencies = [
 name = "compositor_y5_launcher_protocol_message"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_monitor_launcher_ui_base",
  "smithay",
  "tracing",
@@ -5087,7 +5254,7 @@ dependencies = [
 name = "compositor_y5_lock_state_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_background_three_lock_scene",
  "compositor_developer_debug_instance_record",
  "compositor_monitor_compositor_iced_base",
@@ -5116,7 +5283,7 @@ dependencies = [
 name = "compositor_y5_lock_tty_interface"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -5127,7 +5294,7 @@ dependencies = [
 name = "compositor_y5_navigator_lock_state"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_y5_camera_transform_state",
  "compositor_y5_navigator_travel_state",
  "smithay",
@@ -5139,7 +5306,7 @@ dependencies = [
 name = "compositor_y5_navigator_state_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_system_channel_router_base",
  "compositor_support_system_channel_token_base",
  "compositor_support_system_storage_token_base",
@@ -5154,7 +5321,7 @@ dependencies = [
 name = "compositor_y5_navigator_travel_state"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -5212,7 +5379,7 @@ dependencies = [
 name = "compositor_y5_placeholder_protocol_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_introspection_launchplan_plan_base",
  "compositor_y5_placeholder_state_base",
  "smithay",
@@ -5225,7 +5392,7 @@ dependencies = [
 name = "compositor_y5_placeholder_record_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_introspection_extraction_window_base",
  "compositor_introspection_inference_hint_base",
@@ -5240,7 +5407,7 @@ dependencies = [
 name = "compositor_y5_placeholder_state_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_introspection_extraction_window_base",
  "compositor_introspection_launchplan_plan_base",
@@ -5293,7 +5460,7 @@ dependencies = [
 name = "compositor_y5_select_state_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_support_system_channel_router_base",
  "compositor_support_system_channel_token_base",
@@ -5323,6 +5490,8 @@ dependencies = [
  "compositor_y5_select_state_base",
  "compositor_y5_surface_state_base",
  "compositor_y5_surface_system_base",
+ "compositor_y5_viewport_layout_base",
+ "compositor_y5_viewport_state_base",
  "compositor_y5_window_interface_record",
  "smithay",
  "uuid",
@@ -5332,7 +5501,7 @@ dependencies = [
 name = "compositor_y5_surface_protocol_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_configurator_settings_surface_message",
  "compositor_monitor_selection_scene_base",
  "compositor_y5_graphic_capture_session",
@@ -5352,7 +5521,7 @@ dependencies = [
 name = "compositor_y5_surface_state_base"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_monitor_compositor_iced_base",
  "compositor_monitor_runtime_surface_base",
  "compositor_support_iced_core_engine_base",
@@ -5381,6 +5550,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_y5_viewport_layout_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_y5_viewport_state_base",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_y5_viewport_persist_doc"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_system_persist_document_trait",
+ "compositor_y5_camera_state_base",
+ "compositor_y5_camera_transform_state",
+ "compositor_y5_viewport_state_base",
+ "serde",
+ "serde_json",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_y5_viewport_state_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_system_storage_token_base",
+ "compositor_y5_camera_state_base",
+ "smithay",
+ "uuid",
+]
+
+[[package]]
 name = "compositor_y5_window_interface_data"
 version = "0.0.1"
 dependencies = [
@@ -5393,7 +5593,7 @@ dependencies = [
 name = "compositor_y5_window_interface_record"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_introspection_extraction_window_base",
  "compositor_introspection_inference_hint_base",
@@ -5409,7 +5609,7 @@ dependencies = [
 name = "compositor_y5_window_lifecycle_event"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_support_smithay_state_xdg_activation_dispatch",
  "smithay",
  "tracing",
@@ -5421,7 +5621,7 @@ dependencies = [
 name = "compositor_y5_window_lifecycle_state"
 version = "0.0.1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "compositor_y5_window_lifecycle_event",
  "smithay",
  "tracing",
@@ -5558,15 +5758,15 @@ version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be17b688510d934ce13f48a2beba700e11583e281e0fda99c22bb256a14eda73"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "fontdb",
  "harfrust",
  "linebender_resource_handle",
  "log",
  "rangemap",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "self_cell",
- "skrifa",
+ "skrifa 0.40.0",
  "smol_str 0.3.6",
  "swash",
  "sys-locale",
@@ -5646,7 +5846,7 @@ dependencies = [
  "cosmic-text",
  "etagere",
  "lru",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "wgpu",
 ]
 
@@ -5719,7 +5919,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustc_version",
- "syn 2.0.117",
+ "syn 2.0.118",
  "unicode-xid",
 ]
 
@@ -5745,7 +5945,7 @@ version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e0e367e4e7da84520dedcac1901e4da967309406d1e51017ae1abfb97adbd38"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "block2 0.6.2",
  "libc",
  "objc2 0.6.4",
@@ -5799,7 +5999,7 @@ version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "80bc8c5c6c2941f70a55c15f8d9f00f9710ebda3ffda98075f996a0e6c92756f"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "bytemuck",
  "drm-ffi",
  "drm-fourcc",
@@ -5867,7 +6067,7 @@ checksum = "c8bad72d8308f7a382de2391ec978ddd736e0103846b965d7e2a63a75768af30"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -5916,7 +6116,7 @@ checksum = "67c78a4d8fdf9953a5c9d458f9efe940fd97a0cab0941c075a813ac594733827"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -6106,7 +6306,7 @@ checksum = "1a5c6c585bc94aaf2c7b51dd4c2ba22680844aba4c687be581871a6f518c5742"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -6193,7 +6393,7 @@ checksum = "e835b70203e41293343137df5c0664546da5745f82ec9b84d40be8336958447b"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -6231,7 +6431,7 @@ version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce852e998d3ca5e4a97014fb31c940dc5ef344ec7d364984525fd11e8a547e6a"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "drm",
  "drm-fourcc",
  "gbm-sys",
@@ -6283,16 +6483,14 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0de51e6874e94e7bf76d726fc5d13ba782deca734ff60d5bb2fb2607c7406555"
+checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
 dependencies = [
  "cfg-if",
  "libc",
  "r-efi 6.0.0",
  "rand_core 0.10.1",
- "wasip2",
- "wasip3",
 ]
 
 [[package]]
@@ -6331,7 +6529,7 @@ dependencies = [
  "bytemuck",
  "encase",
  "libm",
- "rand 0.10.1",
+ "rand 0.10.2",
  "serde_core",
 ]
 
@@ -6374,7 +6572,7 @@ dependencies = [
  "inflections",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -6424,9 +6622,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.4.14"
+version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "171fefbc92fe4a4de27e0698d6a5b392d6a0e333506bc49133760b3bcf948733"
+checksum = "6cb093c84e8bd9b188d4c4a8cb6579fc016968d14c99882163cd3ff402a4f155"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -6460,10 +6658,10 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9da2e5ae821f6e96664977bf974d6d6a2d6682f9ccee23e62ec1d134246845f9"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "bytemuck",
  "core_maths",
- "read-fonts",
+ "read-fonts 0.37.0",
  "smallvec",
 ]
 
@@ -6552,9 +6750,9 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "1.4.1"
+version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8be7462df143984c4598a256ef469b251d7d7f9e271135073e78fc535414f3d0"
+checksum = "6970f50e31d6fc17d3fa27329444bfa74e196cf62e95052a3f6fee181dba6425"
 dependencies = [
  "bytes",
  "itoa",
@@ -6597,9 +6795,9 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "hyper"
-version = "1.10.0"
+version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb92f162bf56536459fc83c79b974bb12837acfed43d6bc370a7916d0ae15ecc"
+checksum = "55281c53a1894c864990125767da440a4e630446785086f52523b20033b74498"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -6654,13 +6852,13 @@ dependencies = [
 name = "iced_core"
 version = "0.15.0-dev"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "bytes",
  "glam 0.25.0",
  "lilt",
  "log",
  "num-traits",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "smol_str 0.2.2",
  "thiserror 2.0.18",
  "web-time",
@@ -6682,7 +6880,7 @@ dependencies = [
  "futures",
  "iced_core",
  "log",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "wasm-bindgen-futures",
  "wasmtimer",
 ]
@@ -6691,7 +6889,7 @@ dependencies = [
 name = "iced_graphics"
 version = "0.15.0-dev"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "bytemuck",
  "cosmic-text",
  "half",
@@ -6701,7 +6899,7 @@ dependencies = [
  "kamadak-exif",
  "log",
  "raw-window-handle",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "thiserror 2.0.18",
  "unicode-segmentation",
 ]
@@ -6739,7 +6937,7 @@ dependencies = [
  "kurbo 0.10.4",
  "log",
  "resvg",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "softbuffer",
  "tiny-skia",
 ]
@@ -6748,7 +6946,7 @@ dependencies = [
 name = "iced_wgpu"
 version = "0.15.0-dev"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "bytemuck",
  "cryoglyph",
  "futures",
@@ -6758,7 +6956,7 @@ dependencies = [
  "iced_graphics",
  "log",
  "resvg",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "thiserror 2.0.18",
  "wgpu",
 ]
@@ -6770,16 +6968,10 @@ dependencies = [
  "iced_renderer",
  "log",
  "num-traits",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "thiserror 2.0.18",
  "unicode-segmentation",
 ]
-
-[[package]]
-name = "id-arena"
-version = "2.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d3067d79b975e8844ca9eb072e16b31c3c1c36928edf9c6789548c524d0d954"
 
 [[package]]
 name = "image"
@@ -6834,16 +7026,16 @@ version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "533e68a5842e734946fe159fb03fc9bbbb254f590dd0d8ad321ae5ff7beca2c1"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "inotify-sys",
  "libc",
 ]
 
 [[package]]
 name = "inotify-sys"
-version = "0.1.5"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e05c02b5e89bff3b946cedeca278abc628fe811e604f027c45a8aa3cf793d0eb"
+checksum = "9ea94e891b3606826e9c998be69ddca42247dad8ad50b1649a5cb7e1c9ae06fd"
 dependencies = [
  "libc",
 ]
@@ -6854,7 +7046,7 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9793345a65d71317763a33066b5d8351f8760dde8d4930fe9e39b5f14a7959d"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "input-sys",
  "libc",
  "udev",
@@ -6888,9 +7080,9 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.12.1"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
 dependencies = [
  "either",
 ]
@@ -6937,7 +7129,7 @@ dependencies = [
  "quote",
  "rustc_version",
  "simd_cesu8",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -6965,7 +7157,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38c0b942f458fe50cdac086d2f946512305e5631e720728f2a61aabcd47a6264"
 dependencies = [
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -6980,13 +7172,12 @@ dependencies = [
 
 [[package]]
 name = "js-sys"
-version = "0.3.99"
+version = "0.3.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "142bc4740e452c1e57ade0cbc129f139c9093e354346f0872ef985f4f5cf5f11"
+checksum = "03d04c30968dffe80775bd4d7fb676131cd04a1fb46d2686dbffbaec2d9dfd31"
 dependencies = [
  "cfg-if",
  "futures-util",
- "once_cell",
  "wasm-bindgen",
 ]
 
@@ -7032,7 +7223,7 @@ version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07293a4e297ac234359b510362495713f75ea345d5307140414f20c69ffeb087"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "libc",
 ]
 
@@ -7042,7 +7233,7 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d50be8a24c37debdf3170be6ca396d5b5b165f37f94837891adac735ca416b8"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
 ]
 
 [[package]]
@@ -7071,12 +7262,6 @@ name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
-
-[[package]]
-name = "leb128fmt"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "libc"
@@ -7115,7 +7300,7 @@ version = "2.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "909eb3049e16e373680fe65afe6e2a722ace06b671250cc4849557bc57d6a397"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "libc",
  "libpulse-sys",
  "num-derive",
@@ -7142,10 +7327,10 @@ version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f02ab6bace2054fb888a3c16f990117b579d14a3088e472d63c6011fa185c9d3"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "libc",
  "plain",
- "redox_syscall 0.8.0",
+ "redox_syscall 0.8.1",
 ]
 
 [[package]]
@@ -7228,9 +7413,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.30"
+version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "616ec5685824bcc94416c6d4a7a446eea774a31efd7062c8480ba6fd06d7a6e5"
+checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
 name = "lru"
@@ -7255,15 +7440,15 @@ checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "memchr"
-version = "2.8.1"
+version = "2.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
+checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 
 [[package]]
 name = "memmap2"
-version = "0.9.10"
+version = "0.9.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "714098028fe011992e1c3962653c96b2d578c4b4bce9036e15ff220319b1e0e3"
+checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
 dependencies = [
  "libc",
 ]
@@ -7350,7 +7535,7 @@ version = "29.0.0"
 dependencies = [
  "arrayvec",
  "bit-set",
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "cfg-if",
  "cfg_aliases",
  "codespan-reporting 0.13.1",
@@ -7389,7 +7574,7 @@ version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3f42e7bbe13d351b6bead8286a43aac9534b82bd3cc43e47037f012ebfd62d4"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "jni-sys 0.3.1",
  "log",
  "ndk-sys",
@@ -7419,7 +7604,7 @@ version = "0.31.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "cfg-if",
  "cfg_aliases",
  "libc",
@@ -7447,7 +7632,7 @@ version = "8.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d3d07927151ff8575b7087f245456e549fea62edf0ec4e565a5ee50c8402bc3"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "fsevent-sys",
  "inotify",
  "kqueue",
@@ -7478,7 +7663,7 @@ version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42b8cfee0e339a0337359f3c88165702ac6e600dc01c0cc9579a92d62b08477a"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
 ]
 
 [[package]]
@@ -7498,7 +7683,7 @@ checksum = "ed3955f1a9c7c0c15e092f9c887db08b1fc683305fdf6eb6684f22555355e202"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -7530,7 +7715,7 @@ dependencies = [
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -7564,7 +7749,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4e89ad9e3d7d297152b17d39ed92cd50ca8063a89a9fa569046d41568891eff"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "block2 0.5.1",
  "libc",
  "objc2 0.5.2",
@@ -7580,7 +7765,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "74dd3b56391c7a0596a295029734d3c1c5e7e510a4cb30245f8221ccea96b009"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "block2 0.5.1",
  "objc2 0.5.2",
  "objc2-core-location",
@@ -7604,7 +7789,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "617fbf49e071c178c0b24c080767db52958f716d9eabdf0890523aeae54773ef"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "block2 0.5.1",
  "objc2 0.5.2",
  "objc2-foundation 0.2.2",
@@ -7616,7 +7801,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a180dd8642fa45cdb7dd721cd4c11b1cadd4929ce112ebd8b9f5803cc79d536"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "dispatch2",
  "objc2 0.6.4",
 ]
@@ -7627,7 +7812,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e022c9d066895efa1345f8e33e584b9f958da2fd4cd116792e15e07e4720a807"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "dispatch2",
  "objc2 0.6.4",
  "objc2-core-foundation",
@@ -7670,7 +7855,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ee638a5da3799329310ad4cfa62fbf045d5f56e3ef5ba4149e7452dcf89d5a8"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "block2 0.5.1",
  "dispatch",
  "libc",
@@ -7683,7 +7868,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "objc2 0.6.4",
  "objc2-core-foundation",
 ]
@@ -7694,7 +7879,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "180788110936d59bab6bd83b6060ffdfffb3b922ba1396b312ae795e1de9d81d"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "objc2 0.6.4",
  "objc2-core-foundation",
 ]
@@ -7717,7 +7902,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd0cba1276f6023976a406a14ffa85e1fdd19df6b0f737b063b95f6c8c7aadd6"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "block2 0.5.1",
  "objc2 0.5.2",
  "objc2-foundation 0.2.2",
@@ -7729,7 +7914,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0125f776a10d00af4152d74616409f0d4a2053a6f57fa5b7d6aa2854ac04794"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "block2 0.6.2",
  "objc2 0.6.4",
  "objc2-foundation 0.3.2",
@@ -7741,7 +7926,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e42bee7bff906b14b167da2bac5efe6b6a07e6f7c0a21a7308d40c960242dc7a"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "block2 0.5.1",
  "objc2 0.5.2",
  "objc2-foundation 0.2.2",
@@ -7754,7 +7939,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96c1358452b371bf9f104e21ec536d37a650eb10f7ee379fff67d2e08d537f1f"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "objc2 0.6.4",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
@@ -7777,7 +7962,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8bb46798b20cd6b91cbd113524c490f1686f4c4e8f49502431415f3512e2b6f"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "block2 0.5.1",
  "objc2 0.5.2",
  "objc2-cloud-kit",
@@ -7809,7 +7994,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76cfcbf642358e8689af64cee815d139339f3ed8ad05103ed5eaf73db8d84cb3"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "block2 0.5.1",
  "objc2 0.5.2",
  "objc2-core-location",
@@ -7959,7 +8144,7 @@ checksum = "c96395f0a926bc13b1c17622aaddda1ecb55d49c8f1bf9777e4d877800a43f8b"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -8034,7 +8219,7 @@ version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60769b8b31b2a9f263dae2776c37b1b28ae246943cf719eb6946a1db05128a61"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "crc32fast",
  "fdeflate",
  "flate2",
@@ -8107,7 +8292,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
 dependencies = [
  "proc-macro2",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -8144,14 +8329,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4488a4a36b9a4ba6b9334a32a39971f77c1436ec82c38707bce707699cc3bbcb"
 dependencies = [
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
 name = "prost"
-version = "0.14.3"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2ea70524a2f82d518bce41317d0fae74151505651af45faf1ffbd6fd33f0568"
+checksum = "528ac67416ff8646872a3c02cad9cc4ee5dc9f9540c9b10771855c95cb2e5ae1"
 dependencies = [
  "bytes",
  "prost-derive",
@@ -8159,9 +8344,9 @@ dependencies = [
 
 [[package]]
 name = "prost-build"
-version = "0.14.3"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
+checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
  "heck",
  "itertools 0.14.0",
@@ -8174,28 +8359,28 @@ dependencies = [
  "pulldown-cmark",
  "pulldown-cmark-to-cmark",
  "regex",
- "syn 2.0.117",
+ "syn 2.0.118",
  "tempfile",
 ]
 
 [[package]]
 name = "prost-derive"
-version = "0.14.3"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
+checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
 name = "prost-types"
-version = "0.14.3"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8991c4cbdb8bc5b11f0b074ffe286c30e523de90fee5ba8132f1399f23cb3dd7"
+checksum = "f94967dc7688f3054c7fac87473ffae4cc4c3904800e2d9f5b857246d8963b0a"
 dependencies = [
  "prost",
 ]
@@ -8206,7 +8391,7 @@ version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "memchr",
  "unicase",
 ]
@@ -8243,9 +8428,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.45"
+version = "1.0.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41f2619966050689382d2b44f664f4bc593e129785a36d6ee376ddf37259b924"
+checksum = "dfbc457d0c7a0759a614551b11a6409e5951f6c7537be1f1b7682b9ae9230368"
 dependencies = [
  "proc-macro2",
 ]
@@ -8274,12 +8459,12 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.10.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2e8e8bcc7961af1fdac401278c6a831614941f6164ee3bf4ce61b7edb162207"
+checksum = "c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80"
 dependencies = [
  "chacha20",
- "getrandom 0.4.2",
+ "getrandom 0.4.3",
  "rand_core 0.10.1",
 ]
 
@@ -8315,7 +8500,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d431c2703ccf129de4d45253c03f49ebb22b97d6ad79ee3ecfc7e3f4862c1d8"
 dependencies = [
  "num-traits",
- "rand 0.10.1",
+ "rand 0.10.2",
 ]
 
 [[package]]
@@ -8360,6 +8545,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "read-fonts"
+version = "0.39.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4ed38b89c2c77ff968c524145ad65fb010f38af5c7a224b53b81d47ac2daa81"
+dependencies = [
+ "bytemuck",
+ "font-types",
+]
+
+[[package]]
 name = "rectangle-pack"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8380,23 +8575,23 @@ version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
 ]
 
 [[package]]
 name = "redox_syscall"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c7591fa2c6b601dfcfe5f043f65a1c39fcdf50efefcd7f1572e538c1f4b398d"
+checksum = "5b44b894f2a6e36457d665d1e08c3866add6ed5e70050c1b4ba8a8ddedb02ce7"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
 ]
 
 [[package]]
 name = "regex"
-version = "1.12.3"
+version = "1.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e10754a14b9137dd7b1e3e5b0493cc9171fdd105e0ab477f51b72e7f3ac0e276"
+checksum = "f1292b7759ae1cb9ec195452d1390a074f0cd8541ab7a5a8c31cd6db45d4a6ba"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -8417,9 +8612,9 @@ dependencies = [
 
 [[package]]
 name = "regex-syntax"
-version = "0.8.10"
+version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
+checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "renderdoc-sys"
@@ -8455,11 +8650,11 @@ dependencies = [
 
 [[package]]
 name = "ron"
-version = "0.12.1"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4147b952f3f819eca0e99527022f7d6a8d05f111aeb0a62960c74eb283bec8fc"
+checksum = "81116b9531d61eabc41aeb228e4b6b2435bcca3233b98cf3b3077d4e6e9debb3"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "once_cell",
  "serde",
  "serde_derive",
@@ -8493,9 +8688,9 @@ checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustc-hash"
-version = "2.1.2"
+version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94300abf3f1ae2e2b8ffb7b58043de3d399c73fa6f4b73826402a5c457614dbe"
+checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
 
 [[package]]
 name = "rustc_version"
@@ -8512,7 +8707,7 @@ version = "0.38.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fdb5bc1ae2baa591800df16c9ca78619bf65c0488b41b96ccec5d11220d8c154"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
@@ -8525,7 +8720,7 @@ version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
@@ -8544,7 +8739,7 @@ version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3c7c96f8a08ee34eff8857b11b49b07d71d1c3f4e88f8a88d4c9e9f90b1702"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "bytemuck",
  "core_maths",
  "log",
@@ -8631,7 +8826,7 @@ checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -8655,7 +8850,7 @@ checksum = "175ee3e80ae9982737ca543e96133087cbd9a485eecc3bc4de9c1a37b47ea59c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -8683,6 +8878,12 @@ name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
+
+[[package]]
+name = "shlex"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "signal-hook-registry"
@@ -8738,7 +8939,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fbdfe3d2475fbd7ddd1f3e5cf8288a30eb3e5f95832829570cd88115a7434ac"
 dependencies = [
  "bytemuck",
- "read-fonts",
+ "read-fonts 0.37.0",
+]
+
+[[package]]
+name = "skrifa"
+version = "0.42.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c34617370ae968efb7161bb2beb517d9084659aae19e24b89e3db25b46e4564"
+dependencies = [
+ "bytemuck",
+ "read-fonts 0.39.2",
 ]
 
 [[package]]
@@ -8758,9 +8969,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.15.1"
+version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 
 [[package]]
 name = "smithay"
@@ -8770,7 +8981,7 @@ dependencies = [
  "appendlist",
  "ash",
  "atomic_float",
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "calloop 0.14.4",
  "cc",
  "cgmath",
@@ -8818,7 +9029,7 @@ version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3457dea1f0eb631b4034d61d4d8c32074caa6cd1ab2d59f2327bd8461e2c0016"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "calloop 0.13.0",
  "calloop-wayland-source",
  "cursor-icon",
@@ -8899,7 +9110,7 @@ version = "0.4.0+sdk-1.4.341.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9571ea910ebd84c86af4b3ed27f9dbdc6ad06f17c5f96146b2b671e2976744f"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
 ]
 
 [[package]]
@@ -8950,11 +9161,11 @@ dependencies = [
 
 [[package]]
 name = "swash"
-version = "0.2.7"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "842f3cd369c2ba38966204f983eaa5e54a8e84a7d7159ed36ade2b6c335aae64"
+checksum = "0811b01ca2c4e8718760713911feaf4675c24f94e50530a015ec646cfb622f7c"
 dependencies = [
- "skrifa",
+ "skrifa 0.42.1",
  "yazi",
  "zeno",
 ]
@@ -8972,9 +9183,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.117"
+version = "2.0.118"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e665b8803e7b1d2a727f4023456bbbbe74da67099c585258af0ad9c5013b9b99"
+checksum = "1b9ae57f904213ebb649ce6895b8a66c66f0203b9319718f69a5612a065b1422"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9003,7 +9214,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.2",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
@@ -9044,7 +9255,7 @@ checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -9055,7 +9266,7 @@ checksum = "ebc4ee7f67670e9b64d05fa4253e753e016c6c95ff35b89b7941d6b856dec1d5"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -9133,7 +9344,7 @@ checksum = "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -9228,7 +9439,7 @@ dependencies = [
  "prettyplease",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -9253,7 +9464,7 @@ dependencies = [
  "prost-build",
  "prost-types",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
  "tempfile",
  "tonic-build",
 ]
@@ -9309,7 +9520,7 @@ checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -9403,9 +9614,9 @@ checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
 
 [[package]]
 name = "typenum"
-version = "1.20.0"
+version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40ce102ab67701b8526c123c1bab5cbe42d7040ccfd0f64af1a385808d2f43de"
+checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "typewit"
@@ -9486,9 +9697,9 @@ checksum = "383ad40bb927465ec0ce7720e033cb4ca06912855fc35db31b5755d0de75b1ee"
 
 [[package]]
 name = "unicode-segmentation"
-version = "1.13.2"
+version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9629274872b2bfaf8d66f5f15725007f635594914870f65218920345aa11aa8c"
+checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 
 [[package]]
 name = "unicode-vo"
@@ -9537,13 +9748,13 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.23.1"
+version = "1.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
+checksum = "bf80a72845275afea99e7f2b434723d3bc7e38470fcd1c7ed39a599c73319a53"
 dependencies = [
- "getrandom 0.4.2",
+ "getrandom 0.4.3",
  "js-sys",
- "rand 0.10.1",
+ "rand 0.10.2",
  "serde_core",
  "wasm-bindgen",
 ]
@@ -9562,7 +9773,7 @@ checksum = "41b6d82be61465f97d42bd1d15bf20f3b0a3a0905018f38f9d6f6962055b0b5c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -9598,27 +9809,18 @@ checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "wasip2"
-version = "1.0.3+wasi-0.2.9"
+version = "1.0.4+wasi-0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20064672db26d7cdc89c7798c48a0fdfac8213434a1186e5ef29fd560ae223d6"
+checksum = "b67efb37e106e55ce722a510d6b5f9c17f083e5fc79afc2badeb12cc313d9487"
 dependencies = [
- "wit-bindgen 0.57.1",
-]
-
-[[package]]
-name = "wasip3"
-version = "0.4.0+wasi-0.3.0-rc-2026-01-06"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5428f8bf88ea5ddc08faddef2ac4a67e390b88186c703ce6dbd955e1c145aca5"
-dependencies = [
- "wit-bindgen 0.51.0",
+ "wit-bindgen",
 ]
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.122"
+version = "0.2.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ed04576f974d2b2fba0f38c51dbc5518011e38c36bf1143164be765528fd409"
+checksum = "8ddb3f79143bced6de84270411622a2699cee572fc0875aeaf1e7867cf9fca1a"
 dependencies = [
  "cfg-if",
  "once_cell",
@@ -9629,9 +9831,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-futures"
-version = "0.4.72"
+version = "0.4.75"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9473dbd2991ae90b6291c3c32c30c6187ac49aa32f9905d1cce280ec1e110b0f"
+checksum = "503b14d284f2c8dac03b819967e155ea753f573586193b2b2c95990cb5d69280"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
@@ -9639,9 +9841,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro"
-version = "0.2.122"
+version = "0.2.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "916151b09da36bd82f6615cbf3a419e2f0ba23a03c6160e8e92eb6bd4aa1dec6"
+checksum = "4e21a184b13fb19e157296e2c46056aec9092264fab83e4ba59e68c61b323c3d"
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -9649,58 +9851,24 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
-version = "0.2.122"
+version = "0.2.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "299047362ccbfce148b67ab7e73349f77748e00c8296f9542adfad2ad82c5c5e"
+checksum = "fecefd9c35bd935a20fc3fc344b5f29138961e4f47fb03297d88f2587afb5ebd"
 dependencies = [
  "bumpalo",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
  "wasm-bindgen-shared",
 ]
 
 [[package]]
 name = "wasm-bindgen-shared"
-version = "0.2.122"
+version = "0.2.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a929b2c61f11ba3e9bc35b50c1f25cb38e0e892c0c231ae2b8cf78d5dad4437"
+checksum = "23939e44bb9a5d7576fa2b563dc2e136628f1224e88a8deed09e04858b77871f"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "wasm-encoder"
-version = "0.244.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "990065f2fe63003fe337b932cfb5e3b80e0b4d0f5ff650e6985b1048f62c8319"
-dependencies = [
- "leb128fmt",
- "wasmparser",
-]
-
-[[package]]
-name = "wasm-metadata"
-version = "0.244.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb0e353e6a2fbdc176932bbaab493762eb1255a7900fe0fea1a2f96c296cc909"
-dependencies = [
- "anyhow",
- "indexmap",
- "wasm-encoder",
- "wasmparser",
-]
-
-[[package]]
-name = "wasmparser"
-version = "0.244.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47b807c72e1bac69382b3a6fb3dbe8ea4c0ed87ff5629b8685ae6b9a611028fe"
-dependencies = [
- "bitflags 2.11.1",
- "hashbrown 0.15.5",
- "indexmap",
- "semver",
 ]
 
 [[package]]
@@ -9737,7 +9905,7 @@ version = "0.31.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "645c7c96bb74690c3189b5c9cb4ca1627062bb23693a4fad9d8c3de958260144"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "rustix 1.1.4",
  "wayland-backend",
  "wayland-scanner",
@@ -9749,7 +9917,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "625c5029dbd43d25e6aa9615e88b829a5cad13b2819c4ae129fdbb7c31ab4c7e"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "cursor-icon",
  "wayland-backend",
 ]
@@ -9777,11 +9945,11 @@ dependencies = [
 
 [[package]]
 name = "wayland-protocols"
-version = "0.32.12"
+version = "0.32.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "563a85523cade2429938e790815fd7319062103b9f4a2dc806e9b53b95982d8f"
+checksum = "23d0c813de3daa2ed6520af85a3bd49b0e722a3078506899aa9686fea58dc4b6"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "wayland-backend",
  "wayland-client",
  "wayland-scanner",
@@ -9794,7 +9962,7 @@ version = "0.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e9567599ef23e09b8dad6e429e5738d4509dfc46b3b21f32841a304d16b29c8"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "wayland-backend",
  "wayland-protocols",
  "wayland-scanner",
@@ -9807,7 +9975,7 @@ version = "0.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b6d8cf1eb2c1c31ed1f5643c88a6e53538129d4af80030c8cabd1f9fa884d91"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
@@ -9820,7 +9988,7 @@ version = "0.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb04e52f7836d7c7976c78ca0250d61e33873c34156a2a1fc9474828ec268234"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
@@ -9845,7 +10013,7 @@ version = "0.31.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc1846eb04c49182e04f4a099e2a830a2b745610bbc1d61246e206f29c7000a0"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "downcast-rs 1.2.1",
  "rustix 1.1.4",
  "wayland-backend",
@@ -9874,9 +10042,9 @@ checksum = "323f4da9523e9a669e1eaf9c6e763892769b1d38c623913647bfdc1532fe4549"
 
 [[package]]
 name = "web-sys"
-version = "0.3.99"
+version = "0.3.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d621441cfc37b84979402712047321980c178f299193a3589d05b99e8763436"
+checksum = "a6430a72df5eb332242960fe84b3002a241163998241eb596d4f739b9757061d"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
@@ -9915,7 +10083,7 @@ name = "wgpu"
 version = "29.0.0"
 dependencies = [
  "arrayvec",
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "bytemuck",
  "cfg-if",
  "cfg_aliases",
@@ -9945,7 +10113,7 @@ dependencies = [
  "arrayvec",
  "bit-set",
  "bit-vec",
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "bytemuck",
  "cfg_aliases",
  "document-features",
@@ -9998,7 +10166,7 @@ dependencies = [
  "arrayvec",
  "ash",
  "bit-set",
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "block2 0.6.2",
  "bytemuck",
  "cfg-if",
@@ -10053,7 +10221,7 @@ dependencies = [
 name = "wgpu-types"
 version = "29.0.0"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "bytemuck",
  "js-sys",
  "log",
@@ -10147,7 +10315,7 @@ checksum = "053e2e040ab57b9dc951b72c264860db7eb3b0200ba345b4e4c3b14f67855ddf"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -10158,7 +10326,7 @@ checksum = "3f316c4a2570ba26bbec722032c4099d8c8bc095efccdc15688708623367e358"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -10444,7 +10612,7 @@ dependencies = [
  "ahash",
  "android-activity",
  "atomic-waker",
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "block2 0.5.1",
  "bytemuck",
  "calloop 0.13.0",
@@ -10497,97 +10665,9 @@ dependencies = [
 
 [[package]]
 name = "wit-bindgen"
-version = "0.51.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
-dependencies = [
- "wit-bindgen-rust-macro",
-]
-
-[[package]]
-name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
-
-[[package]]
-name = "wit-bindgen-core"
-version = "0.51.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea61de684c3ea68cb082b7a88508a8b27fcc8b797d738bfc99a82facf1d752dc"
-dependencies = [
- "anyhow",
- "heck",
- "wit-parser",
-]
-
-[[package]]
-name = "wit-bindgen-rust"
-version = "0.51.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7c566e0f4b284dd6561c786d9cb0142da491f46a9fbed79ea69cdad5db17f21"
-dependencies = [
- "anyhow",
- "heck",
- "indexmap",
- "prettyplease",
- "syn 2.0.117",
- "wasm-metadata",
- "wit-bindgen-core",
- "wit-component",
-]
-
-[[package]]
-name = "wit-bindgen-rust-macro"
-version = "0.51.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c0f9bfd77e6a48eccf51359e3ae77140a7f50b1e2ebfe62422d8afdaffab17a"
-dependencies = [
- "anyhow",
- "prettyplease",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
- "wit-bindgen-core",
- "wit-bindgen-rust",
-]
-
-[[package]]
-name = "wit-component"
-version = "0.244.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d66ea20e9553b30172b5e831994e35fbde2d165325bec84fc43dbf6f4eb9cb2"
-dependencies = [
- "anyhow",
- "bitflags 2.11.1",
- "indexmap",
- "log",
- "serde",
- "serde_derive",
- "serde_json",
- "wasm-encoder",
- "wasm-metadata",
- "wasmparser",
- "wit-parser",
-]
-
-[[package]]
-name = "wit-parser"
-version = "0.244.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ecc8ac4bc1dc3381b7f59c34f00b67e18f910c2c0f50015669dde7def656a736"
-dependencies = [
- "anyhow",
- "id-arena",
- "indexmap",
- "log",
- "semver",
- "serde",
- "serde_derive",
- "serde_json",
- "unicode-xid",
- "wasmparser",
-]
 
 [[package]]
 name = "x11-dl"
@@ -10644,7 +10724,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d039de8032a9a8856a6be89cea3e5d12fdd82306ab7c94d74e6deab2460651c5"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.13.0",
  "dlib",
  "log",
  "once_cell",
@@ -10677,9 +10757,9 @@ checksum = "e01738255b5a16e78bbb83e7fbba0a1e7dd506905cfc53f4622d89015a03fbb5"
 
 [[package]]
 name = "zbus"
-version = "5.15.0"
+version = "5.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3bcbf15c8708d7fc1be0c993622e0a5cbd5e8b52bfa40afa4c3e0cd8d724ac1"
+checksum = "eee682d202a77e4a9f3b2c2bdf48a7b28af5c08c34ddf66f98c93e5e39464285"
 dependencies = [
  "async-broadcast",
  "async-recursion",
@@ -10707,14 +10787,14 @@ dependencies = [
 
 [[package]]
 name = "zbus_macros"
-version = "5.15.0"
+version = "5.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51fa5406ad9175a8c825a931f8cf347116b531b3634fcb0b627c290f1f2516ff"
+checksum = "adf1bd45a81a103745b1757754762a26e8cd01e4532e4d6c8ec431624b80d1d6"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
  "zbus_names",
  "zvariant",
  "zvariant_utils",
@@ -10739,22 +10819,22 @@ checksum = "6df3dc4292935e51816d896edcd52aa30bc297907c26167fec31e2b0c6a32524"
 
 [[package]]
 name = "zerocopy"
-version = "0.8.49"
+version = "0.8.52"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bce33a6288fa3f072a8c2c7d0f2fdbb90e28298f0135c1f99b96c3db2efcc60b"
+checksum = "ce1022995ff5ff5d841ad7d994facc23098cd40152f2c1d11cd607c6f530653f"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.49"
+version = "0.8.52"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fd425244944f4ab65ccff928e7323354c5a018c75838362fdce749dfad2ee1e"
+checksum = "1ae7f38b72ec2a254e2b87ef277cf2cd4fb97cbebf944faa6f33354da0867930"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -10780,9 +10860,9 @@ dependencies = [
 
 [[package]]
 name = "zvariant"
-version = "5.11.0"
+version = "5.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c1567a6ec68df868cbbfde844cfc6d81649fe5109a62b116b19fabd53e618ee"
+checksum = "a192a0bde63360d77a7523c833d4b4ce6070a927e2c53246e4c540b1a3e27be0"
 dependencies = [
  "endi",
  "enumflags2",
@@ -10794,26 +10874,26 @@ dependencies = [
 
 [[package]]
 name = "zvariant_derive"
-version = "5.11.0"
+version = "5.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7d5b780599bbde114e39d9a0799577fad1ced5105d38515745f7b3099d8ceda"
+checksum = "90bc6cde9c01c511074be97f7ccb6c19d0da89e3f8662e812e999dcfd4638737"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
  "zvariant_utils",
 ]
 
 [[package]]
 name = "zvariant_utils"
-version = "3.3.1"
+version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d464f5733ffa07a3164d656f18533caace9d0638596721355d73256a410d691"
+checksum = "1e8535915cfa75547e559d8c68e8139909a4aeee076831e4ef7fc59d8172c4d6"
 dependencies = [
  "proc-macro2",
  "quote",
  "serde",
- "syn 2.0.117",
+ "syn 2.0.118",
  "winnow",
 ]

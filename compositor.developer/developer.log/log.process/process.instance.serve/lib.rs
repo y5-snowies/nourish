@@ -68,6 +68,10 @@ impl bind::log_stream_server::LogStream for LogStreamSvc {
             hdr_capable: s.hdr_capable, hdr_transfer: s.hdr_transfer,
             hdr_max_luminance: s.hdr_max_luminance, hdr_bt2020: s.hdr_bt2020,
             color_format: s.color_format,
+            device_formats: s.device_formats.into_iter().map(|d| bind::DeviceFormat {
+                kind: d.kind, fourcc: d.fourcc, modifier: d.modifier, class: d.class,
+                plane_count: d.plane_count, multiplane: d.multiplane,
+            }).collect(),
         }))
     }
 

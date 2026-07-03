@@ -20,10 +20,11 @@ use crate::renderer::VulkanRenderer;
 fn own_variant(v: SeamVariant<'_>) -> ShaderVariant {
     ShaderVariant {
         id: v.id,
-        spv: v.spv,
-        vert_entry: v.vert_entry,
-        frag_entry: v.frag_entry,
-        push: v.push.to_vec(),
+        spv: v.spv.into_owned(),
+        vert_spv: v.vert_spv.map(|s| s.into_owned()),
+        vert_entry: v.vert_entry.into_owned(),
+        frag_entry: v.frag_entry.into_owned(),
+        push: v.push.into_owned(),
     }
 }
 

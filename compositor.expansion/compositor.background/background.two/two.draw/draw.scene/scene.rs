@@ -14,7 +14,7 @@ pub fn scene(state: &mut Loop) -> Option<ParallaxBackground> {
         return None;
     }
 
-    if let Some(ref mut background) = state.inner.worlds.get_mut(target).storage_mut().get_mut(&compositor_background_two_system_base::base::BG_TWO_MUT).instance {
+    if let Some(ref mut background) = state.inner.worlds.get_mut(target).storage_mut().get_mut(&compositor_background_two_storage_base::base::BG_TWO_MUT).instance {
         background.update();
 
         backgrounds = Some(background.clone());

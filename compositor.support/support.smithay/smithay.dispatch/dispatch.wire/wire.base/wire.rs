@@ -135,6 +135,7 @@ pub fn new_dispatch(
 impl<A: WireTrait + 'static> Wire<A> {
     #[inline] pub fn schedule_redraw_post_vblank(&mut self) { self.state.schedule_redraw_post_vblank(); }
     #[inline] pub fn schedule_redraw(&mut self) { self.state.schedule_redraw(); }
+    #[inline] pub fn force_redraw(&mut self) { self.state.force_redraw(); }
     #[inline] pub fn take_needs_redraw(&mut self) -> bool { self.state.take_needs_redraw() }
     #[inline] pub fn mark_render_queued(&mut self) { self.state.mark_render_queued(); }
     #[inline] pub fn mark_vblank_arrived(&mut self) { self.state.mark_vblank_arrived(); }

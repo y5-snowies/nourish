@@ -311,13 +311,19 @@ name = "compositor_developer_stats_registry_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_stats_registry_counter",
+ "compositor_developer_stats_registry_gpu",
  "compositor_developer_stats_registry_hdr",
  "compositor_developer_stats_registry_meta",
+ "compositor_developer_stats_registry_shader",
  "compositor_developer_stats_registry_snapshot",
 ]
 
 [[package]]
 name = "compositor_developer_stats_registry_counter"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_developer_stats_registry_gpu"
 version = "0.0.1"
 
 [[package]]
@@ -329,10 +335,15 @@ name = "compositor_developer_stats_registry_meta"
 version = "0.0.1"
 
 [[package]]
+name = "compositor_developer_stats_registry_shader"
+version = "0.0.1"
+
+[[package]]
 name = "compositor_developer_stats_registry_snapshot"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_stats_registry_counter",
+ "compositor_developer_stats_registry_gpu",
  "compositor_developer_stats_registry_meta",
 ]
 
@@ -496,6 +507,7 @@ dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
  "compositor_kernel_vulkan_format_query_base",
+ "libc",
  "smithay",
  "thiserror 2.0.18",
 ]

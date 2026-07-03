@@ -129,9 +129,9 @@ checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
 
 [[package]]
 name = "arrayvec"
-version = "0.7.7"
+version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f02882884d3e1bc524fb12c79f107f6ad0e1cfd498c536ffb494301740995dfe"
+checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
 name = "as-raw-xcb-connection"
@@ -928,7 +928,7 @@ dependencies = [
  "glam 0.32.1",
  "itertools 0.14.0",
  "libm",
- "rand 0.10.1",
+ "rand 0.10.2",
  "rand_distr",
  "serde",
  "thiserror 2.0.18",
@@ -1331,7 +1331,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "shlex 1.3.0",
  "syn 2.0.118",
 ]
@@ -1725,6 +1725,124 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_background_two_draw_element"
+version = "0.0.1"
+dependencies = [
+ "compositor_background_two_draw_parallax",
+]
+
+[[package]]
+name = "compositor_background_two_draw_motion"
+version = "0.0.1"
+dependencies = [
+ "compositor_orchestration_draw_dispatch_frame",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_background_two_draw_parallax"
+version = "0.0.1"
+dependencies = [
+ "compositor_background_two_draw_motion",
+ "compositor_background_two_draw_select",
+ "compositor_background_two_draw_vulkan",
+ "compositor_background_two_shader_spirv",
+ "compositor_orchestration_draw_dispatch_frame",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_background_two_draw_program"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_debug_instance_record",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_background_two_draw_select"
+version = "0.0.1"
+dependencies = [
+ "compositor_background_two_draw_program",
+ "compositor_background_two_draw_vulkan",
+ "compositor_background_two_shader_builtin",
+ "compositor_background_two_shader_load",
+ "compositor_background_two_shader_property",
+ "compositor_background_two_shader_spirv",
+ "compositor_developer_stats_registry_base",
+ "compositor_orchestration_draw_dispatch_frame",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_background_two_draw_vulkan"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_stats_registry_base",
+ "compositor_orchestration_draw_dispatch_frame",
+ "naga",
+]
+
+[[package]]
+name = "compositor_background_two_shader_builtin"
+version = "0.0.1"
+dependencies = [
+ "compositor_background_two_shader_property",
+]
+
+[[package]]
+name = "compositor_background_two_shader_load"
+version = "0.0.1"
+dependencies = [
+ "compositor_background_two_draw_program",
+ "compositor_background_two_shader_locate",
+ "compositor_background_two_shader_property",
+ "compositor_background_two_shader_spirv",
+ "compositor_developer_debug_instance_record",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_background_two_shader_locate"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_system_persist_path_base",
+]
+
+[[package]]
+name = "compositor_background_two_shader_property"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_background_two_shader_spirv"
+version = "0.0.1"
+dependencies = [
+ "naga",
+]
+
+[[package]]
+name = "compositor_background_two_state_base"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
+ "compositor_background_two_draw_element",
+ "smithay",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "compositor_background_two_storage_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_background_two_state_base",
+ "compositor_support_system_persist_entry_base",
+ "compositor_support_system_persist_trait_base",
+ "compositor_support_system_storage_token_base",
+ "serde",
+]
+
+[[package]]
 name = "compositor_configurator_audio_tab_base"
 version = "0.0.1"
 dependencies = [
@@ -1758,6 +1876,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_configurator_hardware_battery_base"
+version = "0.0.1"
+
+[[package]]
 name = "compositor_configurator_hardware_gpu_base"
 version = "0.0.1"
 
@@ -1785,16 +1907,22 @@ dependencies = [
 name = "compositor_configurator_settings_interface_handle"
 version = "0.0.1"
 dependencies = [
+ "compositor_background_two_shader_builtin",
+ "compositor_background_two_shader_load",
+ "compositor_background_two_storage_base",
  "compositor_configurator_bluetooth_backend_base",
  "compositor_configurator_network_backend_base",
  "compositor_configurator_settings_surface_message",
  "compositor_developer_environment_config_base",
  "compositor_developer_environment_keybinding_base",
  "compositor_developer_environment_preference_base",
+ "compositor_developer_stats_registry_base",
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_driver_audio_base",
  "compositor_orchestration_driver_output_base",
  "compositor_orchestration_driver_settings_base",
+ "compositor_support_smithay_state_seat_xkb",
+ "compositor_support_system_persist_mark_base",
  "compositor_y5_audio_controller_interface",
  "smithay",
 ]
@@ -1815,9 +1943,12 @@ dependencies = [
  "compositor_configurator_settings_surface_environment",
  "compositor_configurator_settings_surface_keys",
  "compositor_configurator_settings_surface_message",
+ "compositor_configurator_settings_surface_misc",
  "compositor_configurator_settings_surface_style",
+ "compositor_configurator_settings_surface_world",
  "compositor_developer_environment_config_base",
  "compositor_developer_environment_keybinding_base",
+ "compositor_developer_environment_preference_base",
  "compositor_orchestration_driver_output_base",
  "compositor_support_iced_core_engine_base",
  "compositor_y5_audio_controller_interface",
@@ -1854,6 +1985,7 @@ dependencies = [
  "compositor_configurator_settings_surface_control",
  "compositor_configurator_settings_surface_message",
  "compositor_configurator_settings_surface_style",
+ "compositor_developer_environment_preference_base",
  "compositor_orchestration_driver_output_base",
  "compositor_support_iced_core_engine_base",
  "iced_core",
@@ -1869,6 +2001,19 @@ dependencies = [
  "compositor_configurator_settings_surface_message",
  "compositor_configurator_settings_surface_style",
  "compositor_developer_environment_config_base",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
+]
+
+[[package]]
+name = "compositor_configurator_settings_surface_keyboard"
+version = "0.0.1"
+dependencies = [
+ "compositor_configurator_settings_surface_control",
+ "compositor_configurator_settings_surface_message",
+ "compositor_configurator_settings_surface_style",
+ "compositor_developer_environment_preference_base",
  "compositor_support_iced_core_engine_base",
  "iced_core",
  "iced_widget",
@@ -1894,8 +2039,34 @@ dependencies = [
  "compositor_configurator_bluetooth_backend_base",
  "compositor_configurator_network_backend_base",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_preference_base",
  "compositor_orchestration_driver_output_base",
  "compositor_y5_audio_controller_interface",
+]
+
+[[package]]
+name = "compositor_configurator_settings_surface_misc"
+version = "0.0.1"
+dependencies = [
+ "compositor_configurator_settings_surface_control",
+ "compositor_configurator_settings_surface_keyboard",
+ "compositor_configurator_settings_surface_message",
+ "compositor_configurator_settings_surface_style",
+ "compositor_developer_environment_preference_base",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
+]
+
+[[package]]
+name = "compositor_configurator_settings_surface_preview"
+version = "0.0.1"
+dependencies = [
+ "compositor_configurator_settings_surface_message",
+ "iced_core",
+ "iced_wgpu",
+ "iced_widget",
+ "naga",
 ]
 
 [[package]]
@@ -1918,10 +2089,24 @@ dependencies = [
  "compositor_configurator_settings_surface_message",
  "compositor_developer_environment_config_base",
  "compositor_developer_environment_keybinding_base",
+ "compositor_developer_environment_preference_base",
  "compositor_orchestration_driver_output_base",
  "compositor_support_iced_core_engine_base",
  "compositor_y5_audio_controller_interface",
  "iced_core",
+]
+
+[[package]]
+name = "compositor_configurator_settings_surface_world"
+version = "0.0.1"
+dependencies = [
+ "compositor_configurator_settings_surface_control",
+ "compositor_configurator_settings_surface_message",
+ "compositor_configurator_settings_surface_preview",
+ "compositor_configurator_settings_surface_style",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
 ]
 
 [[package]]
@@ -1956,6 +2141,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_developer_environment_experimental_base"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
+ "compositor_developer_environment_config_base",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "compositor_developer_environment_keybinding_base"
 version = "0.0.1"
 dependencies = [
@@ -1971,6 +2166,47 @@ dependencies = [
  "compositor_developer_environment_config_base",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "compositor_developer_stats_registry_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_stats_registry_counter",
+ "compositor_developer_stats_registry_gpu",
+ "compositor_developer_stats_registry_hdr",
+ "compositor_developer_stats_registry_meta",
+ "compositor_developer_stats_registry_shader",
+ "compositor_developer_stats_registry_snapshot",
+]
+
+[[package]]
+name = "compositor_developer_stats_registry_counter"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_developer_stats_registry_gpu"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_developer_stats_registry_hdr"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_developer_stats_registry_meta"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_developer_stats_registry_shader"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_developer_stats_registry_snapshot"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_stats_registry_counter",
+ "compositor_developer_stats_registry_gpu",
+ "compositor_developer_stats_registry_meta",
 ]
 
 [[package]]
@@ -2730,6 +2966,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_kernel_graphic_bridge_negotiate_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_environment_experimental_base",
+ "compositor_kernel_graphic_bridge_negotiate_classify",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_negotiate_classify"
+version = "0.0.1"
+dependencies = [
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_negotiate_wgpu"
+version = "0.0.1"
+dependencies = [
+ "ash",
+ "libc",
+ "pollster",
+ "smithay",
+ "wgpu",
+]
+
+[[package]]
 name = "compositor_kernel_graphic_color_surface_base"
 version = "0.0.1"
 dependencies = [
@@ -2764,6 +3027,12 @@ name = "compositor_monitor_runtime_surface_base"
 version = "0.1.0"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_base",
+ "compositor_developer_environment_experimental_base",
+ "compositor_developer_stats_registry_gpu",
+ "compositor_kernel_graphic_bridge_negotiate_base",
+ "compositor_kernel_graphic_bridge_negotiate_classify",
+ "compositor_kernel_graphic_bridge_negotiate_wgpu",
  "compositor_y5_graphic_card_constant",
  "gbm",
  "pollster",
@@ -2826,6 +3095,7 @@ dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_keybinding_base",
  "compositor_developer_environment_preference_base",
+ "compositor_developer_stats_registry_base",
  "compositor_introspection_sampler_window_base",
  "compositor_orchestration_bus_legacy_base",
  "compositor_orchestration_driver_audio_base",
@@ -2862,6 +3132,7 @@ dependencies = [
  "compositor_y5_audio_controller_interface",
  "compositor_y5_camera_state_base",
  "compositor_y5_camera_transform_translate",
+ "compositor_y5_canvas_input_state",
  "compositor_y5_canvas_state_base",
  "compositor_y5_canvas_system_base",
  "compositor_y5_graphic_capture_registry",
@@ -2878,6 +3149,8 @@ dependencies = [
  "compositor_y5_select_state_base",
  "compositor_y5_surface_state_base",
  "compositor_y5_surface_system_base",
+ "compositor_y5_viewport_layout_base",
+ "compositor_y5_viewport_state_base",
  "compositor_y5_window_interface_record",
  "compositor_y5_window_lifecycle_event",
  "compositor_y5_window_lifecycle_state",
@@ -2967,6 +3240,7 @@ dependencies = [
 name = "compositor_orchestration_driver_output_base"
 version = "0.0.1"
 dependencies = [
+ "compositor_developer_environment_preference_base",
  "compositor_support_system_storage_token_base",
 ]
 
@@ -3165,6 +3439,8 @@ name = "compositor_support_bevy_core_alloc_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_stats_registry_gpu",
+ "compositor_kernel_graphic_bridge_negotiate_classify",
  "compositor_support_bevy_core_fault_base",
  "gbm",
  "smithay",
@@ -3212,8 +3488,12 @@ name = "compositor_support_bevy_core_context_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_base",
+ "compositor_developer_environment_experimental_base",
+ "compositor_kernel_graphic_bridge_negotiate_wgpu",
  "compositor_support_bevy_core_fault_base",
  "pollster",
+ "smithay",
  "wgpu",
 ]
 
@@ -3451,6 +3731,7 @@ name = "compositor_support_bevy_core_surface_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_support_bevy_core_alloc_base",
  "compositor_support_bevy_core_context_base",
  "compositor_support_bevy_core_fault_base",
@@ -3923,6 +4204,7 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
+ "compositor_support_smithay_state_fractional_debounce",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4196,6 +4478,7 @@ dependencies = [
  "bitflags 2.13.0",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_seat_base",
+ "compositor_support_smithay_state_seat_xkb",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4206,6 +4489,14 @@ name = "compositor_support_smithay_state_seat_focus"
 version = "0.0.1"
 dependencies = [
  "compositor_support_smithay_dispatch_state_base",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_support_smithay_state_seat_xkb"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_environment_preference_base",
  "smithay",
 ]
 
@@ -4304,6 +4595,16 @@ dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_state_text_input_base",
+ "compositor_support_smithay_state_text_input_launch",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_support_smithay_state_text_input_launch"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_preference_base",
  "smithay",
 ]
 
@@ -4675,6 +4976,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_support_system_persist_trait_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_system_persist_entry_base",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "compositor_support_system_persist_write_base"
 version = "0.0.1"
 dependencies = [
@@ -4869,6 +5179,7 @@ dependencies = [
  "compositor_monitor_compositor_iced_base",
  "compositor_orchestration_draw_layer_base",
  "compositor_orchestration_draw_platform_base",
+ "compositor_orchestration_driver_output_base",
  "compositor_orchestration_storage_state_base",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_system_buffer_token_base",
@@ -4877,7 +5188,7 @@ dependencies = [
  "compositor_support_system_storage_slot_base",
  "compositor_support_system_storage_token_base",
  "compositor_support_system_trait_system_base",
- "compositor_y5_camera_state_base",
+ "compositor_support_world_order_track_base",
  "compositor_y5_camera_transform_translate",
  "compositor_y5_canvas_input_state",
  "compositor_y5_canvas_state_base",
@@ -4889,6 +5200,7 @@ dependencies = [
  "compositor_y5_surface_interface_core",
  "compositor_y5_surface_protocol_base",
  "compositor_y5_surface_system_base",
+ "compositor_y5_viewport_state_base",
  "compositor_y5_window_interface_record",
  "smithay",
  "uuid",
@@ -4910,6 +5222,7 @@ name = "compositor_y5_graphic_capture_registry"
 version = "0.1.0"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_support_bevy_core_runtime_base",
  "smithay",
  "thiserror 2.0.18",
@@ -5279,6 +5592,8 @@ dependencies = [
  "compositor_y5_select_state_base",
  "compositor_y5_surface_state_base",
  "compositor_y5_surface_system_base",
+ "compositor_y5_viewport_layout_base",
+ "compositor_y5_viewport_state_base",
  "compositor_y5_window_interface_record",
  "smithay",
  "uuid",
@@ -5334,6 +5649,24 @@ dependencies = [
  "compositor_support_system_trait_system_base",
  "compositor_y5_surface_state_base",
  "smithay",
+]
+
+[[package]]
+name = "compositor_y5_viewport_layout_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_y5_viewport_state_base",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_y5_viewport_state_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_system_storage_token_base",
+ "compositor_y5_camera_state_base",
+ "smithay",
+ "uuid",
 ]
 
 [[package]]
@@ -5520,7 +5853,7 @@ dependencies = [
  "linebender_resource_handle",
  "log",
  "rangemap",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "self_cell",
  "skrifa 0.40.0",
  "smol_str 0.3.6",
@@ -5602,7 +5935,7 @@ dependencies = [
  "cosmic-text",
  "etagere",
  "lru",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "wgpu",
 ]
 
@@ -6285,7 +6618,7 @@ dependencies = [
  "bytemuck",
  "encase",
  "libm",
- "rand 0.10.1",
+ "rand 0.10.2",
  "serde_core",
 ]
 
@@ -6614,7 +6947,7 @@ dependencies = [
  "lilt",
  "log",
  "num-traits",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "smol_str 0.2.2",
  "thiserror 2.0.18",
  "web-time",
@@ -6636,7 +6969,7 @@ dependencies = [
  "futures",
  "iced_core",
  "log",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "wasm-bindgen-futures",
  "wasmtimer",
 ]
@@ -6655,7 +6988,7 @@ dependencies = [
  "kamadak-exif",
  "log",
  "raw-window-handle",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "thiserror 2.0.18",
  "unicode-segmentation",
 ]
@@ -6693,7 +7026,7 @@ dependencies = [
  "kurbo 0.10.4",
  "log",
  "resvg",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "softbuffer",
  "tiny-skia",
 ]
@@ -6712,7 +7045,7 @@ dependencies = [
  "iced_graphics",
  "log",
  "resvg",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "thiserror 2.0.18",
  "wgpu",
 ]
@@ -6724,7 +7057,7 @@ dependencies = [
  "iced_renderer",
  "log",
  "num-traits",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "thiserror 2.0.18",
  "unicode-segmentation",
 ]
@@ -6789,9 +7122,9 @@ dependencies = [
 
 [[package]]
 name = "inotify-sys"
-version = "0.1.5"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e05c02b5e89bff3b946cedeca278abc628fe811e604f027c45a8aa3cf793d0eb"
+checksum = "9ea94e891b3606826e9c998be69ddca42247dad8ad50b1649a5cb7e1c9ae06fd"
 dependencies = [
  "libc",
 ]
@@ -6928,9 +7261,9 @@ dependencies = [
 
 [[package]]
 name = "js-sys"
-version = "0.3.103"
+version = "0.3.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53b44bfcdb3f8d5837a46dae1ca9660a837176eee74a28b229bc626816589102"
+checksum = "03d04c30968dffe80775bd4d7fb676131cd04a1fb46d2686dbffbaec2d9dfd31"
 dependencies = [
  "cfg-if",
  "futures-util",
@@ -8215,9 +8548,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.10.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2e8e8bcc7961af1fdac401278c6a831614941f6164ee3bf4ce61b7edb162207"
+checksum = "c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80"
 dependencies = [
  "chacha20",
  "getrandom 0.4.3",
@@ -8256,7 +8589,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d431c2703ccf129de4d45253c03f49ebb22b97d6ad79ee3ecfc7e3f4862c1d8"
 dependencies = [
  "num-traits",
- "rand 0.10.1",
+ "rand 0.10.2",
 ]
 
 [[package]]
@@ -8444,9 +8777,9 @@ checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustc-hash"
-version = "2.1.2"
+version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94300abf3f1ae2e2b8ffb7b58043de3d399c73fa6f4b73826402a5c457614dbe"
+checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
 
 [[package]]
 name = "rustc_version"
@@ -9510,7 +9843,7 @@ checksum = "bf80a72845275afea99e7f2b434723d3bc7e38470fcd1c7ed39a599c73319a53"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
- "rand 0.10.1",
+ "rand 0.10.2",
  "serde_core",
  "wasm-bindgen",
 ]
@@ -9574,9 +9907,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.126"
+version = "0.2.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b067c0c11094aef6b7a801c1e34a26affafdf3d051dba08456b868789aaf9a4"
+checksum = "8ddb3f79143bced6de84270411622a2699cee572fc0875aeaf1e7867cf9fca1a"
 dependencies = [
  "cfg-if",
  "once_cell",
@@ -9587,9 +9920,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-futures"
-version = "0.4.76"
+version = "0.4.75"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c62df1340f32221cb9c54d6a27b030e3dba64361d4a95bed55f9aacb44da291d"
+checksum = "503b14d284f2c8dac03b819967e155ea753f573586193b2b2c95990cb5d69280"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
@@ -9597,9 +9930,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro"
-version = "0.2.126"
+version = "0.2.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "167ce5e579f6bcf889c4f7175a8a5a585de84e8ff93976ce393efa5f2837aab1"
+checksum = "4e21a184b13fb19e157296e2c46056aec9092264fab83e4ba59e68c61b323c3d"
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -9607,9 +9940,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
-version = "0.2.126"
+version = "0.2.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3997c7839262f4ef12cf90b818d6340c18e80f263f1a94bf157d0ec4420380e"
+checksum = "fecefd9c35bd935a20fc3fc344b5f29138961e4f47fb03297d88f2587afb5ebd"
 dependencies = [
  "bumpalo",
  "proc-macro2",
@@ -9620,9 +9953,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-shared"
-version = "0.2.126"
+version = "0.2.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc1b4cb0cc549fcf58d7dfc081778139b3d283a081644e833e84682ad71cea24"
+checksum = "23939e44bb9a5d7576fa2b563dc2e136628f1224e88a8deed09e04858b77871f"
 dependencies = [
  "unicode-ident",
 ]
@@ -9798,9 +10131,9 @@ checksum = "323f4da9523e9a669e1eaf9c6e763892769b1d38c623913647bfdc1532fe4549"
 
 [[package]]
 name = "web-sys"
-version = "0.3.103"
+version = "0.3.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8622dcb61c0bcc9fffa6938bed81210af2da9a7e4a1a834b2e37a59b6dfb6141"
+checksum = "a6430a72df5eb332242960fe84b3002a241163998241eb596d4f739b9757061d"
 dependencies = [
  "js-sys",
  "wasm-bindgen",

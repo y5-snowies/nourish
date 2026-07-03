@@ -1,0 +1,20 @@
+[package]
+name = "compositor_y5_viewport_persist_doc"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+smithay = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+compositor_support_system_persist_document_trait = { workspace = true }
+compositor_y5_viewport_state_base = { workspace = true }
+compositor_y5_camera_state_base = { workspace = true }
+compositor_y5_camera_transform_state = { workspace = true }
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "Full-fidelity viewport-tree persistence: the serde record types plus the recursive live<->persisted projection form one cohesive conversion unit."
+
+[lib]
+path = "lib.rs"

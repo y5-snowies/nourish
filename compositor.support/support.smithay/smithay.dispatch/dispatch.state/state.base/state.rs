@@ -128,6 +128,19 @@ impl Dispatch {
             if let Some(p) = &self.redraw_ping { p.ping(); }
         }
     }
+    /// Like `schedule_redraw` but ALWAYS fires the redraw ping, even while a frame is
+    /// in flight on another pipe. Needed when a NEW output pipe comes up (hotplug /
+    /// reactivation): it has never flipped, so it gets no per-CRTC vblank and the
+    /// vblank path (`RenderScope::Crtc`) never renders it — only an `All` render (the
+    /// ping) gives it its first frame and starts its own vblank cycle. The ping's
+    /// `execute(All)` skips per-pipe `in_flight` outputs, so forcing it mid-flight only
+    /// renders the idle (new) pipe. Without this the new output stays dark until a full
+    /// resume render (e.g. VT switch).
+    #[inline]
+    pub fn force_redraw(&mut self) {
+        self.needs_redraw = true;
+        if let Some(p) = &self.redraw_ping { p.ping(); }
+    }
     #[inline]
     pub fn take_needs_redraw(&mut self) -> bool { std::mem::replace(&mut self.needs_redraw, false) }
     #[inline]

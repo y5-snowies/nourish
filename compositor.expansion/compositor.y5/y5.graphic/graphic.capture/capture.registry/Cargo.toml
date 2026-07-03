@@ -12,6 +12,7 @@ edition = "2024"
 
 [dependencies]
 compositor_developer_debug_instance_record = { workspace = true }
+compositor_kernel_graphic_bridge_negotiate_base = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 wgpu = { workspace = true }

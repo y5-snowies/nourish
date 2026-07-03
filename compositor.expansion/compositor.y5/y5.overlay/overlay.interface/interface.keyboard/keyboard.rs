@@ -242,19 +242,21 @@ fn sleep(state: &mut Loop) {
 /// spatial worlds) the active + spawn-target world, exercising world delegation.
 fn switch_world(state: &mut Loop, slot: usize) -> bool {
     let target = state.inner.kernel.get(&compositor_orchestration_core_state_base::state::TEST_WORLDS)[slot];
-    let output = state.inner.space_state().state.outputs().next().cloned();
+    // Capture all outputs + positions before switch (multi-output: map every one
+    // into the target world's fresh Space at its real position, not just the first).
+    let outputs: Vec<(smithay::output::Output, smithay::utils::Point<i32, smithay::utils::Logical>)> =
+        state.inner.space_state().state.outputs().map(|o| {
+            let loc = state.inner.space_state().state.output_geometry(o).map(|g| g.loc).unwrap_or_default();
+            (o.clone(), loc)
+        }).collect();
 
     state.inner.worlds.switch(target, &state.inner.kernel);
     state.inner.worlds.set_spawn_target(target);
     info!("world switch -> slot {slot} (world {target})");
 
-    if let Some(output) = output {
-        if state.inner.space_state().state.outputs().next().is_none() {
-            state
-                .inner
-                .space_state_mut()
-                .state
-                .map_output(&output, smithay::utils::Point::from((0, 0)));
+    if state.inner.space_state().state.outputs().next().is_none() {
+        for (output, loc) in &outputs {
+            state.inner.space_state_mut().state.map_output(output, *loc);
         }
     }
     true

@@ -1,0 +1,11 @@
+[package]
+name = "compositor_y5_viewport_layout_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+smithay = { workspace = true }
+compositor_y5_viewport_state_base = { workspace = true }
+
+[lib]
+path = "lib.rs"

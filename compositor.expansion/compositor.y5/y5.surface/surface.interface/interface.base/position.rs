@@ -16,5 +16,5 @@ pub fn layer_surface_position(
     output_size: Size<i32, Logical>,
 ) -> Point<i32, Logical> {
     let cursor = _loop.state.seat.seat.get_pointer().unwrap().current_location();
-    layer_surface_position_core(cursor, _loop.size_context(), layer, output_size)
+    layer_surface_position_core(cursor, _loop.size_ctx_all(), layer, output_size)
 }

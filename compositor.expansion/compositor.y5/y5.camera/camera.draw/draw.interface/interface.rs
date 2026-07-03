@@ -15,7 +15,7 @@ pub fn position(_loop: &mut Loop, position: Point<f64, Logical>) {
     _loop.inner.camera_mut().transform.position = position;
     // Focused world's parallax (spawn_target == the spatial world in view).
     let target = _loop.inner.worlds.spawn_target();
-    if let Some(ref mut background) = _loop.inner.worlds.get_mut(target).storage_mut().get_mut(&compositor_background_two_system_base::base::BG_TWO_MUT).instance {
+    if let Some(ref mut background) = _loop.inner.worlds.get_mut(target).storage_mut().get_mut(&compositor_background_two_storage_base::base::BG_TWO_MUT).instance {
         background.pan = (position.x as f32, position.y as f32);
     }
 }
@@ -25,7 +25,7 @@ pub fn zoom(_loop: &mut Loop, zoom: f64) {
     _loop.inner.camera_mut().transform.zoom = zoom;
 
     let target = _loop.inner.worlds.spawn_target();
-    if let Some(ref mut background) = _loop.inner.worlds.get_mut(target).storage_mut().get_mut(&compositor_background_two_system_base::base::BG_TWO_MUT).instance {
+    if let Some(ref mut background) = _loop.inner.worlds.get_mut(target).storage_mut().get_mut(&compositor_background_two_storage_base::base::BG_TWO_MUT).instance {
         background.zoom = zoom as f32;
     }
 }

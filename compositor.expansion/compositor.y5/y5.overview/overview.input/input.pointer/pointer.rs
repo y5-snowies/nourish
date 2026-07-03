@@ -48,7 +48,7 @@ pub fn button<I: InputBackend>(event: &<I as InputBackend>::PointerButtonEvent, 
     }
     if pressed {
         // Cursor is WORLD space; cells are screen/physical — project via camera.
-        let ctx = state.size_context();
+        let ctx = state.size_ctx_all();
         let projected: compositor_y5_camera_transform_translate::transform::Transform = (loc, ctx).into();
         let phys: Point<f64, Physical> = projected.into();
         let p = Point::<i32, Physical>::from((phys.x.round() as i32, phys.y.round() as i32));

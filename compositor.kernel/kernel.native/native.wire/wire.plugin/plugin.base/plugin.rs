@@ -36,7 +36,7 @@ pub fn register(
             // output per preferences (fail over / recover), or go dark + wait. Runs
             // in this udev dispatch (not the vblank callback), so the modeset is safe.
             if reconcile {
-                if let Some(change) = compositor_kernel_native_context_display_switch::switch::reconcile(state, &ctx_rc) {
+                if let Some(change) = compositor_kernel_native_context_display_reconcile::reconcile::reconcile(state, &ctx_rc) {
                     use compositor_orchestration_event_output_base::output::OutputChange;
                     // Fire the output-presence lifecycle event (event-driven — once
                     // per real transition) on the ACTIVE world's router: that is the
@@ -83,7 +83,7 @@ pub fn register(
             }
             // Refresh the rim's display snapshot after any topology change so the
             // lid policy sees current external/internal presence.
-            let active = ctx_rc.borrow().connector;
+            let active = ctx_rc.borrow().pipe().connector;
             let ctx = ctx_rc.borrow();
             let manager = ctx.drm_output_manager.borrow();
             let snap = compositor_kernel_native_context_display_base::base::compute(
