@@ -177,6 +177,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // so the slots exist; the receivers stay local until the wait.
     kernel_data.insert(&compositor_y5_surface_system_base::base::ICED_CONTEXT, None);
     kernel_data.insert(&compositor_background_three_system_base::base::BEVY_CONTEXT, None);
+    // Remote driver: nudge channel to the background gRPC thread, so the session
+    // activate handler can ask it to reclaim the socket after a second TTY.
+    kernel_data.insert(&compositor_orchestration_driver_remote_base::base::RPC_REBIND, rpc_transport.rebind_signal);
     let worlds = {
         // WT2: world kinds (document/ARCHITECTURE.md → "Window tracking"). The
         // main world is SPATIAL (owns the window Space + is the spawn-target);

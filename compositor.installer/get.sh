@@ -14,7 +14,9 @@
 # Overridable via env:
 #   Y5_RELEASE_URL  full URL to package.tar.gz
 #                   (default: the Fedora 44 "latest" release on nourish.snowies.com)
+#   Y5_SUMS_URL     full URL to SHA256SUMS (default: alongside the tarball)
 #   Y5_INSTALL_ARGS extra args forwarded to y5-install (e.g. --dry-run)
+#   Y5_INSECURE_SKIP_CHECKSUM=1  install even if SHA256SUMS can't be fetched (NOT recommended)
 set -euo pipefail
 
 BASE_URL="${Y5_RELEASE_BASE:-https://nourish.snowies.com/release/latest/fedora44}"
@@ -46,14 +48,25 @@ say "downloading $URL"
 curl -fSL --proto '=https' "$URL" -o "$WORK/package.tar.gz" \
     || die "download failed: $URL"
 
-# Verify the checksum when SHA256SUMS is published alongside the tarball.
-if curl -fsSL --proto '=https' "$SUMS_URL" -o "$WORK/SHA256SUMS" 2>/dev/null; then
-    say "verifying checksum"
-    want="$(awk '{print $1}' "$WORK/SHA256SUMS" | head -n1)"
-    have="$(sha256sum "$WORK/package.tar.gz" | awk '{print $1}')"
-    [ -n "$want" ] && [ "$want" = "$have" ] || die "checksum mismatch (want $want, have $have)"
+# Verify the tarball against the published SHA256SUMS. The release pipeline ALWAYS ships
+# SHA256SUMS next to package.tar.gz, so verification is mandatory: a missing/unreachable sums
+# file is a hard failure (fail closed), not a silent skip — otherwise anyone who can tamper with
+# the tarball can also strip the sums response and bypass the check entirely. Set
+# Y5_INSECURE_SKIP_CHECKSUM=1 to deliberately override (NOT recommended).
+say "verifying checksum"
+if ! curl -fsSL --proto '=https' "$SUMS_URL" -o "$WORK/SHA256SUMS"; then
+    [ "${Y5_INSECURE_SKIP_CHECKSUM:-0}" = 1 ] \
+        || die "could not fetch checksums from $SUMS_URL — refusing to install unverified" \
+               "(set Y5_INSECURE_SKIP_CHECKSUM=1 to override, or check Y5_SUMS_URL)."
+    say "warning: Y5_INSECURE_SKIP_CHECKSUM=1 set — installing UNVERIFIED tarball"
 else
-    say "no SHA256SUMS published; skipping checksum verification"
+    # SHA256SUMS may list several files; select the line for OUR tarball by name (sha256sum
+    # writes 'hash  name' in text mode or 'hash *name' in binary mode), never just the first line.
+    want="$(awk '$2 ~ /^\*?package\.tar\.gz$/ {print $1; exit}' "$WORK/SHA256SUMS")"
+    [ -n "$want" ] || die "SHA256SUMS from $SUMS_URL has no entry for package.tar.gz"
+    have="$(sha256sum "$WORK/package.tar.gz" | awk '{print $1}')"
+    [ "$want" = "$have" ] || die "checksum mismatch for package.tar.gz (want $want, have $have)"
+    say "checksum OK"
 fi
 
 say "unpacking"

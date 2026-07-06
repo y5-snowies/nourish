@@ -74,6 +74,9 @@ required `runtime` group, so **Vulkan rendering works with no extra repos**;
 `libdisplay-info` (EDID parsing) and `xorg-x11-server-Xwayland` (X11 clients) round
 out the default set.
 
+> **Note for AMD users:** some have reported that Vulkan does not work on AMD. If
+> you're on an AMD card, set `renderer` to `gles` when prompted.
+
 **Hardware video acceleration (optional, opt-in):** the VA-API video driver
 (`mesa-va-drivers-freeworld`) is one Fedora can't ship, so it lives in RPM Fusion. The
 installer offers an explicit prompt — say yes and it enables RPM Fusion (free) for you,

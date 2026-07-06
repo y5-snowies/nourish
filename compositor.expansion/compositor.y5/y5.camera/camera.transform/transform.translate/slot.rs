@@ -109,6 +109,9 @@ pub fn set_expected_size(window: &Window, size: Size<i32, Logical>) {
     if let Some(e) = window.user_data().get::<ExpectedSize>() {
         *e.0.lock().unwrap() = Some(Slot::Decided(size));
     }
+    // An explicit sizing decision supersedes the startup-grace jiggle (map/restore) — else a stale
+    // grace target would fight this size on a later commit (`apply_commit` consume path).
+    compositor_support_smithay_state_compositor_place::disarm_size_propagation(window);
 }
 
 /// Note that the compositor has decided `target` for `window` as part of an in-flight resize.

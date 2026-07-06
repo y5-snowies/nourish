@@ -138,6 +138,16 @@ pub fn register(
                     }
                     drop(ctx);
 
+                    // Reclaim the RPC socket if a second compositor (another TTY)
+                    // took over the socket file while we were paused and has since
+                    // gone. The background gRPC thread checks the socket's inode and
+                    // rebinds only if it is no longer ours, so an untouched socket is
+                    // left alone. The daemon reconnects per call, so this is enough
+                    // for it to recover.
+                    if let Some(rebind) = state.inner.kernel.try_get(&compositor_orchestration_driver_remote_base::base::RPC_REBIND) {
+                        let _ = rebind.try_send(());
+                    }
+
                     // Arm the watchdog: kick a full render every frame until a
                     // REAL vblank (flag set by wire.frame) arrives, then drop
                     // itself. Registration failure panics inside arm().

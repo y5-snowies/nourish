@@ -3862,6 +3862,7 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
+ "compositor_developer_stats_registry_base",
  "compositor_kernel_drm_loop_notifier_base",
  "compositor_kernel_graphic_draw_present_callbacks",
  "compositor_kernel_native_context_render_base",
@@ -3925,6 +3926,7 @@ dependencies = [
  "compositor_kernel_seat_lifecycle_pause_base",
  "compositor_kernel_seat_lifecycle_resume_base",
  "compositor_orchestration_core_state_base",
+ "compositor_orchestration_driver_remote_base",
  "compositor_orchestration_driver_resume_base",
  "compositor_y5_graphic_capture_interface",
  "smithay",
@@ -4850,6 +4852,7 @@ dependencies = [
  "compositor_y5_picker_interface_capture",
  "compositor_y5_placeholder_interface_base",
  "compositor_y5_select_overlay_interface",
+ "compositor_y5_surface_draw_fps",
  "compositor_y5_surface_draw_hook",
  "compositor_y5_surface_draw_scene",
  "compositor_y5_surface_interface_base",
@@ -4939,6 +4942,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_remote_message_state_base",
  "compositor_support_system_storage_token_base",
+ "tokio",
 ]
 
 [[package]]
@@ -9402,6 +9406,22 @@ dependencies = [
  "compositor_y5_graphic_capture_session",
  "iced_core",
  "iced_widget",
+]
+
+[[package]]
+name = "compositor_y5_surface_draw_fps"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_debug_instance_record",
+ "compositor_developer_stats_registry_base",
+ "compositor_monitor_compositor_iced_base",
+ "compositor_orchestration_core_state_base",
+ "compositor_orchestration_draw_layer_base",
+ "compositor_support_iced_core_engine_base",
+ "compositor_y5_surface_draw_handle",
+ "iced_core",
+ "iced_widget",
+ "smithay",
 ]
 
 [[package]]

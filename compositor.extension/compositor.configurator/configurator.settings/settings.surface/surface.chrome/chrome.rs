@@ -24,7 +24,7 @@ use compositor_configurator_settings_surface_style::style;
 use compositor_configurator_settings_surface_control::control;
 use compositor_configurator_settings_surface_world::world;
 use iced_core::{Alignment, Element, Length, Padding, Theme};
-use iced_widget::{button, column, container, row, scrollable, text};
+use iced_widget::{button, column, container, row, scrollable, text, toggler};
 
 type El<'a> = Element<'a, SettingsMessage, Theme, Renderer>;
 
@@ -63,15 +63,19 @@ fn titlebar<'a>(dirty: bool) -> El<'a> {
     container(title).style(style::strip).width(Length::Fill).padding(Padding::from([14, 22])).into()
 }
 
-fn performance<'a>(fps: u32) -> El<'a> {
+fn performance<'a>(fps: u32, show_fps: bool, release_hidden: bool) -> El<'a> {
     let cell = container(row![text("FRAME RATE").color(style::MUTED).width(Length::Fill), text(format!("{fps} FPS")).color(style::ACCENT)].align_y(Alignment::Center).padding(16))
         .style(style::card).width(Length::Fill);
-    column![text("PERFORMANCE").size(16).color(style::ACCENT), text("Live runtime metrics.").size(11).color(style::MUTED), cell].spacing(12).into()
+    let overlay = container(row![text("FPS OVERLAY (per monitor)").color(style::MUTED).width(Length::Fill), toggler(show_fps).on_toggle(SettingsMessage::SetShowFps).style(control::toggler)].align_y(Alignment::Center).padding(16))
+        .style(style::card).width(Length::Fill);
+    let release = container(row![text("RELEASE HIDDEN SURFACE MEMORY").color(style::MUTED).width(Length::Fill), toggler(release_hidden).on_toggle(SettingsMessage::SetReleaseHidden).style(control::toggler)].align_y(Alignment::Center).padding(16))
+        .style(style::card).width(Length::Fill);
+    column![text("PERFORMANCE").size(16).color(style::ACCENT), text("Live runtime metrics.").size(11).color(style::MUTED), cell, overlay, release].spacing(12).into()
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn render<'a>(
-    tab: Tab, dirty: bool, cursor_sensitivity: f32, natural: bool, env: &'a Environment,
+    tab: Tab, dirty: bool, cursor_sensitivity: f32, natural: bool, show_fps: bool, release_hidden: bool, env: &'a Environment,
     displays: &'a [DisplayInfo], active_edid: &'a str, selected_display: &'a str,
     selected_mode: Option<ModeInfo>, pending: Option<&'a Applied>,
     staged_active: Option<&'a (String, Option<ModeInfo>)>, confirming: bool,
@@ -91,7 +95,7 @@ pub fn render<'a>(
         ].spacing(24).height(Length::Fill).into(),
         Tab::Network => network_tab::build(wifi, wifi_selected, wifi_password),
         Tab::Bluetooth => bluetooth_tab::build(bt),
-        Tab::Performance => performance(fps),
+        Tab::Performance => performance(fps, show_fps, release_hidden),
         Tab::System => environment::build(env, devices),
         Tab::Misc => misc::build(ime, keyboard),
         Tab::World => world::build(shaders, shader_current, shader_props, preview_source, shader_status),

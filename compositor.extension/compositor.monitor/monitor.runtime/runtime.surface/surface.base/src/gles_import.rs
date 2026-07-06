@@ -21,7 +21,7 @@ pub fn import_dmabuf_to_gles(
     renderer: &mut GlesRenderer,
     dmabuf: &Dmabuf,
 ) -> Result<GlesTexture, GlesImportError> {
-    info!(
+    trace!(
         "Importing dmabuf into GlesRenderer: size={:?}, format={:?}",
         dmabuf.size(),
         dmabuf.format(),
@@ -31,7 +31,7 @@ pub fn import_dmabuf_to_gles(
         .import_dmabuf(dmabuf, None)
         .map_err(GlesImportError::ImportFailed)?;
 
-    info!(
+    trace!(
         "GLES import successful: GlesTexture size {:?}",
         texture.size()
     );

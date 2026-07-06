@@ -101,7 +101,7 @@ impl CursorThemeCache {
             .map(|img| img.size)
             .min_by_key(|s| (*s as i32 - target as i32).abs())?;
 
-        info!("chosen_size={:?}", chosen_size);
+        trace!("chosen_size={:?}", chosen_size);
         // 2. Collect every frame at that size, in file order.
         //    For static cursors this is one frame; for animated cursors
         //    (wait, progress) it's the full sequence.

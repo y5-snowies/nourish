@@ -22,12 +22,17 @@ pub fn build<'a>(a: &'a AudioState) -> El<'a> {
         let pick = s.name.clone();
         let vol_name = s.name.clone();
         let reset_name = s.name.clone();
+        let mute_name = s.name.clone();
         let label = if s.description.is_empty() { s.name.clone() } else { s.description.clone() };
         let title = row![
             button(text(if s.is_default { "● DEFAULT" } else { "○ SET DEFAULT" }).size(11))
                 .on_press(SettingsMessage::SetDefaultSink(pick)).style(control::action),
             text(label).width(Length::Fill),
             text(format!("{}%", (s.volume * 100.0).round() as i32)).size(12).color(style::ACCENT),
+            // Toggle mute. Reflects the live `muted` from the sink controller —
+            // no optimistic flip; the state updates once the controller reports it.
+            button(text(if s.muted { "🔇 MUTED" } else { "🔊 MUTE" }).size(11))
+                .on_press(SettingsMessage::SetSinkMute(mute_name, !s.muted)).style(control::action),
             // Restore volume to the 100% default.
             button(text("↺").size(12)).on_press(SettingsMessage::SetSinkVolume(reset_name, 1.0)).style(control::action),
         ].spacing(10).align_y(Alignment::Center);

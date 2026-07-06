@@ -47,8 +47,11 @@ fi
 [ -n "$REPO_ROOT" ] || { echo "build.sh: could not locate repo root (no compositor* dir found)" >&2; exit 1; }
 
 # --- Workspace conformance gate (layout/naming/size; see document/ARCHITECTURE.md) ---
-# Skipped when node is unavailable (e.g. minimal container images).
-if [ -f "$REPO_ROOT/workspace.lint.js" ] && command -v node >/dev/null 2>&1; then
+# Skipped when node is unavailable (e.g. minimal container images) or Y5_SKIP_LINT is set.
+# The distro bundle images set Y5_SKIP_LINT=1: they now carry node (for the Tauri devtool), but
+# the authoritative lint already runs in ci.yml — re-running it here only risks the image's
+# packaged node choking on the script, which must not fail a binary build.
+if [ -z "${Y5_SKIP_LINT:-}" ] && [ -f "$REPO_ROOT/workspace.lint.js" ] && command -v node >/dev/null 2>&1; then
     ( cd "$REPO_ROOT" && node workspace.lint.js 2>&1 | tail -n 1 >&2 ) || { echo "build.sh: workspace.lint failed — run 'node workspace.lint.js' for details" >&2; exit 1; }
 fi
 

@@ -2,7 +2,8 @@
 
 Build and run the compositor on **different distributions** to check portability. Each distro is
 a subdirectory with its own `Containerfile`, **named `<distro>-<version>`** (e.g. `fedora-43`,
-`ubuntu-24.04`, `debian-11`, `debian-12`, `debian-latest`, `arch-latest`). The driver scripts
+`fedora-44`, `ubuntu-24.04`, `debian-11`, `debian-12`, and `arch` — rolling, so unversioned).
+Base images are pinned (no `:latest`). The driver scripts
 take that full name as the `<distro>` argument and the image tags carry the version too. Three
 driver scripts at the top do the work:
 
@@ -21,11 +22,11 @@ distributions/
   run.sh              # ./run.sh   <distro> [debug|release]
   build.sh            # ./build.sh <distro> [debug|release] [out-dir]
   fedora-43/Containerfile
+  fedora-44/Containerfile
   ubuntu-24.04/Containerfile
   debian-11/Containerfile
   debian-12/Containerfile
-  debian-latest/Containerfile
-  arch-latest/Containerfile
+  arch/Containerfile
   .src/               # self-contained source clone (gitignored)
   .cache/<distro>/    # per-distro cargo target cache — warm incremental rebuilds (gitignored)
   out/                # extracted binaries (gitignored)
@@ -72,7 +73,7 @@ first (it lives under the worktree, so a shared filesystem carries it over; othe
 ./run.sh fedora-43           # debug
 ./run.sh ubuntu-24.04 release
 ./run.sh debian-12
-./run.sh arch-latest
+./run.sh arch
 
 #   You land in a shell — pre-check the distro, then launch the compositor:
 #     [container]$ ldd /usr/local/bin/y5_compositor   # check linkage
@@ -86,7 +87,7 @@ first (it lives under the worktree, so a shared filesystem carries it over; othe
 ./build.sh debian-11         # -> out/debian-11/y5_compositor
 
 # Rebuild an image after committing source changes:
-./image.sh arch-latest release
+./image.sh arch release
 ```
 
 `run.sh` reuses the GPU/session env from `../container.env` (NVIDIA EGL paths,

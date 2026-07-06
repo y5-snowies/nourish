@@ -2,7 +2,60 @@
 //! ns, negligible. The render/backend paths call the cheap update fns; `snapshot()` (in
 //! the sibling snapshot crate) reads the raw statics.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
+use std::sync::{LazyLock, Mutex};
+use std::time::Instant;
+
+/// Window over which the per-output present rate is averaged and then reset.
+const PRESENT_WINDOW_SECS: f64 = 0.5;
+
+/// Per-output presented-frame meter. Counts real page-flip completions (native)
+/// / presents (winit) over a short window and stores the derived rate, then
+/// RESETS the count — no ever-growing counter. Because it counts what actually
+/// reached the screen, a dropped frame (a vblank with no new buffer) shows up as
+/// a lower rate rather than being masked. Read by the FPS overlay.
+struct PresentMeter {
+    frames: u32,
+    last: Instant,
+    rate: u32,
+}
+
+/// Keyed by output key. Lock is uncontended (one writer per pipe at vblank, one
+/// reader per composited frame); `get_mut` avoids allocating on the steady path.
+static PRESENTS: LazyLock<Mutex<HashMap<String, PresentMeter>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Record one presented frame on `output_key`; recompute + reset the windowed
+/// rate when the window elapses. Call at page-flip completion (native) / present
+/// (winit).
+pub fn present(output_key: &str) {
+    let now = Instant::now();
+    let mut map = PRESENTS.lock().unwrap();
+    if let Some(m) = map.get_mut(output_key) {
+        m.frames += 1;
+        let dt = now.duration_since(m.last).as_secs_f64();
+        if dt >= PRESENT_WINDOW_SECS {
+            m.rate = (m.frames as f64 / dt).round() as u32;
+            m.frames = 0;
+            m.last = now;
+        }
+    } else {
+        map.insert(
+            output_key.to_string(),
+            PresentMeter {
+                frames: 1,
+                last: now,
+                rate: 0,
+            },
+        );
+    }
+}
+
+/// The last windowed present rate (fps) on `output_key`, 0 if unknown.
+pub fn present_rate(output_key: &str) -> u32 {
+    PRESENTS.lock().unwrap().get(output_key).map(|m| m.rate).unwrap_or(0)
+}
 
 pub static FRAMES: AtomicU64 = AtomicU64::new(0);
 pub static VBLANKS: AtomicU64 = AtomicU64::new(0);

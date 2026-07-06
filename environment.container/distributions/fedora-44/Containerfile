@@ -1,0 +1,53 @@
+# y5_compositor — Fedora 44 build/run image.
+# Installs the build deps, clones the committed tree from the local git repo (bind-mounted
+# at /repo — no COPY of the live workspace), and compiles the winit binary.
+FROM fedora:44 AS deps
+
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/cache/libdnf5 \
+    dnf -y install \
+        cargo rust git clang-devel pkgconf-pkg-config protobuf-compiler protobuf-devel pam-devel \
+        libdisplay-info-devel libinput-devel libseat-devel libxkbcommon-devel pixman-devel \
+        systemd-devel wayland-devel wayland-protocols-devel \
+        mesa-libEGL-devel mesa-libgbm-devel libglvnd-egl libglvnd-gles libglvnd-opengl \
+        vulkan-loader vulkan-loader-devel ffmpeg-free-devel \
+        dbus-devel pulseaudio-libs-devel \
+        nodejs npm \
+        webkit2gtk4.1-devel libsoup3-devel gtk3-devel librsvg2-devel libappindicator-gtk3-devel \
+        libxcb-devel xcb-util-cursor-devel \
+        mesa-libGL-devel libglvnd-devel \
+        foot dejavu-sans-mono-fonts
+
+# --- build stage: clone the local repo + compile winit ----------------------------------
+FROM deps AS build
+ARG PROFILE=debug
+# BUNDLE=1 -> build the full install bundle (every shipped component) via prepare.sh, stashed at
+# /out (package.tar.gz + SHA256SUMS) — the multiarch-publish CD path. Unset (default) -> the
+# dev-loop path: just the nested winit binary at /usr/local/bin/y5_compositor.
+ARG BUNDLE=
+# Optional release-number stamp written to repo-root VERSION before building so the compositor
+# bakes it in at compile time (parity with docs.yml). Empty -> committed VERSION.
+ARG VERSION=
+WORKDIR /working.directory
+# Compile into the host-mounted cache (image.sh: -v <.cache>/<distro>:/y5-target) so a changed
+# clone rebuilds incrementally — the compiled dependency graph persists between builds.
+ENV Y5_TARGET_DIR=/y5-target
+# Skip the workspace lint here: node is present (for the devtool build) so build.sh would run it,
+# but ci.yml lints authoritatively — a packaged-node hiccup must not fail a binary build.
+ENV Y5_SKIP_LINT=1
+
+# /repo is bind-mounted at build time from the prepared self-contained clone
+# (image.sh passes `-v <DIST_SRC>:/repo:ro`). Clone it into the image (offline; no network).
+RUN git clone /repo /working.directory
+
+# Stamp the release number (when provided) so the compositor bakes it in at compile time.
+RUN if [ -n "$VERSION" ]; then printf '%s\n' "$VERSION" > VERSION; fi
+
+# Two build modes (see BUNDLE): the full install bundle (prepare.sh builds compositor, devtool,
+# polkit, MX daemon, xwayland, settings, installer), or the dev-loop winit binary for run.sh.
+RUN if [ -n "$BUNDLE" ]; then \
+        compositor.installer/prepare.sh --out=/out; \
+    else \
+        BIN="$(environment/build.sh winit ${PROFILE})" \
+        && install -Dm755 "$BIN" /usr/local/bin/y5_compositor; \
+    fi

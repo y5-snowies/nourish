@@ -540,7 +540,14 @@ fn inflate(rect: Rectangle<i32, Logical>, margin: f64) -> Rectangle<i32, Logical
     }
 }
 
-/// A single window's storage-space rect (`element_location` + `geometry`).
+/// A single window's storage-space rect (`element_location` + the compositor's slot size).
+///
+/// The size comes from the **decided slot** (`slot::expected_size`), NOT the client's live
+/// `geometry()`. This rect seeds the interactive resize/transform (`start_geo` for the delta) and
+/// the group anchor center: a `Decided` window whose client committed a different, letterboxed size
+/// — e.g. a VM/game that self-sizes — must resize from the compositor's enforced size, otherwise
+/// the first motion snaps to `client_size + delta` and jumps. Falls back to `geometry()` only when
+/// the slot is unset (matches the pre-slot behaviour for such windows).
 fn window_box(cx: &mut SystemCx, window: &Window) -> Rectangle<i32, Logical> {
     let loc = cx
         .platform
@@ -548,7 +555,9 @@ fn window_box(cx: &mut SystemCx, window: &Window) -> Rectangle<i32, Logical> {
         .and_then(|p| p.downcast_mut::<compositor_orchestration_draw_platform_base::platform::Platform>())
         .and_then(|p| p.space().element_location(window))
         .unwrap_or_default();
-    Rectangle { loc, size: window.geometry().size }
+    let size = compositor_y5_camera_transform_translate::slot::expected_size(window)
+        .unwrap_or_else(|| window.geometry().size);
+    Rectangle { loc, size }
 }
 
 /// Inline group inner bbox: the union of group member-window geometries (no

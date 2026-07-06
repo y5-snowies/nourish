@@ -1876,6 +1876,7 @@ name = "compositor_background_two_shader_load"
 version = "0.0.1"
 dependencies = [
  "compositor_background_two_draw_program",
+ "compositor_background_two_shader_builtin",
  "compositor_background_two_shader_locate",
  "compositor_background_two_shader_property",
  "compositor_background_two_shader_spirv",
@@ -3433,6 +3434,7 @@ dependencies = [
  "compositor_y5_picker_interface_capture",
  "compositor_y5_placeholder_interface_base",
  "compositor_y5_select_overlay_interface",
+ "compositor_y5_surface_draw_fps",
  "compositor_y5_surface_draw_hook",
  "compositor_y5_surface_draw_scene",
  "compositor_y5_surface_interface_base",
@@ -3522,6 +3524,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_remote_message_state_base",
  "compositor_support_system_storage_token_base",
+ "tokio",
 ]
 
 [[package]]
@@ -6169,6 +6172,7 @@ name = "compositor_y5_camera_transform_translate"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
+ "compositor_support_smithay_state_compositor_place",
  "compositor_y5_camera_transform_state",
  "smithay",
  "tracing",
@@ -7625,10 +7629,12 @@ dependencies = [
  "compositor_orchestration_draw_layer_base",
  "compositor_orchestration_driver_introspection_base",
  "compositor_support_smithay_state_compositor_base",
+ "compositor_support_smithay_state_compositor_place",
  "compositor_support_smithay_state_fractional_base",
  "compositor_support_smithay_state_fractional_dispatch",
  "compositor_support_system_persist_mark_base",
  "compositor_support_world_order_track_base",
+ "compositor_y5_camera_transform_translate",
  "compositor_y5_lock_system_base",
  "compositor_y5_placeholder_protocol_base",
  "compositor_y5_placeholder_record_base",
@@ -7852,6 +7858,22 @@ dependencies = [
  "compositor_y5_graphic_capture_session",
  "iced_core",
  "iced_widget",
+]
+
+[[package]]
+name = "compositor_y5_surface_draw_fps"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_debug_instance_record",
+ "compositor_developer_stats_registry_base",
+ "compositor_monitor_compositor_iced_base",
+ "compositor_orchestration_core_state_base",
+ "compositor_orchestration_draw_layer_base",
+ "compositor_support_iced_core_engine_base",
+ "compositor_y5_surface_draw_handle",
+ "iced_core",
+ "iced_widget",
+ "smithay",
 ]
 
 [[package]]
@@ -8192,6 +8214,7 @@ dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_orchestration_core_state_base",
+ "compositor_support_smithay_state_compositor_place",
  "compositor_support_world_order_track_base",
  "compositor_y5_camera_state_base",
  "compositor_y5_camera_system_base",

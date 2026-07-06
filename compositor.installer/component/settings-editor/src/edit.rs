@@ -14,7 +14,8 @@ pub fn interactive(base: Environment) -> Environment {
     Environment {
         renderer: choose(
             "renderer",
-            "Renderer backend.",
+            "Renderer backend. NOTE for AMD users: some have reported Vulkan not \
+             working on AMD; if you're on an AMD card, choose 'gles'.",
             &["vulkan", "gles"],
             &base.renderer,
         ),

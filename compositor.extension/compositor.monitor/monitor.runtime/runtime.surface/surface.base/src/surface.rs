@@ -28,16 +28,24 @@ use crate::wgpu_import::{TEXTURE_FORMAT, import_dmabuf_to_wgpu};
 ///
 /// Do not reorder these without re-doing the lifetime analysis.
 pub struct IcedSurface {
-    /// Sampleable view used by smithay's GlesRenderer to composite the UI.
-    pub gles_texture: GlesTexture,
-    /// Render-attachment view used by iced_wgpu to draw the UI.
-    pub wgpu_texture: wgpu::Texture,
-    /// The underlying allocation. Keeps gbm + BO alive.
-    pub allocated: AllocatedDmabuf,
-    /// The logical size of the surface. Equals the texture extent today;
-    /// kept as its own field so resize-with-oversize-allocation can diverge
-    /// it from texture dims later without changing this field's meaning.
+    /// GPU backing (dmabuf + both imports). `None` when the surface has been
+    /// **released** to reclaim memory while it isn't visible — its `IcedRuntime`
+    /// keeps running; `ensure` re-allocates on demand before the next render.
+    /// The three imports are kept together so they drop in the required order
+    /// (gles → wgpu → allocation) on both release and resize.
+    backing: Option<Backing>,
+    /// The logical size of the surface, retained across release so a released
+    /// surface can be re-allocated at the same size without the caller re-stating it.
     pub size: Size<i32, Physical>,
+}
+
+/// The three views of one dmabuf, grouped so field-drop order is guaranteed:
+/// `gles_texture` (EGLImage) → `wgpu_texture` (Vulkan external-mem binding) →
+/// `allocated` (owns the BO). See the type-level note on `IcedSurface`.
+struct Backing {
+    gles_texture: GlesTexture,
+    wgpu_texture: wgpu::Texture,
+    allocated: AllocatedDmabuf,
 }
 
 impl std::fmt::Debug for IcedSurface {
@@ -60,8 +68,13 @@ impl IcedSurface {
         b: f64,
         a: f64,
     ) {
+        // DEBUG ONLY: no-op when the backing has been released.
+        let Some(backing) = self.backing.as_ref() else { return };
         // Step 1: Clear to color.
-        let view = self.create_render_view();
+        let view = backing.wgpu_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("y5_iced_dmabuf_render_view"),
+            ..Default::default()
+        });
         let mut encoder = wgpu_ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -101,7 +114,7 @@ impl IcedSurface {
 
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &self.wgpu_texture,
+                texture: &backing.wgpu_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -172,14 +185,113 @@ impl IcedSurface {
         staging.unmap();
     }
     /// Allocate a fresh dmabuf at the given size and import it as both a
-    /// wgpu texture and a GLES texture.
+    /// wgpu texture and a GLES texture. Starts out resident.
     pub fn allocate(
         render_node: &str,
         wgpu_ctx: &WgpuVulkanContext,
         gles: &mut GlesRenderer,
         size: Size<i32, Physical>,
     ) -> Result<Self, SurfaceError> {
-        info!("IcedSurface::allocate {}x{}", size.w, size.h);
+        let backing = Backing::allocate(render_node, wgpu_ctx, gles, size)?;
+        Ok(Self {
+            backing: Some(backing),
+            size,
+        })
+    }
+
+    /// Whether the GPU backing is currently allocated. `false` after `release`
+    /// and before the next `ensure`.
+    pub fn is_resident(&self) -> bool {
+        self.backing.is_some()
+    }
+
+    /// Free the GPU backing (dmabuf + both imports) while keeping `size`. The
+    /// imports drop in the required order (gles → wgpu → allocation). No-op if
+    /// already released. Re-`ensure` before rendering or sampling again.
+    pub fn release(&mut self) {
+        if self.backing.is_some() {
+            trace!("IcedSurface::release {}x{}", self.size.w, self.size.h);
+        }
+        self.backing = None;
+    }
+
+    /// Re-allocate the backing at the current `size` if it was released. No-op
+    /// if already resident.
+    pub fn ensure(
+        &mut self,
+        render_node: &str,
+        wgpu_ctx: &WgpuVulkanContext,
+        gles: &mut GlesRenderer,
+    ) -> Result<(), SurfaceError> {
+        if self.backing.is_some() {
+            return Ok(());
+        }
+        self.backing = Some(Backing::allocate(render_node, wgpu_ctx, gles, self.size)?);
+        Ok(())
+    }
+
+    /// Sampleable GLES view, or `None` while released.
+    pub fn gles_texture(&self) -> Option<&GlesTexture> {
+        self.backing.as_ref().map(|b| &b.gles_texture)
+    }
+
+    /// The underlying dmabuf, or `None` while released.
+    pub fn dmabuf(&self) -> Option<&smithay::backend::allocator::dmabuf::Dmabuf> {
+        self.backing.as_ref().map(|b| &b.allocated.dmabuf)
+    }
+
+    /// Resize. Destroy-and-recreate in drop-safe order when resident; when
+    /// released, only the retained `size` changes (the backing is re-allocated
+    /// at the new size on the next `ensure`).
+    ///
+    /// On a resident resize, a replacement is allocated first so a failure
+    /// leaves `*self` unchanged and the caller sees a clean error.
+    pub fn resize(
+        &mut self,
+        render_node: &str,
+        wgpu_ctx: &WgpuVulkanContext,
+        gles: &mut GlesRenderer,
+        new_size: Size<i32, Physical>,
+    ) -> Result<(), SurfaceError> {
+        if new_size == self.size {
+            return Ok(());
+        }
+
+        trace!(
+            "IcedSurface::resize {}x{} -> {}x{}",
+            self.size.w, self.size.h, new_size.w, new_size.h
+        );
+
+        if self.backing.is_some() {
+            // Allocate the replacement first (clean error on failure), then let
+            // the old backing drop (gles → wgpu → allocation) as it is replaced.
+            let replacement = Backing::allocate(render_node, wgpu_ctx, gles, new_size)?;
+            self.backing = Some(replacement);
+        }
+        self.size = new_size;
+        Ok(())
+    }
+
+    /// Convenience: produce a `wgpu::TextureView` for use as a render
+    /// attachment, or `None` while released.
+    pub fn create_render_view(&self) -> Option<wgpu::TextureView> {
+        self.backing.as_ref().map(|b| {
+            b.wgpu_texture.create_view(&wgpu::TextureViewDescriptor {
+                label: Some("y5_iced_dmabuf_render_view"),
+                ..Default::default()
+            })
+        })
+    }
+}
+
+impl Backing {
+    fn allocate(
+        render_node: &str,
+        wgpu_ctx: &WgpuVulkanContext,
+        gles: &mut GlesRenderer,
+        size: Size<i32, Physical>,
+    ) -> Result<Self, SurfaceError> {
+        trace!("IcedSurface backing allocate {}x{}", size.w, size.h);
 
         // Negotiate an explicit modifier across gles ∩ wgpu (empty ⇒ implicit path).
         let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
@@ -197,50 +309,6 @@ impl IcedSurface {
             gles_texture,
             wgpu_texture,
             allocated,
-            size,
-        })
-    }
-
-    /// Resize. This is a destroy-and-recreate, in drop-safe order.
-    ///
-    /// The old views drop first (gles, then wgpu, then allocation), then a
-    /// fresh surface is allocated. If allocation fails, `*self` is replaced
-    /// with the error path's leftovers — caller should treat the surface as
-    /// invalid and destroy the instance.
-    ///
-    /// This is synchronous; the caller is responsible for batching/debouncing
-    /// (see `IcedRegistry`'s pending-resize queue in crate 3).
-    pub fn resize(
-        &mut self,
-        render_node: &str,
-        wgpu_ctx: &WgpuVulkanContext,
-        gles: &mut GlesRenderer,
-        new_size: Size<i32, Physical>,
-    ) -> Result<(), SurfaceError> {
-        if new_size == self.size {
-            return Ok(());
-        }
-
-        info!(
-            "IcedSurface::resize {}x{} -> {}x{}",
-            self.size.w, self.size.h, new_size.w, new_size.h
-        );
-
-        // Allocate a replacement first. If this fails, *self is unchanged
-        // and the caller sees a clean error.
-        let replacement = IcedSurface::allocate(render_node, wgpu_ctx, gles, new_size)?;
-
-        // Now swap. The old fields drop in declaration order (gles, wgpu,
-        // allocated) when `_old` goes out of scope at the end of the block.
-        let _old = std::mem::replace(self, replacement);
-        Ok(())
-    }
-
-    /// Convenience: produce a `wgpu::TextureView` for use as a render attachment.
-    pub fn create_render_view(&self) -> wgpu::TextureView {
-        self.wgpu_texture.create_view(&wgpu::TextureViewDescriptor {
-            label: Some("y5_iced_dmabuf_render_view"),
-            ..Default::default()
         })
     }
 }

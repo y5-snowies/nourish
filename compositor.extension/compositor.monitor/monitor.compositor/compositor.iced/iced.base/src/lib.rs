@@ -65,7 +65,7 @@ pub use element::IcedRenderElement;
 pub use error::{CreateError, DispatchError, ResizeError};
 pub use handle::{HandleId, IcedHandle};
 pub use instance::{IcedInstance, IcedItem};
-pub use registry::IcedRegistry;
+pub use registry::{IcedRegistry, PaneView};
 pub use space::{IcedSpace, Transform};
 
 pub use compositor_support_iced_core_engine_base::{

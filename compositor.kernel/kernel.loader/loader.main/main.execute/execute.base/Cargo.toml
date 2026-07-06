@@ -60,6 +60,7 @@ compositor_support_smithay_dispatch_wire_trait.workspace = true
 compositor_support_smithay_wayland_connection_record.workspace = true
 compositor_support_library_debug_client_base.workspace = true
 compositor_remote_transport_server_base.workspace = true
+compositor_orchestration_driver_remote_base.workspace = true
 compositor_monitor_runtime_surface_base.workspace = true
 compositor_introspection_sampler_window_base.workspace = true
 compositor_introspection_extraction_window_base.workspace = true

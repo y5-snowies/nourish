@@ -4,14 +4,20 @@
 //!
 //! Capabilities:
 //!   * On-demand polling          -> [`AudioController::refresh`] / [`AudioController::state`]
+//!   * Change subscriptions        -> [`AudioController::watch`] hands each call site
+//!                                   its own [`AudioWatch`] that is *pinged* on every
+//!                                   change; the owner re-polls and unsubscribes
+//!                                   implicitly when the watch is dropped.
 //!   * Actions                    -> set / adjust volume, set / toggle mute
-//!   * Optional background watcher-> [`AudioController::start_watcher`] keeps the
-//!                                   cached state current automatically and fires
-//!                                   a `notify` callback whenever it changes.
+//!   * Background watcher          -> started by [`AudioController::new`]; on every
+//!                                   audio-topology change (including edits made
+//!                                   outside this process) it pings all [`AudioWatch`]ers.
 //!
 //! The PulseAudio threaded mainloop *is* the off-thread component, and it lives
 //! entirely inside this module — the caller never spawns a thread. The watcher
-//! is opt-in and unused until you call `start_watcher`.
+//! pings from that mainloop thread via a non-blocking, coalescing capacity-1
+//! channel, so it never stalls waiting on a receiver; the subscriber list is
+//! behind a `Mutex`, and each owner re-reads `state()` on its own thread.
 //!
 //! This type is intentionally not `Send`/`Sync`: create it and call its methods
 //! from one thread (your compositor's main/event-loop thread). PulseAudio does
@@ -20,6 +26,7 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 
 use libpulse_binding as pulse;
@@ -86,9 +93,60 @@ pub struct AudioController {
     context: Rc<RefCell<Context>>,
     introspect: Introspector,
     state: Arc<Mutex<AudioState>>,
+    /// Live subscribers. Shared with the PulseAudio mainloop-thread subscribe
+    /// callback, which pings every sender on a change — so this is touched from
+    /// two threads and MUST be a `Mutex`, not a `RefCell`. Each entry is keyed by
+    /// an id so its [`AudioWatch`] can remove exactly itself on drop.
+    watchers: Arc<Mutex<Watchers>>,
     /// Upper bound for set/adjust, as a fraction of NORMAL. `1.0` caps at 100%
     /// (safer UX); set to e.g. `1.5` to allow boost like most desktops.
     max_volume: f64,
+}
+
+/// Subscriber registry behind [`AudioController::watchers`]. Each sender is a
+/// capacity-1 [`SyncSender`] used as a coalescing ping: the callback `try_send`s
+/// a `()` and drops it on `Full` (a ping is already pending), so notifying is
+/// non-blocking and never rendezvous — the audio thread is never stalled.
+#[derive(Default)]
+struct Watchers {
+    next_id: u64,
+    subs: Vec<(u64, SyncSender<()>)>,
+}
+
+/// A live subscription to [`AudioController`], handed out by
+/// [`AudioController::watch`]. It carries *pings*, not state: when the audio
+/// topology changes the controller wakes every watch, and the owner re-reads
+/// [`AudioController::state`] / [`AudioController::refresh`] itself. Each call
+/// site owns one independently; dropping it deregisters — no manual unsubscribe.
+pub struct AudioWatch {
+    id: u64,
+    rx: Receiver<()>,
+    watchers: Arc<Mutex<Watchers>>,
+}
+
+impl AudioWatch {
+    /// Flush the ping channel and report whether we were pinged since the last
+    /// call. Coalescing: any number of pings collapse to a single `true` (you
+    /// re-poll once regardless). Cheap and non-blocking; returns `false` on quiet
+    /// ticks. A fresh subscription is pre-pinged, so the first call returns `true`
+    /// to prompt an initial poll.
+    pub fn pinged(&self) -> bool {
+        let mut pinged = false;
+        while self.rx.try_recv().is_ok() {
+            pinged = true;
+        }
+        pinged
+    }
+}
+
+impl Drop for AudioWatch {
+    fn drop(&mut self) {
+        // Explicit deregistration: remove exactly our sender. Poisoned lock → the
+        // controller is tearing down anyway, nothing to clean up.
+        if let Ok(mut w) = self.watchers.lock() {
+            w.subs.retain(|(id, _)| *id != self.id);
+        }
+    }
 }
 
 impl AudioController {
@@ -155,12 +213,16 @@ impl AudioController {
             context,
             introspect,
             state: Arc::new(Mutex::new(AudioState::default())),
+            watchers: Arc::new(Mutex::new(Watchers::default())),
             max_volume: 1.0,
         };
 
         // Seed the cache so callers have a value immediately. A missing sink at
         // construction time is not fatal — it may appear later.
         let _ = me.refresh();
+        // Subscribe to sink/server changes: the callback re-queries and pushes the
+        // new snapshot to every watcher, all on the PulseAudio mainloop thread.
+        me.install_watcher();
         Ok(me)
     }
 
@@ -174,8 +236,35 @@ impl AudioController {
         self.state.lock().unwrap().clone()
     }
 
-    /// Synchronously re-query the default sink (+ the full sink list), update the
-    /// cache, and return it.
+    /// Subscribe to audio-topology changes. Every call site gets its own
+    /// independent [`AudioWatch`] that is *pinged* — not fed state — whenever a
+    /// sink/default-sink changes, including edits made outside this process. On a
+    /// ping the owner re-reads [`state`] / [`refresh`] itself. The subscription is
+    /// pre-pinged so the owner polls once on start. Drop the `AudioWatch` to
+    /// unsubscribe.
+    ///
+    /// Pings are driven only by the live sink controller, never by the action
+    /// methods ([`set_sink_mute`] &c.) — a change reflects when the controller
+    /// reports it live, not optimistically because the caller "knows" it.
+    ///
+    /// [`state`]: AudioController::state
+    /// [`refresh`]: AudioController::refresh
+    /// [`set_sink_mute`]: AudioController::set_sink_mute
+    pub fn watch(&self) -> AudioWatch {
+        // Capacity 1: holds at most one pending ping (extras coalesce), and
+        // `try_send` never blocks — so the PulseAudio thread is never stalled.
+        let (tx, rx) = sync_channel(1);
+        let _ = tx.try_send(()); // pre-ping: poll once on subscribe
+        let mut w = self.watchers.lock().unwrap();
+        let id = w.next_id;
+        w.next_id += 1;
+        w.subs.push((id, tx));
+        AudioWatch { id, rx, watchers: Arc::clone(&self.watchers) }
+    }
+
+    /// Synchronously re-query the default sink (+ the full sink list) and update
+    /// the cache. Does *not* broadcast — the live watcher is the only publisher —
+    /// so this is for on-demand reads / seeding, not for notifying subscribers.
     pub fn refresh(&self) -> Result<AudioState, AudioError> {
         let mut snap = self.query_default_sink()?;
         let default = snap.sink_name.clone().unwrap_or_default();
@@ -208,6 +297,13 @@ impl AudioController {
         }
         let name = name.to_string();
         self.run(|introspect, done| introspect.set_sink_volume_by_name(&name, &cv, Some(done)))?;
+        self.refresh()
+    }
+
+    /// Set a specific sink's mute state.
+    pub fn set_sink_mute(&self, name: &str, muted: bool) -> Result<AudioState, AudioError> {
+        let name = name.to_string();
+        self.run(|introspect, done| introspect.set_sink_mute_by_name(&name, muted, Some(done)))?;
         self.refresh()
     }
 
@@ -292,63 +388,37 @@ impl AudioController {
         self.set_muted(!cur)
     }
 
-    /// Opt-in: subscribe to sink/server changes and keep [`state`] current
-    /// automatically. `notify` is invoked (on the mainloop thread) after each
-    /// update — keep it tiny and non-blocking. The idiomatic compositor pattern
-    /// is to make `notify` a `calloop::ping::Ping::ping()` (which is `Send`) and
-    /// read `state()` from the ping handler on your main thread.
+    /// Subscribe to sink/server changes and, on each one, *ping* every [`watch`]er
+    /// so the owner re-polls. Runs on the PulseAudio mainloop thread; it does no
+    /// querying and never blocks — each ping is a coalescing `try_send` that is
+    /// dropped if one is already pending. Started once by [`new`].
     ///
-    /// [`state`]: AudioController::state
-    pub fn start_watcher<F>(&self, notify: F) -> Result<(), AudioError>
-    where
-        F: FnMut() + Send + 'static,
-    {
-        let ml = Rc::clone(&self.mainloop);
-        let state = Arc::clone(&self.state);
-        let introspect = Rc::new(self.context.borrow().introspect());
-        let notify = Rc::new(RefCell::new(notify));
+    /// [`watch`]: AudioController::watch
+    /// [`new`]: AudioController::new
+    fn install_watcher(&self) {
+        let watchers = Arc::clone(&self.watchers);
 
-        ml.borrow_mut().lock();
-
+        self.mainloop.borrow_mut().lock();
         self.context
             .borrow_mut()
             .set_subscribe_callback(Some(Box::new(move |facility, _op, _idx| {
-                // We only care about sink changes and default-sink changes.
+                // Any output sink change, or a default-sink (server) change.
                 if !matches!(facility, Some(Facility::Sink) | Some(Facility::Server)) {
                     return;
                 }
-                // Re-resolve the default sink fully asynchronously (no waiting:
-                // we are already on the mainloop thread). Nested callbacks update
-                // the shared snapshot and fire `notify` only on an actual change.
-                let introspect_inner = Rc::clone(&introspect);
-                let state = Arc::clone(&state);
-                let notify = Rc::clone(&notify);
-                introspect.get_server_info(move |info| {
-                    let Some(name) = info.default_sink_name.as_ref().map(|c| c.to_string()) else {
-                        return;
-                    };
-                    let state = Arc::clone(&state);
-                    let notify = Rc::clone(&notify);
-                    introspect_inner.get_sink_info_by_name(&name, move |res| {
-                        if let ListResult::Item(info) = res {
-                            let snap = sink_info_to_state(info);
-                            let mut guard = state.lock().unwrap();
-                            if *guard != snap {
-                                *guard = snap;
-                                drop(guard);
-                                (notify.borrow_mut())();
-                            }
-                        }
-                    });
-                });
+                if let Ok(w) = watchers.lock() {
+                    for (_, tx) in &w.subs {
+                        // Non-blocking, coalescing: `Full` just means a ping is
+                        // already queued; `Disconnected` means a dropped watch not
+                        // yet reaped — both are fine to ignore.
+                        let _ = tx.try_send(());
+                    }
+                }
             })));
-
         self.context
             .borrow_mut()
             .subscribe(InterestMaskSet::SINK | InterestMaskSet::SERVER, |_success| {});
-
-        ml.borrow_mut().unlock();
-        Ok(())
+        self.mainloop.borrow_mut().unlock();
     }
 
     // ----- internal synchronous helpers -----
@@ -471,3 +541,4 @@ fn sink_info_to_state(info: &pulse::context::introspect::SinkInfo) -> AudioState
         sinks: Vec::new(),
     }
 }
+

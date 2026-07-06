@@ -251,6 +251,15 @@ fn process_vblank(
         None => None,
     };
 
+    // Per-output present rate for the FPS overlay: count only real page-flip
+    // completions on THIS pipe (a dropped frame — a vblank with no new buffer —
+    // doesn't increment), keyed by output. The overlay samples the delta.
+    if matches!(pending_feedback, Some(Some(_))) {
+        let key =
+            compositor_orchestration_core_state_base::state::output_key(&ctx.outputs[idx].output);
+        compositor_developer_stats_registry_base::base::present(&key);
+    }
+
     let refresh_rate =
         compositor_kernel_scanout_timing_vblank_base::vblank::refresh_interval(&ctx.outputs[idx].mode);
     // Per-output refresh interval — the pacing (empty-frame estimate delay) must

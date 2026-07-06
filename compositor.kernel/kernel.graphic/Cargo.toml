@@ -753,6 +753,7 @@ compositor_y5_select_overlay_system = { path = "../../compositor.expansion/compo
 compositor_y5_select_state_base = { path = "../../compositor.expansion/compositor.y5/y5.select/select.state/state.base" }
 compositor_y5_select_system_base = { path = "../../compositor.expansion/compositor.y5/y5.select/select.system/system.base" }
 compositor_y5_surface_draw_capture = { path = "../../compositor.expansion/compositor.y5/y5.surface/surface.draw/draw.capture" }
+compositor_y5_surface_draw_fps = { path = "../../compositor.expansion/compositor.y5/y5.surface/surface.draw/draw.fps" }
 compositor_y5_surface_draw_handle = { path = "../../compositor.expansion/compositor.y5/y5.surface/surface.draw/draw.handle" }
 compositor_y5_surface_draw_hook = { path = "../../compositor.expansion/compositor.y5/y5.surface/surface.draw/draw.hook" }
 compositor_y5_surface_draw_scene = { path = "../../compositor.expansion/compositor.y5/y5.surface/surface.draw/draw.scene" }

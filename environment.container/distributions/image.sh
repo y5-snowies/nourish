@@ -35,9 +35,15 @@ fi
 TARGET_CACHE="$DIST_CACHE/$DISTRO"
 mkdir -p "$TARGET_CACHE"
 
+# Extra `podman build` args (e.g. `--build-arg BUNDLE=1 --build-arg VERSION=x`) can be injected
+# via Y5_EXTRA_BUILD_ARGS — the multiarch-publish CD uses this to build the full install bundle
+# instead of the dev-loop winit binary. Word-split into an array so each token is its own arg.
+read -ra _EXTRA_BUILD_ARGS <<< "${Y5_EXTRA_BUILD_ARGS:-}"
+
 echo ">> building $IMAGE  (distro=$DISTRO profile=$PROFILE, source $DIST_SRC, target cache $TARGET_CACHE)" >&2
 podman build \
     --build-arg PROFILE="$PROFILE" \
+    "${_EXTRA_BUILD_ARGS[@]}" \
     -v "$DIST_SRC:/repo:ro" \
     -v "$TARGET_CACHE:/y5-target" \
     --security-opt label=disable \

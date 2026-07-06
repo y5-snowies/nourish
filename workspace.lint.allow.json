@@ -359,5 +359,11 @@
   ],
   "compositor.installer/installer.process/process.main/main.execute/execute.packages": [
     "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.surface/surface.draw/draw.fps": [
+    "size"
+  ],
+  "compositor.developer/developer.stats/stats.registry/registry.counter": [
+    "size"
   ]
 }

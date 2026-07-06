@@ -16,12 +16,14 @@ compositor_support_world_order_track_base.workspace = true
 compositor_support_smithay_state_fractional_base.workspace = true
 compositor_support_smithay_state_fractional_dispatch.workspace = true
 compositor_support_smithay_state_compositor_base.workspace = true
+compositor_support_smithay_state_compositor_place.workspace = true
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 bitflags = { workspace = true }
 smithay = { workspace = true }
 compositor_orchestration_core_state_base.workspace = true
 compositor_y5_placeholder_record_base.workspace = true
+compositor_y5_camera_transform_translate.workspace = true
 compositor_y5_window_interface_record.workspace = true
 uuid.workspace = true
 compositor_y5_surface_draw_handle.workspace = true

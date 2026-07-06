@@ -26,11 +26,8 @@ pub fn client_compositor_state<'a>(
         .compositor_state
 }
 
-/// PROTOCOL-only commit (the wayland `D` path). Updates buffer state and popups,
-/// then records the surface in the commit outbox. The world effects (window
-/// `on_commit`, initial configure + placement, resize) are applied by
-/// orchestration at drain via `apply_commit` — `commit` itself never touches the
-/// world (document/SMITHAY_DECOUPLING.md).
+/// PROTOCOL-only commit (wayland `D` path): buffer state + popups, then record the surface in the
+/// commit outbox. World effects run at drain via `apply_commit` (document/SMITHAY_DECOUPLING.md).
 pub fn commit(
     dispatch: &mut Dispatch,
     surface: &WlSurface,
@@ -40,10 +37,8 @@ pub fn commit(
     dispatch.committed.push(surface.clone());
 }
 
-/// World side of a commit, applied by orchestration against the active world's
-/// Space right after `dispatch_clients` (same iteration, synchronous). Returns
-/// the window that just became ready for its initial map, if any — the caller
-/// performs the map (a world op).
+/// World side of a commit (run by orchestration against the active Space at drain). Returns the
+/// window that just became ready for its initial map, if any — the caller performs the map.
 pub fn apply_commit(
     space: &mut Space<Window>,
     surface: &WlSurface,
@@ -62,13 +57,20 @@ pub fn apply_commit(
         }
     }
 
-    // Initial configure + placement for the directly-committed toplevel.
+    // Directly-committed toplevel: startup-grace jiggle, then initial configure + placement.
     let mut to_place = None;
     if let Some(window) = space
         .elements()
         .find(|w| w.toplevel().unwrap().wl_surface() == surface)
         .cloned()
     {
+        // Startup-grace jiggle back toward the decided size (see `reassert_size_if_diverged`).
+        if let Some(size) = compositor_support_smithay_state_compositor_place::reassert_size_if_diverged(&window) {
+            let tl = window.toplevel().unwrap();
+            tl.with_pending_state(|s| s.size = Some(size));
+            tl.send_configure();
+        }
+
         let initial_configure_sent = with_states(surface, |states| {
             states
                 .data_map

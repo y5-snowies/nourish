@@ -68,6 +68,14 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
             state.inner.preference.input_natural_scroll = b;
             let _ = pref::save(&state.inner.preference);
         }
+        SettingsMessage::SetShowFps(b) => {
+            state.inner.preference.show_fps = b;
+            let _ = pref::save(&state.inner.preference);
+        }
+        SettingsMessage::SetReleaseHidden(b) => {
+            state.inner.preference.release_hidden_surfaces = b;
+            let _ = pref::save(&state.inner.preference);
+        }
         SettingsMessage::Env(e) => {
             let _ = compositor_developer_environment_config_base::base::save(&e);
         }
@@ -141,6 +149,11 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
         SettingsMessage::SetSinkVolume(name, v) => {
             if let Some(a) = state.inner.kernel.get(&AUDIO) {
                 let _ = a.set_sink_volume(&name, v as f64);
+            }
+        }
+        SettingsMessage::SetSinkMute(name, muted) => {
+            if let Some(a) = state.inner.kernel.get(&AUDIO) {
+                let _ = a.set_sink_mute(&name, muted);
             }
         }
         SettingsMessage::WifiEnable(b) => wifi::command(WifiCmd::SetEnabled(b)),

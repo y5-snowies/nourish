@@ -1,0 +1,214 @@
+name: Multiarch Publish
+
+# Build the FULL end-user install bundle natively on EACH target distro × CPU arch, then publish
+# them so a user on that distro/arch can download and install exactly like the Fedora one-liner.
+#
+# This is the multiarch peer of docs.yml (the Fedora "main CD"): each combo runs the SAME
+# compositor.installer/prepare.sh that docs.yml uses — building every shipped component
+# (compositor, devtool window, polkit agent, MX gesture daemon, xwayland-satellite, settings
+# tool, interactive installer) inside that distro's own image (environment.container/
+# distributions/<distro>/Containerfile, BUNDLE=1). Each bundle already contains its own
+# install.sh + y5-install, so it IS the per-distro installer.
+#
+# WHY per-distro: the binaries are dynamically linked to that distro's glibc / mesa / Vulkan /
+# ffmpeg / webkit. A Fedora bundle won't reliably run on Debian; each distro gets its own bundle.
+# WHY native arm: aarch64 legs run on `ubuntu-24.04-arm` (free on public repos) — no QEMU.
+#
+# TRIGGERS (candidate ONLY — the RC branch; never fires on upstream-integration/PRs):
+#   - push to `candidate`      -> build all combos, (re)publish the rolling `multiarch-latest`
+#                                 prerelease with a package-<distro>-<arch>.tar.gz per combo.
+#   - workflow_dispatch        -> same, for a manual re-run.
+#
+# STAGING NOTE: this publishes to GitHub Releases only — it does NOT touch the Pages
+# /release/latest/fedora44 site docs.yml owns. Once this channel is verified, the plan is to
+# fold it into the main CD (Pages /release/latest/<distro>/) and retire the Fedora-only path.
+#
+# COST: heavy (all components, per distro, incl. a Tauri build). fail-fast:false so a distro
+# missing a dep surfaces itself instead of cancelling the rest. On a public repo the runners
+# are free; the budget is wall-clock. Prune the matrix if you don't need every distro.
+
+on:
+  push:
+    branches: [candidate]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Stage the heavy build dirs on the runner's big /mnt disk, not the ~14 GB root fs. The
+  # per-distro cargo target cache (the bulk of the build) and the source clone both live here.
+  Y5_DIST_CACHE: /mnt/y5/cache
+  Y5_DIST_SRC: /mnt/y5/src
+
+jobs:
+  # Compute the rc version ONCE (committed VERSION + rc-tag history; ci/scripts/version-rc.sh)
+  # and hand it to every build so the number baked into each distro's binary matches — exactly
+  # how release-rc.yml stamps its rc bundle.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - id: compute
+        run: |
+          v="$(ci/scripts/version-rc.sh)"
+          echo ">> multiarch build version: $v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.distro }} · ${{ matrix.arch }}
+    needs: version
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        # One entry per (distro, arch). distro = a subdir under
+        # environment.container/distributions/ with a BUNDLE=1-capable Containerfile; runner =
+        # ubuntu-24.04 (x86_64) or ubuntu-24.04-arm (aarch64, native — no QEMU). Base images are
+        # pinned in each Containerfile. Arch is x86_64-only: the official archlinux image has no
+        # arm64 build.
+        include:
+          - { distro: fedora-43,    arch: x86_64,  runner: ubuntu-24.04 }
+          - { distro: fedora-43,    arch: aarch64, runner: ubuntu-24.04-arm }
+          - { distro: fedora-44,    arch: x86_64,  runner: ubuntu-24.04 }
+          - { distro: fedora-44,    arch: aarch64, runner: ubuntu-24.04-arm }
+          - { distro: debian-12,    arch: x86_64,  runner: ubuntu-24.04 }
+          - { distro: debian-12,    arch: aarch64, runner: ubuntu-24.04-arm }
+          - { distro: ubuntu-24.04, arch: x86_64,  runner: ubuntu-24.04 }
+          - { distro: ubuntu-24.04, arch: aarch64, runner: ubuntu-24.04-arm }
+          - { distro: arch,         arch: x86_64,  runner: ubuntu-24.04 }
+    steps:
+      - uses: actions/checkout@v4
+        # A normal (non-worktree) checkout so distributions/prepare_source can `git clone .` it.
+
+      - name: Ensure podman is available
+        run: command -v podman >/dev/null || { sudo apt-get update && sudo apt-get install -y podman; }
+
+      - name: Reclaim disk + stage heavy build dirs on /mnt
+        run: |
+          sudo rm -rf /opt/hostedtoolcache /usr/local/lib/android /usr/share/dotnet \
+                      /usr/local/.ghcup /opt/ghc || true
+          sudo mkdir -p /mnt/y5
+          sudo chown -R "$(id -u):$(id -g)" /mnt/y5
+          df -h / /mnt
+
+      # Warm the per-distro cargo target cache (the huge vendored graph). Keyed per distro+arch
+      # — incompatible ABIs must never share a cache.
+      - uses: actions/cache@v4
+        with:
+          path: /mnt/y5/cache/${{ matrix.distro }}
+          key: multiarch-target-${{ matrix.distro }}-${{ matrix.arch }}-${{ github.sha }}
+          restore-keys: multiarch-target-${{ matrix.distro }}-${{ matrix.arch }}-
+
+      - name: Build full install bundle for ${{ matrix.distro }} (${{ matrix.arch }})
+        env:
+          # BUNDLE=1 flips the Containerfile from the dev-loop winit binary to prepare.sh (all
+          # components); VERSION stamps the rc number into the compositor at compile time.
+          Y5_EXTRA_BUILD_ARGS: >-
+            --build-arg BUNDLE=1
+            --build-arg VERSION=${{ needs.version.outputs.version }}
+        run: |
+          # image.sh materializes the source clone, mounts the target cache, and builds the
+          # image (tag: y5-distro-<distro>-release) with our extra build args.
+          environment.container/distributions/image.sh "${{ matrix.distro }}" release
+
+      - name: Extract + package the bundle
+        id: pkg
+        run: |
+          combo="${{ matrix.distro }}-${{ matrix.arch }}"
+          img="y5-distro-${{ matrix.distro }}-release"
+          cid="$(podman create "$img")"
+          trap 'podman rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          mkdir -p dist
+          # prepare.sh wrote /out/package.tar.gz (+ its SHA256SUMS) inside the image.
+          podman cp "$cid:/out/package.tar.gz" "dist/package-${combo}.tar.gz"
+          ( cd dist && sha256sum "package-${combo}.tar.gz" > "package-${combo}.tar.gz.sha256" )
+          echo ">> bundle for $combo:"; ls -l "dist/package-${combo}.tar.gz"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.distro }}-${{ matrix.arch }}
+          path: |
+            dist/package-${{ matrix.distro }}-${{ matrix.arch }}.tar.gz
+            dist/package-${{ matrix.distro }}-${{ matrix.arch }}.tar.gz.sha256
+          if-no-files-found: error
+
+  # Publish every combo's bundle as TWO prereleases on each candidate push — mirroring
+  # release-rc.yml's v<rc>/latest-rc pair, but in a `multiarch-*` namespace so it never collides
+  # with the Fedora RC releases:
+  #   multiarch-v<X.Y.Z-rc.N>  immutable, versioned (assets refreshed via --clobber on same-commit
+  #                            re-run) — a pinnable RC you can point testers at.
+  #   multiarch-latest         rolling, recreated each push — the stable "newest" URL.
+  # Both hold the SAME set of per-distro tarballs + SHA256SUMS, so a pinned and a latest download
+  # are identical bytes.
+  release:
+    needs: [build, version]
+    if: github.ref == 'refs/heads/candidate'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true      # flatten every combo's files into one dir
+      - name: Consolidate assets + checksums
+        run: |
+          mkdir -p release
+          cp artifacts/*.tar.gz release/
+          cat artifacts/*.sha256 > release/SHA256SUMS
+          ls -l release
+      - name: Publish multiarch-v<rc> (immutable) + multiarch-latest (rolling)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          notes="Per-distro × per-arch **install bundles** (v$VERSION, \`candidate\` @ \`${GITHUB_SHA:0:7}\`),
+          each built natively in that distro's image with the full component set (compositor, devtool,
+          polkit, MX daemon, xwayland, settings, installer) — the same \`prepare.sh\` the Fedora channel uses.
+
+          Download \`package-<distro>-<arch>.tar.gz\` matching your distro **and** CPU arch, verify against
+          \`SHA256SUMS\`, then:
+          \`\`\`
+          tar -xzf package-<distro>-<arch>.tar.gz && y5-install/install.sh
+          \`\`\`
+          These are dynamically linked to each distro's system libraries — not portable across distros."
+
+          # 1) Immutable, versioned rc release. The multiarch-v<rc> tag pins THIS commit; created
+          #    once, then a re-run of the same commit just refreshes the assets (--clobber). Its own
+          #    `multiarch-v*` namespace so it never touches release-rc.yml's v<rc>/latest-rc.
+          if gh release view "multiarch-v$VERSION" >/dev/null 2>&1; then
+            echo ">> multiarch-v$VERSION exists — refreshing assets"
+            gh release upload "multiarch-v$VERSION" release/*.tar.gz release/SHA256SUMS --clobber
+          else
+            gh release create "multiarch-v$VERSION" \
+              --target "$GITHUB_SHA" \
+              --title "Multiarch install bundles v$VERSION" \
+              --prerelease \
+              --latest=false \
+              --notes "Nourish multiarch bundles **v$VERSION** (release candidate).
+
+          $notes" \
+              release/*.tar.gz release/SHA256SUMS
+          fi
+
+          # 2) Rolling "multiarch-latest" — recreated so its tag tracks the current commit; the
+          #    stable URL to grab the newest per-distro bundles from.
+          gh release delete multiarch-latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create multiarch-latest \
+            --target "$GITHUB_SHA" \
+            --title "Multiarch install bundles (latest — v$VERSION)" \
+            --prerelease \
+            --latest=false \
+            --notes "Rolling pointer to the newest multiarch release candidate (currently **v$VERSION**,
+          \`candidate\` @ \`${GITHUB_SHA:0:7}\`).
+
+          $notes" \
+            release/*.tar.gz release/SHA256SUMS

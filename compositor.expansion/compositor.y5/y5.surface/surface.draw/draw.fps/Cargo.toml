@@ -1,0 +1,20 @@
+[package]
+name = "compositor_y5_surface_draw_fps"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+iced_core = { workspace = true }
+iced_widget = { workspace = true }
+compositor_support_iced_core_engine_base = { workspace = true }
+compositor_monitor_compositor_iced_base = { workspace = true }
+compositor_y5_surface_draw_handle = { workspace = true }
+compositor_orchestration_core_state_base = { workspace = true }
+compositor_orchestration_draw_layer_base = { workspace = true }
+compositor_developer_stats_registry_base = { workspace = true }
+smithay = { workspace = true }
+# Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+compositor_developer_debug_instance_record = { workspace = true }
+
+[lib]
+path = "lib.rs"

@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 compositor_support_system_storage_token_base = { workspace = true }
 compositor_remote_message_state_base = { workspace = true }
+tokio = { workspace = true }
 
 [lib]
 path = "lib.rs"

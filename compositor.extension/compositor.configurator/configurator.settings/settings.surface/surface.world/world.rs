@@ -76,9 +76,28 @@ fn shader_list<'a>(shaders: &'a [String], current: Option<&'a str>) -> El<'a> {
     let mut col = column![text("SHADER").size(10).color(style::MUTED)].spacing(4);
     col = col.push(item("Built-in parallax".into(), String::new(), current.is_none()));
     for s in shaders {
-        col = col.push(item(s.clone(), s.clone(), current == Some(s.as_str())));
+        col = col.push(item(shader_label(s), s.clone(), current == Some(s.as_str())));
     }
     scrollable(col).height(Length::Fill).into()
+}
+
+/// Display label for a shader selection: a compiled-in `builtin:leafy-planet`
+/// shows as "Leafy Planet"; a user bundle folder name is shown verbatim.
+fn shader_label(value: &str) -> String {
+    match value.strip_prefix("builtin:") {
+        Some(rest) => rest
+            .split(['-', '_'])
+            .map(|w| {
+                let mut c = w.chars();
+                match c.next() {
+                    Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                    None => String::new(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
+        None => value.to_string(),
+    }
 }
 
 fn variables<'a>(props: &'a [ShaderProp]) -> El<'a> {

@@ -25,6 +25,12 @@ fn profile_active_default() -> bool {
     true
 }
 
+/// Default for `release_hidden_surfaces`: on. An older `preferences.json` without
+/// the field gets the memory-saving behavior by default.
+fn default_release_hidden() -> bool {
+    true
+}
+
 /// Per-monitor output preference. `identity = None` applies to any output
 /// (single-output-era default).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,6 +104,15 @@ pub struct Preference {
     /// Natural scrolling: invert the touchpad finger-axis direction for canvas
     /// pan, window scroll, and multi-finger swipe navigation (wheel unaffected).
     pub input_natural_scroll: bool,
+    /// Show the per-monitor FPS overlay (Settings → Performance). Off by default;
+    /// each driven output gets a small top-right counter of its own draw rate.
+    #[serde(default)]
+    pub show_fps: bool,
+    /// Release the GPU backing (dmabuf) of iced surfaces that have been hidden
+    /// (off-screen or fully obstructed) for a while, re-allocating on reveal.
+    /// On by default (Settings → Performance); off keeps every surface resident.
+    #[serde(default = "default_release_hidden")]
+    pub release_hidden_surfaces: bool,
     /// Per-output mode preferences, priority-ordered: the FIRST entry is the
     /// default/preferred output (see `display.base`'s `profiles.first()`).
     pub outputs: Vec<OutputProfile>,
@@ -182,6 +197,8 @@ impl Default for Preference {
         Self {
             cursor_sensitivity: 1.0,
             input_natural_scroll: true,
+            show_fps: false,
+            release_hidden_surfaces: true,
             outputs: Vec::new(),
             outputs_default_mode: None,
             outputs_layout: Vec::new(),

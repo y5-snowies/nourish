@@ -844,6 +844,7 @@ compositor_y5_select_overlay_system = { path = "y5.select/select.overlay/overlay
 compositor_y5_select_state_base = { path = "y5.select/select.state/state.base" }
 compositor_y5_select_system_base = { path = "y5.select/select.system/system.base" }
 compositor_y5_surface_draw_capture = { path = "y5.surface/surface.draw/draw.capture" }
+compositor_y5_surface_draw_fps = { path = "y5.surface/surface.draw/draw.fps" }
 compositor_y5_surface_draw_handle = { path = "y5.surface/surface.draw/draw.handle" }
 compositor_y5_surface_draw_hook = { path = "y5.surface/surface.draw/draw.hook" }
 compositor_y5_surface_draw_scene = { path = "y5.surface/surface.draw/draw.scene" }

@@ -40,6 +40,7 @@ compositor_y5_surface_draw_scene.workspace = true
 compositor_y5_surface_draw_hook.workspace = true
 compositor_y5_graphic_capture_interface.workspace = true
 compositor_y5_select_overlay_interface.workspace = true
+compositor_y5_surface_draw_fps.workspace = true
 compositor_y5_surface_interface_base.workspace = true
 compositor_y5_window_lifecycle_interface.workspace = true
 compositor_y5_camera_transform_translate.workspace = true

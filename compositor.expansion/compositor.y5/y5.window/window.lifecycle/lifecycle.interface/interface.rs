@@ -95,14 +95,22 @@ fn _initial_mapped(state: &mut Loop, window: Window) {
         .state
         .map_element(window.clone(), t.into_storage_point(), false);
 
-    // The compositor decides the window's size, but at map it has made no explicit decision yet:
-    // put the window in `Auto` so the slot follows the client's committed `geometry()` while it
-    // settles. A client whose first mapped buffer precedes its final `window_geometry` (CSD shadow
-    // excluded a frame later, a saved size applied on the next commit) then fills its frame instead
-    // of being covered & cropped at the stale first-frame size. The slot freezes (enforced) the
-    // moment the compositor reforms/tiles/fullscreens it (`set_expected_size`). A 0x0 geometry is
-    // still treated as "no size yet" by `expected_size` → the renderer falls back to native.
-    slot::set_expected_auto(&window);
+    // The compositor owns the window's size from the start: lock the slot to the client's initial
+    // mapped geometry (`Decided`) right here at `InitialMap`. A window the user never resizes is
+    // then compositor-controlled from map, so a later client self-resize (e.g. a VM/game reacting
+    // to a fractional-scale change) is letterboxed into the locked size instead of followed. The
+    // slot is re-decided on any later reform/tile/fullscreen (`set_expected_size`).
+    slot::set_expected_size(&window, geometry.size);
+
+    // Send the decided size to the client with a paired configure — the bare initial `size = None`
+    // configure never told it a size, so this is its cue to render the compositor size, not its own.
+    if let Some(toplevel) = window.toplevel() {
+        toplevel.with_pending_state(|s| s.size = Some(geometry.size));
+        toplevel.send_configure();
+    }
+    // Arm the startup grace: force a client that re-sizes itself during boot (e.g. QEMU's staged
+    // second lifecycle) back toward the decided size via jiggled re-configures for ~5s.
+    compositor_support_smithay_state_compositor_place::arm_size_propagation(&window, geometry.size);
 
     // Register the window in the spatial world's draw-order authority
     // (non-destructive; spawn = top of stack).

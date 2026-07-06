@@ -19,6 +19,8 @@ pub struct Settings {
     pub tab: Tab,
     pub cursor_sensitivity: f32,
     pub natural_scroll: bool,
+    pub show_fps: bool,
+    pub release_hidden: bool,
     pub env: Environment,
     /// Input-method launch command (Misc tab), persisted to preferences.json.
     pub ime: Ime,
@@ -117,7 +119,7 @@ fn default_mode(d: &DisplayInfo) -> Option<ModeInfo> {
 }
 
 impl Settings {
-    pub fn new(env: Environment, cursor: f32, natural: bool, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout) -> Self {
+    pub fn new(env: Environment, cursor: f32, natural: bool, show_fps: bool, release_hidden: bool, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout) -> Self {
         let active = snap.displays.iter().find(|d| d.active).cloned();
         let active_edid = active.as_ref().map(|d| d.edid_key.clone()).unwrap_or_default();
         let selected_mode = active.as_ref().and_then(default_mode);
@@ -126,6 +128,8 @@ impl Settings {
             tab,
             cursor_sensitivity: cursor,
             natural_scroll: natural,
+            show_fps,
+            release_hidden,
             env,
             ime,
             keyboard,
@@ -226,6 +230,8 @@ impl IcedUi for Settings {
             },
             SettingsMessage::Cursor(v) => self.cursor_sensitivity = v,
             SettingsMessage::NaturalScroll(b) => self.natural_scroll = b,
+            SettingsMessage::SetShowFps(b) => self.show_fps = b,
+            SettingsMessage::SetReleaseHidden(b) => self.release_hidden = b,
             SettingsMessage::Env(e) => {
                 self.env = e;
                 self.dirty = true;
@@ -399,6 +405,7 @@ impl IcedUi for Settings {
             // Forwarded-only actions: no local UI state change.
             SettingsMessage::SetDefaultSink(_)
             | SettingsMessage::SetSinkVolume(_, _)
+            | SettingsMessage::SetSinkMute(_, _)
             | SettingsMessage::WifiEnable(_)
             | SettingsMessage::WifiScan
             | SettingsMessage::BtPower(_)
@@ -415,6 +422,8 @@ impl IcedUi for Settings {
             self.dirty,
             self.cursor_sensitivity,
             self.natural_scroll,
+            self.show_fps,
+            self.release_hidden,
             &self.env,
             &self.displays,
             &self.active_edid,

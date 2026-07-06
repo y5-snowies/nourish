@@ -17,6 +17,7 @@ compositor_kernel_scanout_flip_feedback_base.workspace = true
 compositor_kernel_scanout_timing_vblank_base.workspace = true
 compositor_kernel_graphic_draw_present_callbacks.workspace = true
 compositor_orchestration_core_state_base.workspace = true
+compositor_developer_stats_registry_base.workspace = true
 
 compositor_kernel_scanout_timing_throttle_base = { workspace = true, optional = true }
 compositor_kernel_scanout_timing_predict_base = { workspace = true, optional = true }

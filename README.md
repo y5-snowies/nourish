@@ -50,6 +50,9 @@ like and the full list of features.
 
 On Fedora 44, it's one command. You get a prebuilt build, so there's no toolchain to set up:
 
+> **Note for AMD users:** some have reported that Vulkan does not work on AMD. If
+> you're on an AMD card, set `renderer` to `gles` when the installer prompts for it.
+
 ```bash
 curl -fsSL https://nourish.snowies.com/release/latest/fedora44/package.tar.gz | tar -xz && y5-install/install.sh
 ```

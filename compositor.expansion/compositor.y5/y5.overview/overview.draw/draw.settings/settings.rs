@@ -10,7 +10,7 @@ use compositor_configurator_network_backend_base::base::{self as wifi, WifiCmd, 
 use compositor_configurator_bluetooth_backend_base::base::{self as bt, BtCmd, BtSnapshot};
 use compositor_configurator_settings_surface_message::message::{SettingsMessage, ShaderProp, ShaderPropKind};
 use compositor_configurator_settings_surface_view::Settings;
-use compositor_y5_audio_controller_interface::interface::AudioState;
+use compositor_y5_audio_controller_interface::interface::{AudioState, AudioWatch};
 use compositor_y5_surface_draw_handle::handle::load;
 use compositor_y5_surface_protocol_base::protocol::{SurfaceMessage, SurfaceMessageType};
 use compositor_y5_overview_state_base::base::MENU_BAR_HEIGHT;
@@ -21,6 +21,10 @@ use std::cell::RefCell;
 thread_local! {
     /// Last snapshot pushed — only re-dispatch (re-render) the UI when it changes.
     static LAST: RefCell<Option<(AudioState, WifiSnapshot, BtSnapshot)>> = const { RefCell::new(None) };
+    /// Our subscription to the audio controller for this open settings surface.
+    /// Created lazily while the surface is up, dropped in `destroy` — dropping it
+    /// unsubscribes (the controller prunes the sender on its next broadcast).
+    static AUDIO_WATCH: RefCell<Option<AudioWatch>> = const { RefCell::new(None) };
     /// Last connected-monitor list pushed — re-dispatch the picker only on hotplug change.
     static LAST_OUTPUTS: RefCell<Option<OutputsSnapshot>> = const { RefCell::new(None) };
     /// Last (bundles, selection, variables, preview source) pushed to the panel.
@@ -43,7 +47,12 @@ fn settings_rect(size: Size<i32, Physical>) -> Rectangle<i32, Physical> {
 /// + the variable controls. Resolution: world override → preference default.
 #[allow(clippy::type_complexity)]
 fn shader_state(state: &Loop) -> (Vec<String>, Option<String>, Vec<ShaderProp>, String, Option<String>) {
-    let options = compositor_background_two_shader_locate::list_bundles();
+    // The compiled-in built-in worlds first, then every user bundle on disk.
+    let mut options: Vec<String> = compositor_background_two_shader_builtin::builtins()
+        .iter()
+        .map(|b| b.id.to_string())
+        .collect();
+    options.extend(compositor_background_two_shader_locate::list_bundles());
     let two = state
         .inner
         .worlds
@@ -138,7 +147,19 @@ fn sync(state: &mut Loop, id: HandleId, size: Size<i32, Physical>) {
         // SyncSystem dispatch repaints the panel at the new size).
         LAST.with(|l| *l.borrow_mut() = None);
     }
-    let audio = state.inner.kernel.get(&AUDIO).as_ref().map(|a| a.state()).unwrap_or_default();
+    // The controller pings this watch (from its PulseAudio thread) when the audio
+    // topology changes; we own the re-poll. Ensure we hold a subscription, and on
+    // a ping re-query via refresh() — otherwise read the cheap cached state().
+    if AUDIO_WATCH.with(|w| w.borrow().is_none()) {
+        if let Some(a) = state.inner.kernel.get(&AUDIO) {
+            AUDIO_WATCH.with(|w| *w.borrow_mut() = Some(a.watch()));
+        }
+    }
+    let pinged = AUDIO_WATCH.with(|w| w.borrow().as_ref().map(|w| w.pinged()).unwrap_or(false));
+    let audio = match state.inner.kernel.get(&AUDIO) {
+        Some(a) => { if pinged { let _ = a.refresh(); } a.state() }
+        None => AudioState::default(),
+    };
     let cur = (audio, wifi::snapshot(), bt::snapshot());
     let changed = LAST.with(|l| { let mut l = l.borrow_mut(); if l.as_ref() != Some(&cur) { *l = Some(cur.clone()); true } else { false } });
     if changed {
@@ -198,6 +219,8 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     state.inner.keybinding = compositor_developer_environment_keybinding_base::base::load();
     let cursor = state.inner.preference.cursor_sensitivity as f32;
     let natural = state.inner.preference.input_natural_scroll;
+    let show_fps = state.inner.preference.show_fps;
+    let release_hidden = state.inner.preference.release_hidden_surfaces;
     let snap = state.inner.kernel.get(&OUTPUTS_SNAPSHOT).clone();
     let mut keys = compositor_y5_overlay_interface_keyboard::keyboard::registry(&state.inner.keybinding);
     keys.extend(compositor_y5_canvas_input_keyboard::navigator::registry(&state.inner.keybinding));
@@ -208,7 +231,7 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     let cyclic = state.inner.preference.teleport_cyclic;
     let ime = state.inner.preference.ime.clone().unwrap_or_default();
     let keyboard = state.inner.preference.keyboard.clone();
-    let ui = Settings::new(env, cursor, natural, snap, keys, tab, layout, cyclic, ime, keyboard);
+    let ui = Settings::new(env, cursor, natural, show_fps, release_hidden, snap, keys, tab, layout, cyclic, ime, keyboard);
     let handle = load(state, renderer, ui, rect, IcedSpace::Screen, Layer::SCENE.bits());
     install_handler(state, handle);
     let untyped = handle.untyped();
@@ -230,6 +253,8 @@ fn destroy(state: &mut Loop, id: HandleId) {
     *state.inner.kernel.get_mut(&OUTPUT_MODE_REQUEST_MUT) = Some(OutputModeRequest::Revert);
     state.inner.ping_control();
     if let Some(reg) = state.inner.surface_mut().registry.as_mut() { reg.destroy_by_id(id); reg.set_keyboard_focus(None); }
+    // Drop our audio subscription — unsubscribes until the surface reopens.
+    AUDIO_WATCH.with(|w| *w.borrow_mut() = None);
     bt::command(BtCmd::Scan(false));
     let st = state.inner.kernel.get_mut(&SETTINGS_MUT);
     st.handle = None;

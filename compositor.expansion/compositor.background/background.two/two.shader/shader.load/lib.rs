@@ -28,6 +28,22 @@ pub fn load(
     prefers_dmabuf: bool,
     value: &str,
 ) -> (Option<LoadedShader>, Option<String>) {
+    // A `builtin:` world compiles from an embedded WGSL source — no disk access.
+    // It runs only on the Vulkan (dmabuf) path; on GLES there is no built-in
+    // source, so fall through to the stock parallax.
+    if let Some(src) = compositor_background_two_shader_builtin::source(value) {
+        if !prefers_dmabuf {
+            return (None, None);
+        }
+        let properties = parse_props(src);
+        return match build_wgsl(src, builtin_id(value)) {
+            Ok(m) => (Some(LoadedShader { properties, gles: None, vulkan: Some(m) }), None),
+            Err(e) => {
+                error!("background.shader: builtin {value}: {e}");
+                (None, Some(e))
+            }
+        };
+    }
     let bundle = resolve_ref(value);
     let mut last_error = None;
     for &fmt in order(prefers_dmabuf) {
@@ -82,6 +98,9 @@ fn compile_gles(r: &mut GlesRenderer, src: &str) -> Result<GlesPixelProgram, Str
 /// wgpu, where an invalid module is a fatal error, not a fallback). `None` for
 /// GLSL/GLES-only or broken bundles, so the preview uses the built-in shader.
 pub fn preview_wgsl(value: &str) -> Option<String> {
+    if let Some(src) = compositor_background_two_shader_builtin::source(value) {
+        return Some(src.to_string());
+    }
     let bundle = resolve_ref(value);
     // WGSL bundles: use directly (validated so the wgpu preview never crashes).
     for fmt in [Format::VulkanWgsl, Format::Wgsl] {
@@ -107,6 +126,9 @@ pub fn preview_wgsl(value: &str) -> Option<String> {
 /// Parse the `@prop` properties for a bundle selection (any format file carries
 /// the same `// @prop` annotations). Empty if absent. For the settings controls.
 pub fn properties_for(value: &str) -> Vec<Property> {
+    if let Some(p) = compositor_background_two_shader_builtin::props(value) {
+        return p;
+    }
     let bundle = resolve_ref(value);
     for fmt in [Format::Wgsl, Format::Glsl, Format::VulkanWgsl, Format::GlesFrag] {
         if let Some(path) = source_path(&bundle, fmt) {
@@ -124,4 +146,13 @@ fn hash_path(p: &Path) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     p.hash(&mut h);
     h.finish() | 0xF000_0000_0000_0000
+}
+
+/// A stable pipeline-cache id for a built-in world, in a range distinct from the
+/// user-bundle ids (`0xF…`) and the stock parallax's small fixed ids.
+fn builtin_id(id: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    id.hash(&mut h);
+    (h.finish() & 0x0FFF_FFFF_FFFF_FFFF) | 0xE000_0000_0000_0000
 }

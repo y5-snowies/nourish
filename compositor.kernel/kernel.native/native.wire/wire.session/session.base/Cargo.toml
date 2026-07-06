@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 compositor_orchestration_driver_resume_base = { workspace = true }
+compositor_orchestration_driver_remote_base = { workspace = true }
 compositor_developer_debug_instance_record.workspace = true
 bitflags.workspace = true
 smithay.workspace = true
