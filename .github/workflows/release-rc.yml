@@ -2,17 +2,16 @@ name: Publish RC
 
 # Release-candidate sibling of docs.yml (Publish). On merge to `candidate` — the single rc
 # release action — build the install bundle ONCE with an X.Y.Z-rc.N version stamped in, and
-# ship it as GitHub Releases:
-#   v<X.Y.Z-rc.N>  immutable, auto-numbered (rc counter from tag history) — marked prerelease
-#   latest-rc      rolling, recreated each push — the stable rc download. Install it like a
-#                  stable release, just from the rc tarball URL (no env vars, no install change):
-#                    curl -fsSL https://github.com/<owner>/<repo>/releases/download/latest-rc/package.tar.gz \
+# ship it as a single prerelease GitHub Release:
+#   v<X.Y.Z-rc.N>  auto-numbered (rc counter from tag history) — marked prerelease. Install
+#                  it like a stable release, just from that version's tarball URL:
+#                    curl -fsSL https://github.com/<owner>/<repo>/releases/download/v<X.Y.Z-rc.N>/package.tar.gz \
 #                      | tar -xz && y5-install/install.sh
 #
-# NOTE: no GitHub Pages deploy here. Pages is a single site owned by docs.yml (the stable
-# channel); deploying from `candidate` would clobber the marketing site + the stable
-# /release/latest/ bundle. The rolling `latest-rc` Release IS the rc "link" — the install
-# script is unchanged; only the tarball URL differs from the stable channel.
+# NOTE: no GitHub Pages deploy here (Pages is docs.yml's stable-channel site) and no rolling
+# "latest-rc" pointer — nothing automated consumes it (bootstrap.sh defaults to bundles-rolling),
+# and that tag was permanently burned by GitHub's immutable-releases window (2026-07-03..06)
+# and can never be recreated. Grab the exact v<rc> URL instead.
 on:
   push:
     branches: [candidate]
@@ -78,10 +77,9 @@ jobs:
             dist/package.tar.gz
             dist/SHA256SUMS
 
-  # Publish the SAME bundle as TWO prerelease GitHub Releases on every `candidate` push, so
-  # the immutable v<rc> assets and the rolling latest-rc download are always identical bytes.
-  # Both are marked prerelease + non-latest so they never steal the stable "Latest release"
-  # pointer that docs.yml's v<version> release owns.
+  # Publish the bundle as a single versioned prerelease GitHub Release on every `candidate`
+  # push. Marked prerelease + non-latest so it never steals the stable "Latest release"
+  # pointer that docs.yml's v<version> release owns. No rolling pointer — nothing consumes it.
   release:
     needs: [bundle, version]
     runs-on: ubuntu-latest
@@ -92,7 +90,7 @@ jobs:
         with:
           name: install-bundle-rc
           path: dist
-      - name: Publish v<rc-version> and move the rolling "latest-rc"
+      - name: Publish v<rc-version>
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -102,11 +100,11 @@ jobs:
           + the \`y5-install\` installer. This is a RELEASE CANDIDATE. Install it like a stable
           release, just from the rc URL (no env vars, no install-script change):
           \`\`\`
-          curl -fsSL https://github.com/$GH_REPO/releases/download/latest-rc/package.tar.gz | tar -xz && y5-install/install.sh
+          curl -fsSL https://github.com/$GH_REPO/releases/download/v$VERSION/package.tar.gz | tar -xz && y5-install/install.sh
           \`\`\`"
 
-          # 1) Immutable, versioned rc release. The `v<rc-version>` tag pins this commit;
-          #    created once, then re-runs of the same commit refresh the attached assets.
+          # Versioned rc release. The `v<rc-version>` tag pins this commit; created once,
+          # then re-runs of the same commit refresh the attached assets.
           if gh release view "v$VERSION" >/dev/null 2>&1; then
             echo ">> release v$VERSION exists — refreshing assets"
             gh release upload "v$VERSION" dist/package.tar.gz dist/SHA256SUMS --clobber
@@ -121,15 +119,3 @@ jobs:
           $common" \
               dist/package.tar.gz dist/SHA256SUMS
           fi
-
-          # 2) Rolling "latest-rc" — recreated so its tag tracks the current commit. The
-          #    stable URL install can be pointed at via Y5_RELEASE_BASE.
-          gh release delete latest-rc --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest-rc \
-            --target "$GITHUB_SHA" \
-            --title "Latest RC (v$VERSION)" \
-            --prerelease \
-            --latest=false \
-            --notes "Rolling pointer to the newest release candidate (currently **v$VERSION**,
-          \`candidate\` @ ${GITHUB_SHA:0:7}). $common" \
-            dist/package.tar.gz dist/SHA256SUMS

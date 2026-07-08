@@ -164,11 +164,15 @@ jobs:
       - id: deploy
         uses: actions/deploy-pages@v4
 
-  # Publish the SAME bundle as TWO GitHub Releases on every upstream push, so the Release
-  # assets and the Pages /release/ downloads are always the identical artifact (no drift):
-  #   v<version>  immutable, auto-numbered (patch bumped from tag history) — marked "Latest"
-  #               so the README badge + GitHub's "Latest release" pointer track the real number.
-  #   latest      rolling, recreated each push — the stable URL the installer/get.sh fetch.
+  # Publish the bundle as a single versioned GitHub Release on every upstream push, so the
+  # Release assets and the Pages /release/ downloads are always the identical artifact:
+  #   v<version>  auto-numbered (patch bumped from tag history) — marked "Latest" so the README
+  #               badge, GitHub's "Latest release" pointer (releases/latest/download/…) and the
+  #               exact-version pin (releases/download/v<version>/…) all track the real number.
+  # NOTE: no rolling `latest` *release* — nothing consumes releases/download/latest/… (the
+  # installer fetches Pages /release/latest/fedora44/, bootstrap.sh defaults to bundles-rolling).
+  # A rolling `latest` release-tag was also permanently burned by GitHub's immutable-releases
+  # window (2026-07-03..06) and can never be recreated; the semantic Latest pointer covers it.
   release:
     needs: [bundle, version]
     runs-on: ubuntu-latest
@@ -179,7 +183,7 @@ jobs:
         with:
           name: install-bundle
           path: dist
-      - name: Publish v<version> and move the rolling "latest"
+      - name: Publish v<version>
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -204,14 +208,3 @@ jobs:
           $common" \
               dist/package.tar.gz dist/SHA256SUMS
           fi
-
-          # 2) Rolling "latest" — recreated so its tag tracks the current commit. Marked
-          #    NOT-latest so it never steals the "Latest release" pointer from v<version>.
-          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest \
-            --target "$GITHUB_SHA" \
-            --title "Latest (v$VERSION)" \
-            --latest=false \
-            --notes "Rolling pointer to the newest release (currently **v$VERSION**, \`upstream\`
-          @ ${GITHUB_SHA:0:7}). $common" \
-            dist/package.tar.gz dist/SHA256SUMS
