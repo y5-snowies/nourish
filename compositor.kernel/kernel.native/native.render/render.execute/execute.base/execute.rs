@@ -36,6 +36,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use compositor_orchestration_core_state_base::state::{StateDRMBinding, StatusSession};
 use compositor_orchestration_core_state_base::Loop;
+use compositor_orchestration_draw_dispatch_frame::{ElementMeta, SceneDispatch};
 use compositor_y5_graphic_capture_registry::{CaptureRegistry, OutputId};
 
 type VkScene = compositor_orchestration_draw_scene_element::element::SceneElement<VulkanRenderer>;
@@ -68,40 +69,41 @@ fn honor_needs_sync<B, F, E>(
 /// carrying both scene and lock elements (lock is placed in front). Delegates
 /// everything to the inner `SceneElement`/`LockSceneElement<VulkanRenderer>`.
 enum VkOutput {
-    Scene(VkScene),
+    /// A scene element + its per-element metadata (space, …).
+    Scene(VkScene, ElementMeta),
     Lock(VkLock),
 }
 
 impl Element for VkOutput {
     fn id(&self) -> &Id {
-        match self { Self::Scene(e) => e.id(), Self::Lock(e) => e.id() }
+        match self { Self::Scene(e, _) => e.id(), Self::Lock(e) => e.id() }
     }
     fn current_commit(&self) -> CommitCounter {
-        match self { Self::Scene(e) => e.current_commit(), Self::Lock(e) => e.current_commit() }
+        match self { Self::Scene(e, _) => e.current_commit(), Self::Lock(e) => e.current_commit() }
     }
     fn src(&self) -> Rectangle<f64, Buffer> {
-        match self { Self::Scene(e) => e.src(), Self::Lock(e) => e.src() }
+        match self { Self::Scene(e, _) => e.src(), Self::Lock(e) => e.src() }
     }
     fn geometry(&self, s: Scale<f64>) -> Rectangle<i32, Physical> {
-        match self { Self::Scene(e) => e.geometry(s), Self::Lock(e) => e.geometry(s) }
+        match self { Self::Scene(e, _) => e.geometry(s), Self::Lock(e) => e.geometry(s) }
     }
     fn location(&self, s: Scale<f64>) -> Point<i32, Physical> {
-        match self { Self::Scene(e) => e.location(s), Self::Lock(e) => e.location(s) }
+        match self { Self::Scene(e, _) => e.location(s), Self::Lock(e) => e.location(s) }
     }
     fn transform(&self) -> Transform {
-        match self { Self::Scene(e) => e.transform(), Self::Lock(e) => e.transform() }
+        match self { Self::Scene(e, _) => e.transform(), Self::Lock(e) => e.transform() }
     }
     fn damage_since(&self, s: Scale<f64>, c: Option<CommitCounter>) -> DamageSet<i32, Physical> {
-        match self { Self::Scene(e) => e.damage_since(s, c), Self::Lock(e) => e.damage_since(s, c) }
+        match self { Self::Scene(e, _) => e.damage_since(s, c), Self::Lock(e) => e.damage_since(s, c) }
     }
     fn opaque_regions(&self, s: Scale<f64>) -> OpaqueRegions<i32, Physical> {
-        match self { Self::Scene(e) => e.opaque_regions(s), Self::Lock(e) => e.opaque_regions(s) }
+        match self { Self::Scene(e, _) => e.opaque_regions(s), Self::Lock(e) => e.opaque_regions(s) }
     }
     fn alpha(&self) -> f32 {
-        match self { Self::Scene(e) => e.alpha(), Self::Lock(e) => e.alpha() }
+        match self { Self::Scene(e, _) => e.alpha(), Self::Lock(e) => e.alpha() }
     }
     fn kind(&self) -> Kind {
-        match self { Self::Scene(e) => e.kind(), Self::Lock(e) => e.kind() }
+        match self { Self::Scene(e, _) => e.kind(), Self::Lock(e) => e.kind() }
     }
 }
 
@@ -116,13 +118,21 @@ impl RenderElement<VulkanRenderer> for VkOutput {
         cache: Option<&UserDataMap>,
     ) -> Result<(), <VulkanRenderer as RendererSuper>::Error> {
         match self {
-            Self::Scene(e) => e.draw(frame, src, dst, damage, opaque, cache),
-            Self::Lock(e) => e.draw(frame, src, dst, damage, opaque, cache),
+            Self::Scene(e, meta) => {
+                // Tag this element's metadata so `render_texture_from_to`
+                // restricts AA to world content.
+                <VulkanRenderer as SceneDispatch>::set_element_meta(frame, *meta);
+                e.draw(frame, src, dst, damage, opaque, cache)
+            }
+            Self::Lock(e) => {
+                <VulkanRenderer as SceneDispatch>::set_element_meta(frame, ElementMeta::SCREEN);
+                e.draw(frame, src, dst, damage, opaque, cache)
+            }
         }
     }
     fn underlying_storage(&self, r: &mut VulkanRenderer) -> Option<UnderlyingStorage<'_>> {
         match self {
-            Self::Scene(e) => e.underlying_storage(r),
+            Self::Scene(e, _) => e.underlying_storage(r),
             Self::Lock(e) => e.underlying_storage(r),
         }
     }
@@ -398,7 +408,12 @@ pub fn execute(
                     state, &mut *vk, size, prepared,
                 )
             };
-            let outputs: Vec<VkOutput> = scene.Element.into_iter().map(VkOutput::Scene).collect();
+            let outputs: Vec<VkOutput> = scene
+                .Element
+                .into_iter()
+                .zip(scene.meta)
+                .map(|(e, aa)| VkOutput::Scene(e, aa))
+                .collect();
             // Post-picker capture tap: keep an in-flight capture recording the
             // world-picker overlay. Screen/full-screen captures blit the composed
             // picker (capture targets set so submit copies it into the entry
@@ -539,6 +554,7 @@ pub fn execute(
         // ---- Native Vulkan path: GLES prepare(), then compose + scan out via
         // the VulkanRenderer through the same DrmOutput.
         let mut scene_els: Vec<VkScene> = Vec::new();
+        let mut scene_aa: Vec<ElementMeta> = Vec::new();
         let mut lock_els: Vec<VkLock> = Vec::new();
         if render_scene {
             let prepared = {
@@ -551,6 +567,7 @@ pub fn execute(
             );
             visible_window = s.visible_window;
             scene_els = s.Element;
+            scene_aa = s.meta;
         }
         if render_lock {
             let lp = {
@@ -581,8 +598,11 @@ pub fn execute(
             }
         }
 
-        let scene_outputs: Vec<VkOutput> =
-            scene_els.into_iter().map(VkOutput::Scene).collect();
+        let scene_outputs: Vec<VkOutput> = scene_els
+            .into_iter()
+            .zip(scene_aa)
+            .map(|(e, aa)| VkOutput::Scene(e, aa))
+            .collect();
         let lock_outputs: Vec<VkOutput> = lock_els.into_iter().map(VkOutput::Lock).collect();
 
         // Post-scene capture (native Vulkan copy). The capture must be the clean

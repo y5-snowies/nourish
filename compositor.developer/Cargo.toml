@@ -33,6 +33,7 @@ compositor_developer_log_process_instance = { path = "developer.log/log.process/
 # The central environment config. Lives below the logging crate in the dep graph
 # (serde-only, no logging dep) so log.process can read `log_level` from it.
 compositor_developer_environment_config_base = { path = "developer.environment/environment.config/config.base" }
+compositor_developer_environment_graphics_base = { path = "developer.environment/environment.graphics/graphics.base" }
 # Remaining intra-workspace crates. This workspace is hand-maintained (no generated
 # block); path deps live ONLY here at the root and member crates use `workspace = true`.
 compositor_developer_debug_instance_channel = { path = "developer.debug/debug.instance/instance.channel" }

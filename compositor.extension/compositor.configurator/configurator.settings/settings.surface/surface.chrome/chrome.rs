@@ -23,6 +23,8 @@ use compositor_configurator_settings_surface_message::message::{Applied, Setting
 use compositor_configurator_settings_surface_style::style;
 use compositor_configurator_settings_surface_control::control;
 use compositor_configurator_settings_surface_world::world;
+use compositor_configurator_settings_surface_graphics::graphics;
+use compositor_developer_environment_graphics_base::base::GraphicsAaConfig;
 use iced_core::{Alignment, Element, Length, Padding, Theme};
 use iced_widget::{button, column, container, row, scrollable, text, toggler};
 
@@ -49,6 +51,7 @@ fn sidebar<'a>(sel: Tab) -> El<'a> {
         module("❖", "BLUETOOTH", Tab::Bluetooth, sel),
         module("▲", "PERFORMANCE", Tab::Performance, sel),
         module("⚙", "SYSTEM", Tab::System, sel),
+        module("◆", "GRAPHICS", Tab::Graphics, sel),
         module("⋯", "MISC", Tab::Misc, sel),
     ].spacing(4).padding(14);
     container(list).width(fixed(224.0)).height(Length::Fill).style(style::sidebar).into()
@@ -85,6 +88,8 @@ pub fn render<'a>(
     ime: &'a Ime, keyboard: &'a KeyboardLayout,
     shaders: &'a [String], shader_current: Option<&'a str>, shader_props: &'a [ShaderProp],
     preview_source: &'a str, shader_status: Option<&'a str>,
+    invert_pan_x: bool, invert_pan_y: bool, srgb: bool,
+    graphics: &'a GraphicsAaConfig,
 ) -> El<'a> {
     let body: El<'a> = match tab {
         Tab::Display => display::build(displays, active_edid, selected_display, selected_mode, confirming, pending, staged_active, layout, selected_placement, cyclic, selected_inactive),
@@ -98,7 +103,8 @@ pub fn render<'a>(
         Tab::Performance => performance(fps, show_fps, release_hidden),
         Tab::System => environment::build(env, devices),
         Tab::Misc => misc::build(ime, keyboard),
-        Tab::World => world::build(shaders, shader_current, shader_props, preview_source, shader_status),
+        Tab::World => world::build(shaders, shader_current, shader_props, preview_source, shader_status, invert_pan_x, invert_pan_y, srgb),
+        Tab::Graphics => graphics::build(graphics),
     };
     // Each section still scrolls its own lists vertically. The content area holds a
     // MINIMUM width (`MIN_CONTENT`) so panes never squish/overflow on a narrow window;

@@ -1614,6 +1614,7 @@ dependencies = [
  "bevy",
  "compositor_background_three_lock_solve",
  "compositor_background_three_lock_state",
+ "compositor_support_bevy_core_bridge_base",
 ]
 
 [[package]]
@@ -2989,6 +2990,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_remote_message_state_base",
  "compositor_support_system_storage_token_base",
+ "tokio",
 ]
 
 [[package]]
@@ -4861,6 +4863,7 @@ name = "compositor_y5_camera_transform_translate"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
+ "compositor_support_smithay_state_compositor_place",
  "compositor_y5_camera_transform_state",
  "smithay",
  "tracing",

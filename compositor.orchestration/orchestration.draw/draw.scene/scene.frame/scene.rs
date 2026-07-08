@@ -21,6 +21,10 @@ use compositor_support_system_world_frame_base::base as layer;
 
 pub struct Scene<R: Renderer> {
     pub Element: Vec<SceneElement<R>>,
+    /// Lockstep with `Element`: per-element metadata (space, …). Consumed by the
+    /// native Vulkan path (wrapped into `VkOutput`) to restrict AA to world
+    /// content; ignored by the GLES path.
+    pub meta: Vec<compositor_orchestration_draw_dispatch_frame::ElementMeta>,
     pub visible_window: Vec<Window>,
 }
 
@@ -553,7 +557,7 @@ where
     // The parallax background is pushed per-pane in the content match above (one
     // per viewport pane, or full-screen for the overview overlay).
 
-    let elements = plan.lower(renderer);
+    let (elements, meta) = plan.lower(renderer);
 
     // Per-window fractional scale: each window follows its HIGHEST-zoom viewport
     // across ALL outputs (best resolution wins), emitted only when a surface's scale
@@ -584,6 +588,7 @@ where
     // Return the resulting scene
     Scene {
         Element: elements,
+        meta,
         visible_window: canvas_window,
     }
 }

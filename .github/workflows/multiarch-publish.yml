@@ -15,7 +15,7 @@ name: Multiarch Publish
 # WHY native arm: aarch64 legs run on `ubuntu-24.04-arm` (free on public repos) — no QEMU.
 #
 # TRIGGERS (candidate ONLY — the RC branch; never fires on upstream-integration/PRs):
-#   - push to `candidate`      -> build all combos, (re)publish the rolling `multiarch-latest`
+#   - push to `candidate`      -> build all combos, (re)publish the rolling `bundles-rolling`
 #                                 prerelease with a package-<distro>-<arch>.tar.gz per combo.
 #   - workflow_dispatch        -> same, for a manual re-run.
 #
@@ -80,8 +80,12 @@ jobs:
           - { distro: fedora-44,    arch: aarch64, runner: ubuntu-24.04-arm }
           - { distro: debian-12,    arch: x86_64,  runner: ubuntu-24.04 }
           - { distro: debian-12,    arch: aarch64, runner: ubuntu-24.04-arm }
+          - { distro: debian-13,    arch: x86_64,  runner: ubuntu-24.04 }
+          - { distro: debian-13,    arch: aarch64, runner: ubuntu-24.04-arm }
           - { distro: ubuntu-24.04, arch: x86_64,  runner: ubuntu-24.04 }
           - { distro: ubuntu-24.04, arch: aarch64, runner: ubuntu-24.04-arm }
+          - { distro: ubuntu-26.04, arch: x86_64,  runner: ubuntu-24.04 }
+          - { distro: ubuntu-26.04, arch: aarch64, runner: ubuntu-24.04-arm }
           - { distro: arch,         arch: x86_64,  runner: ubuntu-24.04 }
     steps:
       - uses: actions/checkout@v4
@@ -139,14 +143,18 @@ jobs:
             dist/package-${{ matrix.distro }}-${{ matrix.arch }}.tar.gz.sha256
           if-no-files-found: error
 
-  # Publish every combo's bundle as TWO prereleases on each candidate push — mirroring
-  # release-rc.yml's v<rc>/latest-rc pair, but in a `multiarch-*` namespace so it never collides
-  # with the Fedora RC releases:
-  #   multiarch-v<X.Y.Z-rc.N>  immutable, versioned (assets refreshed via --clobber on same-commit
-  #                            re-run) — a pinnable RC you can point testers at.
-  #   multiarch-latest         rolling, recreated each push — the stable "newest" URL.
-  # Both hold the SAME set of per-distro tarballs + SHA256SUMS, so a pinned and a latest download
-  # are identical bytes.
+  # Publish every combo's bundle as TWO prereleases on each candidate push — in a `bundles-*`
+  # namespace so it never collides with release-rc.yml's v<rc>/latest-rc:
+  #   bundles-v<X.Y.Z-rc.N>  versioned (assets refreshed via --clobber on same-commit re-run) —
+  #                          a pinnable RC you can point testers at.
+  #   bundles-rolling        rolling, recreated each push — the stable "newest" URL + bootstrap.
+  # Both hold the SAME set of per-distro tarballs + SHA256SUMS + bootstrap.sh.
+  #
+  # ⚠ IMMUTABLE RELEASES MUST STAY OFF for this repo. This channel deletes+recreates the rolling
+  # tag every run and `--clobber`s the versioned one — both are IMPOSSIBLE under GitHub's immutable
+  # releases, which also permanently BURN a tag name once used (a deleted immutable tag can never
+  # be reused → HTTP 422 "tag_name was used by an immutable release"). If a tag ever gets burned,
+  # pick a NEW name here (that's why these are `bundles-*`, not the burned `multiarch-*`).
   release:
     needs: [build, version]
     if: github.ref == 'refs/heads/candidate'
@@ -154,6 +162,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4      # for compositor.installer/bootstrap.sh (the install file)
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -164,7 +173,7 @@ jobs:
           cp artifacts/*.tar.gz release/
           cat artifacts/*.sha256 > release/SHA256SUMS
           ls -l release
-      - name: Publish multiarch-v<rc> (immutable) + multiarch-latest (rolling)
+      - name: Publish bundles-v<rc> (versioned) + bundles-rolling (rolling)
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -174,21 +183,33 @@ jobs:
           each built natively in that distro's image with the full component set (compositor, devtool,
           polkit, MX daemon, xwayland, settings, installer) — the same \`prepare.sh\` the Fedora channel uses.
 
-          Download \`package-<distro>-<arch>.tar.gz\` matching your distro **and** CPU arch, verify against
-          \`SHA256SUMS\`, then:
+          One \`bootstrap.sh\` (the single cross-platform install file) is attached too: it detects your
+          distro + arch, downloads the matching bundle from THIS release, verifies it against
+          \`SHA256SUMS\` (mandatory), and runs the installer — on NixOS it prints the nix-ld module/flake.
           \`\`\`
-          tar -xzf package-<distro>-<arch>.tar.gz && y5-install/install.sh
+          curl -fsSL <this release>/bootstrap.sh | bash
+          # or manually: tar -xzf package-<distro>-<arch>.tar.gz && y5-install/install.sh
           \`\`\`
-          These are dynamically linked to each distro's system libraries — not portable across distros."
+          The bundles are dynamically linked to each distro's system libraries — not portable across distros."
 
-          # 1) Immutable, versioned rc release. The multiarch-v<rc> tag pins THIS commit; created
-          #    once, then a re-run of the same commit just refreshes the assets (--clobber). Its own
-          #    `multiarch-v*` namespace so it never touches release-rc.yml's v<rc>/latest-rc.
-          if gh release view "multiarch-v$VERSION" >/dev/null 2>&1; then
-            echo ">> multiarch-v$VERSION exists — refreshing assets"
-            gh release upload "multiarch-v$VERSION" release/*.tar.gz release/SHA256SUMS --clobber
+          # Stamp the published bootstrap so it targets THIS repo. The rolling copy tracks
+          # bundles-rolling (always-newest); the pinned copy defaults to this exact rc tag so a
+          # versioned download pulls its MATCHING bundles. Both still honor Y5_RELEASE_* overrides.
+          mkdir -p pinned
+          sed "s|\${Y5_RELEASE_REPO:-y5-snowies/nourish}|\${Y5_RELEASE_REPO:-$GITHUB_REPOSITORY}|" \
+            compositor.installer/bootstrap.sh > release/bootstrap.sh
+          sed -e "s|\${Y5_RELEASE_REPO:-y5-snowies/nourish}|\${Y5_RELEASE_REPO:-$GITHUB_REPOSITORY}|" \
+              -e "s|\${Y5_RELEASE_TAG:-bundles-rolling}|\${Y5_RELEASE_TAG:-bundles-v$VERSION}|" \
+            compositor.installer/bootstrap.sh > pinned/bootstrap.sh
+
+          # 1) Versioned rc release. The bundles-v<rc> tag pins THIS commit; created once, then a
+          #    re-run of the same commit just refreshes the assets (--clobber — needs immutable
+          #    releases OFF). Its own `bundles-*` namespace so it never touches release-rc.yml's.
+          if gh release view "bundles-v$VERSION" >/dev/null 2>&1; then
+            echo ">> bundles-v$VERSION exists — refreshing assets"
+            gh release upload "bundles-v$VERSION" release/*.tar.gz release/SHA256SUMS pinned/bootstrap.sh --clobber
           else
-            gh release create "multiarch-v$VERSION" \
+            gh release create "bundles-v$VERSION" \
               --target "$GITHUB_SHA" \
               --title "Multiarch install bundles v$VERSION" \
               --prerelease \
@@ -196,13 +217,13 @@ jobs:
               --notes "Nourish multiarch bundles **v$VERSION** (release candidate).
 
           $notes" \
-              release/*.tar.gz release/SHA256SUMS
+              release/*.tar.gz release/SHA256SUMS pinned/bootstrap.sh
           fi
 
-          # 2) Rolling "multiarch-latest" — recreated so its tag tracks the current commit; the
-          #    stable URL to grab the newest per-distro bundles from.
-          gh release delete multiarch-latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create multiarch-latest \
+          # 2) Rolling "bundles-rolling" — recreated so its tag tracks the current commit; the
+          #    stable URL to grab the newest per-distro bundles (+ the always-newest bootstrap) from.
+          gh release delete bundles-rolling --yes --cleanup-tag 2>/dev/null || true
+          gh release create bundles-rolling \
             --target "$GITHUB_SHA" \
             --title "Multiarch install bundles (latest — v$VERSION)" \
             --prerelease \
@@ -211,4 +232,4 @@ jobs:
           \`candidate\` @ \`${GITHUB_SHA:0:7}\`).
 
           $notes" \
-            release/*.tar.gz release/SHA256SUMS
+            release/*.tar.gz release/SHA256SUMS release/bootstrap.sh

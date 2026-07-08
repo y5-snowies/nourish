@@ -11,7 +11,8 @@
 //     inside the nearest hole, so each hole is angular, not a smooth oval. Daylight
 //     and a distant ridge show through, and a warm rim lights the near rocks.
 //   * Each hole's size is the author's base `hole_size`, scattered per hole by a
-//     noise draw (`hole_variation` controls how much the sizes wander).
+//     noise draw (`hole_variation` controls how much the sizes wander); `hole_spacing`
+//     sets how far apart the holes sit (raise it with `hole_size` for a few big ones).
 //   * Dust drifts in the light. The rock frame parallaxes more than the far view.
 //
 // Author-exposed knobs (parsed from the `@prop` lines below → params slots):
@@ -21,8 +22,9 @@
 // @prop vignette float default=0.0 min=0.0 max=1.0 label="Vignette amount" group="Cave"
 // @prop vignette_radius float default=1.12 min=0.5 max=2.0 label="Vignette radius" group="Cave"
 // @prop vignette_softness float default=0.6 min=0.05 max=2.0 label="Vignette softness" group="Cave"
-// @prop hole_size float default=0.13 min=0.04 max=0.4 label="Hole size" group="Cave"
+// @prop hole_size float default=0.13 min=0.04 max=1.5 label="Hole size" group="Cave"
 // @prop hole_variation float default=0.55 min=0.0 max=1.0 label="Hole size variation" group="Cave"
+// @prop hole_spacing float default=1.0 min=0.3 max=4.0 label="Hole spacing" group="Cave"
 
 struct Push {
     res_zoom_time: vec4<f32>,
@@ -112,16 +114,14 @@ fn exterior(p: vec2<f32>, daylight: f32) -> vec3<f32> {
     return e * (0.75 + 0.45 * daylight);
 }
 
-// The holes sit on a jittered grid at this density (cells per world unit): higher =
-// more, smaller-spaced holes. Kept fixed so "how big" and "how varied" stay the
-// author's two knobs.
-const HOLE_GRID: f32 = 2.4;
-
+// Holes sit on a jittered grid; `gscale` = cells per world unit (higher = more,
+// tighter-spaced holes). The `hole_spacing` knob drives `gscale`, so density is
+// authorable alongside "how big" and "how varied".
 // Nearest hole to point `p` (world space): its centre, a stable per-hole id (for the
 // size draw + jaggedness), and the distance to it. One jittered point per grid cell.
 struct Hole { center: vec2<f32>, id: f32, dist: f32 };
-fn nearest_hole(p: vec2<f32>) -> Hole {
-    let gp = p * HOLE_GRID;
+fn nearest_hole(p: vec2<f32>, gscale: f32) -> Hole {
+    let gp = p * gscale;
     let ip = floor(gp);
     let fp = gp - ip;
     var r: Hole;
@@ -133,7 +133,7 @@ fn nearest_hole(p: vec2<f32>) -> Hole {
             let d = length(o - fp);
             if (d < r.dist) {
                 r.dist = d;
-                r.center = (ip + o) / HOLE_GRID;
+                r.center = (ip + o) / gscale;
                 r.id = hash(ip + g);
             }
         }
@@ -170,11 +170,17 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let vig_softness = pc.params[1].y;
     let hole_size = pc.params[1].z;
     let hole_variation = pc.params[1].w;
+    let hole_spacing = pc.params[2].x;
+    // Cells per world unit: raising hole_spacing widens the grid → fewer, farther holes.
+    let hole_grid = 2.4 / max(hole_spacing, 0.05);
 
     var uv = (frag - 0.5 * res) / res.y;
     let screen_uv = uv;
     uv = uv / zoom;
-    let pan = vec2<f32>(pan_in.x, -pan_in.y);
+    // Pan convention: on-screen content tracks the camera as -pan_in on both axes.
+    // This scene anchors content as `uv - pan`, so both axes are negated to land
+    // on that shared convention (the other scenes reach it as `+pan_in`).
+    let pan = vec2<f32>(-pan_in.x, -pan_in.y);
 
     let world = uv - pan * 0.0006;
     // Rock-facet field in the (near-parallaxed) frame space.
@@ -185,7 +191,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Is this facet part of a hole? Test the facet's CENTRE against the nearest
     // hole, so every opening follows the angular rock edges (not a smooth oval).
     let fc = v.center / scale;                         // this facet's centre (world)
-    let ch = nearest_hole(fc);
+    let ch = nearest_hole(fc, hole_grid);
     let crel = fc - ch.center;
     let crad = length(crel * vec2<f32>(1.0, 1.18));
     let chr = hole_radius(atan2(crel.y, crel.x), ch.id, hole_size, hole_variation);
@@ -212,7 +218,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
 
     // Soft shafts of light reaching in from the holes (per-fragment nearest hole).
-    let fh = nearest_hole(world);
+    let fh = nearest_hole(world, hole_grid);
     let hrel = world - fh.center;
     let hrad = length(hrel * vec2<f32>(1.0, 1.18));
     let hr = hole_radius(atan2(hrel.y, hrel.x), fh.id, hole_size, hole_variation);
@@ -240,5 +246,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
     col = col * mix(1.0, vig, clamp(vignette, 0.0, 1.0));
-    return vec4<f32>(col, 1.0) * (alpha * 0.75);
+    // Per-world sRGB flag (push lock_alpha.z): gamma-encode for the brighter,
+    // preview-matching look on a non-sRGB scanout buffer. Off = raw values.
+    let outc = select(col, pow(max(col, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)), pc.lock_alpha.z > 0.5);
+    return vec4<f32>(outc, 1.0) * (alpha * 0.75);
 }

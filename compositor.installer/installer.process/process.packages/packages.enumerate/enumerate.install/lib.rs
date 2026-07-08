@@ -1,71 +1,62 @@
-//! The `dnf install` runner + optional RPM Fusion (free) enablement. Pure std.
+//! The system package-install runner, generic over the detected package manager
+//! (`dnf` / `apt-get` / `pacman`), plus the Debian `bookworm-backports` enabler. The
+//! Fedora-only RPM Fusion steps live in the sibling `enumerate.rpmfusion` crate (which
+//! reuses `run_sudo` from here). Pure std.
 
+use compositor_installer_process_packages_enumerate_platform::PackageManager;
 use std::process::Command;
 
-/// Install the given packages with dnf. With `dry_run`, the command is printed only.
+/// Install `packages` with the detected manager. With `dry_run`, commands are printed only.
 ///
-/// Strict: a non-zero dnf exit (including an unavailable package) is returned as an
-/// error so the caller ABORTS rather than continuing with a half-installed system.
-/// The default package set is therefore restricted to what the enabled repos actually
-/// carry; anything RPM-Fusion-only is installed only after `enable_rpmfusion_free`.
-pub fn dnf_install(packages: &[String], dry_run: bool) -> Result<(), String> {
+/// Strict: a non-zero exit (including an unavailable package) is returned as an error so
+/// the caller ABORTS rather than continuing with a half-installed system. `Nix` is never
+/// installed transactionally (it's declarative) — execute.packages handles it separately
+/// and never calls this with `Nix`; guarded here defensively.
+pub fn pkg_install(mgr: PackageManager, packages: &[String], dry_run: bool) -> Result<(), String> {
     if packages.is_empty() {
         return Ok(());
     }
-    let mut argv: Vec<String> = vec!["dnf".into(), "install".into(), "-y".into()];
-    argv.extend(packages.iter().cloned());
-    run_sudo(&argv, dry_run)
+    match mgr {
+        PackageManager::Dnf => {
+            let mut argv: Vec<String> = vec!["dnf".into(), "install".into(), "-y".into()];
+            argv.extend(packages.iter().cloned());
+            run_sudo(&argv, dry_run)
+        }
+        PackageManager::Apt => {
+            // Refresh indexes first (a fresh container / long-idle box may have stale
+            // lists), then a non-recommends install so we don't drag in extras.
+            run_sudo(&["apt-get".into(), "update".into()], dry_run)?;
+            let mut argv: Vec<String> = vec![
+                "apt-get".into(), "install".into(), "-y".into(), "--no-install-recommends".into(),
+            ];
+            argv.extend(packages.iter().cloned());
+            run_sudo(&argv, dry_run)
+        }
+        PackageManager::Pacman => {
+            let mut argv: Vec<String> =
+                vec!["pacman".into(), "-S".into(), "--needed".into(), "--noconfirm".into()];
+            argv.extend(packages.iter().cloned());
+            run_sudo(&argv, dry_run)
+        }
+        PackageManager::Nix => Err(
+            "internal: pkg_install called for NixOS — the Nix path prints a profile instead".into(),
+        ),
+    }
 }
 
-/// Enable the RPM Fusion **free** repo (its `-release` rpm), so `mesa-va-drivers-freeworld`
-/// (hardware VA-API video) becomes installable. Opt-in only.
-pub fn enable_rpmfusion_free(dry_run: bool) -> Result<(), String> {
-    enable_rpmfusion("free", dry_run)
+/// Enable Debian `bookworm-backports` (where `libdisplay-info2` lives) and refresh the
+/// index. Debian 12 only — trixie/noble carry the lib in main/universe. Mirrors the
+/// debian-12 Containerfile's backports line.
+pub fn apt_enable_backports(dry_run: bool) -> Result<(), String> {
+    const LINE: &str = "deb http://deb.debian.org/debian bookworm-backports main";
+    let write = format!("echo '{LINE}' > /etc/apt/sources.list.d/backports.list");
+    run_sudo(&["bash".into(), "-c".into(), write], dry_run)?;
+    run_sudo(&["apt-get".into(), "update".into()], dry_run)
 }
 
-/// Enable the RPM Fusion **nonfree** repo, so `intel-media-driver` (the iHD VA-API driver
-/// for Gen8+ Intel iGPUs, e.g. Kaby Lake) becomes installable. The nonfree `-release` rpm
-/// depends on the free one, so enable free first. Opt-in only.
-pub fn enable_rpmfusion_nonfree(dry_run: bool) -> Result<(), String> {
-    enable_rpmfusion("nonfree", dry_run)
-}
-
-/// Swap Fedora's codec-stripped `ffmpeg-free` for RPM Fusion's full `ffmpeg`
-/// (`--allowerasing`, since the full libs replace the `-free` ones). Needed for screen
-/// capture on every machine — NVENC and VAAPI both encode through FFmpeg. Needs RPM
-/// Fusion (free) enabled first. Opt-in.
-pub fn swap_ffmpeg_full(dry_run: bool) -> Result<(), String> {
-    run_sudo(
-        &["dnf".into(), "swap".into(), "-y".into(), "ffmpeg-free".into(), "ffmpeg".into(), "--allowerasing".into()],
-        dry_run,
-    )
-}
-
-/// Install an RPM Fusion `<kind>-release` rpm (`kind` = "free" | "nonfree").
-fn enable_rpmfusion(kind: &str, dry_run: bool) -> Result<(), String> {
-    let rel = fedora_release();
-    let url = format!(
-        "https://mirrors.rpmfusion.org/{kind}/fedora/rpmfusion-{kind}-release-{rel}.noarch.rpm"
-    );
-    println!("Enabling RPM Fusion ({kind}) for Fedora {rel}...");
-    run_sudo(&["dnf".into(), "install".into(), "-y".into(), url], dry_run)
-}
-
-/// `rpm -E %fedora` — the running Fedora release number; falls back to the bundle's
-/// target (44) if rpm can't be queried.
-fn fedora_release() -> String {
-    Command::new("rpm")
-        .args(["-E", "%fedora"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))
-        .unwrap_or_else(|| "44".to_string())
-}
-
-/// Run `sudo <argv>`, or just print it under `dry_run`. Non-zero exit -> Err.
-fn run_sudo(argv: &[String], dry_run: bool) -> Result<(), String> {
+/// Run `sudo <argv>`, or just print it under `dry_run`. Non-zero exit -> Err. Public so
+/// `enumerate.rpmfusion` can drive the Fedora-specific `dnf` steps through the same path.
+pub fn run_sudo(argv: &[String], dry_run: bool) -> Result<(), String> {
     if dry_run {
         println!("  [dry-run] sudo {}", argv.join(" "));
         return Ok(());

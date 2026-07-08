@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 compositor_installer_process_config_parse_base = { path = "../../../process.config/config.parse/parse.base" }
 compositor_installer_process_packages_enumerate_base = { path = "../../../process.packages/packages.enumerate/enumerate.base" }
+compositor_installer_process_packages_enumerate_debian = { path = "../../../process.packages/packages.enumerate/enumerate.debian" }
 
 [lib]
 path = "lib.rs"

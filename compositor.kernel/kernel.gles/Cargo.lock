@@ -1624,6 +1624,7 @@ name = "compositor_background_two_shader_load"
 version = "0.0.1"
 dependencies = [
  "compositor_background_two_draw_program",
+ "compositor_background_two_shader_builtin",
  "compositor_background_two_shader_locate",
  "compositor_background_two_shader_property",
  "compositor_background_two_shader_spirv",

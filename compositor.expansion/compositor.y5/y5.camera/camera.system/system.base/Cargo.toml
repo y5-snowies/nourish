@@ -23,6 +23,7 @@ compositor_y5_group_state_base = { workspace = true }
 compositor_y5_surface_interface_core = { workspace = true }
 compositor_y5_window_interface_record = { workspace = true }
 compositor_orchestration_draw_layer_base = { workspace = true }
+compositor_developer_stats_registry_base = { workspace = true }
 smithay = { workspace = true }
 
 [package.metadata.lint]

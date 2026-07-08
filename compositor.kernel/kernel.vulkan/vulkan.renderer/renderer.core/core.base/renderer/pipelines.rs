@@ -22,6 +22,52 @@ impl VulkanRenderer {
         Ok(())
     }
 
+    /// Lazily build the world anti-aliasing pipeline for `format`, once the live
+    /// AA mode goes non-Off. Held for the renderer's lifetime.
+    pub(super) fn ensure_aa_pipeline(&mut self, format: vk::Format) -> Result<(), VulkanError> {
+        if self.aa_pipelines.contains_key(&format) {
+            return Ok(());
+        }
+        let inst = self.phd.instance().handle();
+        let handle = self.phd.handle();
+        let feats = unsafe { inst.get_physical_device_features(handle) };
+        let max_anisotropy = if feats.sampler_anisotropy == vk::TRUE {
+            let props = unsafe { inst.get_physical_device_properties(handle) };
+            props.limits.max_sampler_anisotropy
+        } else {
+            1.0
+        };
+        let aa = compositor_kernel_vulkan_pipeline_composite_base::composite::AaComposite::create(
+            &self.dev,
+            self.pipeline_cache,
+            format,
+            max_anisotropy,
+        )
+        .map_err(|e| VulkanError::Vk(format!("aa pipeline: {e}")))?;
+        self.aa_pipelines.insert(format, aa);
+        info!("vulkan: world-AA composite pipeline created for {format:?}");
+        Ok(())
+    }
+
+    /// Free all AA resources (the per-format `AaComposite` pipelines and every
+    /// per-surface mip image) when AA is turned off, so a disabled config holds
+    /// no resident GPU memory. Waits for device idle first (the resources may
+    /// have been in flight on the non-synchronous path); cheap and rare — only
+    /// on the active→inactive edge. Rebuilt lazily by `ensure_aa_pipeline` when
+    /// AA is re-enabled.
+    pub(super) fn teardown_aa(&mut self) {
+        if self.aa_pipelines.is_empty() && self.mipgen.borrow().is_empty() {
+            return;
+        }
+        unsafe {
+            let _ = self.dev.device.device_wait_idle();
+        }
+        for (_, aa) in self.aa_pipelines.drain() {
+            aa.destroy(&self.dev);
+        }
+        self.mipgen.borrow_mut().destroy(&self.dev);
+    }
+
     /// Lazily build the HDR composite pipeline for `format`.
     pub(super) fn ensure_hdr_pipeline(&mut self, format: vk::Format) -> Result<(), VulkanError> {
         if self.hdr_pipelines.contains_key(&format) {

@@ -143,6 +143,7 @@ version = "0.1.0"
 dependencies = [
  "compositor_installer_process_config_parse_base",
  "compositor_installer_process_packages_enumerate_base",
+ "compositor_installer_process_packages_enumerate_debian",
 ]
 
 [[package]]
@@ -154,11 +155,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_installer_process_packages_enumerate_arch"
+version = "0.1.0"
+dependencies = [
+ "compositor_installer_process_packages_enumerate_model",
+]
+
+[[package]]
 name = "compositor_installer_process_packages_enumerate_base"
 version = "0.1.0"
 dependencies = [
  "compositor_installer_process_packages_enumerate_groups",
  "compositor_installer_process_packages_enumerate_install",
+ "compositor_installer_process_packages_enumerate_model",
+ "compositor_installer_process_packages_enumerate_nixos",
+ "compositor_installer_process_packages_enumerate_platform",
+ "compositor_installer_process_packages_enumerate_rpmfusion",
+]
+
+[[package]]
+name = "compositor_installer_process_packages_enumerate_debian"
+version = "0.1.0"
+dependencies = [
+ "compositor_installer_process_packages_enumerate_model",
+]
+
+[[package]]
+name = "compositor_installer_process_packages_enumerate_fedora"
+version = "0.1.0"
+dependencies = [
  "compositor_installer_process_packages_enumerate_model",
 ]
 
@@ -166,16 +191,42 @@ dependencies = [
 name = "compositor_installer_process_packages_enumerate_groups"
 version = "0.1.0"
 dependencies = [
+ "compositor_installer_process_packages_enumerate_arch",
+ "compositor_installer_process_packages_enumerate_debian",
+ "compositor_installer_process_packages_enumerate_fedora",
  "compositor_installer_process_packages_enumerate_model",
+ "compositor_installer_process_packages_enumerate_nixos",
+ "compositor_installer_process_packages_enumerate_platform",
 ]
 
 [[package]]
 name = "compositor_installer_process_packages_enumerate_install"
 version = "0.1.0"
+dependencies = [
+ "compositor_installer_process_packages_enumerate_platform",
+]
 
 [[package]]
 name = "compositor_installer_process_packages_enumerate_model"
 version = "0.1.0"
+
+[[package]]
+name = "compositor_installer_process_packages_enumerate_nixos"
+version = "0.1.0"
+dependencies = [
+ "compositor_installer_process_packages_enumerate_model",
+]
+
+[[package]]
+name = "compositor_installer_process_packages_enumerate_platform"
+version = "0.1.0"
+
+[[package]]
+name = "compositor_installer_process_packages_enumerate_rpmfusion"
+version = "0.1.0"
+dependencies = [
+ "compositor_installer_process_packages_enumerate_install",
+]
 
 [[package]]
 name = "itoa"

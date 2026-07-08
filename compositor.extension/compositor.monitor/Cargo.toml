@@ -109,6 +109,7 @@ compositor_configurator_settings_surface_control = { path = "../compositor.confi
 compositor_configurator_settings_surface_cursor = { path = "../compositor.configurator/configurator.settings/settings.surface/surface.cursor" }
 compositor_configurator_settings_surface_display = { path = "../compositor.configurator/configurator.settings/settings.surface/surface.display" }
 compositor_configurator_settings_surface_environment = { path = "../compositor.configurator/configurator.settings/settings.surface/surface.environment" }
+compositor_configurator_settings_surface_graphics = { path = "../compositor.configurator/configurator.settings/settings.surface/surface.graphics" }
 compositor_configurator_settings_surface_keyboard = { path = "../compositor.configurator/configurator.settings/settings.surface/surface.keyboard" }
 compositor_configurator_settings_surface_keys = { path = "../compositor.configurator/configurator.settings/settings.surface/surface.keys" }
 compositor_configurator_settings_surface_message = { path = "../compositor.configurator/configurator.settings/settings.surface/surface.message" }
@@ -122,6 +123,7 @@ compositor_developer_debug_instance_level = { path = "../../compositor.developer
 compositor_developer_debug_instance_record = { path = "../../compositor.developer/developer.debug/debug.instance/instance.record" }
 compositor_developer_environment_config_base = { path = "../../compositor.developer/developer.environment/environment.config/config.base" }
 compositor_developer_environment_experimental_base = { path = "../../compositor.developer/developer.environment/environment.experimental/experimental.base" }
+compositor_developer_environment_graphics_base = { path = "../../compositor.developer/developer.environment/environment.graphics/graphics.base" }
 compositor_developer_environment_keybinding_base = { path = "../../compositor.developer/developer.environment/environment.keybinding/keybinding.base" }
 compositor_developer_environment_preference_base = { path = "../../compositor.developer/developer.environment/environment.preference/preference.base" }
 compositor_developer_log_process_instance = { path = "../../compositor.developer/developer.log/log.process/process.instance" }

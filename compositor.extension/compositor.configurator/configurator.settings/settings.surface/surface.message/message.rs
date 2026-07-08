@@ -30,6 +30,8 @@ pub enum Tab {
     Misc,
     /// Per-world settings for the active world (background shader, …).
     World,
+    /// Graphics / anti-aliasing tuning for the pannable world.
+    Graphics,
 }
 
 impl Tab {
@@ -39,13 +41,14 @@ impl Tab {
         match self {
             Tab::Display => 0, Tab::Audio => 1, Tab::Input => 2, Tab::Network => 3,
             Tab::Bluetooth => 4, Tab::Performance => 5, Tab::System => 6, Tab::Misc => 7,
-            Tab::World => 8,
+            Tab::World => 8, Tab::Graphics => 9,
         }
     }
     pub fn from_index(i: u8) -> Self {
         match i {
             1 => Tab::Audio, 2 => Tab::Input, 3 => Tab::Network, 4 => Tab::Bluetooth,
             5 => Tab::Performance, 6 => Tab::System, 7 => Tab::Misc, 8 => Tab::World,
+            9 => Tab::Graphics,
             _ => Tab::Display,
         }
     }
@@ -145,6 +148,18 @@ pub enum SettingsMessage {
     /// Set the current world's shader variables, keyed by `@prop` name (forwarded:
     /// persists + drives the live background, no rebuild).
     SetWorldShaderParams(Vec<(String, f32)>),
+    /// Invert the current world's background pan on the horizontal / vertical axis
+    /// (forwarded: persists + flips the live background's pan on that axis, no rebuild).
+    SetWorldInvertPanX(bool),
+    SetWorldInvertPanY(bool),
+    /// Gamma-encode the current world's background to sRGB (forwarded: persists +
+    /// flips the live background, no rebuild). On = brighter, preview-matching output.
+    SetWorldSrgb(bool),
+    /// The current world's pan-inversion state (invert X, invert Y), pushed by the
+    /// embed (NOT forwarded): sets the toggles when the panel opens / the world switches.
+    SyncWorldInvert(bool, bool),
+    /// The current world's sRGB-output state, pushed by the embed (NOT forwarded).
+    SyncWorldSrgb(bool),
     /// Audio (forwarded): make a sink default / set a sink's volume / mute a sink.
     SetDefaultSink(String),
     SetSinkVolume(String, f32),
@@ -196,4 +211,8 @@ pub enum SettingsMessage {
     SetActive(String, Option<ModeInfo>),
     /// Forwarded: toggle the cursor-teleport CYCLIC (wrap-around) preference.
     SetCyclic(bool),
+    /// A full edited graphics/anti-aliasing config (Graphics tab) to persist to
+    /// preferences.json AND apply live (forwarded). Carries the whole struct so
+    /// the method dropdown + every knob share one variant.
+    SetGraphics(compositor_developer_environment_graphics_base::base::GraphicsAaConfig),
 }

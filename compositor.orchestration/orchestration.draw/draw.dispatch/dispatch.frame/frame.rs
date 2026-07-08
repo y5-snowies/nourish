@@ -5,6 +5,36 @@ use smithay::utils::{Buffer as BufferCoord, Physical, Rectangle, Size};
 pub use compositor_orchestration_draw_dispatch_uniforms::uniforms::{
     NativeShaderPass, ParallaxUniforms, ShaderVariant,
 };
+
+/// Which coordinate space an element lives in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ElementSpace {
+    /// Screen-space / output-fixed: iced screen UI, backgrounds, pointer,
+    /// layershell. The default for anything not explicitly tagged.
+    #[default]
+    Screen,
+    /// Pannable-world content: client windows + iced-world panels.
+    World,
+}
+
+/// Per-element render metadata carried from scene assembly to the renderer.
+/// Grow this with new per-element facts the renderer needs (e.g. an explicit
+/// AA-eligibility flag) — today it's just the element's space, from which the
+/// renderer derives things like "apply AA only to world content".
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ElementMeta {
+    pub space: ElementSpace,
+}
+
+impl ElementMeta {
+    pub const WORLD: ElementMeta = ElementMeta { space: ElementSpace::World };
+    pub const SCREEN: ElementMeta = ElementMeta { space: ElementSpace::Screen };
+
+    /// World content (windows + iced-world) — currently the AA-eligible set.
+    pub fn is_world(self) -> bool {
+        matches!(self.space, ElementSpace::World)
+    }
+}
 use compositor_orchestration_draw_dispatch_uniforms::uniforms as gles;
 
 /// The per-renderer dispatch seam keeping GLES-welded scene elements (iced UI,
@@ -18,6 +48,13 @@ pub trait SceneDispatch: Renderer {
     fn prefers_dmabuf() -> bool {
         false
     }
+
+    /// Hand the renderer the metadata for the element about to be drawn (its
+    /// space, and whatever else `ElementMeta` grows). The scene wrapper calls
+    /// this before each element's `draw`, letting a renderer restrict effects
+    /// like anti-aliasing to world content. Default no-op (renderers that don't
+    /// need it ignore it).
+    fn set_element_meta(_frame: &mut <Self as RendererSuper>::Frame<'_, '_>, _meta: ElementMeta) {}
 
     /// Draw a pre-rendered GLES texture into `frame`. Blank for renderers that
     /// cannot sample a `GlesTexture`.

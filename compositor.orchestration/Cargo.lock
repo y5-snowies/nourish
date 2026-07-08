@@ -1640,6 +1640,7 @@ dependencies = [
  "bevy",
  "compositor_background_three_lock_solve",
  "compositor_background_three_lock_state",
+ "compositor_support_bevy_core_bridge_base",
 ]
 
 [[package]]
@@ -2044,12 +2045,14 @@ dependencies = [
  "compositor_configurator_settings_surface_cursor",
  "compositor_configurator_settings_surface_display",
  "compositor_configurator_settings_surface_environment",
+ "compositor_configurator_settings_surface_graphics",
  "compositor_configurator_settings_surface_keys",
  "compositor_configurator_settings_surface_message",
  "compositor_configurator_settings_surface_misc",
  "compositor_configurator_settings_surface_style",
  "compositor_configurator_settings_surface_world",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "compositor_developer_environment_keybinding_base",
  "compositor_developer_environment_preference_base",
  "compositor_orchestration_driver_output_base",
@@ -2110,6 +2113,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_configurator_settings_surface_graphics"
+version = "0.0.1"
+dependencies = [
+ "compositor_configurator_settings_surface_control",
+ "compositor_configurator_settings_surface_message",
+ "compositor_configurator_settings_surface_style",
+ "compositor_developer_environment_graphics_base",
+ "compositor_developer_stats_registry_base",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
+]
+
+[[package]]
 name = "compositor_configurator_settings_surface_keyboard"
 version = "0.0.1"
 dependencies = [
@@ -2142,6 +2159,7 @@ dependencies = [
  "compositor_configurator_bluetooth_backend_base",
  "compositor_configurator_network_backend_base",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "compositor_developer_environment_preference_base",
  "compositor_orchestration_driver_output_base",
  "compositor_y5_audio_controller_interface",
@@ -2191,6 +2209,7 @@ dependencies = [
  "compositor_configurator_settings_surface_chrome",
  "compositor_configurator_settings_surface_message",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "compositor_developer_environment_keybinding_base",
  "compositor_developer_environment_preference_base",
  "compositor_orchestration_driver_output_base",
@@ -2254,6 +2273,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_developer_environment_graphics_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "compositor_developer_environment_keybinding_base"
 version = "0.0.1"
 dependencies = [
@@ -2267,6 +2293,7 @@ name = "compositor_developer_environment_preference_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "serde",
  "serde_json",
 ]
@@ -6135,6 +6162,7 @@ dependencies = [
 name = "compositor_y5_camera_system_base"
 version = "0.0.1"
 dependencies = [
+ "compositor_developer_stats_registry_base",
  "compositor_orchestration_draw_layer_base",
  "compositor_support_system_buffer_token_base",
  "compositor_support_system_channel_token_base",

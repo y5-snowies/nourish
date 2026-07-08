@@ -58,10 +58,58 @@ fn connected_keys(state: &Loop) -> Vec<String> {
         .collect()
 }
 
+/// Set the active world's background pan inversion (per axis; `None` leaves an axis
+/// unchanged): persist it on the world's `Two` slot and flip the live instance in
+/// place so the background reacts without a rebuild.
+fn set_world_invert(state: &mut Loop, x: Option<bool>, y: Option<bool>) {
+    let world = state.inner.worlds.active_id();
+    if let Some(two) = state
+        .inner
+        .worlds
+        .active_mut()
+        .storage_mut()
+        .try_get_mut(&compositor_background_two_storage_base::base::BG_TWO_MUT)
+    {
+        if let Some(v) = x { two.invert_pan_x = v; }
+        if let Some(v) = y { two.invert_pan_y = v; }
+        let (ix, iy) = (two.invert_pan_x, two.invert_pan_y);
+        if let Some(inst) = two.instance.as_mut() {
+            inst.invert_pan_x = ix;
+            inst.invert_pan_y = iy;
+        }
+        compositor_support_system_persist_mark_base::base::mark_world(world, true);
+    }
+}
+
+/// Set the active world's sRGB background output: persist it on the world's `Two`
+/// slot and flip the live instance in place (no rebuild — it's a shader-side encode).
+fn set_world_srgb(state: &mut Loop, on: bool) {
+    let world = state.inner.worlds.active_id();
+    if let Some(two) = state
+        .inner
+        .worlds
+        .active_mut()
+        .storage_mut()
+        .try_get_mut(&compositor_background_two_storage_base::base::BG_TWO_MUT)
+    {
+        two.srgb = on;
+        if let Some(inst) = two.instance.as_mut() {
+            inst.srgb = on;
+        }
+        compositor_support_system_persist_mark_base::base::mark_world(world, true);
+    }
+}
+
 pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage) {
     match m {
         SettingsMessage::Cursor(v) => {
             state.inner.preference.cursor_sensitivity = v as f64;
+            let _ = pref::save(&state.inner.preference);
+        }
+        SettingsMessage::SetGraphics(g) => {
+            // Persist to preferences.json; `pref::save` also pushes the config to
+            // the kernel-readable global, so the renderer applies it live.
+            state.inner.preference.graphics = g;
             let _ = pref::save(&state.inner.preference);
         }
         SettingsMessage::NaturalScroll(b) => {
@@ -205,7 +253,10 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
                 if let Some(inst) = two.instance.as_mut() {
                     for (name, val) in &values {
                         if let Some(slot) = props.iter().position(|p| &p.name == name) {
-                            if slot < 8 {
+                            // 16-float param capacity (4×vec4), matching the rebuild
+                            // (`draw.select`) and preview paths — an `< 8` cap here
+                            // silently dropped live edits to slots 8..16 (e.g. hole_spacing).
+                            if slot < 16 {
                                 inst.params[slot] = *val;
                             }
                         }
@@ -214,6 +265,9 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
                 compositor_support_system_persist_mark_base::base::mark_world(world, false);
             }
         }
+        SettingsMessage::SetWorldInvertPanX(v) => set_world_invert(state, Some(v), None),
+        SettingsMessage::SetWorldInvertPanY(v) => set_world_invert(state, None, Some(v)),
+        SettingsMessage::SetWorldSrgb(v) => set_world_srgb(state, v),
         SettingsMessage::Close => {
             state.inner.kernel.get_mut(&SETTINGS_MUT).open = false;
         }
@@ -316,6 +370,8 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
         | SettingsMessage::SyncShaderProps(..)
         | SettingsMessage::SyncShaderPreview(..)
         | SettingsMessage::SyncShaderStatus(..)
+        | SettingsMessage::SyncWorldInvert(..)
+        | SettingsMessage::SyncWorldSrgb(..)
         | SettingsMessage::SelectDisplay(_)
         | SettingsMessage::SelectMode(_)
         | SettingsMessage::SelectInactive

@@ -56,7 +56,7 @@ pub fn spawn(
             light_dir_z: LIGHT_DIR.z,
             light_intensity: LIGHT_INTENSITY,
             ambient_intensity: AMBIENT_INTENSITY,
-            _pad0: 0.0,
+            ready: 0.0,
             _pad1: 0.0,
             _pad2: 0.0,
         },

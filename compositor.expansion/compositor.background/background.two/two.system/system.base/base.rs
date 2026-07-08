@@ -61,6 +61,9 @@ impl System for TwoSystem {
         // (Setting `instance = None` from the rim forces a rebuild on change.)
         let override_sel = state.background_shader.clone();
         let params = state.params.clone();
+        let invert_pan_x = state.invert_pan_x;
+        let invert_pan_y = state.invert_pan_y;
+        let srgb = state.srgb;
         if rebuild {
             if let Some(renderer) = cx
                 .platform
@@ -71,7 +74,10 @@ impl System for TwoSystem {
                 let sel = override_sel.or_else(
                     compositor_developer_stats_registry_base::base::background_shader_default,
                 );
-                let instance = ParallaxBackground::new(renderer, size, sel.as_deref(), &params);
+                let mut instance = ParallaxBackground::new(renderer, size, sel.as_deref(), &params);
+                instance.invert_pan_x = invert_pan_x;
+                instance.invert_pan_y = invert_pan_y;
+                instance.srgb = srgb;
                 cx.write(&TWO_BUF, TwoCmd::SetInstance(instance));
             }
             return;

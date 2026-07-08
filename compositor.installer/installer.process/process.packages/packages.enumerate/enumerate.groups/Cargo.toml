@@ -5,6 +5,11 @@ edition.workspace = true
 
 [dependencies]
 compositor_installer_process_packages_enumerate_model = { path = "../enumerate.model" }
+compositor_installer_process_packages_enumerate_platform = { path = "../enumerate.platform" }
+compositor_installer_process_packages_enumerate_fedora = { path = "../enumerate.fedora" }
+compositor_installer_process_packages_enumerate_debian = { path = "../enumerate.debian" }
+compositor_installer_process_packages_enumerate_arch = { path = "../enumerate.arch" }
+compositor_installer_process_packages_enumerate_nixos = { path = "../enumerate.nixos" }
 
 [lib]
 path = "lib.rs"

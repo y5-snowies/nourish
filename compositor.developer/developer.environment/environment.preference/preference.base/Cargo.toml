@@ -9,6 +9,7 @@ edition = "2024"
 # Distinct from the read-once `environment.config` (settings.json); reuses that
 # crate ONLY for the shared config-dir path resolver. serde for (de)serialize.
 compositor_developer_environment_config_base = { workspace = true }
+compositor_developer_environment_graphics_base = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

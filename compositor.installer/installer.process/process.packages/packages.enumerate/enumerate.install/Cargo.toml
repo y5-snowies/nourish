@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+compositor_installer_process_packages_enumerate_platform = { path = "../enumerate.platform" }
 
 [lib]
 path = "lib.rs"

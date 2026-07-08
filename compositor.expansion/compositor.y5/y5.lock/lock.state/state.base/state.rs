@@ -16,6 +16,10 @@ pub struct LockActiveState {
     pub surface: Vec<HandleId>,
     pub capture: LockActiveCapture,
     pub surface_input: Option<IcedHandle<compositor_y5_lock_interface_surface::view::LockSurface>>,
+    /// Set once the morph fold has been dispatched — at the `pending`→done
+    /// handoff, when the originating session scene is dropped. Gates the fold
+    /// to fire exactly once (the snapshot plane is already up before this).
+    pub fold_started: bool,
 }
 
 #[derive(Clone)]

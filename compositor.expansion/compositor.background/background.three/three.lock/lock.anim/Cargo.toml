@@ -10,3 +10,4 @@ path = "lib.rs"
 bevy = { workspace = true }
 compositor_background_three_lock_solve = { workspace = true }
 compositor_background_three_lock_state = { workspace = true }
+compositor_support_bevy_core_bridge_base = { workspace = true }

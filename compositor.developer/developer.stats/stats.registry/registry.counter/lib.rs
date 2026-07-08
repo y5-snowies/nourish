@@ -98,11 +98,29 @@ pub fn fence_fallback() {
     FENCE_FALLBACK.fetch_add(1, Relaxed);
 }
 
+/// Live world-camera zoom (`f64` via `to_bits`), pushed from the one camera
+/// `SetZoom` write point and read every frame by the Vulkan renderer to
+/// zoom-weight the anti-aliasing knobs (world anti-aliasing graphics config). `1.0` == 100%.
+pub static WORLD_CAMERA_ZOOM: AtomicU64 = AtomicU64::new(0x3FF0_0000_0000_0000); // 1.0f64
+
 /// Record whether the active compositor renderer composites from dmabufs
 /// (Vulkan). Call once after the renderer (and any fallback) is resolved.
 #[inline]
 pub fn set_compositor_prefers_dmabuf(yes: bool) {
     COMPOSITOR_PREFERS_DMABUF.store(yes, Relaxed);
+}
+
+/// Publish the current world-camera zoom (see [`WORLD_CAMERA_ZOOM`]). Called
+/// from the camera `SetZoom` path.
+#[inline]
+pub fn set_world_zoom(zoom: f64) {
+    WORLD_CAMERA_ZOOM.store(zoom.to_bits(), Relaxed);
+}
+
+/// Current world-camera zoom (`1.0` == 100%).
+#[inline]
+pub fn world_zoom() -> f64 {
+    f64::from_bits(WORLD_CAMERA_ZOOM.load(Relaxed))
 }
 
 /// True if the active compositor renderer composites from dmabufs (Vulkan), so

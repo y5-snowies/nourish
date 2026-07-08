@@ -6,6 +6,9 @@ edition.workspace = true
 [dependencies]
 compositor_installer_process_packages_enumerate_groups = { path = "../enumerate.groups" }
 compositor_installer_process_packages_enumerate_install = { path = "../enumerate.install" }
+compositor_installer_process_packages_enumerate_rpmfusion = { path = "../enumerate.rpmfusion" }
+compositor_installer_process_packages_enumerate_platform = { path = "../enumerate.platform" }
+compositor_installer_process_packages_enumerate_nixos = { path = "../enumerate.nixos" }
 compositor_installer_process_packages_enumerate_model = { path = "../enumerate.model" }
 
 [lib]

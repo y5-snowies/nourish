@@ -25,7 +25,7 @@ struct MorphParams {
     light_dir_z: f32,
     light_intensity: f32,
     ambient_intensity: f32,
-    _pad0: f32,
+    ready: f32,
     _pad1: f32,
     _pad2: f32,
 };
@@ -49,7 +49,16 @@ struct VertexOutput {
 
 const RADIAL_MAX: f32 = 0.7071068;
 const N_BANDS: f32 = 100.0;
-const BAND_OVERLAP: f32 = 2.5;
+// EXPERIMENT KNOBS -----------------------------------------------------------
+// BAND_OVERLAP: how many stagger-widths each band's fold spans. Larger = more
+//   bands folding at once = a wide, smooth, obviously-curving wrap instead of a
+//   thin sweeping crease. (was 2.5)
+const BAND_OVERLAP: f32 = 6.0;
+// WRAP_FROM_EDGE: true  -> outer edge/poles fold FIRST, camera-facing center
+//   folds LAST (the flat image visibly wraps inward — try this first).
+//                 false -> original center-first behaviour.
+const WRAP_FROM_EDGE: bool = true;
+// ----------------------------------------------------------------------------
 
 //fn plane_pos(uv: vec2<f32>, aspect: f32) -> vec3<f32> {
 //    return vec3<f32>((uv.x - 0.5) * aspect, (uv.y - 0.5), 0.0);
@@ -83,11 +92,14 @@ fn band_flatness(uv: vec2<f32>) -> f32 {
     let stagger = 1.0 / N_BANDS;
     let band_duration = stagger * BAND_OVERLAP;
 
-    // Always inner-first (regardless of direction). Cap the start so even the
-    // outermost band still finishes its fold by t=1; otherwise the back-seam
-    // pole vertices (the UV corners, d≈1) keep a residual flatness>0 at the
-    // resting sphere and jut out as spikes/lines from the poles.
-    let band_start = min(band_index * stagger, 1.0 - band_duration);
+    // Order the fold. WRAP_FROM_EDGE flips which end goes first: the map centre
+    // (band_index 0) is the sphere's front pole — the point facing the camera —
+    // so edge-first makes the visible surface morph LAST and spreads the wrap
+    // across the whole animation instead of resolving it off-screen at the back.
+    // The min() cap keeps the last band finishing by t=1 so no vertex is left
+    // with residual flatness (spikes) at the resting sphere.
+    let ordered = select(band_index, N_BANDS - band_index, WRAP_FROM_EDGE);
+    let band_start = min(ordered * stagger, 1.0 - band_duration);
 
     let local_t = clamp((params.t - band_start) / band_duration, 0.0, 1.0);
     return mix(local_t, 1.0 - local_t, params.going_to_sphere);
@@ -216,7 +228,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.tex_uv;
     let tex_color = textureSample(snapshot_tex, snapshot_sampler, uv);
 
-    let fallback = vec4<f32>(in.tex_uv.x, in.tex_uv.y, 0.5, 1.0);
+    // Fully transparent before the cast is bridged in, so the plane never flashes
+    // a placeholder gradient over the background (the fold is also gated on the
+    // cast being ready — see PreMorphDelay). Once the cast lands it's opaque.
+    let fallback = vec4<f32>(0.0, 0.0, 0.0, 0.0);
     let use_texture = step(0.01, tex_color.a);
     let base_color = mix(fallback, tex_color, use_texture);
 
@@ -234,5 +249,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let intensity = params.ambient_intensity + params.light_intensity * half_lambert;
 
-    return vec4<f32>(base_color.rgb * intensity, base_color.a);
+    // `ready` gates the first (uniform-lagged) frames of a freshly-created
+    // material to fully transparent, so no default-uniform sphere/blank flashes.
+    return vec4<f32>(base_color.rgb * intensity, base_color.a * params.ready);
 }

@@ -1,0 +1,10 @@
+[package]
+name = "compositor_installer_process_packages_enumerate_nixos"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+compositor_installer_process_packages_enumerate_model = { path = "../enumerate.model" }
+
+[lib]
+path = "lib.rs"

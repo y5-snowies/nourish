@@ -8,3 +8,6 @@ path = "lib.rs"
 
 [dependencies]
 compositor_background_two_shader_property = { workspace = true }
+
+[dev-dependencies]
+compositor_background_two_shader_spirv = { workspace = true }

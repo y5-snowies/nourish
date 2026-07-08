@@ -34,21 +34,14 @@ pub fn solve_band(t_phase: Duration, band_start_ms: u64, from: f64, to: f64) -> 
 }
 
 pub fn solve_phase_progress(t_phase: Duration, duration_ms: u64, forward: bool) -> f32 {
-    // Normalize phase time to [0, spring's natural duration].
-    // The spring settles in ~250ms naturally at our params; we ask the
-    // spring as if 250ms have passed for every full phase.
-    let SPRING_NATURAL_MS = 250.0;
-    let phase_progress = (t_phase.as_secs_f64() / (duration_ms as f64 / 1000.0)).min(1.0);
-    let spring_time = Duration::from_secs_f64(phase_progress * SPRING_NATURAL_MS / 1000.0);
-
+    // EXPERIMENT: was a spring mapped into a fixed 250ms window. The spring
+    // settled by ~60% of the phase, so all visible motion front-loaded into
+    // the first third and read as an instant snap regardless of duration.
+    // Now: linear phase progress eased with a symmetric smoothstep, so the
+    // travel is spread evenly across the ENTIRE phase.
+    let phase_progress = (t_phase.as_secs_f64() / (duration_ms as f64 / 1000.0)).clamp(0.0, 1.0);
+    // smoothstep (3t²-2t³): gentle ease in/out, no early settle, no overshoot.
+    let eased = phase_progress * phase_progress * (3.0 - 2.0 * phase_progress);
     let (from, to) = if forward { (0.0, 1.0) } else { (1.0, 0.0) };
-    let solver = Solver {
-        stiffness: SPRING_STIFFNESS,
-        damping: SPRING_DAMPING,
-        mass: SPRING_MASS,
-        value_start: from,
-        value_target: to,
-        duration: Duration::from_millis(SPRING_NATURAL_MS as u64),
-    };
-    solve(&solver, spring_time).unwrap_or(to) as f32
+    (from + (to - from) * eased) as f32
 }

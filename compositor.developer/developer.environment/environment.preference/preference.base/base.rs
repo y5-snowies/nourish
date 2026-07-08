@@ -146,6 +146,10 @@ pub struct Preference {
     /// override it in its own record; unset = the built-in parallax.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_shader: Option<String>,
+    /// Anti-aliasing / graphics config for the pannable world (edited in the
+    /// settings "Graphics" tab). Applied live and pushed to the kernel renderer.
+    #[serde(default)]
+    pub graphics: compositor_developer_environment_graphics_base::base::GraphicsAaConfig,
 }
 
 /// Where the keyboard layout comes from. `Env` (the historical default) leaves the
@@ -206,6 +210,7 @@ impl Default for Preference {
             ime: None,
             keyboard: KeyboardLayout::default(),
             background_shader: None,
+            graphics: compositor_developer_environment_graphics_base::base::GraphicsAaConfig::default(),
         }
     }
 }
@@ -235,16 +240,21 @@ fn path() -> PathBuf {
 /// Load the preferences fresh from disk. A missing or invalid file yields the
 /// defaults (so the compositor and the settings window always have sane values).
 pub fn load() -> Preference {
-    std::fs::read_to_string(path())
+    let prefs = std::fs::read_to_string(path())
         .ok()
         .and_then(|raw| serde_json::from_str::<Preference>(&raw).ok())
         .map(normalize)
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // Mirror the graphics config into the kernel-readable global.
+    compositor_developer_environment_graphics_base::base::set(prefs.graphics);
+    prefs
 }
 
 /// Persist `prefs` atomically (write to a sibling `.tmp`, then rename over the
 /// target — a partial write can never replace a good file).
 pub fn save(prefs: &Preference) -> Result<(), String> {
+    // Keep the kernel-readable global in sync with every live edit.
+    compositor_developer_environment_graphics_base::base::set(prefs.graphics);
     let p = path();
     if let Some(dir) = p.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;

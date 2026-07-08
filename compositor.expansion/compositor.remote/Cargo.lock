@@ -1614,6 +1614,7 @@ dependencies = [
  "bevy",
  "compositor_background_three_lock_solve",
  "compositor_background_three_lock_state",
+ "compositor_support_bevy_core_bridge_base",
 ]
 
 [[package]]
@@ -1825,6 +1826,7 @@ name = "compositor_background_two_shader_load"
 version = "0.0.1"
 dependencies = [
  "compositor_background_two_draw_program",
+ "compositor_background_two_shader_builtin",
  "compositor_background_two_shader_locate",
  "compositor_background_two_shader_property",
  "compositor_background_two_shader_spirv",
@@ -3089,6 +3091,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_remote_message_state_base",
  "compositor_support_system_storage_token_base",
+ "tokio",
 ]
 
 [[package]]
@@ -5572,6 +5575,7 @@ name = "compositor_y5_camera_transform_translate"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
+ "compositor_support_smithay_state_compositor_place",
  "compositor_y5_camera_transform_state",
  "smithay",
  "tracing",
@@ -6131,10 +6135,12 @@ dependencies = [
  "compositor_orchestration_draw_layer_base",
  "compositor_orchestration_driver_introspection_base",
  "compositor_support_smithay_state_compositor_base",
+ "compositor_support_smithay_state_compositor_place",
  "compositor_support_smithay_state_fractional_base",
  "compositor_support_smithay_state_fractional_dispatch",
  "compositor_support_system_persist_mark_base",
  "compositor_support_world_order_track_base",
+ "compositor_y5_camera_transform_translate",
  "compositor_y5_lock_system_base",
  "compositor_y5_placeholder_protocol_base",
  "compositor_y5_placeholder_record_base",
@@ -6499,6 +6505,7 @@ dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_orchestration_core_state_base",
+ "compositor_support_smithay_state_compositor_place",
  "compositor_support_world_order_track_base",
  "compositor_y5_camera_state_base",
  "compositor_y5_camera_system_base",

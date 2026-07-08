@@ -2,7 +2,8 @@
 
 Build and run the compositor on **different distributions** to check portability. Each distro is
 a subdirectory with its own `Containerfile`, **named `<distro>-<version>`** (e.g. `fedora-43`,
-`fedora-44`, `ubuntu-24.04`, `debian-11`, `debian-12`, and `arch` — rolling, so unversioned).
+`fedora-44`, `ubuntu-24.04`, `ubuntu-26.04`, `debian-11`, `debian-12`, `debian-13`, and `arch` —
+rolling, so unversioned).
 Base images are pinned (no `:latest`). The driver scripts
 take that full name as the `<distro>` argument and the image tags carry the version too. Three
 driver scripts at the top do the work:
@@ -24,8 +25,10 @@ distributions/
   fedora-43/Containerfile
   fedora-44/Containerfile
   ubuntu-24.04/Containerfile
+  ubuntu-26.04/Containerfile
   debian-11/Containerfile
   debian-12/Containerfile
+  debian-13/Containerfile
   arch/Containerfile
   .src/               # self-contained source clone (gitignored)
   .cache/<distro>/    # per-distro cargo target cache — warm incremental rebuilds (gitignored)
@@ -148,3 +151,34 @@ same `git clone /repo` + `environment/build.sh winit ${PROFILE}` steps. Use the 
 naming so the image tag carries the version. The driver scripts discover it automatically — no
 edits needed (`./image.sh <distro>-<version>` just works). Package names differ across releases;
 adjust as needed (e.g. `debian-11` may lack a few newer devel libs).
+
+## Verifying the installer's runtime package names (`verify-packages.sh`)
+
+The installer (`y5-install`) installs **runtime** package names per distro (see
+`compositor.installer` — `dnf`/`apt`/`pacman`/nix-ld). Those names differ from the `-dev` build
+deps in these Containerfiles and have real cross-release hazards (the `t64` renames on
+trixie/noble, soversion suffixes like `libdisplay-info2`, Arch's vendor-split Vulkan ICDs). The
+**multiarch CI never runs the installer**, so a wrong name wouldn't fail CI — and a full CI run is
+heavy (native builds incl. a Tauri app).
+
+`verify-packages.sh` closes that gap **without building anything**: it reuses each Containerfile's
+pinned `FROM` **base image**, refreshes only the package index, and checks that every name the
+installer would install actually resolves in that distro's repos. Seconds per distro, just
+`podman pull` + metadata.
+
+```bash
+./verify-packages.sh                       # fedora-44 debian-12/13 ubuntu-24.04/26.04 arch nixos
+./verify-packages.sh debian-13 arch        # a subset
+./verify-packages.sh nixos                 # just the NixOS nixpkgs attrs
+```
+
+The name list comes straight from the installer (`y5-install --emit-packages=<mgr>[:<rel>]`), so
+it validates the exact table the real install uses. Run this **before** pushing to the `candidate`
+branch; a non-zero exit lists the missing package(s) per distro. Needs `podman` (same prerequisite
+as the other scripts here).
+
+**NixOS** is checked differently: it has no Containerfile (nix-ld runs a glibc bundle, nothing is
+built for it), so `verify-packages.sh nixos` runs one evaluate-only `nix eval` (no build) inside
+the `nixos/nix` image and reports any nixpkgs attribute the installer's nix-ld profile names that
+doesn't exist in `nixpkgs-unstable`. It fetches nixpkgs (a one-off download) and needs network.
+Override the image with `Y5_NIX_IMAGE=`.

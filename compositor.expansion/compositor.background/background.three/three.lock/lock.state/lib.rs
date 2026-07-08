@@ -54,6 +54,10 @@ pub struct MorphAnim {
     /// Set when entering PreMorphDelay or Unmorphing.
     pub going_to_sphere: f32,
     pub hero: f32,
+    /// 1.0 once the cast is bridged in and the plane may draw. Defaults to 0.0
+    /// so the first (uniform-lagged) frames of a freshly-created material are
+    /// transparent instead of flashing the default-uniform sphere.
+    pub render_ready: f32,
 }
 
 #[derive(Component)]

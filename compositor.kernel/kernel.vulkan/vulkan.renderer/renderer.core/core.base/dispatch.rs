@@ -8,7 +8,7 @@
 
 use smithay::backend::renderer::gles::{GlesPixelProgram, GlesTexture, Uniform};
 use smithay::utils::{Buffer as BufferCoord, Physical, Rectangle, Size};
-use compositor_orchestration_draw_dispatch_frame::{NativeShaderPass, SceneDispatch};
+use compositor_orchestration_draw_dispatch_frame::{ElementMeta, NativeShaderPass, SceneDispatch};
 use compositor_orchestration_draw_dispatch_frame::ShaderVariant as SeamVariant;
 
 use crate::error::VulkanError;
@@ -33,6 +33,12 @@ impl SceneDispatch for VulkanRenderer {
     // not the GLES-welded seam below.
     fn prefers_dmabuf() -> bool {
         true
+    }
+
+    fn set_element_meta(frame: &mut VulkanFrame<'_, '_>, meta: ElementMeta) {
+        // Stamp the current element's metadata; `render_texture_from_to` reads it
+        // so AA is applied only to world content (windows + iced-world).
+        frame.current_meta = meta;
     }
 
     fn draw_prerendered_texture(

@@ -19,17 +19,41 @@ pub fn build<'a>(
     props: &'a [ShaderProp],
     preview_source: &'a str,
     status: Option<&'a str>,
+    invert_pan_x: bool,
+    invert_pan_y: bool,
+    srgb: bool,
 ) -> El<'a> {
     column![
         text("CURRENT WORLD").size(16).color(style::ACCENT),
         text("The parallax shader rendered behind your workspace. Reacts to zoom & pan.")
             .size(11).color(style::MUTED),
         preview_or_error(props, preview_source, status),
+        display_row(invert_pan_x, invert_pan_y, srgb),
         row![
             container(shader_list(shaders, current)).width(Length::FillPortion(1)).height(Length::Fill),
             container(variables(props)).width(Length::FillPortion(1)).height(Length::Fill),
         ].spacing(24).height(Length::Fill),
     ].spacing(14).height(Length::Fill).into()
+}
+
+/// Per-world display toggles (persisted per world): flip the background parallax on
+/// either axis (handy when a scene reads reversed relative to the pan), and gamma-
+/// encode the output to sRGB for the brighter, preview-matching look on the display.
+fn display_row<'a>(invert_pan_x: bool, invert_pan_y: bool, srgb: bool) -> El<'a> {
+    let toggle = |label: &'a str, on: bool, msg: fn(bool) -> SettingsMessage| -> El<'a> {
+        row![
+            text(label).size(12),
+            toggler(on).on_toggle(msg).style(control::toggler),
+        ].spacing(8).align_y(Alignment::Center).into()
+    };
+    container(
+        row![
+            text("DISPLAY").size(10).color(style::MUTED).width(Length::Fill),
+            toggle("Invert pan X", invert_pan_x, SettingsMessage::SetWorldInvertPanX),
+            toggle("Invert pan Y", invert_pan_y, SettingsMessage::SetWorldInvertPanY),
+            toggle("sRGB colour", srgb, SettingsMessage::SetWorldSrgb),
+        ].spacing(20).align_y(Alignment::Center).padding(12),
+    ).style(style::card).width(Length::Fill).into()
 }
 
 /// The preview pane — or a compile-error card when the selected shader failed for

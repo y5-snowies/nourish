@@ -134,24 +134,74 @@ else
     fi
 fi
 
+# 6b) NixOS: pre-generate the nix-ld module + a native setup entry point. NixOS is
+#     declarative + non-FHS, so the interactive installer can't run there — instead the
+#     bundle ships a ready configuration.nix module (generated HERE, where y5-install runs
+#     natively) plus a pure-bash `nixos-setup.sh` the user runs on NixOS to print it.
+if [ -x "$STAGE/y5-install" ]; then
+    log "generating NixOS module + flake (nix-ld)"
+    mkdir -p "$STAGE/nixos"
+    "$STAGE/y5-install" --emit-nixos > "$STAGE/nixos/configuration-y5.nix"
+    "$STAGE/y5-install" --emit-nixos-flake > "$STAGE/nixos/flake.nix"
+    cat > "$STAGE/nixos-setup.sh" <<'EOF'
+#!/usr/bin/env bash
+# NixOS setup for y5. NixOS is declarative + non-FHS: nothing is installed imperatively.
+# This prints the nix-ld module to add to your system config + how to apply it, and the path
+# to the prebuilt binaries. It changes NOTHING. Safe to run as your normal user.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MOD="$HERE/nixos/configuration-y5.nix"
+[ -f "$MOD" ] || { echo "nixos-setup: missing $MOD" >&2; exit 1; }
+cat >&2 <<TXT
+y5 on NixOS
+===========
+The y5 binaries are prebuilt (FHS/glibc); on NixOS they run via nix-ld. Add the module
+printed below to your NixOS configuration:
+
+  1a) Plain module — sudo cp "$MOD" /etc/nixos/y5.nix
+      and add it to your imports in /etc/nixos/configuration.nix:
+        imports = [ ./y5.nix ];
+  1b) Or flakes — point an input at this dir and import its module:
+        inputs.y5.url = "path:$HERE/nixos";
+        imports = [ inputs.y5.nixosModules.default ];
+      (flake: $HERE/nixos/flake.nix)
+  2) sudo nixos-rebuild switch
+  3) The prebuilt binaries live in:  $HERE/binaries/
+     Launch the compositor as  $HERE/binaries/y5.compositor  (nix-ld resolves its libs),
+     or wire a wayland-session that execs it. If launching reports a missing library, add
+     that library's nixpkgs package to programs.nix-ld.libraries in y5.nix and rebuild.
+
+--- module ($MOD) ---
+TXT
+cat "$MOD"
+EOF
+    chmod +x "$STAGE/nixos-setup.sh"
+fi
+
 # 7) PAM lock template (always staged — tiny, no build).
 install -m644 "$HERE/installation-y5-lock" "$TPL/pam/installation-y5-lock"
 
 # 8) In-artifact README so the unpacked tree is self-documenting.
 cat > "$STAGE/README.txt" <<'EOF'
-y5 compositor — install bundle (Fedora 44)
-==========================================
+y5 compositor — install bundle
+==============================
 
 Prebuilt binaries + the interactive installer. Installing pulls only the runtime
 shared libraries (no Rust toolchain, no -devel headers) because everything here is
-already compiled.
+already compiled. The installer is distro-aware: it detects your package manager
+(dnf / apt-get / pacman) from /etc/os-release and installs that distro's runtime
+package names. On NixOS the installer doesn't apply (declarative + non-FHS) — run
+./nixos-setup.sh instead to get the nix-ld module + how to apply it.
 
-One command (downloads + installs in one go):
+NOTE: each bundle's binaries are dynamically linked to ONE distro's system libraries
+(the distro it was built on) — use the bundle that matches your distro. The Fedora
+one-command install:
 
     curl -fsSL https://nourish.snowies.com/release/latest/fedora44/package.tar.gz \
         | tar -xz && y5-install/install.sh
 
-Already have this tree unpacked? Just run:
+(Debian/Ubuntu/Arch: download package-<distro>-<arch>.tar.gz from the multiarch
+release instead.) Already have this tree unpacked? Just run:
 
     ./install.sh                 # interactive install (uses sudo for system steps)
     ./install.sh --dry-run       # preview without changing anything
@@ -163,6 +213,9 @@ Contents
 --------
   y5-install                         the interactive installer
   install.sh                         launcher (sets Y5_INSTALL_STAGE, runs y5-install)
+  nixos-setup.sh                     NixOS entry point: print the nix-ld module + how to apply
+  nixos/configuration-y5.nix         the ready NixOS module (nix-ld + runtime libs)
+  nixos/flake.nix                    the same as a flake (nixosModules.default)
   binaries/y5.compositor             the compositor (system session)
   binaries/y5.compositor.dev         the compositor (dev / experimental sessions)
   binaries/y5.compositor.settings    the settings tool (installed to /usr/bin)

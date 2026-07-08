@@ -3,10 +3,9 @@ use smithay::backend::renderer::{Frame, Renderer, RendererSuper};
 use smithay::utils::{Buffer as BufferCoord, Physical, Rectangle, Size};
 use std::borrow::Cow;
 
-/// Renderer-agnostic uniform values for the parallax background shader. The
-/// GLES path ignores these (it uses the named `Uniform`s + its compiled
-/// `GlesPixelProgram`); a renderer with a native background shader (Vulkan)
-/// uses them to drive its own pipeline.
+/// Renderer-agnostic uniform values for the parallax background shader. The GLES
+/// path ignores these (it uses named `Uniform`s + its compiled `GlesPixelProgram`);
+/// a renderer with a native background shader (Vulkan) drives its pipeline from them.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ParallaxUniforms {
     pub resolution: [f32; 2],
@@ -14,8 +13,14 @@ pub struct ParallaxUniforms {
     pub time: f32,
     pub pan: [f32; 2],
     pub flow_offset: [f32; 2],
+    /// Smoothed pan velocity (world px/s). Fed to native shaders as two f16
+    /// halves packed into the `lock_alpha.w` push lane (`lock_alpha.z` carries
+    /// the sRGB flag) so velocity-reactive backgrounds (metaballs) can stretch
+    /// along motion. Shaders that ignore it are unaffected.
+    pub velocity: [f32; 2],
     pub lock_amount: f32,
     pub alpha: f32,
+    pub srgb: f32, // push lock_alpha.z: 0 = raw output, 1 = gamma-encode to sRGB
 }
 
 /// One compiled fullscreen-shader variant a renderer can run: a SPIR-V module

@@ -31,12 +31,19 @@ need curl
 need tar
 need sha256sum
 
-# Friendly (non-fatal) Fedora check — the artifact is built for Fedora 44.
+# Friendly (non-fatal) distro check. This bootstrap fetches the FEDORA bundle: its binaries
+# are dynamically linked to Fedora's system libraries and won't reliably run elsewhere. The
+# interactive installer is distro-aware (it detects apt/pacman/dnf and, on NixOS, prints a
+# nix-ld profile), but that only helps once you have a bundle built for YOUR distro. Debian/
+# Ubuntu/Arch users should grab `package-<distro>-<arch>.tar.gz` from the `bundles-rolling`
+# release instead of this Fedora one.
 if [ -r /etc/os-release ]; then
     . /etc/os-release
     case "${ID:-}" in
         fedora) : ;;
-        *) say "warning: this release targets Fedora; detected '${ID:-unknown}'. Continuing." ;;
+        *) say "warning: this bootstrap fetches the Fedora bundle, but detected '${ID:-unknown}'." \
+                "For a matching build, download package-<distro>-<arch>.tar.gz from the" \
+                "multiarch release and run its y5-install/install.sh. Continuing anyway." ;;
     esac
 fi
 

@@ -18,13 +18,45 @@ struct CaptureImport {
 
 /// Per-target identity used to detect when the capture set changes between
 /// frames. The registry entry dmabufs are stable across frames, so an unchanged
-/// `(plane-0 fd, width, height)` sequence means "reuse the cached images".
-type Key = (i32, u32, u32);
+/// `(plane-0 inode, width, height)` sequence means "reuse the cached images".
+///
+/// The identity is the dma-buf **inode**, NOT the raw fd: fd *numbers* are
+/// recycled by the kernel once closed, so a freed capture entry and a later,
+/// freshly-allocated one can carry the *same* fd number at the same resolution.
+/// Keying on the fd then mistakes the new buffer for the cached old one and
+/// blits into a stale image, leaving the new entry blank (the "first capture
+/// works, later ones intermittently don't" bug). Each `dma_buf` export has its
+/// own inode in the dmabuf pseudo-fs, stable for the buffer's lifetime and
+/// distinct across distinct buffers, so it disambiguates fd reuse. Two fds that
+/// dup the same buffer share the inode — exactly the "reuse the import" case.
+type Key = (u64, u32, u32);
 
 fn key_of(dmabuf: &Dmabuf) -> Key {
     let size = dmabuf.size();
-    let fd0 = dmabuf.handles().next().map(|f| f.as_raw_fd()).unwrap_or(-1);
-    (fd0, size.w as u32, size.h as u32)
+    let ino = dmabuf
+        .handles()
+        .next()
+        .and_then(|f| inode_of(f.as_raw_fd()))
+        // No fd (shouldn't happen) or fstat failed: fall back to a value that
+        // never matches a real inode, forcing a re-import rather than risking a
+        // stale-cache alias.
+        .unwrap_or(u64::MAX);
+    (ino, size.w as u32, size.h as u32)
+}
+
+/// The dma-buf's inode via `fstat`. `None` on failure (treated as "no stable
+/// identity" by [`key_of`], forcing a fresh import).
+fn inode_of(fd: i32) -> Option<u64> {
+    // SAFETY: `fstat` only reads metadata for `fd`; the zeroed `stat` is fully
+    // written by the call on success. `fd` is a live borrowed dma-buf fd.
+    unsafe {
+        let mut st: libc::stat = std::mem::zeroed();
+        if libc::fstat(fd, &mut st) == 0 {
+            Some(st.st_ino as u64)
+        } else {
+            None
+        }
+    }
 }
 
 /// A capture target: the destination dmabuf plus an optional source sub-rect

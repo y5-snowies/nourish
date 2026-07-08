@@ -15,6 +15,7 @@
 mod bind;
 mod import;
 mod lifecycle;
+mod mipgen;
 mod pipelines;
 mod submit;
 
@@ -23,7 +24,7 @@ use compositor_kernel_vulkan_capture_blit_base::blit::CaptureCache;
 use compositor_kernel_vulkan_device_factory_base::factory::VulkanDevice;
 use compositor_kernel_vulkan_device_queue_base::queue::RenderQueue;
 use compositor_kernel_vulkan_memory_upload_base::upload::StagingBuffer;
-use compositor_kernel_vulkan_pipeline_composite_base::composite::CompositePipelines;
+use compositor_kernel_vulkan_pipeline_composite_base::composite::{AaComposite, CompositePipelines};
 use compositor_kernel_vulkan_pipeline_fullscreen_base::fullscreen::FullscreenPass;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::renderer::{ContextId, DebugFlags, TextureFilter};
@@ -46,6 +47,17 @@ pub struct VulkanRenderer {
     pub(super) cmd: vk::CommandBuffer,
     pub(super) pipeline_cache: vk::PipelineCache,
     pub(super) pipelines: HashMap<vk::Format, CompositePipelines>,
+    /// Per-format world anti-aliasing pipelines (windows + iced AA). Built on
+    /// demand only when the live `AA_MODE` is non-Off; the plain `pipelines`
+    /// above stay the untouched default path. See `pipeline.composite::aa`.
+    pub(super) aa_pipelines: HashMap<vk::Format, AaComposite>,
+    /// Reusable per-surface mipped copies for the trilinear/aniso AA modes
+    /// (`RefCell` so the per-frame acquire + record borrow cleanly alongside the
+    /// other renderer field borrows in `submit`). Empty until such a mode runs.
+    pub(super) mipgen: std::cell::RefCell<mipgen::MipGen>,
+    /// Whether AA was active last frame — drives lazy build on activation and
+    /// resource teardown on deactivation (see `teardown_aa`).
+    pub(super) aa_was_active: bool,
     /// Generic native fullscreen-shader passes, keyed by `(shader id, format)`.
     /// Built on demand from the scene's `DrawOp::ShaderPass` and held for the
     /// renderer's lifetime. The parallax background (SDR + HDR variants) is one
@@ -163,6 +175,11 @@ impl Drop for VulkanRenderer {
             for (_, h) in hdr {
                 h.destroy(&self.dev);
             }
+            let aa: Vec<_> = self.aa_pipelines.drain().collect();
+            for (_, a) in aa {
+                a.destroy(&self.dev);
+            }
+            self.mipgen.borrow_mut().destroy(&self.dev);
             for (_, p) in self.pipelines.drain() {
                 self.dev.device.destroy_pipeline(p.textured, None);
                 self.dev.device.destroy_pipeline(p.solid, None);
