@@ -18,6 +18,7 @@ bitflags = { workspace = true }
 smithay = { workspace = true }
 compositor_orchestration_core_state_base.workspace = true
 compositor_y5_camera_transform_translate.workspace = true
+compositor_support_smithay_state_compositor_place.workspace = true
 compositor_y5_window_lifecycle_event.workspace = true
 compositor_y5_placeholder_interface_base.workspace = true
 compositor_y5_window_interface_record.workspace = true

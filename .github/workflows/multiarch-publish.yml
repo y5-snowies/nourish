@@ -144,7 +144,7 @@ jobs:
           if-no-files-found: error
 
   # Publish every combo's bundle as TWO prereleases on each candidate push — in a `bundles-*`
-  # namespace so it never collides with release-rc.yml's v<rc>/latest-rc:
+  # namespace so it never collides with release-rc.yml's v<rc>:
   #   bundles-v<X.Y.Z-rc.N>  versioned (assets refreshed via --clobber on same-commit re-run) —
   #                          a pinnable RC you can point testers at.
   #   bundles-rolling        rolling, recreated each push — the stable "newest" URL + bootstrap.

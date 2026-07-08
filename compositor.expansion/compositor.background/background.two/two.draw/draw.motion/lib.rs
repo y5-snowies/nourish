@@ -75,6 +75,7 @@ pub fn uniforms(
     zoom: f32,
     resolution: (f32, f32),
     params: &[f32; 16],
+    srgb: bool,
 ) -> (Vec<Uniform<'static>>, ParallaxUniforms) {
     let gles = vec![
         Uniform::new("u_time", time),
@@ -96,8 +97,10 @@ pub fn uniforms(
         time,
         pan: [pan.0, pan.1],
         flow_offset: [flow_offset.0, flow_offset.1],
+        velocity: [velocity.0, velocity.1],
         lock_amount,
         alpha: 1.0,
+        srgb: if srgb { 1.0 } else { 0.0 },
     };
 
     (gles, vk)

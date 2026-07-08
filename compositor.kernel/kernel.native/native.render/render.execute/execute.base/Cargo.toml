@@ -12,6 +12,7 @@ compositor_background_two_system_base = { workspace = true }
 compositor_background_three_system_base = { workspace = true }
 compositor_y5_lock_scene_element.workspace = true
 compositor_orchestration_draw_scene_element.workspace = true
+compositor_orchestration_draw_dispatch_frame.workspace = true
 compositor_kernel_vulkan_renderer_core_base.workspace = true
 compositor_developer_debug_instance_record.workspace = true
 bitflags.workspace = true

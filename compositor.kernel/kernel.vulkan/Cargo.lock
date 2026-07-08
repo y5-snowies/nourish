@@ -307,6 +307,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_developer_environment_graphics_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "compositor_developer_stats_registry_base"
 version = "0.0.1"
 dependencies = [
@@ -363,6 +370,7 @@ dependencies = [
  "compositor_kernel_vulkan_device_factory_base",
  "compositor_kernel_vulkan_memory_target_base",
  "compositor_kernel_vulkan_renderer_error_base",
+ "libc",
  "smithay",
 ]
 
@@ -554,6 +562,7 @@ dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
+ "naga",
  "smithay",
  "thiserror 2.0.18",
 ]
@@ -584,6 +593,7 @@ dependencies = [
  "ash",
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "compositor_developer_stats_registry_base",
  "compositor_kernel_graphic_color_surface_base",
  "compositor_kernel_vulkan_capture_blit_base",

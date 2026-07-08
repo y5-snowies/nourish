@@ -25,6 +25,12 @@ fn profile_active_default() -> bool {
     true
 }
 
+/// Default for `release_hidden_surfaces`: on. An older `preferences.json` without
+/// the field gets the memory-saving behavior by default.
+fn default_release_hidden() -> bool {
+    true
+}
+
 /// Per-monitor output preference. `identity = None` applies to any output
 /// (single-output-era default).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,6 +104,15 @@ pub struct Preference {
     /// Natural scrolling: invert the touchpad finger-axis direction for canvas
     /// pan, window scroll, and multi-finger swipe navigation (wheel unaffected).
     pub input_natural_scroll: bool,
+    /// Show the per-monitor FPS overlay (Settings → Performance). Off by default;
+    /// each driven output gets a small top-right counter of its own draw rate.
+    #[serde(default)]
+    pub show_fps: bool,
+    /// Release the GPU backing (dmabuf) of iced surfaces that have been hidden
+    /// (off-screen or fully obstructed) for a while, re-allocating on reveal.
+    /// On by default (Settings → Performance); off keeps every surface resident.
+    #[serde(default = "default_release_hidden")]
+    pub release_hidden_surfaces: bool,
     /// Per-output mode preferences, priority-ordered: the FIRST entry is the
     /// default/preferred output (see `display.base`'s `profiles.first()`).
     pub outputs: Vec<OutputProfile>,
@@ -131,6 +146,10 @@ pub struct Preference {
     /// override it in its own record; unset = the built-in parallax.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_shader: Option<String>,
+    /// Anti-aliasing / graphics config for the pannable world (edited in the
+    /// settings "Graphics" tab). Applied live and pushed to the kernel renderer.
+    #[serde(default)]
+    pub graphics: compositor_developer_environment_graphics_base::base::GraphicsAaConfig,
 }
 
 /// Where the keyboard layout comes from. `Env` (the historical default) leaves the
@@ -182,6 +201,8 @@ impl Default for Preference {
         Self {
             cursor_sensitivity: 1.0,
             input_natural_scroll: true,
+            show_fps: false,
+            release_hidden_surfaces: true,
             outputs: Vec::new(),
             outputs_default_mode: None,
             outputs_layout: Vec::new(),
@@ -189,6 +210,7 @@ impl Default for Preference {
             ime: None,
             keyboard: KeyboardLayout::default(),
             background_shader: None,
+            graphics: compositor_developer_environment_graphics_base::base::GraphicsAaConfig::default(),
         }
     }
 }
@@ -218,16 +240,21 @@ fn path() -> PathBuf {
 /// Load the preferences fresh from disk. A missing or invalid file yields the
 /// defaults (so the compositor and the settings window always have sane values).
 pub fn load() -> Preference {
-    std::fs::read_to_string(path())
+    let prefs = std::fs::read_to_string(path())
         .ok()
         .and_then(|raw| serde_json::from_str::<Preference>(&raw).ok())
         .map(normalize)
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // Mirror the graphics config into the kernel-readable global.
+    compositor_developer_environment_graphics_base::base::set(prefs.graphics);
+    prefs
 }
 
 /// Persist `prefs` atomically (write to a sibling `.tmp`, then rename over the
 /// target — a partial write can never replace a good file).
 pub fn save(prefs: &Preference) -> Result<(), String> {
+    // Keep the kernel-readable global in sync with every live edit.
+    compositor_developer_environment_graphics_base::base::set(prefs.graphics);
     let p = path();
     if let Some(dir) = p.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;

@@ -8,6 +8,7 @@ compositor_configurator_settings_surface_message = { workspace = true }
 compositor_configurator_settings_surface_chrome = { workspace = true }
 compositor_developer_environment_config_base = { workspace = true }
 compositor_developer_environment_preference_base = { workspace = true }
+compositor_developer_environment_graphics_base = { workspace = true }
 compositor_developer_environment_keybinding_base = { workspace = true }
 compositor_orchestration_driver_output_base = { workspace = true }
 compositor_y5_audio_controller_interface = { workspace = true }

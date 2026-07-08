@@ -12,6 +12,7 @@
 //! takes the screen location and zoom as arguments rather than storing them.
 
 use std::any::{Any, TypeId};
+use std::time::Instant;
 
 use iced_core::{Event as IcedEvent, mouse};
 use smithay::backend::renderer::element::Id;
@@ -79,10 +80,28 @@ pub(crate) trait IcedInstanceAny: Any {
     fn set_location(&mut self, p: Point<i32, Physical>);
     fn queue_event(&mut self, event: IcedEvent);
     fn tick(&mut self) -> bool;
+    /// Advance frame bookkeeping WITHOUT rasterizing: clears the runtime's dirty
+    /// flag so an off-screen surface stops pinning the redraw loop, while its
+    /// animation/message driving (in `tick`) continues untouched. Paired with a
+    /// `stale` flag on the item so it re-renders once when it becomes visible.
+    fn acknowledge_frame(&mut self);
     /// True if the runtime still wants to be rendered next frame — dirty or
     /// mid-animation. Drives the host's "keep scheduling frames" decision.
     fn wants_frame(&self) -> bool;
     fn render(&mut self);
+    /// Whether the GPU backing is currently allocated. Off-screen surfaces are
+    /// released to reclaim memory while their runtime keeps ticking.
+    fn is_resident(&self) -> bool;
+    /// Free the GPU backing (dmabuf + both imports). The `IcedRuntime` keeps
+    /// running; call `ensure_backing` before the next render.
+    fn release_backing(&mut self);
+    /// Re-allocate the backing at the current size if it was released.
+    fn ensure_backing(
+        &mut self,
+        render_node: &str,
+        wgpu_ctx: &WgpuVulkanContext,
+        gles: &mut GlesRenderer,
+    ) -> Result<(), SurfaceError>;
     fn texture_handle(&self) -> &smithay::backend::renderer::gles::GlesTexture;
     /// Strict read-only accessor for the surface's underlying dmabuf, so a
     /// non-GLES renderer (Vulkan) can import the iced output natively. (iced
@@ -141,19 +160,43 @@ impl<U: IcedUi> IcedInstanceAny for IcedInstance<U> {
         }
         changed
     }
+    fn acknowledge_frame(&mut self) {
+        self.runtime.acknowledge_frame();
+    }
     fn wants_frame(&self) -> bool {
         self.runtime.is_dirty()
     }
     fn render(&mut self) {
-        let view = self.surface.create_render_view();
-        self.runtime.render_into(&view);
-        self.commit.increment();
+        // No-op while the backing is released; the registry re-`ensure`s an
+        // on-screen surface before calling this, so the view is present then.
+        if let Some(view) = self.surface.create_render_view() {
+            self.runtime.render_into(&view);
+            self.commit.increment();
+        }
+    }
+    fn is_resident(&self) -> bool {
+        self.surface.is_resident()
+    }
+    fn release_backing(&mut self) {
+        self.surface.release();
+    }
+    fn ensure_backing(
+        &mut self,
+        render_node: &str,
+        wgpu_ctx: &WgpuVulkanContext,
+        gles: &mut GlesRenderer,
+    ) -> Result<(), SurfaceError> {
+        self.surface.ensure(render_node, wgpu_ctx, gles)
     }
     fn texture_handle(&self) -> &smithay::backend::renderer::gles::GlesTexture {
-        &self.surface.gles_texture
+        self.surface
+            .gles_texture()
+            .expect("texture_handle() on a released iced surface")
     }
     fn dmabuf(&self) -> &smithay::backend::allocator::dmabuf::Dmabuf {
-        &self.surface.allocated.dmabuf
+        self.surface
+            .dmabuf()
+            .expect("dmabuf() on a released iced surface")
     }
     fn apply_pending_resize(
         &mut self,
@@ -222,6 +265,26 @@ pub struct IcedItem {
     /// overlay (e.g. a per-monitor capture stop button) be replicated once per
     /// output without duplicating/mispositioning on the others.
     output: Option<String>,
+    /// True when the surface's UI state has advanced (via `tick`) since it was
+    /// last rasterized, because it was off-screen at the time and `render` was
+    /// skipped. The next time it is on-screen, `process_frame` renders it once
+    /// to resync the texture, then clears this. See `process_frame`.
+    render_stale: bool,
+    /// Whether this surface paints its whole rect opaquely, so it may occlude
+    /// surfaces beneath it. Opt-in (default false ⇒ never occludes anything);
+    /// set for e.g. launcher placeholders whose background is fully opaque.
+    /// Occlusion itself is evaluated per-pane in `element_of` (compositing) and
+    /// by area subtraction in `manage_backings` (backing lifecycle).
+    opaque_occluder: bool,
+    /// Last time this item was visible on some output. Its GPU backing is
+    /// released once it has been continuously hidden/off-screen/occluded for
+    /// longer than the grace period (see `process_frame`), and re-allocated on
+    /// reveal. The grace avoids alloc/free thrash when a surface skims the edge.
+    last_on_screen: Instant,
+    /// Marked when this surface has been hidden long enough to be a release
+    /// candidate; the registry batches all pending candidates and flushes them
+    /// together (debounced). Cleared when it becomes visible again or is released.
+    release_pending: bool,
 }
 
 impl IcedItem {
@@ -234,7 +297,22 @@ impl IcedItem {
             visible: true,
             passthrough: false,
             output: None,
+            render_stale: false,
+            opaque_occluder: false,
+            last_on_screen: Instant::now(),
+            release_pending: false,
         }
+    }
+
+    // ── Occlusion ─────────────────────────────────────────────────
+
+    pub fn is_opaque_occluder(&self) -> bool {
+        self.opaque_occluder
+    }
+    /// Mark whether this surface fully covers its rect opaquely (so it can
+    /// occlude surfaces beneath it). See the `opaque_occluder` field.
+    pub fn set_opaque_occluder(&mut self, opaque: bool) {
+        self.opaque_occluder = opaque;
     }
 
     // ── Visibility & passthrough ──────────────────────────────────
@@ -467,9 +545,75 @@ impl IcedItem {
     }
     pub(crate) fn render(&mut self) {
         self.inner.render();
+        self.render_stale = false;
+    }
+    /// Advance frame bookkeeping without rasterizing (off-screen path) and mark
+    /// the texture stale so the next on-screen frame re-renders it.
+    pub(crate) fn skip_render(&mut self) {
+        self.inner.acknowledge_frame();
+        self.render_stale = true;
+    }
+    pub(crate) fn is_stale(&self) -> bool {
+        self.render_stale
     }
     pub(crate) fn bump_commit(&mut self) {
         self.inner.bump_commit();
+    }
+
+    // ── Backing (memory) lifecycle ────────────────────────────────
+
+    pub fn is_resident(&self) -> bool {
+        self.inner.is_resident()
+    }
+    /// Note that the item is visible right now, resetting its release grace.
+    pub(crate) fn mark_on_screen(&mut self, now: Instant) {
+        self.last_on_screen = now;
+    }
+    pub(crate) fn last_on_screen(&self) -> Instant {
+        self.last_on_screen
+    }
+    pub(crate) fn release_pending(&self) -> bool {
+        self.release_pending
+    }
+    pub(crate) fn set_release_pending(&mut self, pending: bool) {
+        self.release_pending = pending;
+    }
+    /// Free the GPU backing while keeping the runtime alive. Marks the item
+    /// stale so it re-renders once re-allocated (its texture is gone), and
+    /// clears any pending-release marker.
+    pub(crate) fn release_backing(&mut self) {
+        self.inner.release_backing();
+        self.render_stale = true;
+        self.release_pending = false;
+    }
+    /// Re-allocate the backing at the current size if it was released.
+    pub(crate) fn ensure_backing(
+        &mut self,
+        render_node: &str,
+        wgpu_ctx: &WgpuVulkanContext,
+        gles: &mut GlesRenderer,
+    ) -> Result<(), SurfaceError> {
+        self.inner.ensure_backing(render_node, wgpu_ctx, gles)
+    }
+
+    /// True if the item is visible AND its on-screen rect intersects the given
+    /// output viewport `(0,0)..output_size`. Because `process_frame` runs once
+    /// per output with that output's own camera, OR-ing this across passes means
+    /// a surface is rasterized iff at least one monitor actually shows it.
+    pub(crate) fn intersects_viewport(
+        &self,
+        transform: &Transform,
+        output_size: Size<f64, Physical>,
+    ) -> bool {
+        if !self.visible {
+            return false;
+        }
+        let rect = self.screen_rect(transform, output_size);
+        let viewport = Rectangle::from_loc_and_size(
+            Point::from((0, 0)),
+            Size::from((output_size.w as i32, output_size.h as i32)),
+        );
+        rect.overlaps(viewport)
     }
 
     /// Build a render element for this item in screen coordinates.

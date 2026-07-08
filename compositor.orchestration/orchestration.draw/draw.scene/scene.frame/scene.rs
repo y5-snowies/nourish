@@ -21,6 +21,10 @@ use compositor_support_system_world_frame_base::base as layer;
 
 pub struct Scene<R: Renderer> {
     pub Element: Vec<SceneElement<R>>,
+    /// Lockstep with `Element`: per-element metadata (space, …). Consumed by the
+    /// native Vulkan path (wrapped into `VkOutput`) to restrict AA to world
+    /// content; ignored by the GLES path.
+    pub meta: Vec<compositor_orchestration_draw_dispatch_frame::ElementMeta>,
     pub visible_window: Vec<Window>,
 }
 
@@ -182,6 +186,41 @@ pub struct PreparedGles {
     pub overview_world: Vec<compositor_support_bevy_core_compositor_base::BevyRenderElement>,
 }
 
+/// Per-pane cameras + sub-rects for the current output, matching how the content
+/// band composites World iced (each leaf viewport through its own camera). This
+/// recomputes the same `layout::compute` the content band uses; the duplication
+/// is deliberate — backing (de)allocation needs the GLES renderer and must run in
+/// `prepare()`, before the renderer-agnostic `scene()` builds the content band.
+fn iced_panes(
+    state: &Loop,
+    size: Size<i32, Physical>,
+) -> Vec<compositor_monitor_compositor_iced_base::PaneView> {
+    let scale = state.viewport_context().scale;
+    let vps = state.inner.viewports();
+    let computed = compositor_y5_viewport_layout_base::layout::compute(
+        vps,
+        smithay::utils::Rectangle::from_loc_and_size(Point::from((0, 0)), size),
+    );
+    computed
+        .regions
+        .iter()
+        .map(|r| {
+            let cam = vps
+                .camera_of(r.slot)
+                .unwrap_or_else(|| vps.focus_camera())
+                .transform
+                .clone();
+            compositor_monitor_compositor_iced_base::PaneView {
+                transform: compositor_monitor_compositor_iced_base::Transform {
+                    zoom: cam.zoom,
+                    position: Point::new(cam.position.x * scale, cam.position.y * scale),
+                },
+                rect: r.rect,
+            }
+        })
+        .collect()
+}
+
 /// GLES-only preparation phase: runs the per-frame hooks and builds the iced /
 /// bevy / parallax GLES resources. Always runs on the (winit/native) GLES
 /// renderer — separate from the renderer-agnostic `scene()` so the scene can be
@@ -194,8 +233,40 @@ pub fn prepare(
     // Temporary method of calling binding hooks for external renderers lazily.
     hooks::hooks(state, renderer, size);
 
+    // De-alloc feature gate (`release_hidden_surfaces`). Set the flag up front so
+    // `process_frame` (inside the surface scene below) sees this frame's value,
+    // and when OFF skip ALL de-alloc compute — no panes, no draw-order, no
+    // `manage_backings`, no occlusion — so the feature costs nothing while off.
+    let dealloc = state.inner.preference.release_hidden_surfaces;
+    if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
+        reg.set_dealloc_enabled(dealloc);
+    }
+
     let (surfaces, surfaces_screen, surfaces_dim) =
         compositor_y5_surface_draw_scene::scene::scene(state, renderer, size);
+
+    // Iced backing lifecycle: release the dmabuf of any World surface not
+    // actually visible in some pane (fully off-screen or fully obstructed), and
+    // re-allocate on reveal. Uses the SAME per-pane cameras the content band
+    // composites through — not render_all's single camera — so split / floating
+    // panes resolve visibility correctly.
+    if dealloc {
+        let panes = iced_panes(state, size);
+        let gpu = state.inner.environment.GPU.clone();
+        // Real compositing z-order (topmost-first) so occlusion follows the
+        // DrawOrder authority, not the registry's `items` Vec. World iced ids map
+        // reversibly from their drawable uuid (see `surface.draw.handle::load`).
+        let draw_order: Vec<compositor_monitor_compositor_iced_base::HandleId> = state
+            .inner
+            .drawable_order()
+            .iter()
+            .map(|u| compositor_monitor_compositor_iced_base::HandleId(u.as_u128() as u64))
+            .collect();
+        if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
+            reg.set_draw_order(&draw_order);
+            reg.manage_backings(&gpu, renderer, size.to_f64(), &panes);
+        }
+    }
     // Parallax background is now a system (`TwoSystem`): it ticks its animation
     // in `update()` and emits a renderer-agnostic node from `draw()`. Run the
     // active world's draw pass, then bridge its `Background2D` node back into the
@@ -486,7 +557,7 @@ where
     // The parallax background is pushed per-pane in the content match above (one
     // per viewport pane, or full-screen for the overview overlay).
 
-    let elements = plan.lower(renderer);
+    let (elements, meta) = plan.lower(renderer);
 
     // Per-window fractional scale: each window follows its HIGHEST-zoom viewport
     // across ALL outputs (best resolution wins), emitted only when a surface's scale
@@ -517,6 +588,7 @@ where
     // Return the resulting scene
     Scene {
         Element: elements,
+        meta,
         visible_window: canvas_window,
     }
 }

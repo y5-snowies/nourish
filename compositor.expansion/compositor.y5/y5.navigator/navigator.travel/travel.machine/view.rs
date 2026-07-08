@@ -99,7 +99,7 @@ pub fn view(state: &mut Loop, elements: Vec<&Window>, fit_absolute: bool) -> Res
         Direction::Up, // <-- No OP for specified center and non-dominance flags.
     );
 
-    info!("Results are in: {:?}", placement);
+    trace!("Results are in: {:?}", placement);
     return Results {
         position: Some((placement.position.x, placement.position.y)),
         zoom: Some(placement.zoom),

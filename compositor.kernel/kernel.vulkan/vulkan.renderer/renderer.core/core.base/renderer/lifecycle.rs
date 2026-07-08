@@ -49,6 +49,7 @@ impl VulkanRenderer {
         );
         stats::set_renderer("vulkan", true);
         stats::set_sync_mode("synchronous (device_wait_idle)");
+
         Ok(Self {
             dev,
             phd,
@@ -57,6 +58,9 @@ impl VulkanRenderer {
             cmd,
             pipeline_cache,
             pipelines: HashMap::new(),
+            aa_pipelines: HashMap::new(),
+            mipgen: std::cell::RefCell::new(crate::renderer::mipgen::MipGen::default()),
+            aa_was_active: false,
             shader_passes: HashMap::new(),
             hdr_pipelines: HashMap::new(),
             hdr_enabled: false,

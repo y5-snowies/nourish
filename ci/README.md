@@ -86,9 +86,8 @@ decide exactly when an rc is built and published:
 ```
 feature → candidate-integration ──(you merge by hand; no CI, no artifacts)──▶ candidate
                                                                                   │
-                                                                  Publish RC: prerelease GitHub Releases
-                                                                  ├─ v<X.Y.Z-rc.N>  immutable, prerelease
-                                                                  └─ latest-rc       rolling rc download
+                                                                  Publish RC: prerelease GitHub Release
+                                                                  └─ v<X.Y.Z-rc.N>  prerelease rc download
 ```
 
 - **candidate-integration** (rc aggregation): a plain staging branch — **no workflow, no
@@ -98,18 +97,17 @@ feature → candidate-integration ──(you merge by hand; no CI, no artifacts)
 - **candidate** (the single rc release action): a push (or `workflow_dispatch`) runs **Publish
   RC** (`release-rc.yml`), which **just builds** the bundle once (no cargo checks) with an
   `X.Y.Z-rc.N` version (`ci/scripts/version-rc.sh` — same VERSION-file mechanics as
-  `version.sh`, with the `-rc.N` counter derived from `v…-rc.*` tags) and ships it as two
-  **prerelease** GitHub Releases: immutable `v<X.Y.Z-rc.N>` and rolling `latest-rc`. **No Pages
-  deploy** — Pages is the stable channel's single site; the rolling `latest-rc` Release is the
-  rc "link". The rc releases are marked non-latest so they never steal the stable "Latest
-  release" pointer.
+  `version.sh`, with the `-rc.N` counter derived from `v…-rc.*` tags) and ships it as one
+  **prerelease** GitHub Release: `v<X.Y.Z-rc.N>`. **No Pages deploy** — Pages is the stable
+  channel's single site — and no rolling pointer (nothing consumes it). The rc release is
+  marked non-latest so it never steals the stable "Latest release" pointer.
 
-Install an rc exactly like a stable release — same command, just the rc URL. **No env vars,
-and the install script is untouched** (`get.sh` / the bundle's `install.sh` are identical for
-both channels — only the tarball URL differs, so install never diverges between channels):
+Install an rc exactly like a stable release — same command, just the exact rc version's URL.
+**No env vars, and the install script is untouched** (`get.sh` / the bundle's `install.sh` are
+identical for both channels — only the tarball URL differs, so install never diverges):
 
 ```
-curl -fsSL https://github.com/<owner>/<repo>/releases/download/latest-rc/package.tar.gz \
+curl -fsSL https://github.com/<owner>/<repo>/releases/download/v<X.Y.Z-rc.N>/package.tar.gz \
   | tar -xz && y5-install/install.sh
 ```
 

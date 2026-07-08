@@ -60,6 +60,7 @@ pub fn lock_logical(state: &mut Loop) {
         capture: LockActiveCapture::None,
         surface: vec![],
         surface_input: None,
+        fold_started: false,
     };
 
     // Locking IS a world switch: session systems get on_disable, lock systems
@@ -125,10 +126,36 @@ pub fn lock_visual(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32
         active.capture = capture;
     }
 
-    let need_bevy = !pending && state.inner.worlds.get_mut(compositor_y5_lock_system_base::base::LOCK_WORLD).storage_mut().get_mut(&compositor_y5_lock_system_base::base::LOCK_MUT).active.as_ref().unwrap().bevy.is_none();
+    // Create the morph while the originating session is STILL rendered (this may
+    // run during `pending`): the snapshot plane warms up (cast import + first
+    // render) ON TOP of the live desktop, so there is never a frame where the
+    // session is hidden but the plane is not yet up. It samples the LIVE output
+    // capture, so during the warm-up it mirrors the still-visible desktop. Gated
+    // on the capture being live (not on the iced surface) — the plane's own
+    // `render_ready` shader gate keeps it transparent until the cast is imported,
+    // by which point the capture entry has been filled at least once.
+    let need_bevy = {
+        let active = state.inner.worlds.get_mut(compositor_y5_lock_system_base::base::LOCK_WORLD).storage_mut().get_mut(&compositor_y5_lock_system_base::base::LOCK_MUT).active.as_ref().unwrap();
+        active.bevy.is_none() && matches!(active.capture, LockActiveCapture::Capture(_))
+    };
     if need_bevy {
         let bevy = three::create(state, renderer, size);
         state.inner.worlds.get_mut(compositor_y5_lock_system_base::base::LOCK_WORLD).storage_mut().get_mut(&compositor_y5_lock_system_base::base::LOCK_MUT).active.as_mut().unwrap().bevy = bevy;
+    }
+
+    // Start the fold exactly once, at the transition where the session scene is
+    // dropped (`!pending`). By now the opaque snapshot plane already covers the
+    // screen, so the fold begins with no gap. (Dark-boot case: the morph was
+    // created just above at `!pending`; the fold then starts on the next frame.)
+    if !pending {
+        let (handle, started) = {
+            let active = state.inner.worlds.get_mut(compositor_y5_lock_system_base::base::LOCK_WORLD).storage_mut().get_mut(&compositor_y5_lock_system_base::base::LOCK_MUT).active.as_ref().unwrap();
+            (active.bevy, active.fold_started)
+        };
+        if let (Some(handle), false) = (handle, started) {
+            three::start_fold(state, handle);
+            state.inner.worlds.get_mut(compositor_y5_lock_system_base::base::LOCK_WORLD).storage_mut().get_mut(&compositor_y5_lock_system_base::base::LOCK_MUT).active.as_mut().unwrap().fold_started = true;
+        }
     }
 }
 

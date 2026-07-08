@@ -125,6 +125,7 @@ impl Renderer for VulkanRenderer {
             transform: dst_transform,
             clear: [0.0, 0.0, 0.0, 0.0],
             ops: Vec::new(),
+            current_meta: compositor_orchestration_draw_dispatch_frame::ElementMeta::SCREEN,
         })
     }
 

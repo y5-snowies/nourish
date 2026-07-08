@@ -189,7 +189,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var uv = (frag - 0.5 * res) / res.y;
     let screen_uv = uv;
     uv = uv / zoom;
-    let pan = vec2<f32>(pan_in.x, -pan_in.y);
+    // Pan convention: on-screen content tracks the camera as -pan_in on both axes.
+    let pan = vec2<f32>(pan_in.x, pan_in.y);
 
     // Very dark sky, the faintest warm lift toward the bottom.
     var col = mix(vec3<f32>(0.02, 0.014, 0.016), vec3<f32>(0.035, 0.014, 0.012), frag.y / res.y);
@@ -219,5 +220,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
     col = col * mix(1.0, vig, clamp(vignette, 0.0, 1.0));
-    return vec4<f32>(col, 1.0) * (alpha * 0.75);
+    // Per-world sRGB flag (push lock_alpha.z): gamma-encode for the brighter,
+    // preview-matching look on a non-sRGB scanout buffer. Off = raw values.
+    let outc = select(col, pow(max(col, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)), pc.lock_alpha.z > 0.5);
+    return vec4<f32>(outc, 1.0) * (alpha * 0.75);
 }

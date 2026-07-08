@@ -112,6 +112,9 @@ void main() {
     vec2 screenUv = uv;
     uv /= u_zoom;
 
+    // Pan convention: horizontal tracks the camera as -u_pan. Vertical is inverted
+    // by default here (the built-in parallax reads better this way); the per-world
+    // "Invert pan Y" toggle flips it back from this baseline.
     vec2 pan = vec2(u_pan.x, -u_pan.y);
 
     vec3 col = mix(vec3(0.01, 0.015, 0.04), vec3(0.04, 0.02, 0.09), gl_FragCoord.y/u_resolution.y);

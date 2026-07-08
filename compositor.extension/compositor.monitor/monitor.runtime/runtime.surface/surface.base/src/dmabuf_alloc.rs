@@ -202,7 +202,7 @@ fn allocate_with_modifiers(
     let bo = gbm
         .create_buffer_object_with_modifiers2::<()>(width, height, gbm_fmt, gbm_mods, BufferObjectFlags::RENDERING)
         .map_err(AllocError::CreateBo)?;
-    info!(
+    trace!(
         "negotiated BO {}x{} fourcc={:?} modifier={:?} planes={}",
         width, height, fourcc, bo.modifier(), bo.plane_count()
     );

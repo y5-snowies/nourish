@@ -43,7 +43,7 @@ pub fn import_dmabuf_to_wgpu(
     let offset = dmabuf.offsets().next().ok_or(WgpuImportError::NoOffset)?;
     let modifier: u64 = dmabuf.format().modifier.into();
 
-    info!(
+    trace!(
         "Importing dmabuf into wgpu: {}x{}, fd={}, stride={}, offset={}, modifier={:#x}",
         size.w,
         size.h,
@@ -122,6 +122,6 @@ pub fn import_dmabuf_to_wgpu(
             .create_texture_from_hal::<wgpu::hal::api::Vulkan>(hal_texture, &wgpu_desc)
     };
 
-    info!("wgpu import successful: {}x{} texture", size.w, size.h);
+    trace!("wgpu import successful: {}x{} texture", size.w, size.h);
     Ok(wgpu_texture)
 }

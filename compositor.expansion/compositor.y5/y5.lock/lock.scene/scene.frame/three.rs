@@ -13,15 +13,16 @@ pub fn scene(
 ) -> Vec<BevyRenderElement> {
     let (mut bevy_elements): Vec<BevyRenderElement> = vec![];
 
-    let compositor_orchestration_core_state_base::state::Status::Locked { pending, time, .. } =
+    // Render the morph whenever the LOCK world has one — INCLUDING during
+    // `pending`. That is what lets the snapshot plane warm up and composite on
+    // TOP of the still-visible session before the session scene is dropped at
+    // handoff, so there is no blank-frame blink. Before the morph exists (early
+    // pending frames) the registry has no instance and this yields nothing.
+    let compositor_orchestration_core_state_base::state::Status::Locked { .. } =
         _loop.inner.status
     else {
         abort!();
     };
-
-    if pending {
-        return bevy_elements;
-    }
 
     let scale = _loop.size_ctx_all().scale;
     let camera_transform = _loop.inner.camera().transform.clone();

@@ -95,14 +95,17 @@ fn _initial_mapped(state: &mut Loop, window: Window) {
         .state
         .map_element(window.clone(), t.into_storage_point(), false);
 
-    // The compositor decides the window's size, but at map it has made no explicit decision yet:
-    // put the window in `Auto` so the slot follows the client's committed `geometry()` while it
-    // settles. A client whose first mapped buffer precedes its final `window_geometry` (CSD shadow
-    // excluded a frame later, a saved size applied on the next commit) then fills its frame instead
-    // of being covered & cropped at the stale first-frame size. The slot freezes (enforced) the
-    // moment the compositor reforms/tiles/fullscreens it (`set_expected_size`). A 0x0 geometry is
-    // still treated as "no size yet" by `expected_size` → the renderer falls back to native.
-    slot::set_expected_auto(&window);
+    // Dialog/child toplevels (a set `parent`, e.g. nautilus's merge-conflict window) size themselves — leave them `Auto`; lock+grace the rest to the mapped size.
+    if window.toplevel().and_then(|t| t.parent()).is_some() {
+        slot::set_expected_auto(&window);
+    } else {
+        slot::set_expected_size(&window, geometry.size);
+        if let Some(toplevel) = window.toplevel() {
+            toplevel.with_pending_state(|s| s.size = Some(geometry.size));
+            toplevel.send_configure();
+        }
+        compositor_support_smithay_state_compositor_place::arm_size_propagation(&window, geometry.size);
+    }
 
     // Register the window in the spatial world's draw-order authority
     // (non-destructive; spawn = top of stack).

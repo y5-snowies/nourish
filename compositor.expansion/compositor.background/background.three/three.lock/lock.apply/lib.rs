@@ -16,6 +16,7 @@ pub fn apply_to_material(
         if let Some(mut mat) = materials.get_mut(&handle.0) {
             mat.params.t = anim.t;
             mat.params.going_to_sphere = anim.going_to_sphere;
+            mat.params.ready = anim.render_ready;
         }
     }
 }

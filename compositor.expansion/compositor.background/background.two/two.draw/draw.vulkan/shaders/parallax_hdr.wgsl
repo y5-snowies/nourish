@@ -119,6 +119,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     var uv = (frag - 0.5 * res) / res.y;
     uv = uv / zoom;
+    // Pan convention: horizontal tracks the camera as -pan_in. Vertical is inverted
+    // by default here (the built-in parallax reads better this way); the per-world
+    // "Invert pan Y" toggle flips it back from this baseline.
     let pan = vec2<f32>(pan_in.x, -pan_in.y);
 
     var col = mix(vec3<f32>(0.01, 0.015, 0.04), vec3<f32>(0.04, 0.02, 0.09), frag.y / res.y);

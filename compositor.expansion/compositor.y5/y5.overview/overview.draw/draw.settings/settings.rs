@@ -29,7 +29,7 @@ thread_local! {
     static LAST_OUTPUTS: RefCell<Option<OutputsSnapshot>> = const { RefCell::new(None) };
     /// Last (bundles, selection, variables, preview source) pushed to the panel.
     #[allow(clippy::type_complexity)]
-    static LAST_SHADERS: RefCell<Option<(Vec<String>, Option<String>, Vec<ShaderProp>, String, Option<String>)>> = const { RefCell::new(None) };
+    static LAST_SHADERS: RefCell<Option<(Vec<String>, Option<String>, Vec<ShaderProp>, String, Option<String>, bool, bool, bool)>> = const { RefCell::new(None) };
     /// Output size the surface was last sized to. The settings surface is
     /// screen-space and spans the output, so a mode/resolution change invalidates
     /// its rect — re-size only when this drifts (resizes reallocate a texture).
@@ -46,7 +46,7 @@ fn settings_rect(size: Size<i32, Physical>) -> Rectangle<i32, Physical> {
 /// selected shader's editable variables (with current values), for the picker
 /// + the variable controls. Resolution: world override → preference default.
 #[allow(clippy::type_complexity)]
-fn shader_state(state: &Loop) -> (Vec<String>, Option<String>, Vec<ShaderProp>, String, Option<String>) {
+fn shader_state(state: &Loop) -> (Vec<String>, Option<String>, Vec<ShaderProp>, String, Option<String>, bool, bool, bool) {
     // The compiled-in built-in worlds first, then every user bundle on disk.
     let mut options: Vec<String> = compositor_background_two_shader_builtin::builtins()
         .iter()
@@ -65,6 +65,9 @@ fn shader_state(state: &Loop) -> (Vec<String>, Option<String>, Vec<ShaderProp>, 
         .and_then(|t| t.background_shader.clone())
         .or_else(compositor_developer_stats_registry_base::base::background_shader_default);
     let overrides = two.map(|t| t.params.clone()).unwrap_or_default();
+    // This world's per-axis background pan inversion + sRGB output (default off).
+    let (invert_x, invert_y) = two.map(|t| (t.invert_pan_x, t.invert_pan_y)).unwrap_or((false, false));
+    let srgb = two.map(|t| t.srgb).unwrap_or(false);
 
     // Properties for the resolved shader (user source, or the built-in list).
     let props = match &current {
@@ -106,7 +109,7 @@ fn shader_state(state: &Loop) -> (Vec<String>, Option<String>, Vec<ShaderProp>, 
         .unwrap_or_else(|| {
             compositor_background_two_draw_vulkan::vulkan::PARALLAX_WGSL.to_string()
         });
-    (options, current, dtos, preview, status)
+    (options, current, dtos, preview, status, invert_x, invert_y, srgb)
 }
 
 pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physical>) {
@@ -183,12 +186,14 @@ fn sync(state: &mut Loop, id: HandleId, size: Size<i32, Physical>) {
     let shaders_changed = LAST_SHADERS.with(|l| { let mut l = l.borrow_mut(); if l.as_ref() != Some(&shaders) { *l = Some(shaders.clone()); true } else { false } });
     if shaders_changed {
         if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-            let (options, current, props, preview, status) = shaders;
+            let (options, current, props, preview, status, invert_x, invert_y, srgb) = shaders;
             let handle = IcedHandle::<Settings>::from_id(id);
             let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaders(options, current));
             let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaderProps(props));
             let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaderPreview(preview));
             let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaderStatus(status));
+            let _ = reg.dispatch_message(handle, SettingsMessage::SyncWorldInvert(invert_x, invert_y));
+            let _ = reg.dispatch_message(handle, SettingsMessage::SyncWorldSrgb(srgb));
         }
     }
     // Animate the live preview: while the Current-World tab is open, dispatch a
@@ -219,6 +224,8 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     state.inner.keybinding = compositor_developer_environment_keybinding_base::base::load();
     let cursor = state.inner.preference.cursor_sensitivity as f32;
     let natural = state.inner.preference.input_natural_scroll;
+    let show_fps = state.inner.preference.show_fps;
+    let release_hidden = state.inner.preference.release_hidden_surfaces;
     let snap = state.inner.kernel.get(&OUTPUTS_SNAPSHOT).clone();
     let mut keys = compositor_y5_overlay_interface_keyboard::keyboard::registry(&state.inner.keybinding);
     keys.extend(compositor_y5_canvas_input_keyboard::navigator::registry(&state.inner.keybinding));
@@ -229,7 +236,7 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     let cyclic = state.inner.preference.teleport_cyclic;
     let ime = state.inner.preference.ime.clone().unwrap_or_default();
     let keyboard = state.inner.preference.keyboard.clone();
-    let ui = Settings::new(env, cursor, natural, snap, keys, tab, layout, cyclic, ime, keyboard);
+    let ui = Settings::new(env, cursor, natural, show_fps, release_hidden, snap, keys, tab, layout, cyclic, ime, keyboard);
     let handle = load(state, renderer, ui, rect, IcedSpace::Screen, Layer::SCENE.bits());
     install_handler(state, handle);
     let untyped = handle.untyped();

@@ -44,11 +44,28 @@ use compositor_y5_surface_protocol_base::protocol::{
 };
 use compositor_remote_message_client_base::bind::selection;
 
+/// True only on the CURSOR's output pass. `per_frame` runs once per output with `render_output`
+/// pinned to the output being drawn, and every position path in it (`camera()`, `size_ctx_all()`,
+/// the `size` arg) resolves against `render_output`. Running on every pass lets the LAST-drawn
+/// monitor's zoom/scale win the stored bar location, while input is hit-tested against the cursor
+/// output's camera (`HitCx` in `surface.interface`) — they diverge on multi-monitor and clicks
+/// miss. Gating the reconciler to the cursor output puts both sides on the same basis.
+/// (`render_output == None` = winit/single pass → act.) Mirrors overview's `on_active_output`.
+fn on_active_output(state: &Loop) -> bool {
+    state.inner.render_output.as_ref().is_none_or(|k| *k == state.inner.active_output_key())
+}
+
 /// Per-frame reconciler (runs from the scene `hooks`, which has the renderer).
 /// Creates the toolbar when the selection becomes non-empty (positioned under
 /// the cursor for the world placement), destroys it when it empties, and pushes
 /// count changes. Reposition-on-change is handled by the system.
 pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physical>) {
+    // Cursor-output only: otherwise the stored bar position (render-output basis) and the input
+    // hit-test (cursor-output basis) resolve against different monitors and clicks miss. See
+    // `on_active_output`.
+    if !on_active_output(state) {
+        return;
+    }
     let count = state.inner.select().Selection.len() as i32;
     let handle = state.inner.kernel.get(&SELECTION_OVERLAY).handle;
 

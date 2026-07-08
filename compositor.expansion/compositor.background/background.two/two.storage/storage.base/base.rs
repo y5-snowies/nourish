@@ -14,7 +14,15 @@ struct BackgroundPersisted {
     shader: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     params: Vec<(String, f32)>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    invert_pan_x: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    invert_pan_y: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    srgb: bool,
 }
+
+fn is_false(b: &bool) -> bool { !*b }
 
 /// Transforms the per-world `Two` slot to/from its persisted form (a single
 /// value, so `Persist`/`y5_persist!` — not the collection `Document`).
@@ -25,12 +33,21 @@ impl compositor_support_system_persist_trait_base::base::Persist for BackgroundP
     const KEY: &'static str = "world.background";
     const CURRENT_VERSION: u32 = 1;
     fn to_persisted(live: &Two) -> BackgroundPersisted {
-        BackgroundPersisted { shader: live.background_shader.clone(), params: live.params.clone() }
+        BackgroundPersisted {
+            shader: live.background_shader.clone(),
+            params: live.params.clone(),
+            invert_pan_x: live.invert_pan_x,
+            invert_pan_y: live.invert_pan_y,
+            srgb: live.srgb,
+        }
     }
     fn from_persisted(p: BackgroundPersisted) -> Two {
         let mut two = Two::new();
         two.background_shader = p.shader;
         two.params = p.params;
+        two.invert_pan_x = p.invert_pan_x;
+        two.invert_pan_y = p.invert_pan_y;
+        two.srgb = p.srgb;
         two
     }
 }

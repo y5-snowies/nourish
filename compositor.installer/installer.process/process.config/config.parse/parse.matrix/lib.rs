@@ -4,12 +4,13 @@ use compositor_installer_process_config_parse_model::{BaseConfig, Env};
 use compositor_installer_process_config_parse_preset::{Preset, SYSTEM_BINARY};
 
 /// Build the one and only session preset — "Y5 Compositor" — from the prompted base
-/// config. Deliberately a single Vulkan system session: no dev / gles / experimental /
-/// sync variants and no Custom preset. `capture_encoder` is chosen for the detected GPU
-/// by the caller (NVENC on NVIDIA, VAAPI otherwise).
+/// config. A single system session with no experimental / sync variants and no Custom
+/// preset; the renderer backend (vulkan or gles) is the prompted `base.renderer`.
+/// `capture_encoder` is chosen for the detected GPU by the caller (NVENC on NVIDIA,
+/// VAAPI otherwise).
 pub fn default_presets(base: &BaseConfig, capture_encoder: &str) -> Vec<Preset> {
     let env = Env {
-        renderer: "vulkan".to_string(),
+        renderer: base.renderer.clone(),
         renderer_fallback: base.renderer_fallback,
         renderer_sync: String::new(),
         hdr: false,

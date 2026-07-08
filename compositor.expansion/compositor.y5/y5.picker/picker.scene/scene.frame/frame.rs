@@ -95,9 +95,10 @@ where
     if let Some(bg) = prepared.background_two {
         plan.push(layer::BACKGROUND, DrawNode::Background2D(bg));
     }
-    let elements = plan.lower(renderer);
+    let (elements, meta) = plan.lower(renderer);
     Scene {
         Element: elements,
+        meta,
         visible_window: vec![],
     }
 }

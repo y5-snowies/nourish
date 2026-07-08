@@ -143,6 +143,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_developer_environment_graphics_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "compositor_developer_environment_keybinding_base"
 version = "0.0.1"
 dependencies = [
@@ -156,6 +163,7 @@ name = "compositor_developer_environment_preference_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "serde",
  "serde_json",
 ]

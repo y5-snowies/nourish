@@ -32,13 +32,14 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use iced_core::Event as IcedEvent;
 
 use iced_core::mouse;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::input::keyboard::ModifiersState;
-use smithay::utils::{Physical, Point, Size};
+use smithay::utils::{Physical, Point, Rectangle, Size};
 use compositor_support_iced_core_engine_base::{IcedUi, SharedEngine};
 use compositor_monitor_runtime_surface_base::{IcedSurface, WgpuVulkanContext};
 
@@ -48,6 +49,90 @@ use crate::handle::{HandleId, IcedHandle};
 use crate::instance::{IcedInstance, IcedItem, build_instance};
 use crate::space::{IcedSpace, Transform};
 use iced_core::keyboard::Modifiers as IcedMods;
+
+/// How long a surface must stay continuously hidden (off-screen or occluded)
+/// before its GPU backing is released. Re-allocation is immediate on reveal, so
+/// this is deliberately long: it only reclaims memory for surfaces that stay
+/// hidden, and never thrashes something skimming the edge or briefly covered.
+/// The runtime keeps ticking the whole time.
+const BACKING_GRACE: Duration = Duration::from_secs(2);
+
+/// World-surface release debounce (issue: avoid blink/thrash by batching).
+/// A surface must be continuously hidden this long before it becomes a release
+/// candidate (the per-surface lazy delay).
+const HIDDEN_ELIGIBLE: Duration = Duration::from_millis(1200);
+/// Trailing debounce: once candidates exist, wait this long with NO new
+/// candidate before flushing the whole batch of releases together.
+const RELEASE_TRAILING: Duration = Duration::from_millis(500);
+/// Hard cap: flush all pending releases at most this long after the FIRST
+/// candidate appeared, even if the trailing debounce keeps getting reset.
+const RELEASE_MAX: Duration = Duration::from_millis(2000);
+
+/// A surface is considered visible (backing kept) while at least this percent of
+/// its area is actually on-screen in some pane after occlusion. Below it — fully
+/// off-screen or fully obstructed — the backing is released after the grace.
+const MIN_VISIBLE_PERCENT: i64 = 1;
+
+/// One leaf viewport (split / floating pane) being drawn on the current output:
+/// the camera it is drawn through and the physical sub-rect it occupies. World
+/// iced surfaces are composited once per pane; [`IcedRegistry::manage_backings`]
+/// judges visibility from the union of these.
+#[derive(Clone, Copy, Debug)]
+pub struct PaneView {
+    pub transform: Transform,
+    pub rect: Rectangle<i32, Physical>,
+}
+
+/// Area of `base` left uncovered after subtracting `occluders` (axis-aligned
+/// rectangle subtraction). Exact; used for the ≥1%-visible test.
+fn visible_area_after(
+    base: Rectangle<i32, Physical>,
+    occluders: &[Rectangle<i32, Physical>],
+) -> i64 {
+    let mut frags = vec![base];
+    for occ in occluders {
+        let mut next = Vec::new();
+        for f in frags.drain(..) {
+            subtract_rect(f, *occ, &mut next);
+        }
+        frags = next;
+        if frags.is_empty() {
+            return 0;
+        }
+    }
+    frags
+        .iter()
+        .map(|r| r.size.w as i64 * r.size.h as i64)
+        .sum()
+}
+
+/// Push `f` minus `occ` (0–4 axis-aligned fragments) into `out`.
+fn subtract_rect(
+    f: Rectangle<i32, Physical>,
+    occ: Rectangle<i32, Physical>,
+    out: &mut Vec<Rectangle<i32, Physical>>,
+) {
+    let Some(inter) = f.intersection(occ) else {
+        out.push(f);
+        return;
+    };
+    let (fx0, fy0) = (f.loc.x, f.loc.y);
+    let (fx1, fy1) = (f.loc.x + f.size.w, f.loc.y + f.size.h);
+    let (ix0, iy0) = (inter.loc.x, inter.loc.y);
+    let (ix1, iy1) = (inter.loc.x + inter.size.w, inter.loc.y + inter.size.h);
+    if iy0 > fy0 {
+        out.push(Rectangle::from_loc_and_size((fx0, fy0), (fx1 - fx0, iy0 - fy0)));
+    }
+    if iy1 < fy1 {
+        out.push(Rectangle::from_loc_and_size((fx0, iy1), (fx1 - fx0, fy1 - iy1)));
+    }
+    if ix0 > fx0 {
+        out.push(Rectangle::from_loc_and_size((fx0, iy0), (ix0 - fx0, iy1 - iy0)));
+    }
+    if ix1 < fx1 {
+        out.push(Rectangle::from_loc_and_size((ix1, iy0), (fx1 - ix1, iy1 - iy0)));
+    }
+}
 
 pub struct IcedRegistry {
     engine: SharedEngine,
@@ -72,6 +157,27 @@ pub struct IcedRegistry {
     last_output_size: Size<f64, Physical>,
 
     instance_scale: f32,
+
+    /// Whether hidden surfaces' GPU backings are released to reclaim memory
+    /// (the `release_hidden_surfaces` preference; on by default). When off,
+    /// nothing is ever released — surfaces are only ensured/rendered — so the
+    /// registry behaves as it did before the de-alloc pass.
+    dealloc_enabled: bool,
+
+    /// Compositing z-order for World surfaces, from the external DrawOrder
+    /// authority — NOT the `items` Vec order. `draw_pos[id]` is the position in
+    /// topmost-first order, so a SMALLER value draws on top. Occlusion uses this:
+    /// a World surface raised above another has a lower value here even when it
+    /// sits at a lower `items` index.
+    draw_pos: HashMap<HandleId, usize>,
+
+    /// Batched-release debounce. `batch_first` = when the first surface became
+    /// release-eligible; `batch_touch` = last time a NEW surface became eligible.
+    /// Pending releases flush together once the trailing debounce settles
+    /// (`RELEASE_TRAILING` since `batch_touch`) or the max window elapses
+    /// (`RELEASE_MAX` since `batch_first`) — see `manage_backings`.
+    batch_first: Option<Instant>,
+    batch_touch: Option<Instant>,
 }
 
 impl std::fmt::Debug for IcedRegistry {
@@ -98,6 +204,36 @@ impl IcedRegistry {
             last_transform: Transform::identity(),
             last_output_size: Size::from((0.0, 0.0)),
             instance_scale: 1.0,
+            dealloc_enabled: true,
+            draw_pos: HashMap::new(),
+            batch_first: None,
+            batch_touch: None,
+        }
+    }
+
+    /// Enable/disable releasing hidden surfaces' backings (the
+    /// `release_hidden_surfaces` preference). When off, surfaces are only ever
+    /// ensured/rendered, never released.
+    pub fn set_dealloc_enabled(&mut self, enabled: bool) {
+        self.dealloc_enabled = enabled;
+    }
+
+    /// Provide the compositor's World draw order (topmost-first) so occlusion is
+    /// evaluated against the real z-order rather than the `items` Vec. Ids not
+    /// present are treated as not participating in occlusion. Call once per frame.
+    pub fn set_draw_order(&mut self, topmost_first: &[HandleId]) {
+        self.draw_pos.clear();
+        for (pos, id) in topmost_first.iter().enumerate() {
+            self.draw_pos.insert(*id, pos);
+        }
+    }
+
+    /// True if `occluder` is drawn above `base` per the DrawOrder z-map (smaller
+    /// position = on top). False if either isn't in the current draw order.
+    fn draws_above(&self, occluder: HandleId, base: HandleId) -> bool {
+        match (self.draw_pos.get(&occluder), self.draw_pos.get(&base)) {
+            (Some(o), Some(b)) => o < b,
+            _ => false,
         }
     }
 
@@ -646,11 +782,241 @@ impl IcedRegistry {
         }
     }
 
-    pub fn process_frame(&mut self) {
-        for item in &mut self.items {
-            if item.tick() {
-                item.render();
+    /// Tick every instance (drives animations/messages/async — always), then
+    /// rasterize ONLY the surfaces actually visible on the output currently
+    /// being drawn. Off-screen surfaces are ticked but not rendered; the GPU
+    /// rasterization into their (possibly large) textures is skipped.
+    ///
+    /// This runs once per output (see the native per-output render loop), each
+    /// pass carrying that output's camera in `last_transform`/`last_output_size`
+    /// (set by `cache_camera_and_bump` just before). A surface therefore renders
+    /// on the first pass whose monitor shows it and is skipped by the others
+    /// (its `tick` returns false once rendered) — so it's rasterized iff some
+    /// monitor shows it, with only a cheap per-output rect test as overhead.
+    /// Tick every runtime (drive animations/messages/async — always), and manage
+    /// the backing lifecycle for **Screen-space** surfaces using the single
+    /// output camera (`last_transform`), which is correct for them.
+    ///
+    /// **World-space** surfaces are composited per-pane through per-pane cameras
+    /// (the DrawOrder content band), so their visibility can't be judged from one
+    /// camera here — [`manage_backings`](Self::manage_backings) handles them from
+    /// the union of panes. Here they are only ticked (and acknowledged if dirty so
+    /// they don't pin the redraw loop); [`manage_backings`] does their render.
+    pub fn process_frame(&mut self, render_node: &str, gles: &mut GlesRenderer) {
+        let wgpu = self.wgpu_ctx.clone();
+
+        // Feature OFF: no visibility compute at all — tick and render dirty items
+        // exactly as before the de-alloc pass (recovering any surface released
+        // while it was on, so a mid-session toggle can't leave a blank surface).
+        if !self.dealloc_enabled {
+            for item in &mut self.items {
+                let due = item.tick();
+                if !item.is_resident() {
+                    let _ = item.ensure_backing(render_node, &wgpu, gles);
+                }
+                if due || item.is_stale() {
+                    item.render();
+                }
             }
+            return;
+        }
+
+        let transform = self.last_transform;
+        let output_size = self.last_output_size;
+        // Before the first real camera is cached the viewport is 0×0; treat
+        // everything as on-screen then to preserve the pre-optimization path.
+        let has_viewport = output_size.w > 0.0 && output_size.h > 0.0;
+        let now = Instant::now();
+
+        for item in &mut self.items {
+            let due = item.tick();
+
+            if item.space() != IcedSpace::Screen {
+                // World: backing + rasterization owned by `manage_backings`.
+                // Acknowledge a dirty tick so it doesn't pin the loop; the stale
+                // flag makes `manage_backings` re-render it while it's visible.
+                if due {
+                    item.skip_render();
+                }
+                continue;
+            }
+
+            let on_screen = !has_viewport || item.intersects_viewport(&transform, output_size);
+            if on_screen {
+                item.mark_on_screen(now);
+                if !item.is_resident() {
+                    if let Err(e) = item.ensure_backing(render_node, &wgpu, gles) {
+                        warn!("iced backing re-alloc failed handle={:?}: {e:?}", item.handle_id());
+                        continue;
+                    }
+                }
+                if due || item.is_stale() {
+                    item.render();
+                }
+            } else {
+                if due {
+                    item.skip_render();
+                }
+                if item.is_resident()
+                    && now.duration_since(item.last_on_screen()) > BACKING_GRACE
+                {
+                    item.release_backing();
+                }
+            }
+        }
+    }
+
+    /// Whether ≥[`MIN_VISIBLE_PERCENT`] of World item `idx`'s on-screen footprint
+    /// is actually visible in some pane, after clipping to the pane and
+    /// subtracting the opaque occluders drawn ABOVE it (per the DrawOrder z-map,
+    /// not the `items` Vec order). Comparing against the on-screen footprint —
+    /// not the logical size — keeps a zoomed-out but fully-visible surface counted.
+    /// `pane_occ[p]` is the precomputed `(draw_pos, pane-clipped rect)` of every
+    /// opaque occluder in pane `p` (see `manage_backings`). An occluder counts
+    /// only if it draws ABOVE this item (`draw_pos` strictly smaller).
+    fn world_visible(
+        &self,
+        idx: usize,
+        output_size: Size<f64, Physical>,
+        panes: &[PaneView],
+        pane_occ: &[Vec<(usize, Rectangle<i32, Physical>)>],
+    ) -> bool {
+        if !self.items[idx].is_visible() {
+            return false;
+        }
+        let base_pos = self.draw_pos.get(&self.items[idx].handle_id()).copied();
+        for (p, pane) in panes.iter().enumerate() {
+            let rect = self.items[idx].screen_rect(&pane.transform, output_size);
+            let footprint = (rect.size.w as i64).max(0) * (rect.size.h as i64).max(0);
+            if footprint == 0 {
+                continue;
+            }
+            let Some(clipped) = rect.intersection(pane.rect) else {
+                continue;
+            };
+            let occluders: Vec<Rectangle<i32, Physical>> = match base_pos {
+                Some(bp) => pane_occ[p]
+                    .iter()
+                    .filter(|(dp, _)| *dp < bp)
+                    .map(|(_, r)| *r)
+                    .collect(),
+                None => Vec::new(),
+            };
+            if visible_area_after(clipped, &occluders) * 100 >= footprint * MIN_VISIBLE_PERCENT {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Manage World-space surfaces' backing lifecycle from the union of the
+    /// current output's panes. A surface visible in some pane (≥1% after
+    /// occlusion) is ensured resident and rendered if stale, immediately on
+    /// reveal. A surface continuously hidden past [`HIDDEN_ELIGIBLE`] becomes a
+    /// release CANDIDATE; candidates are not freed one-by-one but DEBOUNCED and
+    /// flushed in a batch — once the batch settles ([`RELEASE_TRAILING`] with no
+    /// new candidate) or the [`RELEASE_MAX`] window elapses — which avoids the
+    /// blink/thrash of eager per-frame releases.
+    ///
+    /// Call once per output in the GLES prepare phase, after `process_frame`.
+    pub fn manage_backings(
+        &mut self,
+        render_node: &str,
+        gles: &mut GlesRenderer,
+        output_size: Size<f64, Physical>,
+        panes: &[PaneView],
+    ) {
+        if panes.is_empty() || !self.dealloc_enabled {
+            return;
+        }
+        let now = Instant::now();
+        let wgpu = self.wgpu_ctx.clone();
+
+        // Precompute per pane the opaque occluders once — their `(draw_pos,
+        // pane-clipped rect)` — so each surface's visibility test is O(occluders)
+        // instead of re-scanning + re-projecting every item (the old O(n²)).
+        let pane_occ: Vec<Vec<(usize, Rectangle<i32, Physical>)>> = panes
+            .iter()
+            .map(|pane| {
+                self.items
+                    .iter()
+                    .filter(|it| it.is_opaque_occluder() && it.is_visible())
+                    .filter_map(|it| {
+                        let dp = *self.draw_pos.get(&it.handle_id())?;
+                        let r = it
+                            .screen_rect(&pane.transform, output_size)
+                            .intersection(pane.rect)?;
+                        Some((dp, r))
+                    })
+                    .collect()
+            })
+            .collect();
+
+        let mut any_candidate = false;
+        let mut new_candidate = false;
+
+        for idx in 0..self.items.len() {
+            // Screen-space surfaces are handled in `process_frame` (single camera).
+            if self.items[idx].space() != IcedSpace::World {
+                continue;
+            }
+
+            if self.world_visible(idx, output_size, panes, &pane_occ) {
+                // Reveal is immediate: ensure + render this frame, cancel pending.
+                self.items[idx].mark_on_screen(now);
+                self.items[idx].set_release_pending(false);
+                if !self.items[idx].is_resident() {
+                    if let Err(e) = self.items[idx].ensure_backing(render_node, &wgpu, gles) {
+                        warn!(
+                            "iced backing re-alloc failed handle={:?}: {e:?}",
+                            self.items[idx].handle_id()
+                        );
+                        continue;
+                    }
+                }
+                if self.items[idx].is_stale() {
+                    self.items[idx].render();
+                }
+            } else if self.items[idx].is_resident()
+                && now.duration_since(self.items[idx].last_on_screen()) > HIDDEN_ELIGIBLE
+            {
+                any_candidate = true;
+                if !self.items[idx].release_pending() {
+                    self.items[idx].set_release_pending(true);
+                    new_candidate = true;
+                }
+            }
+        }
+
+        // Debounce bookkeeping: a new candidate resets the trailing timer and
+        // opens the max window; no candidates at all clears the batch.
+        if new_candidate {
+            self.batch_touch = Some(now);
+            if self.batch_first.is_none() {
+                self.batch_first = Some(now);
+            }
+        }
+        if !any_candidate {
+            self.batch_first = None;
+            self.batch_touch = None;
+        }
+
+        let settled = self
+            .batch_touch
+            .is_some_and(|t| now.duration_since(t) >= RELEASE_TRAILING);
+        let maxed = self
+            .batch_first
+            .is_some_and(|t| now.duration_since(t) >= RELEASE_MAX);
+
+        if any_candidate && (settled || maxed) {
+            for idx in 0..self.items.len() {
+                if self.items[idx].release_pending() {
+                    // Still a candidate (visible ones cleared their flag above).
+                    self.items[idx].release_backing();
+                }
+            }
+            self.batch_first = None;
+            self.batch_touch = None;
         }
     }
 
@@ -668,7 +1034,7 @@ impl IcedRegistry {
             .rev()
             .filter_map(|i| {
                 let in_layer = (i.layer & layer) != 0;
-                if !in_layer || !i.is_visible() {
+                if !in_layer || !i.is_visible() || !i.is_resident() {
                     return None;
                 }
 
@@ -690,7 +1056,7 @@ impl IcedRegistry {
     ) -> Result<Vec<IcedRenderElement>, ResizeError> {
         self.apply_pending_resizes(render_node, gles)?;
         self.cache_camera_and_bump(transform, output_size);
-        self.process_frame();
+        self.process_frame(render_node, gles);
         Ok(self.elements(&transform, output_size, layer))
     }
 
@@ -706,22 +1072,44 @@ impl IcedRegistry {
     ) -> Result<(), ResizeError> {
         self.apply_pending_resizes(render_node, gles)?;
         self.cache_camera_and_bump(transform, output_size);
-        self.process_frame();
+        self.process_frame(render_node, gles);
         Ok(())
     }
 
-    /// Render a SINGLE surface by id (after `prepare_frame`). Lets the driver
+    /// Render a SINGLE surface by id in a specific pane. Lets the driver
     /// interleave iced surfaces with other drawables by the world DrawOrder
     /// instead of the monolithic, layer-batched `render_all`.
+    ///
+    /// Occlusion is evaluated **per pane** here (an opaque occluder above that
+    /// fully covers this surface in this pane) — distinct from the union
+    /// visibility `manage_backings` uses for the backing lifecycle. Returns
+    /// `None` for a hidden, released, or fully-covered surface.
     pub fn element_of(
         &self,
         id: HandleId,
         transform: &Transform,
         output_size: Size<f64, Physical>,
     ) -> Option<IcedRenderElement> {
-        self.get(id)
-            .filter(|item| item.is_visible())
-            .map(|item| item.element_in(transform, output_size))
+        let &idx = self.index.get(&id)?;
+        let item = self.items.get(idx)?;
+        if !item.is_visible() || !item.is_resident() {
+            return None;
+        }
+        // Per-pane occlusion (gated by the de-alloc feature — its whole purpose is
+        // to pair with backing release): skip drawing a surface fully covered by
+        // an opaque occluder drawn ABOVE it (per the DrawOrder z-map) in this pane.
+        let rect = item.screen_rect(transform, output_size);
+        let covered = self.dealloc_enabled
+            && self.items.iter().any(|it| {
+                it.is_opaque_occluder()
+                    && it.is_visible()
+                    && self.draws_above(it.handle_id(), id)
+                    && it.screen_rect(transform, output_size).contains_rect(rect)
+            });
+        if covered {
+            return None;
+        }
+        Some(item.element_in(transform, output_size))
     }
 
     // ── Visibility & passthrough ──────────────────────────────────
@@ -761,6 +1149,20 @@ impl IcedRegistry {
     /// The output a surface is bound to, if any.
     pub fn output_affinity(&self, id: HandleId) -> Option<String> {
         self.get(id).and_then(|i| i.output().map(str::to_owned))
+    }
+
+    /// Mark a surface as an opaque occluder: it fully covers its rect, so any
+    /// surface entirely behind it (in draw order) is skipped — not rasterized
+    /// and not composited — while covered. Use for backgrounds that paint their
+    /// whole extent opaquely (e.g. launcher placeholders). Off by default.
+    pub fn set_opaque_occluder_by_id(&mut self, id: HandleId, opaque: bool) -> bool {
+        match self.get_mut(id) {
+            Some(item) => {
+                item.set_opaque_occluder(opaque);
+                true
+            }
+            None => false,
+        }
     }
 
     pub fn is_passthrough(&self, id: HandleId) -> bool {

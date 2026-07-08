@@ -13,10 +13,27 @@ pub struct Two {
     /// The selected shader's compile error for the active renderer (runtime only,
     /// not persisted); `None` when it compiled or the built-in is selected.
     pub shader_error: Option<String>,
+    /// Per-world background pan inversion: flip the camera pan fed to the shader on
+    /// each axis. Persisted per world; default off. Lets a world reverse its
+    /// horizontal and/or vertical parallax without touching the shader source.
+    pub invert_pan_x: bool,
+    pub invert_pan_y: bool,
+    /// Per-world sRGB output: when set, the background shader gamma-encodes its final
+    /// colour so the non-sRGB scanout buffer shows the brighter, preview-matching
+    /// look (default off = raw values). Persisted per world.
+    pub srgb: bool,
 }
 
 impl Two {
     pub fn new() -> Self {
-        Self { instance: None, background_shader: None, params: Vec::new(), shader_error: None }
+        Self {
+            instance: None,
+            background_shader: None,
+            params: Vec::new(),
+            shader_error: None,
+            invert_pan_x: false,
+            invert_pan_y: false,
+            srgb: false,
+        }
     }
 }

@@ -10,5 +10,6 @@ tracing-subscriber = { workspace = true }
 bitflags = { workspace = true }
 smithay = { workspace = true }
 compositor_y5_camera_transform_state.workspace = true
+compositor_support_smithay_state_compositor_place.workspace = true
 [lib]
 path = "lib.rs"

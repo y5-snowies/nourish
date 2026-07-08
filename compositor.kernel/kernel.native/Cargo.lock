@@ -1640,6 +1640,7 @@ dependencies = [
  "bevy",
  "compositor_background_three_lock_solve",
  "compositor_background_three_lock_state",
+ "compositor_support_bevy_core_bridge_base",
 ]
 
 [[package]]
@@ -1876,6 +1877,7 @@ name = "compositor_background_two_shader_load"
 version = "0.0.1"
 dependencies = [
  "compositor_background_two_draw_program",
+ "compositor_background_two_shader_builtin",
  "compositor_background_two_shader_locate",
  "compositor_background_two_shader_property",
  "compositor_background_two_shader_spirv",
@@ -2043,12 +2045,14 @@ dependencies = [
  "compositor_configurator_settings_surface_cursor",
  "compositor_configurator_settings_surface_display",
  "compositor_configurator_settings_surface_environment",
+ "compositor_configurator_settings_surface_graphics",
  "compositor_configurator_settings_surface_keys",
  "compositor_configurator_settings_surface_message",
  "compositor_configurator_settings_surface_misc",
  "compositor_configurator_settings_surface_style",
  "compositor_configurator_settings_surface_world",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "compositor_developer_environment_keybinding_base",
  "compositor_developer_environment_preference_base",
  "compositor_orchestration_driver_output_base",
@@ -2109,6 +2113,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_configurator_settings_surface_graphics"
+version = "0.0.1"
+dependencies = [
+ "compositor_configurator_settings_surface_control",
+ "compositor_configurator_settings_surface_message",
+ "compositor_configurator_settings_surface_style",
+ "compositor_developer_environment_graphics_base",
+ "compositor_developer_stats_registry_base",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
+]
+
+[[package]]
 name = "compositor_configurator_settings_surface_keyboard"
 version = "0.0.1"
 dependencies = [
@@ -2141,6 +2159,7 @@ dependencies = [
  "compositor_configurator_bluetooth_backend_base",
  "compositor_configurator_network_backend_base",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "compositor_developer_environment_preference_base",
  "compositor_orchestration_driver_output_base",
  "compositor_y5_audio_controller_interface",
@@ -2190,6 +2209,7 @@ dependencies = [
  "compositor_configurator_settings_surface_chrome",
  "compositor_configurator_settings_surface_message",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "compositor_developer_environment_keybinding_base",
  "compositor_developer_environment_preference_base",
  "compositor_orchestration_driver_output_base",
@@ -2253,6 +2273,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_developer_environment_graphics_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "compositor_developer_environment_keybinding_base"
 version = "0.0.1"
 dependencies = [
@@ -2266,6 +2293,7 @@ name = "compositor_developer_environment_preference_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "serde",
  "serde_json",
 ]
@@ -3798,6 +3826,7 @@ dependencies = [
  "compositor_kernel_scanout_plane_direct_base",
  "compositor_kernel_vulkan_renderer_core_base",
  "compositor_orchestration_core_state_base",
+ "compositor_orchestration_draw_dispatch_frame",
  "compositor_orchestration_draw_scene_element",
  "compositor_orchestration_draw_scene_frame",
  "compositor_orchestration_driver_capture_base",
@@ -3862,6 +3891,7 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
+ "compositor_developer_stats_registry_base",
  "compositor_kernel_drm_loop_notifier_base",
  "compositor_kernel_graphic_draw_present_callbacks",
  "compositor_kernel_native_context_render_base",
@@ -3925,6 +3955,7 @@ dependencies = [
  "compositor_kernel_seat_lifecycle_pause_base",
  "compositor_kernel_seat_lifecycle_resume_base",
  "compositor_orchestration_core_state_base",
+ "compositor_orchestration_driver_remote_base",
  "compositor_orchestration_driver_resume_base",
  "compositor_y5_graphic_capture_interface",
  "smithay",
@@ -4227,6 +4258,7 @@ dependencies = [
  "compositor_kernel_vulkan_device_factory_base",
  "compositor_kernel_vulkan_memory_target_base",
  "compositor_kernel_vulkan_renderer_error_base",
+ "libc",
  "smithay",
 ]
 
@@ -4418,6 +4450,7 @@ dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
+ "naga",
  "smithay",
  "thiserror 2.0.18",
 ]
@@ -4448,6 +4481,7 @@ dependencies = [
  "ash",
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "compositor_developer_stats_registry_base",
  "compositor_kernel_graphic_color_surface_base",
  "compositor_kernel_vulkan_capture_blit_base",
@@ -4850,6 +4884,7 @@ dependencies = [
  "compositor_y5_picker_interface_capture",
  "compositor_y5_placeholder_interface_base",
  "compositor_y5_select_overlay_interface",
+ "compositor_y5_surface_draw_fps",
  "compositor_y5_surface_draw_hook",
  "compositor_y5_surface_draw_scene",
  "compositor_y5_surface_interface_base",
@@ -4939,6 +4974,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_remote_message_state_base",
  "compositor_support_system_storage_token_base",
+ "tokio",
 ]
 
 [[package]]
@@ -7538,6 +7574,7 @@ dependencies = [
 name = "compositor_y5_camera_system_base"
 version = "0.0.1"
 dependencies = [
+ "compositor_developer_stats_registry_base",
  "compositor_orchestration_draw_layer_base",
  "compositor_support_system_buffer_token_base",
  "compositor_support_system_channel_token_base",
@@ -7575,6 +7612,7 @@ name = "compositor_y5_camera_transform_translate"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
+ "compositor_support_smithay_state_compositor_place",
  "compositor_y5_camera_transform_state",
  "smithay",
  "tracing",
@@ -9175,10 +9213,12 @@ dependencies = [
  "compositor_orchestration_draw_layer_base",
  "compositor_orchestration_driver_introspection_base",
  "compositor_support_smithay_state_compositor_base",
+ "compositor_support_smithay_state_compositor_place",
  "compositor_support_smithay_state_fractional_base",
  "compositor_support_smithay_state_fractional_dispatch",
  "compositor_support_system_persist_mark_base",
  "compositor_support_world_order_track_base",
+ "compositor_y5_camera_transform_translate",
  "compositor_y5_lock_system_base",
  "compositor_y5_placeholder_protocol_base",
  "compositor_y5_placeholder_record_base",
@@ -9402,6 +9442,22 @@ dependencies = [
  "compositor_y5_graphic_capture_session",
  "iced_core",
  "iced_widget",
+]
+
+[[package]]
+name = "compositor_y5_surface_draw_fps"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_debug_instance_record",
+ "compositor_developer_stats_registry_base",
+ "compositor_monitor_compositor_iced_base",
+ "compositor_orchestration_core_state_base",
+ "compositor_orchestration_draw_layer_base",
+ "compositor_support_iced_core_engine_base",
+ "compositor_y5_surface_draw_handle",
+ "iced_core",
+ "iced_widget",
+ "smithay",
 ]
 
 [[package]]
@@ -9742,6 +9798,7 @@ dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_orchestration_core_state_base",
+ "compositor_support_smithay_state_compositor_place",
  "compositor_support_world_order_track_base",
  "compositor_y5_camera_state_base",
  "compositor_y5_camera_system_base",

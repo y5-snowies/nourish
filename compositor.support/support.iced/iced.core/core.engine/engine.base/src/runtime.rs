@@ -437,6 +437,22 @@ impl<U: IcedUi> IcedRuntime<U> {
         self.dirty = true;
     }
 
+    /// Acknowledge a frame WITHOUT rasterizing: clear the dirty flag so an
+    /// off-screen surface stops reporting `is_dirty()` (and thus stops pinning
+    /// the host's redraw loop) even though we never called `render_into`.
+    ///
+    /// Unlike `render_into`, this deliberately does NOT touch
+    /// `engine.global_dirty` — a global redraw request belongs to whichever
+    /// instance raised it and must still be honored by an on-screen render.
+    /// `tick()` continues to advance animations/messages independently, and
+    /// `is_animating()` still keeps the loop alive while an animation is live,
+    /// so nothing driven by the runtime is frozen — only pixel output is
+    /// skipped. The caller must re-render when the surface becomes visible
+    /// (the registry tracks this with a per-item `stale` flag).
+    pub fn acknowledge_frame(&mut self) {
+        self.dirty = false;
+    }
+
     /// Drop the cached layout/text-shaping work. Forces a fresh build on
     /// the next tick. Use sparingly — Iced's cache is the whole point of
     /// the deferred runtime.

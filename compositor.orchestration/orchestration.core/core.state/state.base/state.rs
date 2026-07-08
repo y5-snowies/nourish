@@ -614,6 +614,24 @@ impl Orchestrator {
             .raise(compositor_support_world_order_track_base::base::ComponentId(uuid));
     }
 
+    /// Hand a drawable's exact draw-order slot (tier + z-position) to a
+    /// successor, keeping the predecessor's position instead of the successor
+    /// popping to the top (a restored window inheriting the placeholder tile it
+    /// maps over). This also GCs the predecessor's now-dead entry. Returns
+    /// `false` when `old` wasn't registered, so callers fall back to
+    /// `register_drawable`.
+    pub fn reassign_drawable(&mut self, old: uuid::Uuid, new: uuid::Uuid) -> bool {
+        let target = self.worlds.spawn_target();
+        self.worlds
+            .get_mut(target)
+            .storage_mut()
+            .get_mut(&compositor_support_world_order_track_base::base::DRAW_ORDER_MUT)
+            .reassign(
+                compositor_support_world_order_track_base::base::ComponentId(old),
+                compositor_support_world_order_track_base::base::ComponentId(new),
+            )
+    }
+
     /// Unregister a drawable from the draw-order authority (event-driven GC):
     /// called from EVERY destruction path (window unmap, iced surface destroy)
     /// so the order never retains a dead component. Foreign/absent ids are a

@@ -108,6 +108,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // world; the scene uv below is divided by zoom as usual.
     let screen_uv = uv;
     uv = uv / zoom;
+    // Pan convention: horizontal tracks the camera as -pan_in. Vertical is inverted
+    // by default here (the built-in parallax reads better this way); the per-world
+    // "Invert pan Y" toggle flips it back from this baseline.
     let pan = vec2<f32>(pan_in.x, -pan_in.y);
 
     var col = mix(vec3<f32>(0.01, 0.015, 0.04), vec3<f32>(0.04, 0.02, 0.09), frag.y / res.y);
@@ -197,5 +200,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // softness so the framing stays consistent as the world zooms.
     let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
     col = col * mix(1.0, vig, clamp(vignette, 0.0, 1.0));
-    return vec4<f32>(col, 1.0) * (alpha * 0.75);
+    // Per-world sRGB flag (push lock_alpha.z): gamma-encode so a non-sRGB scanout
+    // buffer shows the brighter, preview-matching look. Off = raw values.
+    let outc = select(col, pow(max(col, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)), pc.lock_alpha.z > 0.5);
+    return vec4<f32>(outc, 1.0) * (alpha * 0.75);
 }

@@ -98,6 +98,13 @@ pub(crate) enum DrawOp {
         quad: PushQuad,
         /// Per-surface HDR composite flag `[transfer, is_hdr, 0, 0]` (M5).
         surf: [f32; 4],
+        /// Source texture dimensions — the size of the mipped copy the AA
+        /// trilinear/aniso modes render this surface into.
+        tex_w: u32,
+        tex_h: u32,
+        /// Per-element metadata (space, …), tagged by the scene wrapper. AA is
+        /// applied only to `World` elements; screen/background are not.
+        meta: compositor_orchestration_draw_dispatch_frame::ElementMeta,
     },
     /// A fullscreen native shader pass (e.g. the parallax background): the SDR
     /// variant plus an optional HDR-output variant; `submit_frame` builds/caches
@@ -115,6 +122,11 @@ pub struct VulkanFrame<'frame, 'buffer> {
     pub(crate) transform: Transform,
     pub(crate) clear: [f32; 4],
     pub(crate) ops: Vec<DrawOp>,
+    /// Metadata for the element currently being drawn (its space, etc.). Set per
+    /// element by the scene wrapper via `SceneDispatch::set_element_meta`; read in
+    /// `render_texture_from_to`. Defaults to `Screen` so anything the wrapper
+    /// doesn't tag (never, in practice) stays on the plain path.
+    pub(crate) current_meta: compositor_orchestration_draw_dispatch_frame::ElementMeta,
 }
 
 impl VulkanFrame<'_, '_> {
@@ -179,10 +191,16 @@ impl Frame for VulkanFrame<'_, '_> {
             src_uv,
             alpha,
         );
+        // AA targets ONLY world content (windows + iced-world), tagged per
+        // element by the scene wrapper (`set_element_meta`). Screen-space iced
+        // (settings/picker) and the bevy background are never eligible.
         self.ops.push(DrawOp::Textured {
             view: texture.view(),
             quad,
             surf: texture.surf(),
+            tex_w: texture.width().max(1),
+            tex_h: texture.height().max(1),
+            meta: self.current_meta,
         });
         Ok(())
     }

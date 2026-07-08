@@ -75,9 +75,19 @@ pub fn create(phd: &PhysicalDevice) -> Result<VulkanDevice, DeviceError> {
         .dynamic_rendering(true)
         .synchronization2(true);
 
+    // Enable anisotropic sampling when the device advertises it, so the world anti-aliasing
+    // `aniso` composite sampler is legal. No cost when unused; skipped on the
+    // rare device that lacks it (the composite path falls back to isotropic).
+    let supported = unsafe { instance.get_physical_device_features(phd.handle()) };
+    let mut base_features = vk::PhysicalDeviceFeatures::default();
+    if supported.sampler_anisotropy == vk::TRUE {
+        base_features = base_features.sampler_anisotropy(true);
+    }
+
     let create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(std::slice::from_ref(&queue_info))
         .enabled_extension_names(&ext_ptrs)
+        .enabled_features(&base_features)
         .push_next(&mut features12)
         .push_next(&mut features13);
 

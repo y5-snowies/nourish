@@ -13,5 +13,10 @@ thiserror.workspace = true
 # Compositor dependencies (CI ensures availability in workspace)
 compositor_kernel_vulkan_device_factory_base.workspace = true
 
+# The Y5_AA experiment pipeline (`aa.wgsl`) is naga-compiled to SPIR-V at build
+# time (like pipeline.hdr); the plain GLSL composite `.spv` stay checked in.
+[build-dependencies]
+naga = { workspace = true }
+
 [lib]
 path = "lib.rs"

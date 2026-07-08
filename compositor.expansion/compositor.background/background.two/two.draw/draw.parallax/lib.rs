@@ -32,6 +32,15 @@ pub struct ParallaxBackground {
     /// The selected shader's compile error for the active renderer, if it failed
     /// (the built-in is rendering instead). Surfaced by the settings panel.
     pub shader_error: Option<String>,
+    /// Per-world pan inversion (mirrored from the world's `Two` slot): flip the
+    /// camera pan on that axis before feeding the shader. Applied in `draw()`, so
+    /// every render path (main, capture, lock, picker) honours it.
+    pub invert_pan_x: bool,
+    pub invert_pan_y: bool,
+    /// Per-world sRGB output flag (mirrored from the world's `Two` slot): when set,
+    /// the shader gamma-encodes its final colour so the non-sRGB scanout buffer
+    /// shows the brighter, preview-matching look. Carried to the shader in the push.
+    pub srgb: bool,
     motion: Motion,
 }
 impl ParallaxBackground {
@@ -55,7 +64,8 @@ impl ParallaxBackground {
             vulkan,
             lock_time: None,
             start_time: Instant::now(),
-            pan: (0.0, 0.0), zoom: 1.0, params, shader_error, motion: Motion::new(),
+            pan: (0.0, 0.0), zoom: 1.0, params, shader_error,
+            invert_pan_x: false, invert_pan_y: false, srgb: false, motion: Motion::new(),
         }
     }
     /// Call right before draw to splice the previous pan and bump damage.
@@ -98,9 +108,14 @@ impl<R: SceneDispatch> RenderElement<R> for ParallaxBackground {
         _opaque_regions: &[Rectangle<i32, Physical>], _cache: Option<&UserDataMap>,
     ) -> Result<(), <R as RendererSuper>::Error> {
         let time = self.start_time.elapsed().as_secs_f32();
+        // Per-world pan inversion: flip the pan feeding the shader on each axis.
+        let pan = (
+            if self.invert_pan_x { -self.pan.0 } else { self.pan.0 },
+            if self.invert_pan_y { -self.pan.1 } else { self.pan.1 },
+        );
         let (uniforms, vk) = compositor_background_two_draw_motion::uniforms(
-            time, self.motion.lock_amount, self.pan, self.motion.flow_offset,
-            self.motion.velocity, self.zoom, (dst.size.w as f32, dst.size.h as f32), &self.params);
+            time, self.motion.lock_amount, pan, self.motion.flow_offset,
+            self.motion.velocity, self.zoom, (dst.size.w as f32, dst.size.h as f32), &self.params, self.srgb);
         let src = Rectangle::from_loc_and_size((0.0, 0.0), (dst.size.w as f64, dst.size.h as f64));
         let size = Size::from((dst.size.w, dst.size.h));
         match &self.vulkan {

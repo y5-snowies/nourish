@@ -30,7 +30,9 @@ pub struct MorphParams {
     pub light_intensity: f32,
     pub ambient_intensity: f32,
 
-    pub _pad0: f32,
+    /// 0.0 → plane fully transparent (cast not yet bound / uniform not settled),
+    /// 1.0 → draw normally. Gates out the first-frame sphere/blank flash.
+    pub ready: f32,
     pub _pad1: f32,
     pub _pad2: f32,
 }

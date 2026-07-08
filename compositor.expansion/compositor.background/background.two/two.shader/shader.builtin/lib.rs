@@ -29,9 +29,17 @@ pub struct Builtin {
 }
 
 /// The extra built-in worlds, in picker order: the three orbital "galaxy" views
-/// first, then the three "inside the world" surface scenes. The stock space
-/// parallax is NOT listed here — it stays the unnamed default (`None` selection).
+/// first, then the "inside the world" surface scenes (drift / cave / cavern and
+/// the leafy bough close-up), then the standalone underwater descent, then the calm nature/landscape scenes, then the sky /
+/// weather scenes (cloud drift, aurora, rain on glass, sunset birds), then the
+/// fully abstract "wallpaper" set (metaballs, aurora blur, contours, voronoi,
+/// ribbons) — smooth low-contrast fields that never compete with the foreground.
+/// The stock space parallax is NOT listed here — it stays the unnamed default
+/// (`None`).
 pub fn builtins() -> &'static [Builtin] {
+    // The extra built-in worlds are commented out so the picker shows only the stock
+    // parallax default (the `None` selection). Uncomment any line to bring that world
+    // back into the picker — the shader files are kept in `shaders/`.
     &[
         Builtin { id: "builtin:leafy-galaxy", wgsl: include_str!("shaders/leafy.wgsl") },
         Builtin { id: "builtin:rocky-galaxy", wgsl: include_str!("shaders/rocky.wgsl") },
@@ -39,6 +47,24 @@ pub fn builtins() -> &'static [Builtin] {
         Builtin { id: "builtin:leafy-drift", wgsl: include_str!("shaders/leafy_drift.wgsl") },
         Builtin { id: "builtin:rocky-cave", wgsl: include_str!("shaders/rocky_cave.wgsl") },
         Builtin { id: "builtin:fiery-cavern", wgsl: include_str!("shaders/fiery_cavern.wgsl") },
+        Builtin { id: "builtin:leafy-bough", wgsl: include_str!("shaders/leafy_bough.wgsl") },
+        Builtin { id: "builtin:underwater", wgsl: include_str!("shaders/underwater.wgsl") },
+        Builtin { id: "builtin:misty-ridges", wgsl: include_str!("shaders/misty_ridges.wgsl") },
+        Builtin { id: "builtin:dusk-dunes", wgsl: include_str!("shaders/dusk_dunes.wgsl") },
+        Builtin { id: "builtin:ocean-horizon", wgsl: include_str!("shaders/ocean_horizon.wgsl") },
+        // Sky / weather scenes.
+        Builtin { id: "builtin:cloud-drift", wgsl: include_str!("shaders/cloud_drift.wgsl") },
+        Builtin { id: "builtin:aurora", wgsl: include_str!("shaders/aurora.wgsl") },
+        Builtin { id: "builtin:rain-glass", wgsl: include_str!("shaders/rain_glass.wgsl") },
+        Builtin { id: "builtin:sunset-birds", wgsl: include_str!("shaders/sunset_birds.wgsl") },
+        Builtin { id: "builtin:metaballs", wgsl: include_str!("shaders/metaballs.wgsl") },
+        Builtin { id: "builtin:aurora-blur", wgsl: include_str!("shaders/aurora_blur.wgsl") },
+        Builtin { id: "builtin:contours", wgsl: include_str!("shaders/contours.wgsl") },
+        Builtin { id: "builtin:voronoi", wgsl: include_str!("shaders/voronoi.wgsl") },
+        Builtin { id: "builtin:ribbons", wgsl: include_str!("shaders/ribbons.wgsl") },
+        Builtin { id: "builtin:firefly-meadow", wgsl: include_str!("shaders/firefly_meadow.wgsl") },
+        Builtin { id: "builtin:snowfall", wgsl: include_str!("shaders/snowfall.wgsl") },
+        Builtin { id: "builtin:papercut-layers", wgsl: include_str!("shaders/papercut.wgsl") },
     ]
 }
 

@@ -93,13 +93,33 @@ where
 
     /// Order topmost-first (higher Layer drawn on top → emitted first, matching
     /// smithay's first-is-front element order) and lower each node. Nodes whose
-    /// dmabuf import fails are dropped for this frame.
-    pub fn lower(mut self, renderer: &mut R) -> Vec<SceneElement<R>> {
+    /// dmabuf import fails are dropped for this frame. Returns the elements plus a
+    /// lockstep [`ElementMeta`] per element (its space — `World` for client
+    /// windows + iced-world panels — so the renderer can restrict effects like
+    /// AA to world content).
+    pub fn lower(
+        mut self,
+        renderer: &mut R,
+    ) -> (Vec<SceneElement<R>>, Vec<compositor_orchestration_draw_dispatch_frame::ElementMeta>) {
+        use compositor_orchestration_draw_dispatch_frame::ElementMeta;
         self.nodes.sort_by(|a, b| b.0.cmp(&a.0));
-        self.nodes
-            .into_iter()
-            .flat_map(|(_, node)| node.lower(renderer))
-            .collect()
+        let mut elements = Vec::new();
+        let mut meta = Vec::new();
+        for (_, node) in self.nodes {
+            // World content is exactly windows + iced-world panels; everything
+            // else (bevy, parallax, screen iced, layershell, pointer, solids) is
+            // screen-space.
+            let m = if matches!(node, DrawNode::Canvas(_) | DrawNode::IcedCropped { .. }) {
+                ElementMeta::WORLD
+            } else {
+                ElementMeta::SCREEN
+            };
+            for e in node.lower(renderer) {
+                elements.push(e);
+                meta.push(m);
+            }
+        }
+        (elements, meta)
     }
 }
 

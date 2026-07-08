@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 ash.workspace = true
+libc.workspace = true
 smithay.workspace = true
 compositor_developer_debug_instance_record.workspace = true
 compositor_kernel_vulkan_device_factory_base.workspace = true

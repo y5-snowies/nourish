@@ -1,0 +1,10 @@
+[package]
+name = "compositor_developer_environment_graphics_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+serde = { workspace = true }
+
+[lib]
+path = "lib.rs"

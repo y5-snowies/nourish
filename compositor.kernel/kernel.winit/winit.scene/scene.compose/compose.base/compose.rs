@@ -47,11 +47,19 @@ pub struct WinitRenderContext {
 }
 
 pub fn draw(state: &mut Loop, context: &mut WinitRenderContext) {
+    // Tag the output being drawn so per-output consumers (e.g. the FPS overlay's
+    // hook, run inside `compose`) resolve the same key the present bump uses.
+    let output_key = compositor_orchestration_core_state_base::state::output_key(&context.output);
+    state.inner.render_output = Some(output_key.clone());
+
     let (damage, visible) = compose(context, state);
     // Submits "damage" to backend refreshing necessary parts only. Depends on
     // individual elements implementations.
     compositor_kernel_winit_frame_submit_base::submit::submit(&mut context.winit_backend, damage);
     present(context, state, visible);
+
+    // One presented frame on this output (winit vsyncs to the host compositor).
+    compositor_developer_stats_registry_base::base::present(&output_key);
 }
 
 fn compose(
