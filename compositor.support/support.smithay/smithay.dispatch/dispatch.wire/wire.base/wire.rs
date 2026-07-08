@@ -53,7 +53,7 @@ use smithay::wayland::xdg_activation::{XdgActivationHandler, XdgActivationState,
 use compositor_support_smithay_dispatch_state_base::state::{Dispatch, DispatchWire};
 use compositor_support_smithay_dispatch_state_bounds::FactoryBounds;
 use compositor_support_smithay_dispatch_wire_color::color::{ImageDescData, ParamsState};
-use compositor_support_smithay_dispatch_wire_trait::wire_trait::WireTrait;
+use compositor_support_smithay_dispatch_wire_trait::wire_trait::{ActivationOrigin, WireTrait};
 use compositor_support_smithay_dispatch_wire_color::color as cm;
 use compositor_support_smithay_dispatch_wire_colorsurf::colorsurf as cs;
 use compositor_support_smithay_dispatch_wire_redraw::redraw as rd;
@@ -100,6 +100,15 @@ pub fn new_dispatch(
         output: compositor_support_smithay_state_output_factory::factory::new::<Dispatch>(display_handle),
         popup: compositor_support_smithay_state_popup_factory::factory::new::<Dispatch>(),
         layershell: compositor_support_smithay_state_layershell_factory::factory::new::<Dispatch>(display_handle),
+        foreign: {
+            // `protocol_foreign` preference (preferences.json) startup snapshot: when
+            // disabled, NEITHER foreign-toplevel global is advertised (clients can't bind
+            // them); when enabled, both are. Read once at boot — no hot-reload; a change
+            // takes effect on the next launch.
+            let enabled = compositor_developer_environment_preference_base::base::load()
+                .protocol_foreign == "enabled";
+            compositor_support_smithay_state_foreign_factory::factory::new::<Dispatch>(display_handle, enabled)
+        },
         compositor: compositor_support_smithay_state_compositor_factory::factory::new::<Dispatch>(display_handle),
         presentation: compositor_support_smithay_state_presentation_factory::factory::new::<Dispatch>(display_handle),
         viewporter: compositor_support_smithay_state_viewporter_factory::factory::new::<Dispatch>(display_handle),
@@ -142,6 +151,64 @@ impl<A: WireTrait + 'static> Wire<A> {
     pub fn window_for_toplevel(&self, surface: &ToplevelSurface) -> Option<smithay::desktop::Window> {
         rd::window_for_toplevel(&self.inner.host_space().state, surface.wl_surface())
     }
+    /// Apply a control request a dock sent through wlr-foreign-toplevel-management.
+    /// `close` asks the client to close; `fullscreen` routes through the world.
+    /// `activate` is intentionally a no-op for now (focus integration with y5's own
+    /// selection is a later concern) — the protocol is still advertised and the
+    /// request accepted, just not acted on. maximize/minimize have no y5 model.
+    fn apply_foreign_request(
+        &mut self,
+        surface: WlSurface,
+        request: compositor_support_smithay_state_foreign_base::base::ForeignRequest,
+    ) {
+        use compositor_support_smithay_state_foreign_base::base::ForeignRequest;
+        let Some(window) = self
+            .inner
+            .host_space()
+            .state
+            .elements()
+            .find(|w| w.toplevel().map(|t| *t.wl_surface() == surface).unwrap_or(false))
+            .cloned()
+        else {
+            return;
+        };
+
+        match request {
+            ForeignRequest::Close => {
+                if let Some(t) = window.toplevel() {
+                    t.send_close();
+                }
+            }
+            ForeignRequest::Fullscreen(fs) => {
+                self.inner.fullscreen_request(window, fs);
+            }
+            ForeignRequest::Activate => {
+                // Queue a view+activate; the window-lifecycle drainer (higher crate, has the
+                // camera `view`) applies it. `Foreign` records the source for later.
+                self.inner.request_activation(window, ActivationOrigin::Foreign);
+            }
+            ForeignRequest::Maximized(_) | ForeignRequest::Minimized(_) => {}
+        }
+    }
+
+    /// Re-advertise foreign-toplevels when the ACTIVE world changed. World switches
+    /// are input-driven, so `drain_protocol` (client-driven) may not run promptly
+    /// after one; the main loop calls this every iteration. Cheap u64 generation
+    /// compare — reconciles only on an actual change, which diffs the new world's
+    /// Space against the mirror (closing the old world's toplevels, announcing the
+    /// new world's).
+    pub fn reconcile_foreign_on_world_change(&mut self) {
+        if !self.state.foreign.enabled() {
+            return;
+        }
+        let generation = self.inner.world_generation();
+        if generation == self.state.foreign.last_generation {
+            return;
+        }
+        self.state.foreign.last_generation = generation;
+        self.state.foreign.reconcile::<Dispatch>(&self.inner.host_space().state);
+    }
+
     pub fn apply_constraint_restoration(&mut self, token: (WlSurface, Point<f64, Logical>)) {
         let (hint_surface, hint_surface_local) = token;
         let Some(pointer) = self.state.seat.seat.get_pointer() else { return; };
@@ -166,15 +233,31 @@ impl<A: WireTrait + 'static> Wire<A> {
             self.inner.host_space_mut().state.map_element(window, (0, 0), false);
         }
         // Commits: on_commit, initial configure + placement, resize.
-        for surface in std::mem::take(&mut self.state.committed) {
+        let committed = std::mem::take(&mut self.state.committed);
+        for surface in &committed {
             if let Some((window, geometry)) =
                 compositor_support_smithay_state_compositor_dispatch::wire::apply_commit(
                     &mut self.inner.host_space_mut().state,
-                    &surface,
+                    surface,
                 )
             {
                 self.inner.place_window(window, geometry);
             }
+        }
+        // Live layer-shell reconfiguration: if a committed surface is a mapped layer
+        // surface, re-arrange its output so anchor / size / margin / exclusive-zone
+        // changes take effect (and reserved space updates) without a remap.
+        let mut layer_relayout = false;
+        for surface in &committed {
+            if compositor_support_smithay_state_layershell_dispatch::wire::arrange_on_commit(
+                self.inner.host_space(),
+                surface,
+            ) {
+                layer_relayout = true;
+            }
+        }
+        if layer_relayout {
+            self.state.schedule_redraw();
         }
         // (un)fullscreen.
         for (toplevel, fullscreen) in std::mem::take(&mut self.state.fullscreen_requests) {
@@ -182,10 +265,12 @@ impl<A: WireTrait + 'static> Wire<A> {
                 self.inner.fullscreen_request(w, fullscreen);
             }
         }
-        // Layer shell map / unmap.
+        // Layer shell map / unmap. A NULL-output surface goes to the monitor the
+        // user is on (active_output), not always the first output.
         for (surface, output, layer, namespace) in std::mem::take(&mut self.state.new_layers) {
+            let current_output = self.inner.active_output();
             compositor_support_smithay_state_layershell_dispatch::wire::new_layer_surface(
-                self.inner.host_space(), surface, output, layer, namespace,
+                self.inner.host_space(), surface, output, layer, namespace, current_output,
             );
         }
         for surface in std::mem::take(&mut self.state.destroyed_layers) {
@@ -196,6 +281,13 @@ impl<A: WireTrait + 'static> Wire<A> {
         // Destroyed toplevels.
         for surface in std::mem::take(&mut self.state.destroyed_toplevels) {
             self.inner.destroy_surface_data(surface);
+        }
+        // wlr foreign-toplevel-management: reconcile the dock-facing mirror against
+        // the now-updated Space (announce new toplevels, close gone ones, push
+        // title/app_id/state deltas), then apply any control requests docks queued.
+        self.state.foreign.reconcile::<Dispatch>(&self.inner.host_space().state);
+        for (surface, request) in self.state.foreign.take_requests() {
+            self.apply_foreign_request(surface, request);
         }
         // Dmabuf imports (GPU binding lives in the kernel; resolves the notifier).
         for (global, dmabuf, notifier) in std::mem::take(&mut self.state.pending_dmabuf) {

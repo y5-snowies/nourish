@@ -85,7 +85,7 @@ pub fn render<'a>(
     keys: &'a [KeyRow], audio: &'a AudioState, wifi: &'a WifiSnapshot, bt: &'a BtSnapshot,
     wifi_selected: Option<&'a str>, wifi_password: &'a str, devices: &'a [RenderDevice], fps: u32,
     layout: &'a [LayoutPlacement], selected_placement: Option<u64>, cyclic: bool, selected_inactive: bool,
-    ime: &'a Ime, keyboard: &'a KeyboardLayout,
+    ime: &'a Ime, keyboard: &'a KeyboardLayout, protocol_foreign: &'a str,
     shaders: &'a [String], shader_current: Option<&'a str>, shader_props: &'a [ShaderProp],
     preview_source: &'a str, shader_status: Option<&'a str>,
     invert_pan_x: bool, invert_pan_y: bool, srgb: bool,
@@ -102,7 +102,7 @@ pub fn render<'a>(
         Tab::Bluetooth => bluetooth_tab::build(bt),
         Tab::Performance => performance(fps, show_fps, release_hidden),
         Tab::System => environment::build(env, devices),
-        Tab::Misc => misc::build(ime, keyboard),
+        Tab::Misc => misc::build(ime, keyboard, protocol_foreign),
         Tab::World => world::build(shaders, shader_current, shader_props, preview_source, shader_status, invert_pan_x, invert_pan_y, srgb),
         Tab::Graphics => graphics::build(graphics),
     };

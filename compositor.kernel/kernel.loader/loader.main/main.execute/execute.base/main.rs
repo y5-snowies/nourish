@@ -530,10 +530,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Sampler::Drop closes its internal registration channel, which causes
     // the thread to exit cleanly when state's sampler field is dropped.
     info!("Event Loop start");
-    event_loop.run(None, &mut state, move |_| {
-        // Is now running. (Input-independent control-plane work — display drains,
-        // lock engage — is ping-driven via `state.inner.ping_control()`, drained
-        // in the backend's control-plane ping source, NOT polled per dispatch.)
+    event_loop.run(None, &mut state, move |state| {
+        // Runs after every loop iteration (post input + client dispatch). Re-advertise
+        // per-world foreign-toplevels when the active world changed — a world switch is
+        // input-driven, so the client-driven drain may not run promptly after it. Cheap
+        // generation compare; reconciles only on an actual change.
+        state.reconcile_foreign_on_world_change();
+        // (Input-independent control-plane work — display drains, lock engage — is
+        // ping-driven via `state.inner.ping_control()`, drained in the backend's
+        // control-plane ping source, NOT polled per dispatch.)
     })?;
 
     Ok(())

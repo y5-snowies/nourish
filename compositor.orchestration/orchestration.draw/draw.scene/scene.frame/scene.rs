@@ -11,6 +11,7 @@ use smithay::desktop::{Window, layer_map_for_output};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Physical, Point, Scale, Size};
 use smithay::wayland::seat::WaylandFocus;
+use smithay::wayland::shell::wlr_layer::Layer as WlrLayer;
 use compositor_y5_window_interface_record::window::LoopWindow;
 use compositor_orchestration_draw_dispatch_frame::SceneDispatch;
 use compositor_orchestration_draw_scene_element::element::SceneElement;
@@ -386,8 +387,25 @@ where
         let pointer = compositor_orchestration_seat_pointer_draw::scene::element(state, renderer, size);
         plan.extend(layer::POINTER, pointer.into_iter().map(DrawNode::Pointer));
 
-        let layer_shell = layershell(state, size);
-        plan.extend(layer::LAYERSHELL, layer_shell.into_iter().map(DrawNode::Surface));
+        // Split the four wlr layer-shell layers into their own render bands so
+        // z-order matches hit-testing: Background/Bottom under content, Top/Overlay
+        // above windows but below the compositor's screen iced.
+        //
+        // While the overview overlay is open, suppress the LIVE layer bands: the frozen
+        // freeze-backdrop already captured them (like windows), so rendering them live on
+        // top would leave them animating above the frozen desktop. Windows get the same
+        // treatment (the overview owns the content band).
+        if !state.inner.overview().visible {
+            for (wlr_layer, node) in layershell(state, size) {
+                let band = match wlr_layer {
+                    WlrLayer::Background => layer::LAYER_BACKGROUND,
+                    WlrLayer::Bottom => layer::LAYER_BOTTOM,
+                    WlrLayer::Top => layer::LAYER_TOP,
+                    WlrLayer::Overlay => layer::LAYER_OVERLAY,
+                };
+                plan.push(band, DrawNode::Surface(node));
+            }
+        }
     }
     for elem in surfaces_screen {
         if draw_iced(&elem.output) {

@@ -8,7 +8,6 @@
 //! callers are unchanged. interface.base keeps `orchestration_core` (for these
 //! `&Loop` wrappers + the bbox path, which still reads `_loop.inner` directly).
 
-use crate::position;
 use smithay::desktop::{Window, layer_map_for_output};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Physical, Point, Rectangle, Size};
@@ -147,28 +146,22 @@ where
             bbox_screen_logical.size,
         );
 
-        let compositor_output_size_logical = _loop
-            .inner.space_state()
-            .state
-            .output_geometry(output)
-            .unwrap()
-            .size;
-
         let layer_map = layer_map_for_output(output);
-        let check_layer_enabled = _loop.inner.select().Selection.len() > 0;
 
+        // Layers collected at their natural z-band (Overlay/Top before windows,
+        // Bottom/Background after — see the call order below). The banding is
+        // what protects windows from background/bottom surfaces, so no selection
+        // gate is needed for a dock/bar to be reachable.
         let mut collect_layer = |layer_band: Layer, hits: &mut Vec<SurfaceHit>| {
-            if !check_layer_enabled {
-                return;
-            }
             for layer_surface in layer_map.layers_on(layer_band).rev() {
-                let location = position::layer_surface_position(
-                    _loop,
-                    layer_surface,
-                    compositor_output_size_logical,
-                );
-                let surface_size = layer_surface.bbox().size;
-                let geom = Rectangle::from_loc_and_size(location, surface_size).to_f64();
+                // smithay's arranged geometry (honors anchor/margin/exclusive/size); the
+                // interactive rect includes popups so a menu off the bar is reachable.
+                let Some(geo) = layer_map.layer_geometry(layer_surface) else {
+                    continue;
+                };
+                let popups = layer_surface.bbox_with_popups();
+                let geom =
+                    Rectangle::from_loc_and_size(geo.loc + popups.loc, popups.size).to_f64();
 
                 if callback(output_relative_bbox, geom) {
                     let s = layer_surface.wl_surface().clone();

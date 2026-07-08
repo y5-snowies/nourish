@@ -17,12 +17,15 @@ pub fn dispatch(
     delta: Option<(Point<f64, Logical>, Point<f64, Logical>)>,
     was_constrain_locked: bool,
 ) {
-    // Overview overlay open → windows are presentational: reject window hits so
-    // pointer focus never enters a window (iced screen surfaces still match).
+    // Overview overlay open → windows AND wlr layer surfaces are presentational: reject both
+    // so pointer focus never enters them (iced screen surfaces — the overview UI — still match).
     let overview_open = _loop.inner.overview().visible;
     let under = surface_under_filtered(_loop, position_normalized, &|hit| {
+        if overview_open && (hit.window().is_some() || hit.is_layer()) {
+            return false;
+        }
         if let Some(window) = hit.window() {
-            return !overview_open && window.visible(_loop);
+            return window.visible(_loop);
         };
 
         true

@@ -4,6 +4,9 @@ use smithay::backend::input::{
 use smithay::input::keyboard::{FilterResult, Keycode, Keysym};
 use smithay::input::pointer::{AxisFrame, PointerHandle};
 use smithay::utils::SERIAL_COUNTER;
+use smithay::desktop::layer_map_for_output;
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::wayland::shell::wlr_layer::{KeyboardInteractivity, Layer};
 use compositor_orchestration_core_state_base::Loop;
 
 /// Release every currently-held **non-modifier** key to the focused client (forwarded, no
@@ -132,6 +135,13 @@ fn should_forward<I: InputBackend>(
         return false;
     }
 
+    // wlr exclusive-keyboard grab: we're past every overlay / launcher / iced / shortcut
+    // check, so NO compositor modal consumed this key — a mapped Top/Overlay layer surface
+    // that requested `Exclusive` owns the keyboard. Focus it (no click required) so this and
+    // subsequent keys reach it. `set_focus` no-ops if it's already focused, so this is not a
+    // per-key re-switch once it holds focus (windows can't steal it — see press.rs guard).
+    exclusive_keyboard_grab(_loop);
+
     if let Some(result) = wayland_handle(_loop) {
         return !result;
     }
@@ -139,6 +149,38 @@ fn should_forward<I: InputBackend>(
         return !result;
     }
     true
+}
+
+/// Give keyboard focus to the topmost mapped Top/Overlay layer surface that requested
+/// `Exclusive` keyboard interactivity, if it doesn't already hold it. Called only after every
+/// compositor overlay/modal declined the key, so those keep the keyboard while active.
+fn exclusive_keyboard_grab(_loop: &mut Loop) {
+    let Some(excl) = exclusive_layer(_loop) else {
+        return;
+    };
+    let Some(keyboard) = _loop.state.seat.seat.get_keyboard() else {
+        return;
+    };
+    if keyboard.current_focus().as_ref() != Some(&excl) {
+        let serial = SERIAL_COUNTER.next_serial();
+        keyboard.set_focus(&mut _loop.state, Some(excl), serial);
+    }
+}
+
+/// The topmost mapped Top/Overlay layer surface with `Exclusive` keyboard interactivity, if
+/// any. (Per wlr-layer-shell, exclusive keyboard is only guaranteed for Top/Overlay.)
+fn exclusive_layer(_loop: &Loop) -> Option<WlSurface> {
+    for output in _loop.inner.space_state().state.outputs() {
+        let map = layer_map_for_output(output);
+        for band in [Layer::Overlay, Layer::Top] {
+            for layer in map.layers_on(band).rev() {
+                if layer.cached_state().keyboard_interactivity == KeyboardInteractivity::Exclusive {
+                    return Some(layer.wl_surface().clone());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// The compositor currently has no visible output (DPMS-off, lid closed, or every

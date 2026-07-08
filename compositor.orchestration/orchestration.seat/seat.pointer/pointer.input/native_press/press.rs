@@ -1,10 +1,10 @@
 use smithay::backend::input::{Axis, AxisSource, ButtonState, Event, InputBackend, PointerAxisEvent, PointerButtonEvent};
-use smithay::desktop::Window;
+use smithay::desktop::{Window, WindowSurfaceType, layer_map_for_output};
 use smithay::input::keyboard::KeyboardHandle;
 use smithay::input::pointer::{AxisFrame, ButtonEvent, PointerHandle};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::SERIAL_COUNTER;
-use smithay::wayland::shell::wlr_layer::Layer;
+use smithay::wayland::shell::wlr_layer::{KeyboardInteractivity, Layer};
 use compositor_orchestration_core_state_base::Loop;
 use compositor_support_smithay_dispatch_state_base::state::Dispatch;
 use compositor_y5_surface_interface_base::hit::SurfaceHit;
@@ -30,6 +30,36 @@ use compositor_y5_window_interface_record::window::LoopWindow;
 //             },
 //         );
 //         pointer.frame(&mut _loop.state);
+
+/// The `keyboard_interactivity` a mapped layer surface committed, found by locating the
+/// surface in each output's layer map. `None` (the return) means it is not a currently
+/// mapped layer surface.
+fn layer_keyboard_interactivity(_loop: &Loop, surface: &WlSurface) -> Option<KeyboardInteractivity> {
+    for output in _loop.inner.space_state().state.outputs() {
+        let map = layer_map_for_output(output);
+        if let Some(ls) = map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL) {
+            return Some(ls.cached_state().keyboard_interactivity);
+        }
+    }
+    None
+}
+
+/// The topmost mapped Top/Overlay layer surface that requested `Exclusive` keyboard
+/// interactivity, if any. While one exists it owns the keyboard (wlr layer-shell), so a click
+/// elsewhere must not steal focus from it.
+fn exclusive_layer(_loop: &Loop) -> Option<WlSurface> {
+    for output in _loop.inner.space_state().state.outputs() {
+        let map = layer_map_for_output(output);
+        for band in [Layer::Overlay, Layer::Top] {
+            for layer in map.layers_on(band).rev() {
+                if layer.cached_state().keyboard_interactivity == KeyboardInteractivity::Exclusive {
+                    return Some(layer.wl_surface().clone());
+                }
+            }
+        }
+    }
+    None
+}
 
 pub fn input_received<I: InputBackend>(
     pointer: &PointerHandle<Dispatch>,
@@ -78,16 +108,14 @@ pub fn input_received<I: InputBackend>(
 
             window.toplevel().map(|t| t.wl_surface().clone())
         }
-        SurfaceHit::Layer { layer, surface, .. } => {
-            // Layer-specific: only focus keyboard if interactivity allows.
-            // Background/Bottom layers shouldn't grab keyboard; Top/Overlay
-            // can if the client requested it.
-            //
-            // You can also check the layer surface's keyboard_interactivity
-            // setting and only focus if it's Exclusive or OnDemand.
-            match layer {
-                Layer::Top | Layer::Overlay => Some(surface.clone()),
-                Layer::Background | Layer::Bottom => None,
+        SurfaceHit::Layer { surface, .. } => {
+            // Honor the client's keyboard_interactivity on ANY layer — Background/Bottom
+            // included (wlr-layer-shell allows `on_demand` on any layer, e.g. interactive
+            // wallpapers). `None` never takes keyboard focus even on a click; `OnDemand` /
+            // `Exclusive` are focusable on click.
+            match layer_keyboard_interactivity(_loop, &surface) {
+                Some(KeyboardInteractivity::None) | None => None,
+                _ => Some(surface.clone()),
             }
         }
         SurfaceHit::Iced { handle, .. } => {
@@ -108,6 +136,13 @@ pub fn input_received<I: InputBackend>(
             None
         }
     };
+
+    // wlr exclusive keyboard: while a mapped Top/Overlay layer surface requested `Exclusive`
+    // interactivity, it HOLDS the keyboard — a click on a window (or any other surface) must
+    // NOT switch focus away from it. We disallow the switch here rather than re-asserting
+    // focus every frame. This runs only when no compositor modal (overview / lock / launcher)
+    // swallowed the click first, so those still own the keyboard while active.
+    let focus_surface = exclusive_layer(_loop).or(focus_surface);
 
     // CHECK: I want to keep these calls.
     keyboard.set_focus(&mut _loop.state, focus_surface, serial);

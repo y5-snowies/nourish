@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use compositor_y5_camera_transform_translate::transform::Transform;
 use compositor_support_smithay_dispatch_state_base::state::Dispatch;
 use compositor_support_smithay_dispatch_wire_base::wire::Wire;
-use compositor_support_smithay_dispatch_wire_trait::wire_trait::WireTrait;
+use compositor_support_smithay_dispatch_wire_trait::wire_trait::{ActivationOrigin, WireTrait};
 use compositor_support_smithay_state_xdg_activation_dispatch::wire::ActivationDetails;
 use compositor_y5_window_interface_record::data::WindowData;
 use compositor_y5_window_lifecycle_event::event::WindowLifecycleEvent;
@@ -22,6 +22,24 @@ impl WireTrait for Orchestrator {
     }
     fn host_space_mut(&mut self) -> &mut compositor_support_smithay_state_space_base::state::SpaceState {
         self.space_state_mut()
+    }
+
+    fn active_output(&self) -> Option<smithay::output::Output> {
+        // The monitor the user is on (cursor's output, else primary). Non-panicking
+        // variant of the inherent `active_output()` so a NULL-output layer surface
+        // mapped before any output exists just falls back, not aborts.
+        let key = self.active_output_key();
+        let space = self.space_state();
+        space
+            .state
+            .outputs()
+            .find(|o| crate::state::output_key(o) == key)
+            .or_else(|| space.state.outputs().next())
+            .cloned()
+    }
+
+    fn world_generation(&self) -> u64 {
+        self.worlds.generation()
     }
 
     fn initialize_surface_data(&mut self, window: Window) {
@@ -104,6 +122,12 @@ impl WireTrait for Orchestrator {
         self.window_lifecycle_mut()
             .incoming
             .push(WindowLifecycleEvent::Fullscreen(window, fullscreen));
+    }
+
+    fn request_activation(&mut self, window: Window, origin: ActivationOrigin) {
+        self.window_lifecycle_mut()
+            .incoming
+            .push(WindowLifecycleEvent::Activate(window, origin));
     }
 
     fn apply_pointer(&mut self, storage_point: Point<f64, Logical>) {

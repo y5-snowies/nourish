@@ -6495,6 +6495,7 @@ dependencies = [
  "compositor_support_smithay_state_cursor_shape_base",
  "compositor_support_smithay_state_dmabuf_base",
  "compositor_support_smithay_state_dnd_base",
+ "compositor_support_smithay_state_foreign_base",
  "compositor_support_smithay_state_fractional_base",
  "compositor_support_smithay_state_layershell_base",
  "compositor_support_smithay_state_output_base",
@@ -6568,6 +6569,7 @@ dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_preference_base",
  "compositor_kernel_graphic_color_surface_base",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_dispatch_state_bounds",
@@ -6587,6 +6589,8 @@ dependencies = [
  "compositor_support_smithay_state_dmabuf_factory",
  "compositor_support_smithay_state_dnd_dispatch",
  "compositor_support_smithay_state_dnd_factory",
+ "compositor_support_smithay_state_foreign_base",
+ "compositor_support_smithay_state_foreign_factory",
  "compositor_support_smithay_state_fractional_base",
  "compositor_support_smithay_state_fractional_dispatch",
  "compositor_support_smithay_state_fractional_factory",
@@ -6839,6 +6843,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_support_smithay_state_foreign_base"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
+ "compositor_developer_debug_instance_record",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_support_smithay_state_foreign_factory"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
+ "compositor_developer_debug_instance_record",
+ "compositor_support_smithay_dispatch_state_base",
+ "compositor_support_smithay_state_foreign_base",
+ "smithay",
+]
+
+[[package]]
 name = "compositor_support_smithay_state_fractional_base"
 version = "0.0.1"
 dependencies = [
@@ -7004,7 +7028,6 @@ version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_support_smithay_dispatch_state_base",
- "compositor_support_smithay_state_layershell_types",
  "compositor_support_smithay_state_space_base",
  "smithay",
 ]

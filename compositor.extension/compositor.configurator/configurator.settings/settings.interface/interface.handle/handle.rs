@@ -133,6 +133,12 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
             state.inner.preference.ime = Some(ime);
             let _ = pref::save(&state.inner.preference);
         }
+        SettingsMessage::SetProtocolForeign(v) => {
+            // Gate for the wlr + ext foreign-toplevel (dock) protocols. Persist to
+            // preferences.json; read once at the next start (globals are bound then).
+            state.inner.preference.protocol_foreign = v;
+            let _ = pref::save(&state.inner.preference);
+        }
         SettingsMessage::Keyboard(kl) => {
             // Persist AND apply the keyboard layout live: mutate the preference, save,
             // then recompile the keymap on the seat's keyboard. `get_keyboard()` hands

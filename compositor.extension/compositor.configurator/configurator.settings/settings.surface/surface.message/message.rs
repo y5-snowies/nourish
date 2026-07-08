@@ -215,4 +215,8 @@ pub enum SettingsMessage {
     /// preferences.json AND apply live (forwarded). Carries the whole struct so
     /// the method dropdown + every knob share one variant.
     SetGraphics(compositor_developer_environment_graphics_base::base::GraphicsAaConfig),
+    /// Forwarded (Misc tab): the `protocol_foreign` preference — `"enabled"` or
+    /// `"disabled"` — gating the wlr + ext foreign-toplevel (dock) protocols.
+    /// Persisted to preferences.json; takes effect on the next start.
+    SetProtocolForeign(String),
 }

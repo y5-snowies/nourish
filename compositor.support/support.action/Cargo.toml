@@ -489,6 +489,8 @@ compositor_support_smithay_state_dmabuf_factory = { path = "../support.smithay/s
 compositor_support_smithay_state_dnd_base = { path = "../support.smithay/smithay.state/state.dnd/dnd.base" }
 compositor_support_smithay_state_dnd_dispatch = { path = "../support.smithay/smithay.state/state.dnd/dnd.dispatch" }
 compositor_support_smithay_state_dnd_factory = { path = "../support.smithay/smithay.state/state.dnd/dnd.factory" }
+compositor_support_smithay_state_foreign_base = { path = "../support.smithay/smithay.state/state.foreign/foreign.base" }
+compositor_support_smithay_state_foreign_factory = { path = "../support.smithay/smithay.state/state.foreign/foreign.factory" }
 compositor_support_smithay_state_fractional_base = { path = "../support.smithay/smithay.state/state.fractional/fractional.base" }
 compositor_support_smithay_state_fractional_config = { path = "../support.smithay/smithay.state/state.fractional/fractional.config" }
 compositor_support_smithay_state_fractional_debounce = { path = "../support.smithay/smithay.state/state.fractional/fractional.debounce" }

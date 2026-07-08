@@ -77,6 +77,7 @@ pub struct Dispatch {
     pub output: compositor_support_smithay_state_output_base::state::OutputState,
     pub popup: compositor_support_smithay_state_popup_base::state::PopupState,
     pub layershell: compositor_support_smithay_state_layershell_base::state::Layershell,
+    pub foreign: compositor_support_smithay_state_foreign_base::base::ForeignToplevel,
     // `space` moved out of Dispatch: the window Space is now owned by the
     // spatial world (document/ARCHITECTURE.md → "Window tracking"). Smithay
     // handlers reach it via `WireTrait::host_space[_mut]`.
@@ -274,6 +275,80 @@ mod color_impls {
     }
     impl WLDispatch<WpImageDescriptionInfoV1, ()> for Dispatch {
         fn request(_: &mut Self, _: &Client, _: &WpImageDescriptionInfoV1, _: <WpImageDescriptionInfoV1 as Resource>::Request, _: &(), _: &DisplayHandle, _: &mut DataInit<'_, Self>) {}
+    }
+}
+
+// ── wlr-foreign-toplevel-management impls (orphan-required here) ────────────────
+// smithay has no wlr foreign-toplevel handler, so the manager + handle
+// GlobalDispatch/Dispatch impls are hand-written against the raw wlr bindings and
+// delegate to `foreign.base` (state + emit). Inbound control requests are queued
+// world-free onto `self.foreign`; the rim drains + applies them.
+mod foreign_impls {
+    use smithay::reexports::wayland_protocols_wlr::foreign_toplevel::v1::server::{
+        zwlr_foreign_toplevel_handle_v1::{self, ZwlrForeignToplevelHandleV1},
+        zwlr_foreign_toplevel_manager_v1::{self, ZwlrForeignToplevelManagerV1},
+    };
+    use smithay::reexports::wayland_server::{
+        Client, DataInit, Dispatch as WLDispatch, DisplayHandle, GlobalDispatch, New,
+        backend::ClientId,
+    };
+    use smithay::wayland::foreign_toplevel_list::{ForeignToplevelListHandler, ForeignToplevelListState};
+    use compositor_support_smithay_state_foreign_base::base::{
+        ForeignManagerGlobalData, ForeignRequest, ToplevelHandleData,
+    };
+    use super::Dispatch;
+
+    // ext_foreign_toplevel_list_v1: smithay drives the protocol (Dispatch/GlobalDispatch
+    // come from `delegate_dispatch2!(Dispatch)`); we only supply the state accessor.
+    impl ForeignToplevelListHandler for Dispatch {
+        fn foreign_toplevel_list_state(&mut self) -> &mut ForeignToplevelListState {
+            self.foreign.ext_state()
+        }
+    }
+
+    impl GlobalDispatch<ZwlrForeignToplevelManagerV1, ForeignManagerGlobalData> for Dispatch {
+        fn bind(state: &mut Self, _dh: &DisplayHandle, _client: &Client, resource: New<ZwlrForeignToplevelManagerV1>, _data: &ForeignManagerGlobalData, di: &mut DataInit<'_, Self>) {
+            let manager = di.init(resource, ());
+            state.foreign.bind_manager::<Dispatch>(manager);
+        }
+    }
+
+    impl WLDispatch<ZwlrForeignToplevelManagerV1, ()> for Dispatch {
+        fn request(state: &mut Self, _client: &Client, manager: &ZwlrForeignToplevelManagerV1, request: zwlr_foreign_toplevel_manager_v1::Request, _data: &(), _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+            match request {
+                zwlr_foreign_toplevel_manager_v1::Request::Stop => {
+                    state.foreign.remove_manager(manager);
+                    manager.finished();
+                }
+                _ => {}
+            }
+        }
+        fn destroyed(state: &mut Self, _client: ClientId, manager: &ZwlrForeignToplevelManagerV1, _data: &()) {
+            state.foreign.remove_manager(manager);
+        }
+    }
+
+    impl WLDispatch<ZwlrForeignToplevelHandleV1, ToplevelHandleData> for Dispatch {
+        fn request(state: &mut Self, _client: &Client, _handle: &ZwlrForeignToplevelHandleV1, request: zwlr_foreign_toplevel_handle_v1::Request, data: &ToplevelHandleData, _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+            use zwlr_foreign_toplevel_handle_v1::Request as R;
+            let surface = data.surface.clone();
+            match request {
+                R::SetMaximized => state.foreign.push_request(surface, ForeignRequest::Maximized(true)),
+                R::UnsetMaximized => state.foreign.push_request(surface, ForeignRequest::Maximized(false)),
+                R::SetMinimized => state.foreign.push_request(surface, ForeignRequest::Minimized(true)),
+                R::UnsetMinimized => state.foreign.push_request(surface, ForeignRequest::Minimized(false)),
+                R::Activate { .. } => state.foreign.push_request(surface, ForeignRequest::Activate),
+                R::Close => state.foreign.push_request(surface, ForeignRequest::Close),
+                R::SetFullscreen { .. } => state.foreign.push_request(surface, ForeignRequest::Fullscreen(true)),
+                R::UnsetFullscreen => state.foreign.push_request(surface, ForeignRequest::Fullscreen(false)),
+                R::SetRectangle { .. } => {}
+                R::Destroy => {}
+                _ => {}
+            }
+        }
+        fn destroyed(state: &mut Self, _client: ClientId, handle: &ZwlrForeignToplevelHandleV1, _data: &ToplevelHandleData) {
+            state.foreign.remove_handle(handle);
+        }
     }
 }
 
@@ -527,6 +602,15 @@ mod handler_impls {
         }
         fn layer_destroyed(&mut self, surface: LayerSurface) {
             self.destroyed_layers.push(surface);
+            self.schedule_redraw();
+        }
+        // A popup parented to a layer surface (menu off a panel/bar). smithay routes
+        // these here rather than through `XdgShellHandler::new_popup` (the popup is
+        // created with a NULL xdg parent, then adopted by the layer). Track it in the
+        // shared PopupManager so the commit handler sends its initial configure and the
+        // draw + hit paths (which walk `PopupManager::popups_for_surface`) find it.
+        fn new_popup(&mut self, _parent: LayerSurface, popup: smithay::wayland::shell::xdg::PopupSurface) {
+            let _ = self.popup.state.track_popup(PopupKind::Xdg(popup));
             self.schedule_redraw();
         }
     }
