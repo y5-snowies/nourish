@@ -3,7 +3,7 @@ use smithay::desktop::Window;
 use smithay::input::keyboard::KeyboardHandle;
 use smithay::input::pointer::{AxisFrame, ButtonEvent, PointerHandle};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
-use smithay::utils::SERIAL_COUNTER;
+use smithay::utils::{SERIAL_COUNTER, Serial};
 use smithay::wayland::shell::wlr_layer::Layer;
 use compositor_orchestration_core_state_base::Loop;
 use compositor_support_smithay_dispatch_state_base::state::Dispatch;
@@ -42,12 +42,44 @@ pub fn input_received<I: InputBackend>(
     let serial = SERIAL_COUNTER.next_serial();
     let button = event.button_code();
 
-    // Surface to focus the keyboard on. For windows this is the toplevel
-    // wl_surface; for layer surfaces it's the layer surface itself
-    // (subject to keyboard_interactivity).
-    let focus_surface: Option<WlSurface> = match &hit {
+    // Raise / activate / keyboard-focus what was hit. Shared with touch-down so a
+    // tap focuses a window exactly like a click does.
+    apply_focus(_loop, &hit, keyboard, serial);
+
+    pointer.button(
+        &mut _loop.state,
+        &ButtonEvent {
+            button,
+            state: button_state,
+            serial,
+            time: event.time_msec(),
+        },
+    );
+    pointer.frame(&mut _loop.state);
+
+    // Iced pointer-button target (None for non-iced hits).
+    let iced_button_target = match &hit {
+        SurfaceHit::Iced { handle, .. } => Some(*handle),
+        _ => None,
+    };
+    if let Some(registry) = _loop.inner.surface_mut().registry.as_mut() {
+        registry.dispatch_button(iced_button_target, button, true);
+    }
+}
+
+/// Raise, activate and move keyboard focus to the surface a press/tap landed on:
+/// windows → their toplevel (raised, activated, others deactivated, fullscreen
+/// re-raised); Top/Overlay layers → the layer surface; iced → raise the drawable
+/// and clear window activation. Does NOT deliver a button — callers that need one
+/// (pointer clicks) send it separately; touch delivers `wl_touch` instead.
+pub fn apply_focus(
+    _loop: &mut Loop,
+    hit: &SurfaceHit,
+    keyboard: &KeyboardHandle<Dispatch>,
+    serial: Serial,
+) {
+    let focus_surface: Option<WlSurface> = match hit {
         SurfaceHit::Window { window, .. } => {
-            // Window-specific: raise, activate, configure.
             _loop.inner.space_state_mut().state.raise_element(window, true);
             if let Some(uuid) = window.uuid() {
                 _loop.inner.raise_drawable(uuid);
@@ -61,8 +93,7 @@ pub fn input_received<I: InputBackend>(
             }
 
             // A fullscreen window must stay above its peers even when another
-            // window (outside its bounds) is clicked and raised. Re-raise it
-            // without stealing keyboard activation from the clicked window.
+            // window (outside its bounds) is raised.
             let fullscreen = _loop
                 .inner.space_state()
                 .state
@@ -78,64 +109,29 @@ pub fn input_received<I: InputBackend>(
 
             window.toplevel().map(|t| t.wl_surface().clone())
         }
-        SurfaceHit::Layer { layer, surface, .. } => {
-            // Layer-specific: only focus keyboard if interactivity allows.
-            // Background/Bottom layers shouldn't grab keyboard; Top/Overlay
-            // can if the client requested it.
-            //
-            // You can also check the layer surface's keyboard_interactivity
-            // setting and only focus if it's Exclusive or OnDemand.
-            match layer {
-                Layer::Top | Layer::Overlay => Some(surface.clone()),
-                Layer::Background | Layer::Bottom => None,
-            }
-        }
+        SurfaceHit::Layer { layer, surface, .. } => match layer {
+            Layer::Top | Layer::Overlay => Some(surface.clone()),
+            Layer::Background | Layer::Bottom => None,
+        },
         SurfaceHit::Iced { handle, .. } => {
-            // iced raise logic: bring this surface to the top of the (renderer-
-            // agnostic) draw order on click; lazily registers it. Layers still
-            // keep iced below/above windows — cross-layer interleaving + draw
-            // consumption is the deferred ("decided later") step.
             _loop.inner.raise_drawable(uuid::Uuid::from_u128(handle.0 as u128));
-
-            // Clears activation
             for window in _loop.inner.space_state().state.elements() {
                 window.set_activated(false);
                 if let Some(toplevel) = window.toplevel() {
                     toplevel.send_pending_configure();
                 }
             }
-
             None
         }
     };
 
-    // CHECK: I want to keep these calls.
     keyboard.set_focus(&mut _loop.state, focus_surface, serial);
 
-    pointer.button(
-        &mut _loop.state,
-        &ButtonEvent {
-            button,
-            state: button_state,
-            serial,
-            time: event.time_msec(),
-        },
-    );
-    pointer.frame(&mut _loop.state);
-
-    // Iced keyboard-focus target (None for non-iced hits).
-    let iced_focus = match &hit {
+    let iced_focus = match hit {
         SurfaceHit::Iced { handle, .. } => Some(*handle),
         _ => None,
     };
-
-    // Iced pointer-button target.
-    let iced_button_target = iced_focus;
     if let Some(registry) = _loop.inner.surface_mut().registry.as_mut() {
         registry.set_keyboard_focus(iced_focus);
-        registry.dispatch_button(iced_button_target, button, true);
     }
-
-    // CHECK: I want to add iced registry calls here with the target.
-    // It needs to manage that internally.
 }

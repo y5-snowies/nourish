@@ -350,6 +350,7 @@ compositor_orchestration_seat_delegate_base = { path = "../../compositor.orchest
 compositor_orchestration_seat_delegate_lock = { path = "../../compositor.orchestration/orchestration.seat/seat.delegate/delegate.lock" }
 compositor_orchestration_seat_delegate_main = { path = "../../compositor.orchestration/orchestration.seat/seat.delegate/delegate.main" }
 compositor_orchestration_seat_gesture_state = { path = "../../compositor.orchestration/orchestration.seat/seat.gesture/gesture.state" }
+compositor_orchestration_seat_gesture_touch = { path = "../../compositor.orchestration/orchestration.seat/seat.gesture/gesture.touch" }
 compositor_orchestration_seat_keyboard_input = { path = "../../compositor.orchestration/orchestration.seat/seat.keyboard/keyboard.input" }
 compositor_orchestration_seat_lid_policy = { path = "../../compositor.orchestration/orchestration.seat/seat.lid/lid.policy" }
 compositor_orchestration_seat_pointer_draw = { path = "../../compositor.orchestration/orchestration.seat/seat.pointer/pointer.draw" }

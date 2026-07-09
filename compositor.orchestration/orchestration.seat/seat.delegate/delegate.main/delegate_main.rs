@@ -4,6 +4,7 @@ use smithay::backend::input::{
     SwitchState, SwitchToggleEvent,
 };
 use compositor_orchestration_core_state_base::Loop;
+use compositor_orchestration_seat_pointer_input::touch;
 
 /// Delegation of input events from the compositor seat loop
 pub fn process_input_event<I: InputBackend>(_loop: &mut Loop, event: &InputEvent<I>) {
@@ -68,11 +69,13 @@ pub fn process_input_event<I: InputBackend>(_loop: &mut Loop, event: &InputEvent
         }
         InputEvent::GestureHoldBegin { .. } => {}
         InputEvent::GestureHoldEnd { .. } => {}
-        InputEvent::TouchDown { .. } => {}
-        InputEvent::TouchMotion { .. } => {}
-        InputEvent::TouchUp { .. } => {}
-        InputEvent::TouchCancel { .. } => {}
-        InputEvent::TouchFrame { .. } => {}
+        // Touch: the session router forwards to a client's `wl_touch`, emulates the
+        // pointer, or runs a canvas gesture — decided per sequence.
+        InputEvent::TouchDown { event, .. } => touch::session::down::<I>(event, _loop),
+        InputEvent::TouchMotion { event, .. } => touch::session::motion::<I>(event, _loop),
+        InputEvent::TouchUp { event, .. } => touch::session::up::<I>(event, _loop),
+        InputEvent::TouchCancel { event, .. } => touch::session::cancel::<I>(event, _loop),
+        InputEvent::TouchFrame { event, .. } => touch::session::frame::<I>(event, _loop),
         InputEvent::TabletToolAxis { .. } => {}
         InputEvent::TabletToolProximity { .. } => {}
         InputEvent::TabletToolTip { .. } => {}

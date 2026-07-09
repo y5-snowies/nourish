@@ -31,6 +31,7 @@ compositor_y5_window_system_base = { workspace = true }
 compositor_orchestration_bus_legacy_base = { workspace = true }
 compositor_orchestration_world_manager_base = { workspace = true }
 compositor_orchestration_seat_gesture_state = { workspace = true }
+compositor_orchestration_seat_gesture_touch = { workspace = true }
 compositor_support_system_world_host_base = { workspace = true }
 compositor_support_system_world_frame_base = { workspace = true }
 compositor_developer_debug_instance_record = { workspace = true }
