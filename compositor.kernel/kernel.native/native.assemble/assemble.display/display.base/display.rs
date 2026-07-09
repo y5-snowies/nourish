@@ -22,7 +22,14 @@ pub struct DisplayAssembly {
     pub session: LibSeatSession,
     pub session_notifier: LibSeatSessionNotifier,
     pub seat_name: String,
+    /// The RENDER node (wgpu pin + compositing renderer). Equals the scanout
+    /// card's node on a normal desktop; differs on a split (PRIME) system.
     pub primary_gpu: DrmNode,
+    /// Render vs scanout relationship. `None` = same device (desktop, direct
+    /// render-into-scanout). `DmabufCopy` = split; the composited frame must
+    /// cross from `render` to `scanout` (import if the dmabuf is scannable on the
+    /// scanout card, else a blit). Consumed by `assemble.renderer`/`render.execute`.
+    pub route: compositor_kernel_gpu_topology_route_base::route::CopyRoute,
     pub device_path: PathBuf,
     /// Taken by `assemble.renderer` — the hosted DrmOutputManager owns the
     /// device, exactly as the original moved it into the manager.
@@ -55,53 +62,53 @@ pub fn assemble() -> DisplayAssembly {
         compositor_kernel_seat_session_factory_base::factory::create();
     let seat_name = session.seat();
 
-    // 2. Primary GPU: preference-aware selection over udev enumeration, with
-    //    smithay's heuristic as the default (behavior-preserving when the
-    //    preference is empty).
-    let rank = compositor_kernel_graphic_preference_gpu_rank::rank::get();
-    let candidates = compositor_kernel_udev_enumerate_gpu_base::gpu::all(&seat_name);
+    // 2-3. Render + scanout (PRIME-aware) resolution. The RENDER node is anchored
+    //    to the configured `render_node` (so smithay's device agrees with the wgpu
+    //    pin); the SCANOUT card is resolved by an explicit KMS capability probe.
+    //    On a normal desktop the render card is itself KMS-capable, so it IS the
+    //    scanout card (`route` None) — byte-identical to the pre-split path. Only a
+    //    render-only GPU (e.g. Tegra `nvgpu`) diverges into `DmabufCopy`; a selected
+    //    card with no KMS is a verbose panic inside `resolve`, never a silent fallback.
     let heuristic = compositor_kernel_udev_enumerate_gpu_base::gpu::primary(&seat_name);
-    let selected_path = compositor_kernel_native_device_select_base::select::select_primary(
-        &candidates,
-        heuristic.as_ref(),
-        &rank,
+    let render_pref = compositor_kernel_graphic_preference_gpu_rank::rank::render_node();
+    let scanout_pref = compositor_kernel_graphic_preference_gpu_rank::rank::scanout_node();
+    let cards = compositor_kernel_udev_enumerate_scan_base::scan::snapshot(&seat_name);
+    let resolved = compositor_kernel_native_device_select_scanout::select::resolve(
+        &mut session,
+        &cards,
+        render_pref.as_deref(),
+        heuristic.as_deref(),
+        scanout_pref.as_deref(),
     );
+    let primary_gpu = resolved.render;
+    let device_path = resolved.scanout_path.clone();
+    let copy_route = resolved.route;
 
-    let primary_gpu = selected_path
-        .as_deref()
-        .and_then(compositor_kernel_drm_device_node_base::node::render_node)
-        .or_else(|| {
-            candidates
-                .iter()
-                .find_map(|p| smithay::backend::drm::DrmNode::from_path(p).ok())
-        })
-        .expect("No GPU!");
+    // Topology roles are per-node; the scanout card is what smithay drives here.
+    let role =
+        compositor_kernel_gpu_topology_role_base::role::assign(resolved.scanout, Some(resolved.scanout));
+    info!(
+        "gpu topology: role={role:?} route={copy_route:?} render={:?} scanout={:?}",
+        primary_gpu.dev_path(),
+        resolved.scanout.dev_path()
+    );
+    info!("Selected scanout card: {device_path:?} (render node {:?})", primary_gpu.dev_path());
+    if matches!(copy_route, compositor_kernel_gpu_topology_route_base::route::CopyRoute::DmabufCopy { .. }) {
+        warn!(
+            "SPLIT render/scanout active (render {:?} != scanout {:?}). Compositing into the \
+             scanout card's GBM buffer via cross-device dmabuf import. On unified-memory SoCs \
+             (e.g. Tegra/Orin) this import should succeed with no copy; if the display stays \
+             black or import fails in the renderer, the explicit blit path (Stage 4 fallback) \
+             is required. See document/GPU_TOPOLOGY.md.",
+            primary_gpu.dev_path(),
+            resolved.scanout.dev_path()
+        );
+    }
 
-    // Record the gpu-topology decisions for the selected node (single-GPU
-    // era: render and scanout are the same node — `route` proves it).
-    let role = compositor_kernel_gpu_topology_role_base::role::assign(primary_gpu, Some(primary_gpu));
-    let copy_route = compositor_kernel_gpu_topology_route_base::route::route(primary_gpu, primary_gpu);
-    info!("gpu topology for selected node: role={role:?} copy_route={copy_route:?}");
-
-    // 3. udev: find the device path whose dev_id matches the selected node.
-    let primary_node = compositor_kernel_drm_device_node_base::node::primary_node(primary_gpu);
-    let device_path = compositor_kernel_udev_enumerate_scan_base::scan::snapshot(&seat_name)
-        .into_iter()
-        .find(|(dev_id, _)| {
-            compositor_kernel_drm_device_node_base::node::matches_dev(
-                *dev_id,
-                primary_gpu,
-                primary_node,
-            )
-        })
-        .map(|(_, path)| path)
-        .expect("Could not find any usable DRM devices! Check seat configuration.");
-
-    info!("Selected render node: {:?}", primary_gpu.dev_path());
-
-    // 4. Open through the seat; wrap; DRM + GBM devices.
-    let fd = compositor_kernel_seat_interface_open_base::open::open(&mut session, &device_path);
-    let drm_fd = compositor_kernel_drm_device_open_base::open::wrap_fd(fd);
+    // 4. DRM + GBM on the already-opened, KMS-probed scanout fd (no second open on
+    //    the desktop path). GBM lives on the scanout card; the split render-side
+    //    allocator + copy is wired by the DmabufCopy route (see `copy_route`).
+    let drm_fd = resolved.scanout_fd.clone();
     let (drm, drm_notifier) = compositor_kernel_drm_device_open_base::open::open(drm_fd.clone());
     let gbm = compositor_kernel_drm_gbm_device_base::device::create(drm_fd.clone());
 
@@ -168,6 +175,7 @@ pub fn assemble() -> DisplayAssembly {
         session_notifier,
         seat_name,
         primary_gpu,
+        route: copy_route,
         device_path,
         drm: Some(drm),
         drm_notifier,

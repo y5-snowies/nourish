@@ -8,5 +8,9 @@ compositor_developer_debug_instance_record.workspace = true
 bitflags.workspace = true
 smithay.workspace = true
 
+# Source of the render/scanout node settings (settings.json), same as
+# output_profile consumes the live preferences document.
+compositor_developer_environment_config_base.workspace = true
+
 [lib]
 path = "lib.rs"

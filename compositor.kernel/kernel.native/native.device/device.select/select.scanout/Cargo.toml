@@ -1,0 +1,22 @@
+[package]
+name = "compositor_kernel_native_device_select_scanout"
+version = "0.0.1"
+edition = "2024"
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "PRIME render/scanout resolution is one cohesive decision: lazy per-card KMS probing (probe the render card first, others only if it is render-only) cannot be split without eager-probing every card — a desktop regression (extra libseat opens) — and the fatal no-KMS path carries a full diagnostic card table the user requires."
+
+[dependencies]
+compositor_developer_debug_instance_record.workspace = true
+bitflags.workspace = true
+smithay.workspace = true
+
+# Compositor dependencies (CI ensures availability in workspace)
+compositor_kernel_drm_device_capability_base.workspace = true
+compositor_kernel_drm_device_open_base.workspace = true
+compositor_kernel_seat_interface_open_base.workspace = true
+compositor_kernel_gpu_topology_route_base.workspace = true
+
+[lib]
+path = "lib.rs"

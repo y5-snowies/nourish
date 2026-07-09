@@ -277,10 +277,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_developer_environment_graphics_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "compositor_developer_environment_preference_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "serde",
  "serde_json",
 ]
@@ -321,6 +329,15 @@ dependencies = [
  "compositor_kernel_drm_edid_identity_base",
  "compositor_kernel_drm_edid_parse_base",
  "compositor_kernel_graphic_preference_output_profile",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_drm_device_capability_base"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
+ "compositor_developer_debug_instance_record",
  "smithay",
 ]
 

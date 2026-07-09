@@ -10,6 +10,8 @@ smithay.workspace = true
 
 # Compositor dependencies (CI ensures availability in workspace)
 compositor_kernel_scanout_plane_assign_base.workspace = true
+# Direct-scanout opt-out flag (gpu_no_direct_scanout) lives in the experimental config.
+compositor_developer_environment_experimental_base.workspace = true
 
 [lib]
 path = "lib.rs"

@@ -2,8 +2,9 @@ use std::sync::OnceLock;
 
 /// The compositor's complete runtime configuration, read from a JSON file
 /// (`~/.config/y5.compositor/settings.json`, override with `--config-file=<path>`).
-/// Every field is REQUIRED — no optionals, no defaults; startup panics otherwise.
-/// This is the ONE place the compositor reads its own configuration.
+/// Every field is REQUIRED — no defaults; startup panics otherwise — with ONE
+/// exception: `scanout_node`, the single optional field (omit it from the JSON
+/// and it is `None`). This is the ONE place the compositor reads its own configuration.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Environment {
@@ -19,8 +20,20 @@ pub struct Environment {
     pub depth: u8,
     /// Enable adaptive sync / VRR.
     pub vrr: bool,
-    /// DRM render node path, e.g. `/dev/dri/renderD128`.
+    /// DRM render node path, e.g. `/dev/dri/renderD128`. The RENDER GPU (the
+    /// "active GPU"): where the compositor composites frames. On a normal desktop
+    /// this same device also scans out; on split render/scanout systems (PRIME —
+    /// e.g. Jetson/Tegra, where `nvgpu` renders but `nvidia-drm` owns the display)
+    /// it does not, and `scanout_node` (below) names the KMS card.
     pub render_node: String,
+    /// The single OPTIONAL field. DRM **scanout** card path (a KMS-capable card,
+    /// e.g. `/dev/dri/card0`) for PRIME split render/scanout systems. Absent/`None`
+    /// = auto-discover the KMS card, anchored to `render_node`. When set, it is an
+    /// EXPLICIT override with NO fallback to auto-discovery: a card that fails the
+    /// KMS capability probe panics verbosely. Serialized only when present, so a
+    /// normal single-GPU config never carries it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scanout_node: Option<String>,
     /// XDG desktop name advertised to clients, e.g. `Y5Compositor`.
     pub desktop_name: String,
     /// Developer-log level spec, e.g. `"info,warn,error"`.
@@ -131,7 +144,8 @@ pub fn get() -> &'static Environment {
 /// NOT used by the compositor at runtime — [`init`] still requires a fully-populated file
 /// and never falls back to these, so a real config can't be silently half-default. Living
 /// here (with the struct) means the editor and the installer agree on one set of values
-/// across the full 19-field schema, so any seeded file is always complete and valid.
+/// across the full schema (19 required fields + the optional `scanout_node`), so any
+/// seeded file is always complete and valid.
 pub fn default_settings() -> Environment {
     Environment {
         renderer: "vulkan".to_string(),
@@ -141,6 +155,7 @@ pub fn default_settings() -> Environment {
         depth: 8,
         vrr: false,
         render_node: "/dev/dri/renderD128".to_string(),
+        scanout_node: None,
         desktop_name: "Y5Compositor".to_string(),
         log_level: "info,warn,error".to_string(),
         vk_diag: String::new(),

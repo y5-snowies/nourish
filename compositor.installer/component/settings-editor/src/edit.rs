@@ -37,6 +37,9 @@ pub fn interactive(base: Environment) -> Environment {
         ),
         vrr: yes_no("vrr", "Enable adaptive sync / VRR.", base.vrr),
         render_node: select_render_node(&base.render_node),
+        // Optional PRIME scanout override — not prompted (advanced/rare); preserved
+        // as-is from the existing file so hand-set values survive a re-run.
+        scanout_node: base.scanout_node.clone(),
         desktop_name: ask(
             "desktop_name",
             "XDG desktop name advertised to clients.",

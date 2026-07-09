@@ -16,6 +16,24 @@ use gbm::{BufferObjectFlags, Device as GbmDevice, Format as GbmFormat};
 use smithay::backend::allocator::dmabuf::{Dmabuf, DmabufFlags};
 use smithay::backend::allocator::{Buffer, Fourcc, Modifier};
 
+/// TEMPORARY (`gpu_scanout_bridge`): whether to allocate bridge buffers with
+/// `SCANOUT` usage so the driver picks a scanout-plane-compatible (tiled)
+/// modifier. Off = today's RENDERING-only behavior.
+fn scanout_bridge() -> bool {
+    use compositor_developer_environment_experimental_base::base as ex;
+    ex::get().contains(ex::GpuFlags::SCANOUT_BRIDGE)
+}
+
+/// BO usage flags for a bridge allocation: `SCANOUT` is added under the
+/// `gpu_scanout_bridge` experiment so gbm targets a plane-scannable layout.
+fn bo_flags() -> BufferObjectFlags {
+    if scanout_bridge() {
+        BufferObjectFlags::RENDERING | BufferObjectFlags::SCANOUT
+    } else {
+        BufferObjectFlags::RENDERING
+    }
+}
+
 /// Opaque holder for an allocated buffer. Keeps gbm alive while the dmabuf
 /// is in use. Drop order inside this struct: `dmabuf` first (releases fds
 /// and any imports), then `_bo`, then `_gbm`. Rust drops struct fields in
@@ -93,7 +111,7 @@ pub fn allocate_dmabuf_on(
             width,
             height,
             GbmFormat::Argb8888,
-            BufferObjectFlags::RENDERING,
+            bo_flags(),
         )
         .map_err(AllocError::CreateBo)?;
 
@@ -166,6 +184,13 @@ pub fn allocate_dmabuf_negotiated(
     fourcc: Fourcc,
     modifiers: &[Modifier],
 ) -> Result<AllocatedDmabuf, AllocError> {
+    // TEMPORARY (`gpu_scanout_bridge`): the negotiated modifiers don't yet include
+    // the scanout plane's set, so an explicit list would pin a non-scannable (e.g.
+    // LINEAR) modifier. Fall through to the implicit path, which now carries
+    // `SCANOUT` usage → the driver picks a plane-compatible tiled modifier.
+    if scanout_bridge() {
+        return allocate_dmabuf(render_node, width, height);
+    }
     let gbm_fmt = match (modifiers.is_empty(), gbm_format(fourcc)) {
         (false, Some(f)) => f,
         _ => return allocate_dmabuf(render_node, width, height),

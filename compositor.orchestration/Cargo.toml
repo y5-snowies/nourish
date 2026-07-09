@@ -301,6 +301,7 @@ compositor_kernel_drm_connector_diff_base = { path = "../compositor.kernel/kerne
 compositor_kernel_drm_connector_kind_base = { path = "../compositor.kernel/kernel.drm/drm.connector/connector.kind/kind.base" }
 compositor_kernel_drm_connector_scan_base = { path = "../compositor.kernel/kernel.drm/drm.connector/connector.scan/scan.base" }
 compositor_kernel_drm_connector_select_base = { path = "../compositor.kernel/kernel.drm/drm.connector/connector.select/select.base" }
+compositor_kernel_drm_device_capability_base = { path = "../compositor.kernel/kernel.drm/drm.device/device.capability/capability.base" }
 compositor_kernel_drm_device_node_base = { path = "../compositor.kernel/kernel.drm/drm.device/device.node/node.base" }
 compositor_kernel_drm_device_open_base = { path = "../compositor.kernel/kernel.drm/drm.device/device.open/open.base" }
 compositor_kernel_drm_edid_identity_base = { path = "../compositor.kernel/kernel.drm/drm.edid/edid.identity/identity.base" }
@@ -358,6 +359,7 @@ compositor_kernel_native_context_topology_base = { path = "../compositor.kernel/
 compositor_kernel_native_device_delegate_base = { path = "../compositor.kernel/kernel.native/native.device/device.delegate/delegate.base" }
 compositor_kernel_native_device_interface_base = { path = "../compositor.kernel/kernel.native/native.device/device.interface/interface.base" }
 compositor_kernel_native_device_select_base = { path = "../compositor.kernel/kernel.native/native.device/device.select/select.base" }
+compositor_kernel_native_device_select_scanout = { path = "../compositor.kernel/kernel.native/native.device/device.select/select.scanout" }
 compositor_kernel_native_plugin_route_base = { path = "../compositor.kernel/kernel.native/native.plugin/plugin.route/route.base" }
 compositor_kernel_native_render_execute_base = { path = "../compositor.kernel/kernel.native/native.render/render.execute/execute.base" }
 compositor_kernel_native_wire_entry_base = { path = "../compositor.kernel/kernel.native/native.wire/wire.entry/entry.base" }
@@ -471,6 +473,7 @@ compositor_orchestration_seat_delegate_base = { path = "orchestration.seat/seat.
 compositor_orchestration_seat_delegate_lock = { path = "orchestration.seat/seat.delegate/delegate.lock" }
 compositor_orchestration_seat_delegate_main = { path = "orchestration.seat/seat.delegate/delegate.main" }
 compositor_orchestration_seat_gesture_state = { path = "orchestration.seat/seat.gesture/gesture.state" }
+compositor_orchestration_seat_gesture_touch = { path = "orchestration.seat/seat.gesture/gesture.touch" }
 compositor_orchestration_seat_keyboard_input = { path = "orchestration.seat/seat.keyboard/keyboard.input" }
 compositor_orchestration_seat_lid_policy = { path = "orchestration.seat/seat.lid/lid.policy" }
 compositor_orchestration_seat_pointer_draw = { path = "orchestration.seat/seat.pointer/pointer.draw" }

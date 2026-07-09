@@ -3243,6 +3243,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_kernel_drm_device_capability_base"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
+ "compositor_developer_debug_instance_record",
+ "smithay",
+]
+
+[[package]]
 name = "compositor_kernel_drm_device_node_base"
 version = "0.0.1"
 dependencies = [
@@ -3558,6 +3567,7 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_base",
  "smithay",
 ]
 
@@ -3704,7 +3714,6 @@ dependencies = [
  "compositor_kernel_drm_connector_kind_base",
  "compositor_kernel_drm_connector_scan_base",
  "compositor_kernel_drm_connector_select_base",
- "compositor_kernel_drm_device_node_base",
  "compositor_kernel_drm_device_open_base",
  "compositor_kernel_drm_edid_identity_base",
  "compositor_kernel_drm_edid_parse_base",
@@ -3719,7 +3728,7 @@ dependencies = [
  "compositor_kernel_graphic_preference_gpu_rank",
  "compositor_kernel_graphic_preference_layout_output",
  "compositor_kernel_graphic_preference_output_profile",
- "compositor_kernel_native_device_select_base",
+ "compositor_kernel_native_device_select_scanout",
  "compositor_kernel_scanout_commit_test_base",
  "compositor_kernel_scanout_pipe_assign_base",
  "compositor_kernel_scanout_pipe_claim_base",
@@ -3919,6 +3928,19 @@ dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_kernel_gpu_preference_select_base",
  "compositor_kernel_graphic_preference_gpu_rank",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_native_device_select_scanout"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
+ "compositor_developer_debug_instance_record",
+ "compositor_kernel_drm_device_capability_base",
+ "compositor_kernel_drm_device_open_base",
+ "compositor_kernel_gpu_topology_route_base",
+ "compositor_kernel_seat_interface_open_base",
  "smithay",
 ]
 
@@ -4245,6 +4267,7 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_experimental_base",
  "compositor_kernel_scanout_plane_assign_base",
  "smithay",
 ]
@@ -4938,6 +4961,7 @@ dependencies = [
  "compositor_orchestration_driver_settings_base",
  "compositor_orchestration_environment_type_base",
  "compositor_orchestration_seat_gesture_state",
+ "compositor_orchestration_seat_gesture_touch",
  "compositor_orchestration_seat_pointer_state",
  "compositor_orchestration_seat_pointer_texture",
  "compositor_orchestration_seat_system_pointer",
@@ -5298,6 +5322,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_seat_lid_policy",
+ "compositor_orchestration_seat_pointer_input",
  "compositor_y5_lock_seat_input",
  "smithay",
 ]
@@ -5317,6 +5342,13 @@ dependencies = [
 [[package]]
 name = "compositor_orchestration_seat_gesture_state"
 version = "0.0.1"
+
+[[package]]
+name = "compositor_orchestration_seat_gesture_touch"
+version = "0.0.1"
+dependencies = [
+ "smithay",
+]
 
 [[package]]
 name = "compositor_orchestration_seat_keyboard_input"
@@ -5389,6 +5421,7 @@ dependencies = [
  "compositor_orchestration_draw_layer_base",
  "compositor_orchestration_driver_output_base",
  "compositor_orchestration_input_drive_base",
+ "compositor_orchestration_seat_gesture_touch",
  "compositor_orchestration_seat_system_pointer",
  "compositor_support_iced_core_engine_base",
  "compositor_support_smithay_dispatch_state_base",
@@ -5396,11 +5429,14 @@ dependencies = [
  "compositor_y5_camera_state_base",
  "compositor_y5_camera_system_base",
  "compositor_y5_camera_transform_translate",
+ "compositor_y5_canvas_input_gesture",
  "compositor_y5_canvas_input_keyboard",
  "compositor_y5_canvas_input_state",
  "compositor_y5_canvas_system_base",
+ "compositor_y5_lock_seat_input",
  "compositor_y5_lock_system_base",
  "compositor_y5_overview_input_pointer",
+ "compositor_y5_picker_seat_pointer",
  "compositor_y5_surface_interface_base",
  "compositor_y5_surface_system_base",
  "compositor_y5_viewport_interaction_base",

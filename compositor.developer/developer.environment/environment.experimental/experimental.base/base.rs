@@ -23,6 +23,13 @@ bitflags! {
         const PROBE_MODIFIERS = 1 << 6;
         /// Opt OUT of the now-default render-node pin → wgpu's default adapter pick.
         const NO_PIN_WGPU_NODE = 1 << 7;
+        /// Opt OUT of overlay/cursor-plane direct scanout → primary-plane-only
+        /// (`FrameFlags::empty()`). For GPUs whose planes only accept tiled buffers.
+        const NO_DIRECT_SCANOUT = 1 << 8;
+        /// Allocate the iced dmabuf bridge buffers with `SCANOUT` usage (not just
+        /// RENDERING) so the driver picks a scanout-plane-compatible (tiled) modifier
+        /// — TEMPORARY, until the bridge negotiation intersects the plane modifiers.
+        const SCANOUT_BRIDGE = 1 << 9;
     }
 }
 
@@ -36,6 +43,8 @@ fn bit_for(flag: &str) -> Option<GpuFlags> {
         "gpu_force_multiplane" => GpuFlags::FORCE_MULTIPLANE,
         "gpu_probe_modifiers" => GpuFlags::PROBE_MODIFIERS,
         "gpu_no_pin_wgpu_node" => GpuFlags::NO_PIN_WGPU_NODE,
+        "gpu_no_direct_scanout" => GpuFlags::NO_DIRECT_SCANOUT,
+        "gpu_scanout_bridge" => GpuFlags::SCANOUT_BRIDGE,
         _ => return None,
     })
 }

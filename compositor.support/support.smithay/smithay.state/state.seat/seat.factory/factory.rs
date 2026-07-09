@@ -72,6 +72,8 @@ where
     // client, causing them to draw hover states (like highlighting a button).
     seat.add_pointer();
 
+    seat.add_touch(); // wl_touch: native multi-touch for client surfaces.
+
     let relative_pointer_manager_state = RelativePointerManagerState::new::<I>(&display_handle);
 
     let pointer_constraints_state = PointerConstraintsState::new::<I>(&display_handle);
