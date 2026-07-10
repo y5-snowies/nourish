@@ -67,13 +67,16 @@ impl<S: BevyScene> BevyInstanceAny for BevyInstance<S> {
 
     fn tick(&mut self) {
         self.runtime.update();
+        // On a split system in blit mode this untiles Bevy's just-rendered tiled
+        // frame into the LINEAR sample buffer; a no-op otherwise.
+        self.output_surface.post_render_blit();
         self.commit.increment();
         trace!("tick handle={:?}", self.id);
     }
 
-    fn texture_handle(&self) -> &GlesTexture { &self.output_surface.gles_texture }
+    fn texture_handle(&self) -> &GlesTexture { self.output_surface.sample_gles() }
     fn dmabuf(&self) -> &smithay::backend::allocator::dmabuf::Dmabuf {
-        &self.output_surface.allocated.dmabuf
+        self.output_surface.scanout_dmabuf()
     }
 
     fn apply_pending_resize(&mut self, render_node: &str, wgpu_ctx: &WgpuVulkanContext, gles: &mut GlesRenderer) -> Result<bool, SurfaceError> {

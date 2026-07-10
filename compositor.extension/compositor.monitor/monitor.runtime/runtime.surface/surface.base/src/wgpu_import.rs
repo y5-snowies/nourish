@@ -28,6 +28,14 @@ pub const TEXTURE_USAGE: wgpu::TextureUsages = wgpu::TextureUsages::RENDER_ATTAC
     .union(wgpu::TextureUsages::TEXTURE_BINDING)
     .union(wgpu::TextureUsages::COPY_SRC);
 
+/// Usage flags for a dmabuf imported purely as a copy DESTINATION — the LINEAR
+/// scanout buffer the untiling blit writes into (see `document/GPU_UNTILE_BLIT.md`).
+/// `COPY_DST` is a strictly weaker requirement than `RENDER_ATTACHMENT`: it is
+/// what lets the render GPU accept a foreign (scanout-card) LINEAR dmabuf even on
+/// hardware that refuses LINEAR as a color target (NVIDIA proprietary observed).
+pub const TEXTURE_USAGE_TRANSFER_DST: wgpu::TextureUsages =
+    wgpu::TextureUsages::COPY_DST.union(wgpu::TextureUsages::COPY_SRC);
+
 /// Import a Smithay `Dmabuf` as a `wgpu::Texture`.
 ///
 /// The returned texture is usable as a render attachment. It shares GPU
@@ -36,6 +44,40 @@ pub const TEXTURE_USAGE: wgpu::TextureUsages = wgpu::TextureUsages::RENDER_ATTAC
 pub fn import_dmabuf_to_wgpu(
     ctx: &WgpuVulkanContext,
     dmabuf: &Dmabuf,
+) -> Result<wgpu::Texture, WgpuImportError> {
+    import_dmabuf_to_wgpu_with(
+        ctx,
+        dmabuf,
+        TextureUses::COLOR_TARGET | TextureUses::RESOURCE,
+        TEXTURE_USAGE,
+    )
+}
+
+/// Import a Smithay `Dmabuf` as a copy-DESTINATION `wgpu::Texture`.
+///
+/// Same import machinery as [`import_dmabuf_to_wgpu`] but with `COPY_DST` (HAL
+/// `TransferDst`) usage instead of color-attachment. Used for the untiling blit's
+/// LINEAR output buffer, which lives on the scanout card and is written by the
+/// render GPU via `copy_texture_to_texture` — never rendered into directly.
+pub fn import_dmabuf_to_wgpu_transfer_dst(
+    ctx: &WgpuVulkanContext,
+    dmabuf: &Dmabuf,
+) -> Result<wgpu::Texture, WgpuImportError> {
+    import_dmabuf_to_wgpu_with(
+        ctx,
+        dmabuf,
+        TextureUses::COPY_DST | TextureUses::COPY_SRC,
+        TEXTURE_USAGE_TRANSFER_DST,
+    )
+}
+
+/// Shared import body: the HAL escape hatch + `create_texture_from_hal`, with the
+/// caller choosing the HAL `TextureUses` and the wgpu `TextureUsages`.
+fn import_dmabuf_to_wgpu_with(
+    ctx: &WgpuVulkanContext,
+    dmabuf: &Dmabuf,
+    hal_uses: TextureUses,
+    wgpu_usage: wgpu::TextureUsages,
 ) -> Result<wgpu::Texture, WgpuImportError> {
     let size = dmabuf.size();
     let fd = dmabuf.handles().next().ok_or(WgpuImportError::NoFd)?;
@@ -73,7 +115,7 @@ pub fn import_dmabuf_to_wgpu(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: TEXTURE_FORMAT,
-        usage: TextureUses::COLOR_TARGET | TextureUses::RESOURCE,
+        usage: hal_uses,
         memory_flags: MemoryFlags::empty(),
         view_formats: vec![],
     };
@@ -113,7 +155,7 @@ pub fn import_dmabuf_to_wgpu(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: TEXTURE_FORMAT,
-        usage: TEXTURE_USAGE,
+        usage: wgpu_usage,
         view_formats: &[],
     };
 

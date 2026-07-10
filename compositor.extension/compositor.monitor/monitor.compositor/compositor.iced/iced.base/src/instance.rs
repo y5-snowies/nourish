@@ -171,6 +171,10 @@ impl<U: IcedUi> IcedInstanceAny for IcedInstance<U> {
         // on-screen surface before calling this, so the view is present then.
         if let Some(view) = self.surface.create_render_view() {
             self.runtime.render_into(&view);
+            // On a split system in blit mode this untiles the just-rendered tiled
+            // frame into the LINEAR scanout buffer; a no-op otherwise. Ordered on
+            // the same wgpu queue after the engine's submit.
+            self.surface.post_render_blit();
             self.commit.increment();
         }
     }

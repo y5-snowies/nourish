@@ -38,7 +38,8 @@ pub fn create_in_space<S: BevyScene>(
 
     // Output surface (Bevy renders into it, compositor samples it).
     let output_surface = BevySurface::allocate(render_node, wgpu_ctx, gles, size)?;
-    let output_wgpu_tex = Arc::new(output_surface.wgpu_texture.clone());
+    // The render target (tiled buffer in blit mode) — what Bevy draws into.
+    let output_wgpu_tex = Arc::new(output_surface.render_texture().clone());
 
     // Build the runtime — no inputs managed here. The scene's own
     // constructor carries any dmabuf-imported wgpu textures it needs.

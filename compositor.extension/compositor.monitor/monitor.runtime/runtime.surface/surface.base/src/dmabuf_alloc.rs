@@ -116,10 +116,14 @@ pub fn allocate_dmabuf_on(
         .map_err(AllocError::CreateBo)?;
 
     info!(
-        "Allocated gbm BO {}x{}, format=ARGB8888, modifier={:?}",
+        "Allocated gbm BO {}x{}, format=ARGB8888, modifier={:?}, stride={}, tight_pitch={}, offset={}, planes={}",
         width,
         height,
         bo.modifier(),
+        bo.stride_for_plane(0),
+        width * 4,
+        bo.offset(0),
+        bo.plane_count(),
     );
 
     // 4. Export plane(s) as a Smithay Dmabuf.
@@ -202,6 +206,93 @@ pub fn allocate_dmabuf_negotiated(
             allocate_dmabuf(render_node, width, height)
         }
     }
+}
+
+/// Allocate a single-plane `LINEAR` dmabuf on a SPECIFIC card, forcing a
+/// pitch-linear layout via the `GBM_BO_USE_LINEAR` **usage flag** (not the
+/// explicit-modifier path).
+///
+/// This is the untiling blit's OUTPUT buffer (see `document/GPU_UNTILE_BLIT.md`):
+/// LINEAR is the universal interop layout the scanout side can always import, and
+/// the render GPU copies its native tiled frame into it.
+///
+/// Why the usage flag and not `create_buffer_object_with_modifiers2([LINEAR])`:
+/// NVIDIA's gbm rejects the explicit-LINEAR-modifier allocation with `EINVAL`,
+/// whereas `GBM_BO_USE_LINEAR` is honored — and allocating this buffer on the
+/// RENDER node is what keeps the blit copy same-device (no foreign-pitch shear).
+/// The resulting `bo.modifier()` is `DRM_FORMAT_MOD_LINEAR`, which every importer
+/// handles.
+pub fn allocate_linear_on(
+    node: &str,
+    width: u32,
+    height: u32,
+    fourcc: Fourcc,
+) -> Result<AllocatedDmabuf, AllocError> {
+    let gbm_fmt = gbm_format(fourcc).ok_or(AllocError::UnsupportedFourcc(fourcc))?;
+    if width == 0 || height == 0 {
+        return Err(AllocError::InvalidDimensions { width, height });
+    }
+    // Try SCANOUT|LINEAR first: SCANOUT makes the driver align the row pitch (i915
+    // pads to a 256-byte-aligned stride). This matters because the render GPU's copy
+    // engine (NVIDIA) writes linear images at a 256-aligned pitch; if the scanout
+    // card handed back a TIGHT pitch (`width*4`, not 256-aligned), the two disagree
+    // and every row drifts — the partial-stretch shear. An aligned stride makes both
+    // sides agree. Fall back to plain LINEAR if SCANOUT is refused (e.g. tiny BOs).
+    let flags = BufferObjectFlags::RENDERING | BufferObjectFlags::LINEAR;
+    alloc_linear_flags(node, width, height, fourcc, gbm_fmt, flags | BufferObjectFlags::SCANOUT)
+        .or_else(|e| {
+            warn!("linear+scanout alloc failed ({e:?}); retrying plain linear (tight pitch)");
+            alloc_linear_flags(node, width, height, fourcc, gbm_fmt, flags)
+        })
+}
+
+/// Allocate one LINEAR bo with the given gbm usage flags and export it as a dmabuf.
+fn alloc_linear_flags(
+    node: &str,
+    width: u32,
+    height: u32,
+    fourcc: Fourcc,
+    gbm_fmt: GbmFormat,
+    flags: BufferObjectFlags,
+) -> Result<AllocatedDmabuf, AllocError> {
+    let drm_file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(Path::new(node))
+        .map_err(AllocError::OpenDrm)?;
+    let drm_fd: OwnedFd = drm_file.into();
+    let gbm = GbmDevice::new(drm_fd).map_err(AllocError::GbmInit)?;
+
+    let bo = gbm
+        .create_buffer_object::<()>(width, height, gbm_fmt, flags)
+        .map_err(AllocError::CreateBo)?;
+    let modifier = bo.modifier();
+    let stride = bo.stride_for_plane(0);
+    info!(
+        "linear BO {}x{} fourcc={:?} modifier={:?} stride={} tight_pitch={} 256_aligned={} scanout={} offset={} planes={}",
+        width,
+        height,
+        fourcc,
+        modifier,
+        stride,
+        width * 4,
+        stride % 256 == 0,
+        flags.contains(BufferObjectFlags::SCANOUT),
+        bo.offset(0),
+        bo.plane_count()
+    );
+
+    let plane_count = bo.plane_count();
+    let mut builder = Dmabuf::builder((width as i32, height as i32), fourcc, modifier, DmabufFlags::empty());
+    for plane in 0..plane_count {
+        let fd = bo.fd_for_plane(plane as i32).map_err(AllocError::ExportFd)?;
+        let offset = bo.offset(plane as i32);
+        let stride = bo.stride_for_plane(plane as i32);
+        builder.add_plane(fd, plane as u32, offset, stride);
+    }
+    let dmabuf = builder.build().ok_or(AllocError::BuildDmabuf)?;
+    publish_stats("gbm-iced-linear", fourcc, modifier, plane_count);
+    Ok(AllocatedDmabuf { dmabuf, _bo: bo, _gbm: gbm })
 }
 
 fn allocate_with_modifiers(

@@ -94,6 +94,22 @@ pub fn bridge_modifiers(
     BridgeFormats::intersect(&[renderer, wgpu_importable]).modifiers_for(fourcc, ex::get(), ex::raw())
 }
 
+/// Whether the render-importable ∩ wgpu-importable intersection has NO modifier
+/// for `fourcc` — the empty-intersection case that mandates the untiling blit
+/// floor on a split render/scanout system (see `document/GPU_UNTILE_BLIT.md`).
+///
+/// Unlike [`bridge_modifiers`], this ignores the FORCE_*/NO_NEGOTIATE flags: it
+/// answers the pure hardware question "can any single buffer satisfy both sides?"
+/// so the two-buffer decision doesn't hinge on a modifier-selection preference.
+pub fn bridge_intersection_empty(
+    renderer: FormatSet,
+    wgpu_importable: FormatSet,
+    fourcc: Fourcc,
+) -> bool {
+    let shared = BridgeFormats::intersect(&[renderer, wgpu_importable]);
+    !shared.set.iter().any(|f| f.code == fourcc)
+}
+
 /// Resolve FORCE_LINEAR / FORCE_TILED; when both are set, last-in-`raw` wins.
 fn resolve_force(flags: GpuFlags, raw: &[String]) -> (bool, bool) {
     let fl = flags.contains(GpuFlags::FORCE_LINEAR);

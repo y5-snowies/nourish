@@ -22,9 +22,46 @@ pub const TEXTURE_USAGE: wgpu::TextureUsages = wgpu::TextureUsages::RENDER_ATTAC
     .union(wgpu::TextureUsages::COPY_SRC)
     .union(wgpu::TextureUsages::COPY_DST);
 
+/// Copy-DESTINATION-only usage for the untiling blit's LINEAR output buffer — no
+/// `RENDER_ATTACHMENT`, since a LINEAR dmabuf isn't color-attachable on hardware
+/// like NVIDIA proprietary; `COPY_DST` (`TransferDst`) is the weaker requirement
+/// that lets it be a copy target. See `document/GPU_UNTILE_BLIT.md`.
+pub const TEXTURE_USAGE_TRANSFER_DST: wgpu::TextureUsages =
+    wgpu::TextureUsages::COPY_DST.union(wgpu::TextureUsages::COPY_SRC);
+
+/// Import a `Dmabuf` as a render-attachment `wgpu::Texture` (Bevy renders into it).
 pub fn import_dmabuf_to_wgpu(
     ctx: &WgpuVulkanContext,
     dmabuf: &Dmabuf,
+) -> Result<wgpu::Texture, WgpuImportError> {
+    import_dmabuf_to_wgpu_with(
+        ctx,
+        dmabuf,
+        TextureUses::COLOR_TARGET | TextureUses::RESOURCE | TextureUses::COPY_SRC | TextureUses::COPY_DST,
+        TEXTURE_USAGE,
+    )
+}
+
+/// Import a `Dmabuf` as a copy-DESTINATION `wgpu::Texture` — the untiling blit's
+/// LINEAR output buffer, written by the render GPU via `copy_texture_to_texture`
+/// and never rendered into directly.
+pub fn import_dmabuf_to_wgpu_transfer_dst(
+    ctx: &WgpuVulkanContext,
+    dmabuf: &Dmabuf,
+) -> Result<wgpu::Texture, WgpuImportError> {
+    import_dmabuf_to_wgpu_with(
+        ctx,
+        dmabuf,
+        TextureUses::COPY_DST | TextureUses::COPY_SRC,
+        TEXTURE_USAGE_TRANSFER_DST,
+    )
+}
+
+fn import_dmabuf_to_wgpu_with(
+    ctx: &WgpuVulkanContext,
+    dmabuf: &Dmabuf,
+    hal_uses: TextureUses,
+    wgpu_usage: wgpu::TextureUsages,
 ) -> Result<wgpu::Texture, WgpuImportError> {
     let size = dmabuf.size();
     let fd = dmabuf.handles().next().ok_or(WgpuImportError::NoFd)?;
@@ -55,7 +92,7 @@ pub fn import_dmabuf_to_wgpu(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: TEXTURE_FORMAT,
-        usage: TextureUses::COLOR_TARGET | TextureUses::RESOURCE | TextureUses::COPY_SRC | TextureUses::COPY_DST,
+        usage: hal_uses,
         memory_flags: MemoryFlags::empty(),
         view_formats: vec![],
     };
@@ -95,7 +132,7 @@ pub fn import_dmabuf_to_wgpu(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: TEXTURE_FORMAT,
-        usage: TEXTURE_USAGE,
+        usage: wgpu_usage,
         view_formats: &[],
     };
 

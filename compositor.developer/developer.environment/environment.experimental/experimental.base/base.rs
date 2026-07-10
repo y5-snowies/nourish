@@ -30,6 +30,14 @@ bitflags! {
         /// RENDERING) so the driver picks a scanout-plane-compatible (tiled) modifier
         /// — TEMPORARY, until the bridge negotiation intersects the plane modifiers.
         const SCANOUT_BRIDGE = 1 << 9;
+        /// Enable the render→scanout **untiling blit** floor for the iced/bevy
+        /// bridge surface on a split render/scanout system (see
+        /// `document/GPU_UNTILE_BLIT.md`). When the render∩scanout modifier
+        /// intersection is EMPTY, the bridge surface is backed by TWO buffers — a
+        /// render-GPU-native tiled render target plus a `LINEAR` buffer on the
+        /// scanout card — and iced's frame is GPU-copied (untiled) into the LINEAR
+        /// buffer the scanout side can import. Off = today's single-buffer path.
+        const UNTILE_BLIT = 1 << 10;
     }
 }
 
@@ -45,6 +53,7 @@ fn bit_for(flag: &str) -> Option<GpuFlags> {
         "gpu_no_pin_wgpu_node" => GpuFlags::NO_PIN_WGPU_NODE,
         "gpu_no_direct_scanout" => GpuFlags::NO_DIRECT_SCANOUT,
         "gpu_scanout_bridge" => GpuFlags::SCANOUT_BRIDGE,
+        "gpu_untile_blit" => GpuFlags::UNTILE_BLIT,
         _ => return None,
     })
 }

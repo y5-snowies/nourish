@@ -26,6 +26,12 @@
   "compositor.support/support.bevy/bevy.core/core.import/import.base": [
     "size"
   ],
+  "compositor.support/support.bevy/bevy.core/core.surface/surface.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.instance/instance.base": [
+    "size"
+  ],
   "compositor.kernel/kernel.graphic/graphic.bridge/bridge.negotiate/negotiate.base": [
     "size"
   ],

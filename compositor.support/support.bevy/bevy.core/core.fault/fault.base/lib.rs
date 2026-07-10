@@ -22,6 +22,9 @@ pub enum AllocError {
 
     #[error("failed to build Dmabuf from gbm buffer")]
     BuildDmabuf,
+
+    #[error("fourcc {0:?} has no gbm mapping for a linear scanout allocation")]
+    UnsupportedFourcc(smithay::backend::allocator::Fourcc),
 }
 
 #[derive(Debug, thiserror::Error)]

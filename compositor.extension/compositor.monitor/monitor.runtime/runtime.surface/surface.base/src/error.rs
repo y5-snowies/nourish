@@ -24,6 +24,9 @@ pub enum AllocError {
 
     #[error("invalid dimensions: width and height must be > 0 (got {width}x{height})")]
     InvalidDimensions { width: u32, height: u32 },
+
+    #[error("fourcc {0:?} has no gbm mapping for a linear scanout allocation")]
+    UnsupportedFourcc(smithay::backend::allocator::Fourcc),
 }
 
 #[derive(Debug, thiserror::Error)]
