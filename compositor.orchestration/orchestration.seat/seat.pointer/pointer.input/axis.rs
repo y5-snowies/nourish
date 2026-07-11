@@ -36,6 +36,8 @@ pub fn axis<I: InputBackend>(event: &<I as InputBackend>::PointerAxisEvent, _loo
             x: location.x,
             y: location.y,
             finger,
+            // A real touchpad glide always feeds momentum; touch overrides per gesture.
+            momentum: true,
         };
         if compositor_orchestration_input_drive_base::drive::route(_loop, ev)
             == compositor_support_system_input_event_base::base::InputFlow::Consume

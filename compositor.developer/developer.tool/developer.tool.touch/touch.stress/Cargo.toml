@@ -1,0 +1,25 @@
+# Standalone Wayland touch test/visualiser. A real `wl_touch` client used to
+# exercise the compositor's touch path: binds every wl_touch feature (down / up /
+# motion / frame / shape / orientation / cancel) and visualises them, with a mode
+# to NOT bind wl_touch so the compositor's pointer-emulation fallback is exercised.
+# Deliberately OUTSIDE the repo's link.all.sh graph: own [workspace], own lock,
+# crates.io deps only, plain-stderr diagnostics. Also a scaffold for developing
+# future touch features (text selection, etc.).
+[package]
+name = "y5-touch-stress"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+# Own workspace root so cargo does not walk up into the compositor workspaces.
+[workspace]
+
+[[bin]]
+name = "touch-stress"
+path = "src/main.rs"
+
+[dependencies]
+smithay-client-toolkit = "0.19"
+wayland-client = "0.31"
+calloop = "0.13"

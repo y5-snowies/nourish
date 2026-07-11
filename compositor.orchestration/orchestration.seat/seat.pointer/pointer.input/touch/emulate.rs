@@ -38,3 +38,20 @@ pub fn release(_loop: &mut compositor_orchestration_core_state_base::Loop, time:
         _loop,
     );
 }
+
+/// Drive a canvas finger-pan on the world bus (anchored at the current pointer
+/// location, natural-scroll honoured like the trackpad axis path). `momentum`
+/// glides (fling/coast); `!momentum` is a strict 1:1 move (2-finger touch pan).
+pub fn pan(_loop: &mut compositor_orchestration_core_state_base::Loop, dx: f64, dy: f64, momentum: bool) {
+    let loc = _loop.state.seat.seat.get_pointer().unwrap().current_location();
+    let (h, v) = if _loop.inner.preference.input_natural_scroll { (-dx, -dy) } else { (dx, dy) };
+    let ev = compositor_support_system_input_event_base::base::InputEvent::PointerAxis {
+        horizontal: h,
+        vertical: v,
+        x: loc.x,
+        y: loc.y,
+        finger: true,
+        momentum,
+    };
+    let _ = compositor_orchestration_input_drive_base::drive::route(_loop, ev);
+}

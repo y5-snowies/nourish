@@ -336,6 +336,7 @@ compositor_kernel_native_render_execute_base = { path = "../compositor.kernel/ke
 compositor_kernel_native_wire_entry_base = { path = "../compositor.kernel/kernel.native/native.wire/wire.entry/entry.base" }
 compositor_kernel_native_wire_frame_base = { path = "../compositor.kernel/kernel.native/native.wire/wire.frame/frame.base" }
 compositor_kernel_native_wire_input_base = { path = "../compositor.kernel/kernel.native/native.wire/wire.input/input.base" }
+compositor_kernel_native_wire_input_map = { path = "../compositor.kernel/kernel.native/native.wire/wire.input/input.map" }
 compositor_kernel_native_wire_plugin_base = { path = "../compositor.kernel/kernel.native/native.wire/wire.plugin/plugin.base" }
 compositor_kernel_native_wire_session_base = { path = "../compositor.kernel/kernel.native/native.wire/wire.session/session.base" }
 compositor_kernel_scanout_commit_build_base = { path = "../compositor.kernel/kernel.scanout/scanout.commit/commit.build/build.base" }

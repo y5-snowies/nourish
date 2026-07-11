@@ -2,7 +2,7 @@
 //! surface protocol/handler. iced-free so the protocol crate can name it.
 use compositor_developer_environment_config_base::base::Environment;
 use compositor_developer_environment_preference_base::base::{Ime, KeyboardLayout};
-use compositor_orchestration_driver_output_base::base::{ApplyResult, DisplayInfo, ModeInfo};
+use compositor_orchestration_driver_output_base::base::{ApplyResult, DisplayInfo, ModeInfo, TouchDeviceInfo};
 
 /// A provisional per-monitor mode change the user can Keep/Revert: the target
 /// monitor (by EDID identity key) and the mode to drive it at. Multi-output: every
@@ -130,6 +130,12 @@ pub enum SettingsMessage {
     /// Live connected-monitor list pushed in on hotplug (NOT forwarded): refreshes
     /// the Display picker for the open session.
     SyncDisplays(Vec<DisplayInfo>),
+    /// Live connected touch-device list pushed in on hotplug (NOT forwarded):
+    /// refreshes the Display tab's per-monitor touch-claim control.
+    SyncTouchDevices(Vec<TouchDeviceInfo>),
+    /// Claim (`Some`) or release (`None`) a touch device for a monitor (forwarded):
+    /// `(edid_key, device_id)`. Persists to `preferences.json` and re-routes touch.
+    ClaimTouch(String, Option<String>),
     /// Available background-shader bundles + the active world's current selection,
     /// pushed in by the embed (NOT forwarded): populates the shader picker.
     SyncShaders(Vec<String>, Option<String>),

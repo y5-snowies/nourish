@@ -3138,6 +3138,7 @@ dependencies = [
  "compositor_orchestration_driver_settings_base",
  "compositor_orchestration_environment_type_base",
  "compositor_orchestration_seat_gesture_state",
+ "compositor_orchestration_seat_gesture_touch",
  "compositor_orchestration_seat_pointer_state",
  "compositor_orchestration_seat_pointer_texture",
  "compositor_orchestration_seat_system_pointer",
@@ -3329,6 +3330,13 @@ dependencies = [
 [[package]]
 name = "compositor_orchestration_seat_gesture_state"
 version = "0.0.1"
+
+[[package]]
+name = "compositor_orchestration_seat_gesture_touch"
+version = "0.0.1"
+dependencies = [
+ "smithay",
+]
 
 [[package]]
 name = "compositor_orchestration_seat_pointer_element"

@@ -50,6 +50,10 @@ pub enum InputEvent {
         /// discrete scroll wheel. Lets the canvas treat two-finger touchpad
         /// scroll (pan) differently from mouse-wheel scroll (zoom).
         finger: bool,
+        /// A finger pan that should feed momentum (fling/coast) — true for a real
+        /// touchpad glide and a 1-finger touch glide; false for a 2-finger touch
+        /// pan, which is a strict 1:1 move with no coast.
+        momentum: bool,
     },
     /// Touchpad pinch gesture, translated from the libinput pinch lifecycle.
     /// Carries the cursor location (the zoom anchor) and, on `Update`, the

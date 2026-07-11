@@ -45,11 +45,16 @@ pub struct OutputProfile {
     /// so an older `preferences.json` without the field drives every monitor as before.
     #[serde(default = "profile_active_default")]
     pub active: bool,
+    /// Stable id ("name serial") of the touch INPUT device the user claimed for
+    /// this monitor in the settings Display tab, so its touches route here. A device
+    /// is claimed by at most one monitor. `None` = auto-correlated (size/EDID/USB).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub touch_device: Option<String>,
 }
 
 impl Default for OutputProfile {
     fn default() -> Self {
-        Self { identity: None, mode: None, active: true }
+        Self { identity: None, mode: None, active: true, touch_device: None }
     }
 }
 
@@ -273,7 +278,7 @@ pub fn upsert_output(outputs: &mut Vec<OutputProfile>, edid_key: &str, mode: Mod
     if let Some(p) = outputs.iter_mut().find(|p| p.identity.as_deref() == Some(edid_key)) {
         p.mode = Some(mode);
     } else {
-        outputs.push(OutputProfile { identity: Some(edid_key.to_string()), mode: Some(mode), active: true });
+        outputs.push(OutputProfile { identity: Some(edid_key.to_string()), mode: Some(mode), active: true, touch_device: None });
     }
 }
 
@@ -293,7 +298,47 @@ pub fn set_active(outputs: &mut Vec<OutputProfile>, edid_key: &str, active: bool
     if let Some(p) = outputs.iter_mut().find(|p| p.identity.as_deref() == Some(edid_key)) {
         p.active = active;
     } else {
-        outputs.push(OutputProfile { identity: Some(edid_key.to_string()), mode: None, active });
+        outputs.push(OutputProfile { identity: Some(edid_key.to_string()), mode: None, active, touch_device: None });
+    }
+}
+
+/// The touch-device id (if any) claimed by the monitor keyed by `edid_key`.
+pub fn touch_device_of<'a>(outputs: &'a [OutputProfile], edid_key: &str) -> Option<&'a str> {
+    outputs
+        .iter()
+        .find(|p| p.identity.as_deref() == Some(edid_key))
+        .and_then(|p| p.touch_device.as_deref())
+}
+
+/// The monitor (EDID key) that claimed touch device `device_id`, if any.
+pub fn output_for_touch(outputs: &[OutputProfile], device_id: &str) -> Option<String> {
+    outputs
+        .iter()
+        .find(|p| p.touch_device.as_deref() == Some(device_id))
+        .and_then(|p| p.identity.clone())
+}
+
+/// Claim (`Some`) or release (`None`) touch device `device_id` for `edid_key`. A
+/// device belongs to at most one monitor, so a claim first clears that id from
+/// EVERY other profile, then sets it on the target (inserting an identity-only
+/// profile if none exists). Preserves the target's mode/active/position.
+pub fn set_touch_device(outputs: &mut Vec<OutputProfile>, edid_key: &str, device_id: Option<String>) {
+    if let Some(id) = &device_id {
+        for p in outputs.iter_mut() {
+            if p.touch_device.as_deref() == Some(id.as_str()) {
+                p.touch_device = None;
+            }
+        }
+    }
+    if let Some(p) = outputs.iter_mut().find(|p| p.identity.as_deref() == Some(edid_key)) {
+        p.touch_device = device_id;
+    } else if device_id.is_some() {
+        outputs.push(OutputProfile {
+            identity: Some(edid_key.to_string()),
+            mode: None,
+            active: true,
+            touch_device: device_id,
+        });
     }
 }
 
@@ -310,7 +355,7 @@ pub fn set_layout(prefs: &mut Preference, placements: Vec<LayoutPlacement>) {
 pub fn set_default(outputs: &mut Vec<OutputProfile>, edid_key: &str) {
     let profile = match outputs.iter().position(|p| p.identity.as_deref() == Some(edid_key)) {
         Some(i) => outputs.remove(i),
-        None => OutputProfile { identity: Some(edid_key.to_string()), mode: None, active: true },
+        None => OutputProfile { identity: Some(edid_key.to_string()), mode: None, active: true, touch_device: None },
     };
     outputs.insert(0, profile);
 }

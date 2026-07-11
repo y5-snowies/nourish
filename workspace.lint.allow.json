@@ -1,4 +1,7 @@
 {
+  "compositor.kernel/kernel.native/native.wire/wire.input/input.map": [
+    "size"
+  ],
   "compositor.expansion/compositor.background/background.two/two.shader/shader.property": [
     "size"
   ],

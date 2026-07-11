@@ -3612,6 +3612,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_kernel_input_libinput_config_base"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
+ "compositor_developer_debug_instance_record",
+ "smithay",
+]
+
+[[package]]
 name = "compositor_kernel_input_libinput_factory_base"
 version = "0.0.1"
 dependencies = [
@@ -4049,11 +4058,22 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
+ "compositor_kernel_input_libinput_config_base",
  "compositor_kernel_input_loop_libinput_base",
  "compositor_kernel_native_context_render_base",
+ "compositor_kernel_native_wire_input_map",
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_draw_state_lifecycle",
  "compositor_orchestration_driver_lid_base",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_native_wire_input_map"
+version = "0.0.1"
+dependencies = [
+ "compositor_orchestration_core_state_base",
+ "compositor_orchestration_driver_output_base",
  "smithay",
 ]
 
@@ -5077,6 +5097,7 @@ dependencies = [
  "compositor_orchestration_draw_scene_element",
  "compositor_orchestration_driver_remote_base",
  "compositor_orchestration_seat_pointer_draw",
+ "compositor_orchestration_seat_pointer_input",
  "compositor_orchestration_smithay_data_base",
  "compositor_remote_client_handle_base",
  "compositor_support_bevy_core_compositor_base",

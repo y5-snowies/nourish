@@ -3439,6 +3439,7 @@ dependencies = [
  "compositor_orchestration_draw_scene_element",
  "compositor_orchestration_driver_remote_base",
  "compositor_orchestration_seat_pointer_draw",
+ "compositor_orchestration_seat_pointer_input",
  "compositor_orchestration_smithay_data_base",
  "compositor_remote_client_handle_base",
  "compositor_support_bevy_core_compositor_base",

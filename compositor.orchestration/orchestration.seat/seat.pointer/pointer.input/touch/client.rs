@@ -23,10 +23,33 @@ fn focus_of(hit: &SurfaceHit) -> Option<(WlSurface, Point<f64, Logical>)> {
     }
 }
 
-/// Is the *topmost* thing under this world point a client surface (window/layer)?
-/// A client below an iced overlay (e.g. the menu bar) does not count.
+/// Should this touch sequence be delivered as native `wl_touch`? Only when the
+/// topmost thing under the point is a client surface (window/layer, not an iced
+/// overlay) AND that client actually bound `wl_touch` — e.g. Blender or a
+/// touch-aware Chrome. Every other surface returns `false` and falls through to
+/// pointer emulation, so ordinary apps behave exactly like they do under a
+/// trackpad (and multi-finger gestures over them still reach the canvas).
 pub fn is_client(_loop: &mut Loop, world: Point<f64, Logical>) -> bool {
-    matches!(topmost(_loop, world), Some(SurfaceHit::Window { .. }) | Some(SurfaceHit::Layer { .. }))
+    let Some((surface, _)) = topmost(_loop, world).as_ref().and_then(focus_of) else {
+        return false;
+    };
+    _loop
+        .state
+        .seat
+        .seat
+        .get_touch()
+        .map(|t| t.client_has_touch(&surface))
+        .unwrap_or(false)
+}
+
+/// Is the topmost thing under this world point a window or layer surface? Used to
+/// split single-finger touch: over a window/layer → click/drag; otherwise (empty
+/// canvas / passthrough) → glide-pan.
+pub fn over_window(_loop: &mut Loop, world: Point<f64, Logical>) -> bool {
+    matches!(
+        topmost(_loop, world),
+        Some(SurfaceHit::Window { .. }) | Some(SurfaceHit::Layer { .. })
+    )
 }
 
 fn slot(id: i32) -> smithay::backend::input::TouchSlot {

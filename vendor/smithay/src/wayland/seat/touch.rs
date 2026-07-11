@@ -32,6 +32,17 @@ impl<D: SeatHandler + 'static> TouchHandle<D> {
     pub fn from_resource(seat: &WlTouch) -> Option<Self> {
         seat.data::<TouchUserData<D>>()?.handle.clone()
     }
+
+    /// Whether `surface`'s client has bound any live `wl_touch` for this seat — i.e.
+    /// it accepts native multi-touch. When `false` the compositor should emulate the
+    /// pointer for touch instead of forwarding `wl_touch` to this surface.
+    pub fn client_has_touch(&self, surface: &WlSurface) -> bool {
+        self.known_instances.lock().unwrap().iter().any(|(t, _)| {
+            t.upgrade()
+                .map(|t| t.id().same_client_as(&surface.id()))
+                .unwrap_or(false)
+        })
+    }
 }
 
 fn for_each_focused_touch<D: SeatHandler + 'static>(

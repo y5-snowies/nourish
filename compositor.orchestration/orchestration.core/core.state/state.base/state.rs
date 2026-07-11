@@ -85,6 +85,12 @@ pub struct Orchestrator {
     /// which output's size/scale the input-path contexts use. `None` until the first
     /// crossing resolves it; the resolver falls back to the sole/primary output.
     pub cursor_output: Option<compositor_orchestration_driver_output_base::base::OutputKey>,
+    /// Saved pointer-cursor state while a TOUCH sequence owns the single active
+    /// output. `Some` ⇒ the cursor is "hidden" and touch drives the touched panel;
+    /// the snapshot is restored (position + output) the moment a real pointer/mouse
+    /// event arrives, so the cursor reappears exactly where it was. See
+    /// [`TouchCursor`].
+    pub saved_cursor: Option<CursorSnapshot>,
     pub status: Status,
     /// One-shot request to run the renderer-free lock engage (`lock_logical`) off
     /// the render loop. The lock keybinding sets `Status::Locked` synchronously and
@@ -256,6 +262,7 @@ impl Orchestrator {
         // Kernel-written full connector list (the settings Display panel's monitor
         // picker + advertised modes).
         kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUTS_SNAPSHOT, Default::default());
+        kernel_data.insert(&compositor_orchestration_driver_output_base::base::TOUCH_DEVICES_SNAPSHOT, Default::default());
         // Rim→kernel: request a reconcile pass after an activate/deactivate.
         kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUT_RECONCILE_REQUEST, false);
         // Baseline of a provisional activate/deactivate awaiting the "check changes"
@@ -278,6 +285,7 @@ impl Orchestrator {
             render_target: None,
             render_output: None,
             cursor_output: None,
+            saved_cursor: None,
             lock_engage: false,
             control_ping: None,
             __set_picker: None,
@@ -857,4 +865,93 @@ impl CoordinateTrait for Loop {
         )
     }
 
+}
+
+/// Snapshot of the shared pointer cursor, taken when a touch sequence takes over
+/// the single active output; restored (position + output) when a pointer/mouse
+/// event next arrives. See [`Orchestrator::saved_cursor`] / [`TouchCursor`].
+pub struct CursorSnapshot {
+    /// Physical-pixel accumulator (`pointer().motion`).
+    pub motion: smithay::utils::Point<f64, smithay::utils::Logical>,
+    /// The active output the cursor was on.
+    pub output: Option<compositor_orchestration_driver_output_base::base::OutputKey>,
+    /// The seat pointer's world location.
+    pub location: smithay::utils::Point<f64, smithay::utils::Logical>,
+}
+
+/// The single shared cursor "disappears" while a touch sequence owns the active
+/// output, and is restored the instant a real pointer/mouse event arrives.
+pub trait TouchCursor {
+    /// Entering touch: snapshot the cursor once (no-op if already held).
+    fn touch_enter(&mut self);
+    /// If a pointer/tablet/gesture event arrived while touch held the cursor,
+    /// restore the snapshot (position + active output) and show the cursor again.
+    /// Keyboard / touch / device / switch events are not pointer use.
+    fn touch_restore_if_pointer<I: smithay::backend::input::InputBackend>(
+        &mut self,
+        event: &smithay::backend::input::InputEvent<I>,
+    );
+}
+
+impl TouchCursor for Loop {
+    fn touch_enter(&mut self) {
+        if self.inner.saved_cursor.is_some() {
+            return;
+        }
+        let Some(location) = self.state.seat.seat.get_pointer().map(|p| p.current_location()) else {
+            return;
+        };
+        self.inner.saved_cursor = Some(CursorSnapshot {
+            motion: self.inner.pointer().motion,
+            output: self.inner.cursor_output.clone(),
+            location,
+        });
+    }
+
+    fn touch_restore_if_pointer<I: smithay::backend::input::InputBackend>(
+        &mut self,
+        event: &smithay::backend::input::InputEvent<I>,
+    ) {
+        use smithay::backend::input::InputEvent::*;
+        let pointer_used = !matches!(
+            event,
+            Keyboard { .. }
+                | TouchDown { .. }
+                | TouchMotion { .. }
+                | TouchUp { .. }
+                | TouchCancel { .. }
+                | TouchFrame { .. }
+                | SwitchToggle { .. }
+                | DeviceAdded { .. }
+                | DeviceRemoved { .. }
+                | Special(_)
+        );
+        if !pointer_used {
+            return;
+        }
+        let Some(snap) = self.inner.saved_cursor.take() else {
+            return;
+        };
+        self.inner.pointer_mut().motion = snap.motion;
+        self.inner.cursor_output = snap.output.clone();
+        if let Some(key) = &snap.output {
+            self.inner.output_views_mut().set_current(key);
+        }
+        // Re-place the seat cursor where it was, so a pointer button (no motion)
+        // acts at the right spot and the reappearing cursor doesn't flash at the
+        // touch location; a following relative motion re-derives it anyway.
+        if let Some(pointer) = self.state.seat.seat.get_pointer() {
+            let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+            let time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u32)
+                .unwrap_or(0);
+            pointer.motion(
+                &mut self.state,
+                None,
+                &smithay::input::pointer::MotionEvent { location: snap.location, serial, time },
+            );
+            pointer.frame(&mut self.state);
+        }
+    }
 }

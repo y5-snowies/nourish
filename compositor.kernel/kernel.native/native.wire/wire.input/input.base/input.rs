@@ -3,12 +3,12 @@
 
 use compositor_kernel_input_loop_libinput_base::libinput::LibinputSource;
 use compositor_kernel_native_context_render_base::render::NativeRenderContext;
-use smithay::backend::input::InputEvent;
-use smithay::reexports::input::DeviceCapability;
+use smithay::backend::input::{Event, InputEvent};
+use smithay::reexports::input::{Device, DeviceCapability};
 use smithay::reexports::calloop::EventLoop;
 use std::cell::RefCell;
 use std::rc::Rc;
-use compositor_orchestration_core_state_base::state::StatusSession;
+use compositor_orchestration_core_state_base::state::{StatusSession, TouchCursor};
 use compositor_orchestration_core_state_base::Loop;
 
 pub fn register(
@@ -22,30 +22,60 @@ pub fn register(
             if let StatusSession::Paused = state.inner.status_session {
                 return;
             }
-            // Track physical keyboards so `led_state_changed` can drive their
-            // LEDs, and seed each newly added keyboard with the current LED
-            // state (e.g. the NumLock-on-by-default set at seat creation).
+            // Per-device libinput settings (tap-to-click); track keyboards (LED
+            // mirroring) and touch devices (settings claim list).
             match &event {
-                InputEvent::DeviceAdded { device }
-                    if device.has_capability(DeviceCapability::Keyboard) =>
-                {
+                InputEvent::DeviceAdded { device } => {
                     let mut device = device.clone();
-                    if let Some(keyboard) = state.state.seat.seat.get_keyboard() {
-                        device.led_update(keyboard.led_state().into());
+                    compositor_kernel_input_libinput_config_base::config::on_device_added(
+                        &mut device,
+                        &Default::default(),
+                    );
+                    if device.has_capability(DeviceCapability::Keyboard) {
+                        if let Some(keyboard) = state.state.seat.seat.get_keyboard() {
+                            device.led_update(keyboard.led_state().into());
+                        }
+                        state.state.seat.keyboards.push(device);
+                    } else if device.has_capability(DeviceCapability::Touch) {
+                        state.state.seat.touch_devices.push(device);
+                        compositor_kernel_native_wire_input_map::map::write_touch_snapshot(state);
                     }
-                    state.state.seat.keyboards.push(device);
                 }
                 InputEvent::DeviceRemoved { device } => {
                     state.state.seat.keyboards.retain(|d| d != device);
+                    state.state.seat.touch_devices.retain(|d| d != device);
+                    compositor_kernel_native_wire_input_map::map::write_touch_snapshot(state);
                 }
                 _ => {}
             }
-            // Any input event potentially changes what should be on screen
-            // (cursor position, focus, key feedback). Request a redraw.
+            // A touch must land on the touch device's OWN display: resolve its
+            // output via libinput `output_name`, pin the cursor there, else discard.
+            let touch_device: Option<Device> = match &event {
+                InputEvent::TouchDown { event } => Some(event.device()),
+                InputEvent::TouchMotion { event } => Some(event.device()),
+                InputEvent::TouchUp { event } => Some(event.device()),
+                InputEvent::TouchCancel { event } => Some(event.device()),
+                InputEvent::TouchFrame { event } => Some(event.device()),
+                _ => None,
+            };
+            if let Some(device) = touch_device {
+                let Some(key) =
+                    compositor_kernel_native_wire_input_map::map::touch_output(state, &device)
+                else {
+                    return;
+                };
+                // Entering touch mode: hide + snapshot the shared cursor, then hand
+                // the single active output to the touched panel.
+                state.touch_enter();
+                state.inner.cursor_output = Some(key.clone());
+                state.inner.output_views_mut().set_current(&key);
+            }
+            // A real pointer/mouse event ends touch mode: restore the cursor where
+            // it was (position + monitor) before this event is routed.
+            state.touch_restore_if_pointer(&event);
             // When DARK (no output), only keyboard events run the full pipeline so
             // the always-on fixed shortcuts (VT switch, volume, media) still work;
-            // pointer/touch/gesture processing is dropped (no display to interact
-            // with — avoids warping the cursor / refocusing against a dead space).
+            // pointer/touch/gesture processing is dropped (no display to interact with).
             let dark = *state.inner.kernel.get(
                 &compositor_orchestration_driver_lid_base::base::DISPLAY_OFF,
             ) || ctx_rc.borrow().pipe().drm_output.is_none();

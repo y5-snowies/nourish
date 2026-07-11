@@ -361,11 +361,19 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
             let layout = compositor_orchestration_driver_output_base::base::build_teleport(&state.inner.preference, &keys);
             *state.inner.kernel.get_mut(&compositor_orchestration_driver_output_base::base::TELEPORT_LAYOUT_MUT) = layout;
         }
+        // Claim/release a touch device for a monitor: persist to preferences.json.
+        // The per-frame pump re-reads the preference and re-sends SyncTouchDevices,
+        // so the UI + the touch resolver both reflect it on the next frame.
+        SettingsMessage::ClaimTouch(edid, device_id) => {
+            pref::set_touch_device(&mut state.inner.preference.outputs, &edid, device_id);
+            let _ = pref::save(&state.inner.preference);
+        }
         SettingsMessage::Fps(_)
         | SettingsMessage::Tick
         | SettingsMessage::ModeResult(_)
         | SettingsMessage::SyncSystem(..)
         | SettingsMessage::SyncDisplays(_)
+        | SettingsMessage::SyncTouchDevices(_)
         | SettingsMessage::SyncShaders(..)
         | SettingsMessage::SyncShaderProps(..)
         | SettingsMessage::SyncShaderPreview(..)

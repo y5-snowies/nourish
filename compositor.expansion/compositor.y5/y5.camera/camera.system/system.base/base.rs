@@ -80,6 +80,9 @@ enum CamCmd {
     /// is no screen-cursor accumulator — the libinput axis delta is already
     /// relative — so this never touches `position_previous`.
     PanBy(f64, f64),
+    /// Strict variant of `PanBy` (2-finger touch pan): advance the camera by the
+    /// zoom-scaled scroll delta with NO momentum — no accumulator, no coast.
+    PanByStrict(f64, f64),
     /// Per-frame momentum step. Converts the frame's accumulated pan into a
     /// velocity while the swipe is live, then coasts the camera along that
     /// velocity with friction once the fingers lift. Carries the frame delta
@@ -159,8 +162,17 @@ impl System for CameraSystem {
         // `Update`s here while canvas-owned.
         if let InputEvent::PointerPinch { phase, scale, x, y } = event {
             let cursor = Point::<f64, Logical>::from((*x, *y));
-            if !canvas_owns_gesture(cx, cursor) {
-                return InputFlow::Pass;
+            // Decide ownership ONCE, at Begin: the seat latches this verdict and
+            // only routes canvas-owned `Update`s here (window-owned ones go straight
+            // to the client). Re-checking on every event broke the 2-finger TOUCH
+            // pinch — its centroid can sit over a window BETWEEN the fingers even
+            // when both fingers are on empty canvas, so each `Update` bailed.
+            if *phase == PinchPhase::Begin {
+                return if canvas_owns_gesture(cx, cursor) {
+                    InputFlow::Consume
+                } else {
+                    InputFlow::Pass
+                };
             }
             if *phase == PinchPhase::Update && *scale != 1.0 {
                 cancel_travel(cx);
@@ -169,7 +181,7 @@ impl System for CameraSystem {
             return InputFlow::Consume;
         }
 
-        let InputEvent::PointerAxis { horizontal, vertical, x, y, finger } = event else {
+        let InputEvent::PointerAxis { horizontal, vertical, x, y, finger, momentum } = event else {
             return InputFlow::Pass;
         };
         let cursor = Point::<f64, Logical>::from((*x, *y));
@@ -178,15 +190,25 @@ impl System for CameraSystem {
         // tool, or empty space). Over a window otherwise the canvas does not own it
         // — Pass so the rim's native_axis scrolls the client.
         if *finger {
-            if !canvas_owns_gesture(cx, cursor) {
+            // A strict (2-finger touch) pan is only emitted for a canvas-owned
+            // gesture, so it does NOT re-check ownership — its centroid can sit over
+            // a window between the fingers. A momentum pan (trackpad / 1-finger
+            // touch, anchored at the finger) still gates on being over canvas.
+            if *momentum && !canvas_owns_gesture(cx, cursor) {
                 return InputFlow::Pass;
             }
             if *horizontal != 0.0 || *vertical != 0.0 {
                 // Direct user intent: drop any navigator travel so the easing
                 // doesn't fight the pan.
                 cancel_travel(cx);
-                cx.write(&CAM_BUF, CamCmd::PanBy(*horizontal, *vertical));
-            } else {
+                // `momentum` glides (fling/coast); otherwise a strict 1:1 move (a
+                // 2-finger touch pan) that never feeds the coast.
+                if *momentum {
+                    cx.write(&CAM_BUF, CamCmd::PanBy(*horizontal, *vertical));
+                } else {
+                    cx.write(&CAM_BUF, CamCmd::PanByStrict(*horizontal, *vertical));
+                }
+            } else if *momentum {
                 // libinput `Finger` source terminates the scroll with a 0,0 event:
                 // fingers lifted → launch the coast immediately (snappy release).
                 cx.write(&CAM_BUF, CamCmd::PanEnd);
@@ -326,6 +348,14 @@ impl System for CameraSystem {
                 camera.pan_accum = Point::from((camera.pan_accum.x + wdx, camera.pan_accum.y + wdy));
                 camera.panning = true;
                 camera.pan_idle_frames = 0;
+            }
+            CamCmd::PanByStrict(dx, dy) => {
+                // 1:1 move with no momentum: advance the camera and stop there.
+                let zoom = *camera.transform.zoom();
+                let nx = camera.transform.position().x + dx / zoom;
+                let ny = camera.transform.position().y + dy / zoom;
+                camera.transform.position = Point::from((nx, ny));
+                cx.channels.send(&CAMERA_MOVED_TX, CameraMoved { x: nx, y: ny });
             }
             CamCmd::PanInertiaTick(dt) => {
                 let moved = camera.pan_accum.x != 0.0 || camera.pan_accum.y != 0.0;

@@ -47,7 +47,15 @@ pub fn down<I: InputBackend>(event: &I::TouchDownEvent, _loop: &mut Loop) {
         } else {
             _loop.inner.touch.role = Role::Pointer;
             emulate::move_to(_loop, nx, ny, time);
-            emulate::press(_loop, time);
+            // Empty canvas → glide-pan (momentum) on drag; over a window/UI →
+            // click/drag. The tap-vs-drag decision is settled at release.
+            let glide = !client::over_window(_loop, world);
+            _loop.inner.touch.pointer_glide = glide;
+            _loop.inner.touch.pointer_moved = false;
+            _loop.inner.touch.prev_centroid = _loop.inner.touch.centroid();
+            if !glide {
+                emulate::press(_loop, time);
+            }
         }
         return;
     }
@@ -85,7 +93,18 @@ pub fn motion<I: InputBackend>(event: &I::TouchMotionEvent, _loop: &mut Loop) {
             let world = geom::world(_loop, phys);
             client::motion(_loop, id, world, time);
         }
-        Role::Pointer => emulate::move_to(_loop, nx, ny, time),
+        Role::Pointer => {
+            if _loop.inner.touch.pointer_glide {
+                // Glide-pan the canvas by the finger delta (momentum).
+                _loop.inner.touch.pointer_moved = true;
+                let c = _loop.inner.touch.centroid();
+                let prev = _loop.inner.touch.prev_centroid;
+                _loop.inner.touch.prev_centroid = c;
+                emulate::pan(_loop, c.x - prev.x, c.y - prev.y, true);
+            } else {
+                emulate::move_to(_loop, nx, ny, time);
+            }
+        }
         Role::Gesture => gesture::update(_loop, time),
         Role::Idle => {}
     }
@@ -101,7 +120,19 @@ pub fn up<I: InputBackend>(event: &I::TouchUpEvent, _loop: &mut Loop) {
     let empty = _loop.inner.touch.is_empty();
     match role {
         Role::Client => client::up(_loop, id, time),
-        Role::Pointer => emulate::release(_loop, time),
+        Role::Pointer => {
+            if _loop.inner.touch.pointer_glide {
+                if _loop.inner.touch.pointer_moved {
+                    emulate::pan(_loop, 0.0, 0.0, true); // terminate → launch coast
+                } else {
+                    // A stationary tap on empty canvas → a click (clear selection).
+                    emulate::press(_loop, time);
+                    emulate::release(_loop, time);
+                }
+            } else {
+                emulate::release(_loop, time);
+            }
+        }
         Role::Gesture => {
             if empty {
                 let m = _loop.inner.touch.mode;

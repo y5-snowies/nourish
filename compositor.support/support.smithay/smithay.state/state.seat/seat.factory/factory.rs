@@ -38,8 +38,7 @@ where
     <I as SeatHandler>::PointerFocus: WaylandFocus,
     <I as SeatHandler>::KeyboardFocus: WaylandFocus,
 {
-    // A seat is a group of keyboards, pointer, and touch devices.
-    // It maintains keyboard focus (who gets keystrokes) and pointer focus (who gets mouse events).
+    // A seat groups keyboards/pointer/touch and maintains keyboard + pointer focus.
     let mut seat_state = SeatState::new();
 
     // Creates the actual `wl_seat` global named "winit" (often renamed to "seat0" in real setups).
@@ -94,5 +93,6 @@ where
         previous_focus: None,
         libseat: None,
         keyboards: Vec::new(),
+        touch_devices: Vec::new(),
     };
 }

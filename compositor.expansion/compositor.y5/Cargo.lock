@@ -3300,6 +3300,7 @@ dependencies = [
  "compositor_orchestration_driver_settings_base",
  "compositor_orchestration_environment_type_base",
  "compositor_orchestration_seat_gesture_state",
+ "compositor_orchestration_seat_gesture_touch",
  "compositor_orchestration_seat_pointer_state",
  "compositor_orchestration_seat_pointer_texture",
  "compositor_orchestration_seat_system_pointer",
@@ -3438,6 +3439,7 @@ dependencies = [
  "compositor_orchestration_draw_scene_element",
  "compositor_orchestration_driver_remote_base",
  "compositor_orchestration_seat_pointer_draw",
+ "compositor_orchestration_seat_pointer_input",
  "compositor_orchestration_smithay_data_base",
  "compositor_remote_client_handle_base",
  "compositor_support_bevy_core_compositor_base",
@@ -3598,6 +3600,13 @@ name = "compositor_orchestration_seat_gesture_state"
 version = "0.0.1"
 
 [[package]]
+name = "compositor_orchestration_seat_gesture_touch"
+version = "0.0.1"
+dependencies = [
+ "smithay",
+]
+
+[[package]]
 name = "compositor_orchestration_seat_keyboard_input"
 version = "0.0.1"
 dependencies = [
@@ -3646,6 +3655,44 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "xcursor",
+]
+
+[[package]]
+name = "compositor_orchestration_seat_pointer_input"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
+ "compositor_developer_environment_config_base",
+ "compositor_monitor_compositor_iced_base",
+ "compositor_orchestration_core_state_base",
+ "compositor_orchestration_draw_layer_base",
+ "compositor_orchestration_driver_output_base",
+ "compositor_orchestration_input_drive_base",
+ "compositor_orchestration_seat_gesture_touch",
+ "compositor_orchestration_seat_system_pointer",
+ "compositor_support_iced_core_engine_base",
+ "compositor_support_smithay_dispatch_state_base",
+ "compositor_support_system_input_event_base",
+ "compositor_y5_camera_state_base",
+ "compositor_y5_camera_system_base",
+ "compositor_y5_camera_transform_translate",
+ "compositor_y5_canvas_input_gesture",
+ "compositor_y5_canvas_input_keyboard",
+ "compositor_y5_canvas_input_state",
+ "compositor_y5_canvas_system_base",
+ "compositor_y5_lock_seat_input",
+ "compositor_y5_lock_system_base",
+ "compositor_y5_overview_input_pointer",
+ "compositor_y5_picker_seat_pointer",
+ "compositor_y5_surface_interface_base",
+ "compositor_y5_surface_system_base",
+ "compositor_y5_viewport_interaction_base",
+ "compositor_y5_window_interface_draw",
+ "compositor_y5_window_interface_record",
+ "smithay",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

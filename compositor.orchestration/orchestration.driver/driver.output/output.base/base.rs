@@ -141,6 +141,33 @@ pub struct OutputsSnapshot {
 pub static OUTPUTS_SNAPSHOT: Token<OutputsSnapshot> = Token::new();
 pub static OUTPUTS_SNAPSHOT_MUT: TokenMut<OutputsSnapshot> = TokenMut::new(&OUTPUTS_SNAPSHOT);
 
+/// Kernel → rim: one connected touch INPUT device, for the settings Display tab's
+/// per-monitor touch-claim control. Primitive (String only) — no smithay/libinput
+/// types cross the boundary.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TouchDeviceInfo {
+    /// Stable id ("name serial"), matched against `OutputProfile::touch_device`.
+    pub id: String,
+    /// Human-readable device name for the list.
+    pub name: String,
+    /// EDID key of the monitor that currently claims this device (`None` = auto).
+    /// Filled in by the settings pump from the live preference, so a claim shows up
+    /// immediately without waiting for a device hotplug.
+    pub assigned_edid: Option<String>,
+}
+
+/// Kernel → rim: every connected touch device, so the settings Display tab can
+/// offer them for per-monitor claiming.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TouchDevicesSnapshot {
+    pub devices: Vec<TouchDeviceInfo>,
+}
+
+/// Kernel-written touch-device list, read by the settings Display panel.
+pub static TOUCH_DEVICES_SNAPSHOT: Token<TouchDevicesSnapshot> = Token::new();
+pub static TOUCH_DEVICES_SNAPSHOT_MUT: TokenMut<TouchDevicesSnapshot> =
+    TokenMut::new(&TOUCH_DEVICES_SNAPSHOT);
+
 // ── Cursor-teleport layout ────────────────────────────────────────────────────
 // The output arrangement the cursor crosses between monitors. Primitive (String /
 // f32 / u64 / bool), so it lives in this smithay-free rim output-data crate — NOT on

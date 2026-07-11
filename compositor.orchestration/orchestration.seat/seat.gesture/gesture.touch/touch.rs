@@ -1,38 +1,33 @@
-//! Multi-finger touch session state (Orchestrator `inner.touch`). Contacts are
-//! held in physical pixels so gesture deltas match the trackpad's libinput units.
+//! Multi-finger touch session state (Orchestrator `inner.touch`); contacts held in
+//! physical pixels so gesture deltas match the trackpad's libinput units.
 use smithay::utils::{Physical, Point};
 
-/// One active finger.
 #[derive(Clone, Copy)]
 pub struct Contact {
     pub slot: i32,
     pub pos: Point<f64, Physical>,
 }
 
-/// What the whole touch sequence is doing — decided at the first finger down and
-/// held until every finger lifts.
+/// What the whole touch sequence is doing — decided at first finger down, held
+/// until every finger lifts. Client = `wl_touch` forward; Pointer = emulate the
+/// pointer; Gesture = 2+ fingers → a compositor gesture.
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
 pub enum Role {
     #[default]
     Idle,
-    /// First finger landed on a client surface → forward to `wl_touch`.
     Client,
-    /// One finger on the desktop / compositor UI → emulate the pointer.
     Pointer,
-    /// Two+ fingers on the desktop → a compositor gesture.
     Gesture,
 }
 
-/// The active compositor gesture, chosen by finger count within `Gesture`.
+/// The active compositor gesture, by finger count: 2 = pinch-zoom (+ centroid pan),
+/// 3 = directional swipe, 4 = pinch to fit one / fit all.
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
 pub enum Mode {
     #[default]
     None,
-    /// 2 fingers: pinch-zoom (with centroid pan).
     Zoom,
-    /// 3 fingers: directional swipe → navigator.
     Swipe,
-    /// 4 fingers: pinch to fit one / fit all.
     Fit,
 }
 
@@ -43,11 +38,14 @@ pub struct TouchTracker {
     pub contacts: Vec<Contact>,
     /// Centroid at the previous motion — source of per-update pan/swipe deltas.
     pub prev_centroid: Point<f64, Physical>,
-    /// Spread (mean distance to centroid) latched at gesture start; pinch scale =
-    /// current spread / base spread. `fit_scale` is the latest, read at release
-    /// for the 4-finger fit decision.
+    /// Spread latched at gesture start; pinch scale = current spread / base spread.
+    /// `fit_scale` is the latest, read at release for the 4-finger fit decision.
     pub base_spread: f64,
     pub fit_scale: f64,
+    /// Single-finger sub-state: `pointer_glide` = glide-pan on empty canvas (vs
+    /// click/drag over a window); `pointer_moved` tells a tap (→ click) from a drag.
+    pub pointer_glide: bool,
+    pub pointer_moved: bool,
 }
 
 impl TouchTracker {
@@ -95,5 +93,7 @@ impl TouchTracker {
         self.mode = Mode::None;
         self.base_spread = 0.0;
         self.fit_scale = 1.0;
+        self.pointer_glide = false;
+        self.pointer_moved = false;
     }
 }

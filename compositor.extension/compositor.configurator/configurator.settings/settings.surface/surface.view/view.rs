@@ -5,7 +5,7 @@ use compositor_developer_environment_config_base::base::Environment;
 use compositor_developer_environment_preference_base::base::{Ime, KeyboardLayout};
 use compositor_developer_environment_keybinding_base::base::KeyRow;
 use compositor_developer_environment_preference_base::base::LayoutPlacement;
-use compositor_orchestration_driver_output_base::base::{ApplyResult, DisplayInfo, ModeInfo, OutputsSnapshot};
+use compositor_orchestration_driver_output_base::base::{ApplyResult, DisplayInfo, ModeInfo, OutputsSnapshot, TouchDeviceInfo};
 use compositor_support_iced_core_engine_base::{IcedUi, Renderer};
 use compositor_y5_audio_controller_interface::interface::AudioState;
 use compositor_configurator_network_backend_base::base::WifiSnapshot;
@@ -31,6 +31,8 @@ pub struct Settings {
     pub dirty: bool,
     /// Every connected monitor (active + connected-but-inactive), for the picker.
     pub displays: Vec<DisplayInfo>,
+    /// Connected touch input devices, for the Display tab's per-monitor claim list.
+    pub touch_devices: Vec<TouchDeviceInfo>,
     /// EDID key of the monitor currently driving the compositor.
     pub active_edid: String,
     /// EDID key of the monitor selected in the picker (defaults to active).
@@ -145,6 +147,7 @@ impl Settings {
             graphics: compositor_developer_environment_graphics_base::base::get(),
             dirty: false,
             displays: snap.displays,
+            touch_devices: Vec::new(),
             active_edid: active_edid.clone(),
             selected_display: active_edid,
             selected_mode,
@@ -321,6 +324,12 @@ impl IcedUi for Settings {
                 }
                 self.displays = displays;
             }
+            SettingsMessage::SyncTouchDevices(devices) => {
+                self.touch_devices = devices;
+            }
+            // Forwarded (persist + re-route); no local mirror needed — the pump
+            // re-sends `SyncTouchDevices` with the new assignment next frame.
+            SettingsMessage::ClaimTouch(..) => {}
             SettingsMessage::WifiSelect(ssid) => {
                 self.wifi_selected = Some(ssid);
                 self.wifi_password.clear();
@@ -447,6 +456,7 @@ impl IcedUi for Settings {
             self.release_hidden,
             &self.env,
             &self.displays,
+            &self.touch_devices,
             &self.active_edid,
             &self.selected_display,
             self.selected_mode,

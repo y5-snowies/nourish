@@ -1,7 +1,7 @@
 //! Multi-finger gesture engine. Synthesizes the trackpad's gestures from the raw
 //! touch contacts and drives the *existing* handlers, so touch and touchpad share
 //! one code path: 2 fingers → pinch-zoom + pan, 3 → directional swipe, 4 → fit.
-use super::backend::{AxisEvent, PinchEvent, TouchEmu};
+use super::backend::{PinchEvent, TouchEmu};
 use super::{emulate, geom};
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_seat_gesture_touch::touch::Mode;
@@ -33,10 +33,11 @@ pub fn update(_loop: &mut Loop, time: u32) {
             let (nx, ny) = geom::fraction_of(_loop, centroid);
             emulate::move_to(_loop, nx, ny, time);
             crate::pinch::update::<TouchEmu>(&pinch(time, scale, dx, dy, false), _loop);
-            // Canvas-owned pinch → also pan via a synthetic finger-scroll; a
-            // window-forwarded pinch already receives the centre delta itself.
+            // Canvas-owned pinch → also pan via the centroid delta; a window-
+            // forwarded pinch already receives the centre delta itself. A 2-finger
+            // pan is STRICT (no momentum) — `pan(.., false)`.
             if !_loop.inner.gesture.pinch_to_window && (dx != 0.0 || dy != 0.0) {
-                crate::axis::axis::<TouchEmu>(&AxisEvent { time, horizontal: dx, vertical: dy }, _loop);
+                emulate::pan(_loop, dx, dy, false);
             }
         }
         Mode::Swipe => _loop.inner.gesture.update(dx, dy),

@@ -4,7 +4,7 @@ use compositor_monitor_compositor_iced_base::{HandleId, IcedHandle, IcedSpace};
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_draw_layer_base::base::Layer;
 use compositor_orchestration_driver_audio_base::base::AUDIO;
-use compositor_orchestration_driver_output_base::base::{OutputModeRequest, OutputsSnapshot, OUTPUTS_SNAPSHOT, OUTPUT_MODE_REQUEST_MUT, OUTPUT_MODE_RESULT_MUT};
+use compositor_orchestration_driver_output_base::base::{OutputModeRequest, OutputsSnapshot, OUTPUTS_SNAPSHOT, OUTPUT_MODE_REQUEST_MUT, OUTPUT_MODE_RESULT_MUT, TouchDeviceInfo, TOUCH_DEVICES_SNAPSHOT};
 use compositor_orchestration_driver_settings_base::base::{SETTINGS, SETTINGS_MUT};
 use compositor_configurator_network_backend_base::base::{self as wifi, WifiCmd, WifiSnapshot};
 use compositor_configurator_bluetooth_backend_base::base::{self as bt, BtCmd, BtSnapshot};
@@ -27,6 +27,7 @@ thread_local! {
     static AUDIO_WATCH: RefCell<Option<AudioWatch>> = const { RefCell::new(None) };
     /// Last connected-monitor list pushed — re-dispatch the picker only on hotplug change.
     static LAST_OUTPUTS: RefCell<Option<OutputsSnapshot>> = const { RefCell::new(None) };
+    static LAST_TOUCH: RefCell<Option<Vec<TouchDeviceInfo>>> = const { RefCell::new(None) };
     /// Last (bundles, selection, variables, preview source) pushed to the panel.
     #[allow(clippy::type_complexity)]
     static LAST_SHADERS: RefCell<Option<(Vec<String>, Option<String>, Vec<ShaderProp>, String, Option<String>, bool, bool, bool)>> = const { RefCell::new(None) };
@@ -179,6 +180,25 @@ fn sync(state: &mut Loop, id: HandleId, size: Size<i32, Physical>) {
             let _ = reg.dispatch_message(IcedHandle::<Settings>::from_id(id), SettingsMessage::SyncDisplays(outs.displays));
         }
     }
+    // Live touch-device list + per-monitor claim. Merge the kernel's device snapshot
+    // (id/name) with the live preference (which monitor claimed each), so a hotplug
+    // OR a claim change re-dispatches. Diff on the merged result.
+    let touch: Vec<TouchDeviceInfo> = {
+        let outputs = &state.inner.preference.outputs;
+        state.inner.kernel.get(&TOUCH_DEVICES_SNAPSHOT).devices.iter().map(|d| TouchDeviceInfo {
+            id: d.id.clone(),
+            name: d.name.clone(),
+            assigned_edid: outputs.iter()
+                .find(|p| p.touch_device.as_deref() == Some(d.id.as_str()))
+                .and_then(|p| p.identity.clone()),
+        }).collect()
+    };
+    let touch_changed = LAST_TOUCH.with(|l| { let mut l = l.borrow_mut(); if l.as_ref() != Some(&touch) { *l = Some(touch.clone()); true } else { false } });
+    if touch_changed {
+        if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
+            let _ = reg.dispatch_message(IcedHandle::<Settings>::from_id(id), SettingsMessage::SyncTouchDevices(touch));
+        }
+    }
     // Available shader bundles + the active world's selection + the selected
     // shader's variables: re-dispatch only when any of them change (a world
     // switch, a folder edit, or a param edit).
@@ -249,6 +269,7 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     bt::command(BtCmd::Scan(true));
     LAST.with(|l| *l.borrow_mut() = None);
     LAST_OUTPUTS.with(|l| *l.borrow_mut() = None);
+    LAST_TOUCH.with(|l| *l.borrow_mut() = None);
     LAST_SHADERS.with(|l| *l.borrow_mut() = None);
 }
 
@@ -275,7 +296,7 @@ fn install_handler(state: &mut Loop, handle: IcedHandle<Settings>) {
                 // activate/deactivate live-provisionally through the handler (arming the
                 // auto-revert gate), so it must reach `interface.handle`. The rest here
                 // are UI-local (sync pushes, tab/selection state) and never forwarded.
-                if matches!(m, SettingsMessage::SyncSystem(..) | SettingsMessage::SyncDisplays(_) | SettingsMessage::SyncShaders(..) | SettingsMessage::SyncShaderProps(..) | SettingsMessage::SyncShaderPreview(..) | SettingsMessage::SyncShaderStatus(..) | SettingsMessage::Tick | SettingsMessage::WifiSelect(_) | SettingsMessage::WifiPassword(_) | SettingsMessage::SelectDisplay(_) | SettingsMessage::SelectMode(_) | SettingsMessage::SelectInactive) { return; }
+                if matches!(m, SettingsMessage::SyncSystem(..) | SettingsMessage::SyncDisplays(_) | SettingsMessage::SyncTouchDevices(_) | SettingsMessage::SyncShaders(..) | SettingsMessage::SyncShaderProps(..) | SettingsMessage::SyncShaderPreview(..) | SettingsMessage::SyncShaderStatus(..) | SettingsMessage::Tick | SettingsMessage::WifiSelect(_) | SettingsMessage::WifiPassword(_) | SettingsMessage::SelectDisplay(_) | SettingsMessage::SelectMode(_) | SettingsMessage::SelectInactive) { return; }
                 let _ = tx.send(SurfaceMessage { message: SurfaceMessageType::Settings(m.clone()) });
             });
         }

@@ -6,7 +6,7 @@ use compositor_developer_environment_preference_base::base::{Ime, KeyboardLayout
 use compositor_developer_environment_keybinding_base::base::KeyRow;
 use compositor_developer_environment_preference_base::base::LayoutPlacement;
 use compositor_configurator_hardware_gpu_base::base::RenderDevice;
-use compositor_orchestration_driver_output_base::base::{DisplayInfo, ModeInfo};
+use compositor_orchestration_driver_output_base::base::{DisplayInfo, ModeInfo, TouchDeviceInfo};
 use compositor_support_iced_core_engine_base::Renderer;
 use compositor_y5_audio_controller_interface::interface::AudioState;
 use compositor_configurator_network_backend_base::base::WifiSnapshot;
@@ -79,7 +79,7 @@ fn performance<'a>(fps: u32, show_fps: bool, release_hidden: bool) -> El<'a> {
 #[allow(clippy::too_many_arguments)]
 pub fn render<'a>(
     tab: Tab, dirty: bool, cursor_sensitivity: f32, natural: bool, show_fps: bool, release_hidden: bool, env: &'a Environment,
-    displays: &'a [DisplayInfo], active_edid: &'a str, selected_display: &'a str,
+    displays: &'a [DisplayInfo], touch_devices: &'a [TouchDeviceInfo], active_edid: &'a str, selected_display: &'a str,
     selected_mode: Option<ModeInfo>, pending: Option<&'a Applied>,
     staged_active: Option<&'a (String, Option<ModeInfo>)>, confirming: bool,
     keys: &'a [KeyRow], audio: &'a AudioState, wifi: &'a WifiSnapshot, bt: &'a BtSnapshot,
@@ -92,7 +92,7 @@ pub fn render<'a>(
     graphics: &'a GraphicsAaConfig,
 ) -> El<'a> {
     let body: El<'a> = match tab {
-        Tab::Display => display::build(displays, active_edid, selected_display, selected_mode, confirming, pending, staged_active, layout, selected_placement, cyclic, selected_inactive),
+        Tab::Display => display::build(displays, touch_devices, active_edid, selected_display, selected_mode, confirming, pending, staged_active, layout, selected_placement, cyclic, selected_inactive),
         Tab::Audio => audio_tab::build(audio),
         Tab::Input => row![
             container(cursor::build(cursor_sensitivity, natural)).width(Length::FillPortion(5)).height(Length::Fill),
