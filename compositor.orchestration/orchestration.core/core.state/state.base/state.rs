@@ -151,7 +151,16 @@ pub struct Orchestrator {
 
 pub struct StateDRMBinding {
     pub gpus: GpuManager<GbmGlesBackend<GlesRenderer, DrmDeviceFd>>,
+    /// The compositing (render) node — the renderer used for every DrmOutput.
     pub primary: DrmNode,
+    /// The scanout node. Equals `primary` in the default path; on OPTION B
+    /// (`local_render`) it is the distinct scanout card, and the compositing
+    /// renderer is the cross-device `gpus.renderer(primary, scanout, …)`.
+    pub scanout: DrmNode,
+    /// OPTION B active: use the cross-device `MultiRenderer` (render on `primary`,
+    /// import to `scanout`) instead of `single_renderer(primary)`. `false` in the
+    /// default path ⇒ byte-identical composite-on-scanout.
+    pub cross_device: bool,
 }
 
 /// GPU driver data: the DRM multi-GPU binding (for dmabuf import) lives in the

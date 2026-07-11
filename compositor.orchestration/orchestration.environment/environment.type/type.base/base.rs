@@ -12,7 +12,7 @@ pub struct Environment {
 pub fn Get() -> Environment {
     let env = compositor_developer_environment_config_base::base::get();
     let DesktopName = String::from(env.desktop_name.trim());
-    let GPU = String::from(env.render_node.trim());
+    let GPU = compositor_developer_environment_config_router::router::primary_render_string();
 
     return Environment { GPU, DesktopName };
 }

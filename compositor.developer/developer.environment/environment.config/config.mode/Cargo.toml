@@ -1,0 +1,13 @@
+[package]
+name = "compositor_developer_environment_config_mode"
+version = "0.0.1"
+edition = "2024"
+
+# Bottom of the dep graph, like config.base: serde + bitflags only, NO logging dep,
+# so config.base (which itself sits below the logging crate) can depend on it.
+[dependencies]
+serde = { workspace = true }
+bitflags = { workspace = true }
+
+[lib]
+path = "lib.rs"

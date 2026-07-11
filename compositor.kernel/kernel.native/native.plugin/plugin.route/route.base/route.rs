@@ -51,9 +51,13 @@ pub fn route(
                             });
                         registry.add(device_id, node);
                         topology.register_device(device_id, node);
+                        // Boot-time multi-GPU IS driven (assemble.secondary opens every
+                        // KMS card at startup). What's not yet wired is opening a card
+                        // hot-plugged AT RUNTIME (needs the session + a LoopHandle
+                        // threaded here + an idempotent open_secondary_devices call).
                         info!(
-                            "DRM device registered (single-GPU policy: only the \
-                             primary is driven): {path:?}"
+                            "DRM device registered (bookkept; runtime GPU hotplug not yet \
+                             driven — restart to pick up a newly-added card): {path:?}"
                         );
                     }
                 },
@@ -75,7 +79,7 @@ pub fn route(
 
             // Connector rescan on the driven device (best-effort log of the diff).
             let ctx = ctx_rc.borrow();
-            let manager = ctx.drm_output_manager.borrow();
+            let manager = ctx.primary_manager().borrow();
             let drm = manager.device();
             let res = compositor_kernel_drm_connector_scan_base::scan::resources(drm);
             let infos = compositor_kernel_drm_connector_scan_base::scan::connectors(drm, &res);

@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 smithay = { workspace = true }
-compositor_developer_environment_experimental_base = { workspace = true }
+compositor_developer_environment_config_mode = { workspace = true }
 compositor_kernel_graphic_bridge_negotiate_classify = { workspace = true }
 
 [lib]

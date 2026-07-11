@@ -26,6 +26,14 @@ pub fn required_extensions() -> Vec<&'static CStr> {
     ext
 }
 
+/// Extensions enabled when the device advertises them but NOT required — the
+/// render path degrades gracefully without them. `external_fence_fd` powers the
+/// `infence_2` VkFence SYNC_FD render-completion fence (`renderer/submit.rs`);
+/// absent it, `infence_2` falls back to synchronous at renderer init.
+pub fn optional_extensions() -> Vec<&'static CStr> {
+    vec![ash::khr::external_fence_fd::NAME]
+}
+
 pub struct VulkanDevice {
     pub device: ash::Device,
     pub queue_family_index: u32,
@@ -67,7 +75,14 @@ pub fn create(phd: &PhysicalDevice) -> Result<VulkanDevice, DeviceError> {
     let queue_info = vk::DeviceQueueCreateInfo::default()
         .queue_family_index(queue_family_index)
         .queue_priorities(&priorities);
-    let ext_ptrs: Vec<*const c_char> = required_extensions().iter().map(|e| e.as_ptr()).collect();
+    // Required (validated above) + any advertised optional extensions.
+    let mut ext_list = required_extensions();
+    for opt in optional_extensions() {
+        if phd.has_device_extension(opt) {
+            ext_list.push(opt);
+        }
+    }
+    let ext_ptrs: Vec<*const c_char> = ext_list.iter().map(|e| e.as_ptr()).collect();
 
     let mut features12 =
         vk::PhysicalDeviceVulkan12Features::default().timeline_semaphore(true);

@@ -22,6 +22,16 @@ where
         .unwrap_or_else(|e| abort!("session open of {path:?} failed: {e:?}"))
 }
 
+/// Best-effort open: `None` on failure instead of aborting. For enumerating OPTIONAL
+/// devices (secondary GPU cards) where a device that can't be opened must be skipped,
+/// not treated as fatal — unlike [`open`], which is for the required primary device.
+pub fn try_open<S: Session>(session: &mut S, path: &Path) -> Option<OwnedFd>
+where
+    S::Error: std::fmt::Debug,
+{
+    session.open(path, open_flags()).ok()
+}
+
 pub fn close<S: Session>(session: &mut S, fd: OwnedFd)
 where
     S::Error: std::fmt::Debug,

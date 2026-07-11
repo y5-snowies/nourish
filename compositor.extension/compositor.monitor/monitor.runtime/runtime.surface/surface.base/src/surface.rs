@@ -405,12 +405,13 @@ impl Backing {
 
     /// Decide single-buffer vs untiling-blit and allocate accordingly.
     ///
-    /// Blit mode is taken ONLY when all of: the `gpu_untile_blit` experiment is on,
-    /// a distinct scanout card is configured (split system), AND the render∩scanout
-    /// modifier intersection is empty (no single buffer can satisfy both sides). In
-    /// every other case — single GPU, UMA/same-vendor split with a shared modifier,
-    /// or the experiment off — the byte-identical single-buffer path is used. A blit
-    /// allocation that fails degrades to the single-buffer path rather than erroring.
+    /// STRICT: when a distinct scanout card is configured (split system) AND the
+    /// render∩scanout modifier intersection is empty (no single buffer can satisfy
+    /// both sides), the untiling blit is the ONLY correct path — so it is taken when
+    /// the `untile_blit` mode token is set, and its absence (or a failed blit
+    /// allocation) is a FATAL abort with an actionable message, never a silent degrade.
+    /// In every other case — single GPU, UMA/same-vendor split with a shared modifier,
+    /// or a non-empty intersection — the byte-identical single-buffer path is used.
     fn allocate(
         render_node: &str,
         wgpu_ctx: &WgpuVulkanContext,
@@ -422,34 +423,52 @@ impl Backing {
         let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
         let gles_formats = smithay::backend::renderer::ImportDma::dmabuf_formats(gles);
 
-        // Untiling-blit floor: split system + empty render∩scanout intersection.
-        if let Some(scanout_node) = blit_scanout_node() {
+        // Split signal: a distinct scanout card is configured. Empty render∩scanout
+        // intersection ⇒ no single buffer satisfies both sides, so the ONLY way to
+        // serve this surface is the untiling blit — which must be explicitly enabled.
+        if let Some(scanout_node) = distinct_scanout_node() {
             let empty = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_intersection_empty(
                 gles_formats.clone(),
                 wgpu_ctx.importable.clone(),
                 fourcc,
             );
             if empty {
+                if !untile_blit_enabled() {
+                    abort!(
+                        "FATAL: empty render∩scanout modifier intersection on a split system \
+                         (scanout {scanout_node}): no single buffer satisfies both the render GPU \
+                         and the scanout card, and the `untile_blit` mode token is not set. Add \
+                         `untile_blit` to gpu_router[render].mode. See document/GPU_UNTILE_BLIT.md."
+                    );
+                }
                 info!(
                     "untile-blit: split (scanout={scanout_node}) with empty modifier intersection; \
                      allocating two-buffer (render-node tiled + LINEAR copy target) backing {}x{}",
                     size.w, size.h
                 );
-                match BlitBacking::allocate(render_node, &scanout_node, wgpu_ctx, gles, size) {
-                    Ok(b) => return Ok(Backing::Blit(b)),
-                    Err(e) => warn!(
-                        "untile-blit backing failed ({e:?}); degrading to single-buffer path"
+                return match BlitBacking::allocate(render_node, &scanout_node, wgpu_ctx, gles, size) {
+                    Ok(b) => Ok(Backing::Blit(b)),
+                    // STRICT: no silent degrade to single-buffer — there is nothing softer
+                    // than the blit, so a failed allocation is fatal (was: degrade + BAD_MATCH).
+                    Err(e) => abort!(
+                        "FATAL: untile-blit backing allocation failed for scanout {scanout_node} \
+                         ({e:?}). The blit floor is mandatory here and has no fallback. \
+                         See document/GPU_UNTILE_BLIT.md."
                     ),
-                }
+                };
             }
         }
 
         // Single-buffer path (today): negotiate an explicit modifier across
         // gles ∩ wgpu (empty ⇒ implicit, byte-identical allocation).
+        let mode = compositor_developer_environment_config_router::router::mode_for(
+            std::path::Path::new(render_node),
+        );
         let mods = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_modifiers(
             gles_formats,
             wgpu_ctx.importable.clone(),
             fourcc,
+            mode,
         );
         let allocated =
             allocate_dmabuf_negotiated(render_node, size.w as u32, size.h as u32, fourcc, &mods)?;
@@ -526,15 +545,17 @@ impl BlitBacking {
 /// apply: the `gpu_untile_blit` experiment is off, no distinct scanout card is
 /// configured, or the scanout card is the render card (non-split). The empty-
 /// intersection check is done separately by the caller.
-fn blit_scanout_node() -> Option<String> {
-    use compositor_developer_environment_experimental_base::base as ex;
-    if !ex::get().contains(ex::GpuFlags::UNTILE_BLIT) {
-        return None;
-    }
-    let cfg = compositor_developer_environment_config_base::base::get();
-    let scanout = cfg.scanout_node.as_ref()?;
-    if *scanout == cfg.render_node {
-        return None;
-    }
-    Some(scanout.clone())
+/// The distinct scanout card (`primary_scanout` != `primary_render`) — the split
+/// signal, independent of `untile_blit`. `None` on a single-card system.
+fn distinct_scanout_node() -> Option<String> {
+    use compositor_developer_environment_config_router::router;
+    let scanout = router::primary_scanout()?.to_string_lossy().into_owned();
+    (scanout != router::primary_render_string()).then_some(scanout)
+}
+
+/// Whether the primary render node carries the `untile_blit` mode token.
+fn untile_blit_enabled() -> bool {
+    use compositor_developer_environment_config_mode::mode::ModeFlags;
+    compositor_developer_environment_config_router::router::primary_mode()
+        .contains(ModeFlags::UNTILE_BLIT)
 }

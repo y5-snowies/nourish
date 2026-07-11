@@ -44,13 +44,21 @@ pub fn register(
                     compositor_kernel_graphic_seat_modifier_clear::clear::clear_held_modifiers(state);
 
                     // Pause protocol: display first, then input (seat.lifecycle).
-                    let manager = ctx_ref.drm_output_manager.clone();
+                    // Pause EVERY driven card (multi-GPU), not just the primary — else a
+                    // secondary card keeps DRM master and the incoming VT can't modeset.
+                    let managers: Vec<_> = ctx_ref
+                        .devices
+                        .iter()
+                        .map(|d| d.drm_output_manager.clone())
+                        .collect();
                     let libinput = &mut ctx_ref.libinput_context;
                     compositor_kernel_seat_lifecycle_pause_base::pause::pause(
                         || {
-                            compositor_kernel_scanout_surface_output_base::output::pause(
-                                &mut manager.borrow_mut(),
-                            )
+                            for m in &managers {
+                                compositor_kernel_scanout_surface_output_base::output::pause(
+                                    &mut m.borrow_mut(),
+                                );
+                            }
                         },
                         || libinput.suspend(),
                     );
@@ -70,7 +78,12 @@ pub fn register(
                     // reset, remap. Step failures are the self-recovering
                     // class — the watchdog drives recovery.
                     {
-                        let manager = ctx_ref.drm_output_manager.clone();
+                        // Activate EVERY driven card on resume (multi-GPU).
+                        let managers: Vec<_> = ctx_ref
+                            .devices
+                            .iter()
+                            .map(|d| d.drm_output_manager.clone())
+                            .collect();
                         let space = &mut state.inner.space_state_mut().state;
                         // Remap EVERY live output back at its current global-space
                         // position (multi-output: not just the primary — a secondary
@@ -105,10 +118,16 @@ pub fn register(
                                         .map_err(|e| format!("libinput resume failed: {e:?}"))
                                 },
                                 activate_display: |force| {
-                                    compositor_kernel_scanout_surface_output_base::output::activate(
-                                        &mut manager.borrow_mut(),
-                                        force,
-                                    )
+                                    let mut result = Ok(());
+                                    for m in &managers {
+                                        if let Err(e) = compositor_kernel_scanout_surface_output_base::output::activate(
+                                            &mut m.borrow_mut(),
+                                            force,
+                                        ) {
+                                            result = Err(e);
+                                        }
+                                    }
+                                    result
                                 },
                                 // Reset EVERY live pipe's surface, not just the primary,
                                 // and clear its in-flight flag: any frame queued before

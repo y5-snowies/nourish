@@ -1,0 +1,12 @@
+[package]
+name = "compositor_kernel_gpu_topology_plan_base"
+version = "0.0.1"
+edition = "2024"
+
+# The strict per-frame routing policy (pure): CopyRoute + render-node mode → FramePath.
+[dependencies]
+compositor_developer_environment_config_mode = { workspace = true }
+compositor_kernel_gpu_topology_route_base = { workspace = true }
+
+[lib]
+path = "lib.rs"

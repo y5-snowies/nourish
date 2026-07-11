@@ -1,0 +1,12 @@
+[package]
+name = "compositor_kernel_gpu_topology_feedback_base"
+version = "0.0.1"
+edition = "2024"
+
+# Pure per-surface dmabuf-feedback modifier policy for multi-primary: the modifier
+# set a client may allocate for a surface shown on N compositing GPUs.
+[dependencies]
+smithay = { workspace = true }
+
+[lib]
+path = "lib.rs"

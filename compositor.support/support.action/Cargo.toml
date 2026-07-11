@@ -75,7 +75,8 @@ compositor_developer_debug_instance_channel = { path = "../../compositor.develop
 compositor_developer_debug_instance_level = { path = "../../compositor.developer/developer.debug/debug.instance/instance.level" }
 compositor_developer_debug_instance_record = { path = "../../compositor.developer/developer.debug/debug.instance/instance.record" }
 compositor_developer_environment_config_base = { path = "../../compositor.developer/developer.environment/environment.config/config.base" }
-compositor_developer_environment_experimental_base = { path = "../../compositor.developer/developer.environment/environment.experimental/experimental.base" }
+compositor_developer_environment_config_mode = { path = "../../compositor.developer/developer.environment/environment.config/config.mode" }
+compositor_developer_environment_config_router = { path = "../../compositor.developer/developer.environment/environment.config/config.router" }
 compositor_developer_environment_graphics_base = { path = "../../compositor.developer/developer.environment/environment.graphics/graphics.base" }
 compositor_developer_environment_keybinding_base = { path = "../../compositor.developer/developer.environment/environment.keybinding/keybinding.base" }
 compositor_developer_environment_preference_base = { path = "../../compositor.developer/developer.environment/environment.preference/preference.base" }
@@ -205,6 +206,8 @@ compositor_kernel_gles_sync_export_base = { path = "../../compositor.kernel/kern
 compositor_kernel_gles_sync_import_base = { path = "../../compositor.kernel/kernel.gles/gles.sync/sync.import/import.base" }
 compositor_kernel_gpu_preference_select_base = { path = "../../compositor.kernel/kernel.gpu/gpu.preference/preference.select/select.base" }
 compositor_kernel_gpu_registry_node_base = { path = "../../compositor.kernel/kernel.gpu/gpu.registry/registry.node/node.base" }
+compositor_kernel_gpu_topology_feedback_base = { path = "../../compositor.kernel/kernel.gpu/gpu.topology/topology.feedback/feedback.base" }
+compositor_kernel_gpu_topology_plan_base = { path = "../../compositor.kernel/kernel.gpu/gpu.topology/topology.plan/plan.base" }
 compositor_kernel_gpu_topology_role_base = { path = "../../compositor.kernel/kernel.gpu/gpu.topology/topology.role/role.base" }
 compositor_kernel_gpu_topology_route_base = { path = "../../compositor.kernel/kernel.gpu/gpu.topology/topology.route/route.base" }
 compositor_kernel_graphic_bridge_negotiate_base = { path = "../../compositor.kernel/kernel.graphic/graphic.bridge/bridge.negotiate/negotiate.base" }
@@ -227,6 +230,7 @@ compositor_kernel_input_loop_libinput_base = { path = "../../compositor.kernel/k
 compositor_kernel_loader_main_execute_base = { path = "../../compositor.kernel/kernel.loader/loader.main/main.execute/execute.base" }
 compositor_kernel_native_assemble_display_base = { path = "../../compositor.kernel/kernel.native/native.assemble/assemble.display/display.base" }
 compositor_kernel_native_assemble_renderer_base = { path = "../../compositor.kernel/kernel.native/native.assemble/assemble.renderer/renderer.base" }
+compositor_kernel_native_assemble_secondary_base = { path = "../../compositor.kernel/kernel.native/native.assemble/assemble.secondary/secondary.base" }
 compositor_kernel_native_context_display_apply = { path = "../../compositor.kernel/kernel.native/native.context/context.display/display.apply" }
 compositor_kernel_native_context_display_base = { path = "../../compositor.kernel/kernel.native/native.context/context.display/display.base" }
 compositor_kernel_native_context_display_build = { path = "../../compositor.kernel/kernel.native/native.context/context.display/display.build" }

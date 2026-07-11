@@ -46,8 +46,13 @@ fn pipe_of(ctx: &NativeRenderContext, edid_key: &str) -> Option<usize> {
 fn set_mode_now(ctx: &mut NativeRenderContext, idx: usize, mode: DrmMode) -> Result<(), String> {
     let gpu = ctx.gpu_binding.clone();
     let mut binding = gpu.borrow_mut();
-    let StateDRMBinding { gpus, primary } = &mut *binding;
-    let mut renderer = gpus.single_renderer(primary).map_err(|e| format!("renderer: {e:?}"))?;
+    let StateDRMBinding { gpus, primary, scanout, cross_device } = &mut *binding;
+    let mut renderer = if *cross_device {
+        gpus.renderer(primary, scanout, smithay::backend::allocator::Fourcc::Argb8888)
+    } else {
+        gpus.single_renderer(primary)
+    }
+    .map_err(|e| format!("renderer: {e:?}"))?;
     let output = ctx.outputs[idx].drm_output.as_mut().ok_or_else(|| "output not live".to_string())?;
     compositor_kernel_scanout_surface_reconfigure_base::reconfigure::set_output_mode::<_, GlesElementWrapper<SceneElement<GlesRenderer>>>(output, mode, &mut renderer)?;
     drop(binding);

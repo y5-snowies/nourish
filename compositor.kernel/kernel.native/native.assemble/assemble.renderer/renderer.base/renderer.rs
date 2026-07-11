@@ -78,25 +78,67 @@ fn assemble_gles(display: &mut DisplayAssembly) -> RendererAssembly {
         info!("native scanout machine validated (TEST_ONLY): {proof}");
     }
 
-    // GpuManager with the High-priority EGL factory; register the node.
+    // GpuManager with the High-priority EGL factory; register the node(s).
     let mut gpus = compositor_kernel_gles_multigpu_factory_base::factory::create();
-    compositor_kernel_gles_multigpu_factory_base::factory::add_node(
-        &mut gpus,
-        display.primary_gpu,
-        display.gbm.clone(),
-    );
+    let scanout_gbm = display.gbm.clone();
+    // The compositing node is ALWAYS the render node id (`primary_gpu`); what
+    // changes between the default and OPTION B is the GBM it is registered with —
+    // which decides the physical GPU the GLES/EGL renderer actually runs on.
+    let render_node = display.primary_gpu;
+    // OPTION B (`local_render`): compositing on the render node, importing to a
+    // distinct scanout card. `cross_device` drives the cross-device MultiRenderer
+    // at init and at frame time; default (false) is the single-node, byte-identical
+    // composite-on-scanout path.
+    let cross_device = display.render_gbm.is_some();
+    let scanout_node = match display.route {
+        compositor_kernel_gpu_topology_route_base::route::CopyRoute::DmabufCopy { scanout, .. } => {
+            scanout
+        }
+        compositor_kernel_gpu_topology_route_base::route::CopyRoute::None => render_node,
+    };
+    match display.render_gbm.take() {
+        // OPTION B: render node w/ its OWN gbm (renderer runs on the render card) AND
+        // the scanout node w/ the scanout gbm (MultiRenderer import target).
+        Some(render_gbm) => {
+            compositor_kernel_gles_multigpu_factory_base::factory::add_node(
+                &mut gpus, render_node, render_gbm,
+            );
+            compositor_kernel_gles_multigpu_factory_base::factory::add_node(
+                &mut gpus,
+                scanout_node,
+                scanout_gbm.clone(),
+            );
+            info!(
+                "option B (local_render): compositing on render node {render_node:?}, \
+                 scanout/import target {scanout_node:?}"
+            );
+        }
+        // Default (byte-identical): single node = render node id registered with the
+        // SCANOUT gbm → the renderer runs on the scanout card (composite-on-scanout).
+        None => {
+            compositor_kernel_gles_multigpu_factory_base::factory::add_node(
+                &mut gpus,
+                render_node,
+                scanout_gbm.clone(),
+            );
+        }
+    }
 
-    // Allocator + exporter (flag policy in drm.gbm/gbm.alloc).
-    let allocator = compositor_kernel_drm_gbm_alloc_base::alloc::allocator(display.gbm.clone());
+    // Allocator + exporter (flag policy in drm.gbm/gbm.alloc). The scanout FBs are
+    // always allocated on the scanout card's gbm; the compositing node exports.
+    let allocator = compositor_kernel_drm_gbm_alloc_base::alloc::allocator(scanout_gbm.clone());
     let exporter =
-        compositor_kernel_drm_gbm_alloc_base::alloc::exporter(display.gbm.clone(), display.primary_gpu);
+        compositor_kernel_drm_gbm_alloc_base::alloc::exporter(scanout_gbm.clone(), render_node);
 
-    // Render formats from the primary's EGL context, narrowed by the Law-7
-    // modifier filter when its double gate is satisfied.
-    let mut renderer = compositor_kernel_gles_multigpu_factory_base::factory::single_renderer(
-        &mut gpus,
-        &display.primary_gpu,
-    );
+    // Render formats from the compositing node's EGL context. OPTION B uses the
+    // cross-device MultiRenderer (render on `render_node`, import to `scanout_node`);
+    // default uses the single-node renderer — identical when render == scanout.
+    let mut renderer = if cross_device {
+        gpus.renderer(&render_node, &scanout_node, smithay::backend::allocator::Fourcc::Argb8888)
+            .expect("cross-device MultiRenderer (option B) failed")
+    } else {
+        gpus.single_renderer(&render_node).expect("single_renderer failed")
+    };
     let render_formats = filter_formats(
         renderer
             .as_mut()
@@ -223,6 +265,8 @@ fn assemble_gles(display: &mut DisplayAssembly) -> RendererAssembly {
     let gpu_binding = Rc::new(RefCell::new(StateDRMBinding {
         gpus,
         primary: display.primary_gpu,
+        scanout: scanout_node,
+        cross_device,
     }));
 
     info!("Init native backend OK (assemble.renderer, gles)");
@@ -344,6 +388,7 @@ fn vulkan_self_test(display: &DisplayAssembly) -> String {
         (64, 64),
         [0.0, 0.0, 0.0, 1.0],
         &pipelines,
+        |_cmd| {}, // no pre-pass (composite smoke test)
         |cmd| {
             compositor_kernel_vulkan_element_solid_base::solid::draw(&device, &pipelines, cmd, solid);
         },
@@ -441,6 +486,7 @@ fn vulkan_self_test(display: &DisplayAssembly) -> String {
         (64, 64),
         [0.0, 0.0, 0.0, 1.0],
         &pipelines,
+        |_cmd| {}, // no pre-pass (textured smoke test)
         |cmd| {
             compositor_kernel_vulkan_element_texture_base::texture::draw(
                 &device,
@@ -577,7 +623,7 @@ impl compositor_kernel_graphic_render_contract_base::contract::DisplayBackend fo
 
     fn bind_display(&mut self, display_handle: &DisplayHandle) -> FormatSet {
         let mut binding = self.gpu_binding.borrow_mut();
-        let StateDRMBinding { gpus, primary } = &mut *binding;
+        let StateDRMBinding { gpus, primary, .. } = &mut *binding;
         let primary = *primary;
         compositor_kernel_gles_multigpu_bind_base::bind::bind(gpus, &primary, display_handle)
     }
@@ -597,21 +643,21 @@ impl RenderContract for NativeContract {
 
     fn supported_formats(&mut self) -> FormatSet {
         let mut binding = self.gpu_binding.borrow_mut();
-        let StateDRMBinding { gpus, primary } = &mut *binding;
+        let StateDRMBinding { gpus, primary, .. } = &mut *binding;
         let primary = *primary;
         compositor_kernel_gles_multigpu_bind_base::bind::texture_formats(gpus, &primary)
     }
 
     fn import_dmabuf(&mut self, dmabuf: &Dmabuf) -> bool {
         let mut binding = self.gpu_binding.borrow_mut();
-        let StateDRMBinding { gpus, primary } = &mut *binding;
+        let StateDRMBinding { gpus, primary, .. } = &mut *binding;
         let primary = *primary;
         compositor_kernel_gles_multigpu_bind_base::bind::import_dmabuf(gpus, &primary, dmabuf)
     }
 
     fn early_import(&mut self, surface: &WlSurface) {
         let mut binding = self.gpu_binding.borrow_mut();
-        let StateDRMBinding { gpus, primary } = &mut *binding;
+        let StateDRMBinding { gpus, primary, .. } = &mut *binding;
         let primary = *primary;
         compositor_kernel_gles_multigpu_bind_base::bind::early_import(gpus, &primary, surface);
     }

@@ -407,10 +407,14 @@ impl RegistryInner {
         }
 
         let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
+        let mode = compositor_developer_environment_config_router::router::mode_for(
+            std::path::Path::new(render_node),
+        );
         let mods = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_modifiers(
             smithay::backend::renderer::ImportDma::dmabuf_formats(gles),
             self.wgpu_ctx.importable.clone(),
             fourcc,
+            mode,
         );
         let dmabuf =
             allocate_dmabuf_negotiated(render_node, size.w as u32, size.h as u32, fourcc, &mods)?;
@@ -453,10 +457,14 @@ impl RegistryInner {
         let refcount = entry.refcount;
 
         let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
+        let mode = compositor_developer_environment_config_router::router::mode_for(
+            std::path::Path::new(render_node),
+        );
         let mods = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_modifiers(
             smithay::backend::renderer::ImportDma::dmabuf_formats(gles),
             self.wgpu_ctx.importable.clone(),
             fourcc,
+            mode,
         );
         let dmabuf = allocate_dmabuf_negotiated(
             render_node,

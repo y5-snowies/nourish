@@ -10,6 +10,9 @@ edition = "2024"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+# The `mode` token type used in `gpu_router` entries. config.mode is serde+bitflags
+# only (no logging dep), so config.base can sit on it and stay below the logging crate.
+compositor_developer_environment_config_mode = { workspace = true }
 
 [lib]
 path = "lib.rs"

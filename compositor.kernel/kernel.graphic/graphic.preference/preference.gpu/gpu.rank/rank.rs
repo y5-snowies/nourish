@@ -4,7 +4,10 @@
 //! configured RENDER node and the optional SCANOUT override to the kernel
 //! selection path (dev_id normalization is the consumer's job, not ours).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use compositor_developer_environment_config_mode::mode::ModeFlags;
+use compositor_developer_environment_config_router::router;
 
 #[derive(Debug, Clone, Default)]
 pub struct GpuRank {
@@ -18,23 +21,39 @@ pub fn get() -> GpuRank {
     GpuRank::default()
 }
 
-/// The configured RENDER node (`settings.json` `render_node`) — the "active GPU"
-/// the compositor composites on (and pins wgpu to). The scanout path anchors to
-/// this. `None` only if unset/blank (misconfiguration; selection then falls back
-/// to smithay's heuristic, preserving pre-settings behavior).
+/// The session-primary RENDER node — the "active GPU" the compositor composites on
+/// (and pins wgpu to). Resolved by [`router`] from either settings variant (simple
+/// `render_node` or the advanced `gpu_router` primary). Always `Some` (config
+/// validation guarantees a primary); the `Option` is kept for call-site stability.
 pub fn render_node() -> Option<PathBuf> {
-    let s = compositor_developer_environment_config_base::base::get().render_node.trim().to_string();
-    (!s.is_empty()).then(|| PathBuf::from(s))
+    Some(router::primary_render())
 }
 
-/// The optional explicit SCANOUT card (`settings.json` `scanout_node`). `Some`
-/// = an explicit override (no auto-discovery, probe-or-panic); `None` = auto-
-/// discover the KMS card anchored to [`render_node`].
+/// The session-primary explicit SCANOUT card. `Some` = an explicit override (no
+/// auto-discovery unless `scanout_discovery`); `None` = auto-anchor to [`render_node`].
 pub fn scanout_node() -> Option<PathBuf> {
-    compositor_developer_environment_config_base::base::get()
-        .scanout_node
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
+    router::primary_scanout()
+}
+
+/// The folded per-node `mode` for `render` (the entry's tokens verbatim; an
+/// absent/empty entry is `ModeFlags::empty()` = stable behaviour).
+pub fn mode_for(render: &Path) -> ModeFlags {
+    router::mode_for(render)
+}
+
+/// The session-primary node's folded `mode`.
+pub fn primary_mode() -> ModeFlags {
+    router::primary_mode()
+}
+
+/// `render_discovery` on the primary node — allow heuristic/first-card fallback
+/// instead of panicking on an unavailable render node.
+pub fn render_fallback() -> bool {
+    router::render_fallback()
+}
+
+/// `scanout_discovery` on the primary node — allow scanout auto-discovery instead
+/// of panicking on a non-KMS/unavailable scanout.
+pub fn scan_fallback() -> bool {
+    router::scan_fallback()
 }

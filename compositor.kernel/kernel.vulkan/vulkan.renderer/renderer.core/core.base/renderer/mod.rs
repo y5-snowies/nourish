@@ -82,9 +82,10 @@ pub struct VulkanRenderer {
     /// The display's DRM device fd, set on the native backend (None under
     /// winit). Its presence selects the native KMS IN_FENCE path.
     pub(super) drm_fd: Option<smithay::backend::drm::DrmDeviceFd>,
-    /// Opt in to the native KMS IN_FENCE path via `COMPOSITOR_RENDERER_SYNC=infence`.
-    /// DEFAULT IS OFF (synchronous `device_wait_idle` submit).
-    pub(super) native_fence_optin: bool,
+    /// Render-completion sync strategy (from `COMPOSITOR_RENDERER_SYNC`). DEFAULT
+    /// is [`SyncMode::Synchronous`] (`device_wait_idle` submit); `infence` /
+    /// `infence_2` opt in to the KMS IN_FENCE paths.
+    pub(super) sync_mode: SyncMode,
     /// Throttle for the per-frame native-fence-export warning (once/min).
     pub(super) last_fence_warn: Option<std::time::Instant>,
     /// Post-scene capture targets for THIS frame: the registry's entry dmabufs to
@@ -103,6 +104,23 @@ pub struct VulkanRenderer {
     pub(super) downscale: TextureFilter,
     pub(super) upscale: TextureFilter,
     pub(super) context_id: ContextId<VulkanTexture>,
+}
+
+/// How `submit_frame` synchronizes render completion with KMS scanout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SyncMode {
+    /// DEFAULT (`COMPOSITOR_RENDERER_SYNC` unset/other): `device_wait_idle` after
+    /// submit, returning an already-signaled point. Correct everywhere, but the
+    /// CPU blocks on the full GPU drain so the flip commits late → ~half refresh.
+    Synchronous,
+    /// `infence`: KMS IN_FENCE via a binary-semaphore SYNC_FD export. The original
+    /// path — kept byte-identical; fragile across drivers (never-signals → freeze,
+    /// invalid fd → fake wait → tearing).
+    InFence,
+    /// `infence_2`: KMS IN_FENCE via the VkFence `VK_KHR_external_fence_fd` SYNC_FD
+    /// export, with fd-validity guards, strict poll-error handling, and a clean
+    /// `device_wait_idle` fallback on any export failure. The less-fragile path.
+    InFenceV2,
 }
 
 impl std::fmt::Debug for VulkanRenderer {
@@ -125,8 +143,10 @@ impl VulkanRenderer {
     /// submit is kept.
     pub fn set_drm_fd(&mut self, fd: smithay::backend::drm::DrmDeviceFd) {
         self.drm_fd = Some(fd);
-        if self.native_fence_optin {
-            stats::set_sync_mode("native KMS IN_FENCE (sync_file)");
+        match self.sync_mode {
+            SyncMode::InFence => stats::set_sync_mode("native KMS IN_FENCE (semaphore sync_file)"),
+            SyncMode::InFenceV2 => stats::set_sync_mode("native KMS IN_FENCE v2 (fence sync_file)"),
+            SyncMode::Synchronous => {}
         }
     }
 
@@ -156,7 +176,12 @@ impl VulkanRenderer {
     /// True when the native KMS IN_FENCE path should be used: explicitly opted in
     /// (`COMPOSITOR_RENDERER_SYNC=infence`) and a DRM fd is present (native).
     pub(super) fn use_native_fence(&self) -> bool {
-        self.native_fence_optin && self.drm_fd.is_some()
+        self.sync_mode != SyncMode::Synchronous && self.drm_fd.is_some()
+    }
+
+    /// True for the `infence_2` path (VkFence `external_fence_fd` export + guards).
+    pub(super) fn use_fence_v2(&self) -> bool {
+        self.sync_mode == SyncMode::InFenceV2
     }
 }
 

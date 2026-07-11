@@ -45,7 +45,7 @@ pub fn settings_json(preset: &Preset) -> String {
         renderer_sync: p.renderer_sync.clone(),
         depth: p.depth,
         vrr: p.vrr,
-        render_node: p.render_node.clone(),
+        render_node: Some(p.render_node.clone()),
         desktop_name: p.desktop_name.clone(),
         log_level: p.log_level.clone(),
         capture_encoder: p.capture_encoder.clone(),

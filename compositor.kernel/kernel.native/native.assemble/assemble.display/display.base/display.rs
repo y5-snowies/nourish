@@ -37,6 +37,12 @@ pub struct DisplayAssembly {
     pub drm_notifier: DrmDeviceNotifier,
     pub drm_fd: DrmDeviceFd,
     pub gbm: GbmDevice<DrmDeviceFd>,
+    /// OPTION B (`local_render`): a GBM device on the RENDER node itself, opened
+    /// only when the primary carries `local_render` on a split (`route` =
+    /// `DmabufCopy`). `Some` ⇒ `assemble.renderer` composites on the render node
+    /// and imports to the scanout card; `None` (default) ⇒ today's
+    /// composite-directly-on-scanout path, byte-identical.
+    pub render_gbm: Option<GbmDevice<DrmDeviceFd>>,
     pub connector: connector::Info,
     pub pipe: crtc::Handle,
     pub drm_mode: DrmMode,
@@ -73,12 +79,16 @@ pub fn assemble() -> DisplayAssembly {
     let render_pref = compositor_kernel_graphic_preference_gpu_rank::rank::render_node();
     let scanout_pref = compositor_kernel_graphic_preference_gpu_rank::rank::scanout_node();
     let cards = compositor_kernel_udev_enumerate_scan_base::scan::snapshot(&seat_name);
+    let render_fallback = compositor_kernel_graphic_preference_gpu_rank::rank::render_fallback();
+    let scan_fallback = compositor_kernel_graphic_preference_gpu_rank::rank::scan_fallback();
     let resolved = compositor_kernel_native_device_select_scanout::select::resolve(
         &mut session,
         &cards,
         render_pref.as_deref(),
         heuristic.as_deref(),
         scanout_pref.as_deref(),
+        render_fallback,
+        scan_fallback,
     );
     let primary_gpu = resolved.render;
     let device_path = resolved.scanout_path.clone();
@@ -111,6 +121,44 @@ pub fn assemble() -> DisplayAssembly {
     let drm_fd = resolved.scanout_fd.clone();
     let (drm, drm_notifier) = compositor_kernel_drm_device_open_base::open::open(drm_fd.clone());
     let gbm = compositor_kernel_drm_gbm_device_base::device::create(drm_fd.clone());
+
+    // OPTION B (`local_render` on the primary, split system): open a GBM on the
+    // RENDER node so `assemble.renderer` can composite there and cross to scanout.
+    // Default (no token / non-split) → None → composite-on-scanout, unchanged.
+    let render_gbm = {
+        use compositor_kernel_gpu_topology_route_base::route::CopyRoute;
+        let is_split = matches!(copy_route, CopyRoute::DmabufCopy { .. });
+        if compositor_developer_environment_config_router::router::composite_on_render_node() && is_split
+        {
+            // STRICT: a cross-device compositing route needs an explicit path token
+            // (`zero_copy`/`untile_blit`); `plan::decide` returns Err otherwise. The
+            // default option-A path composites on scanout with no copy, so this gate
+            // never fires there — today's tokenless splits are untouched.
+            if let Err(msg) = compositor_kernel_gpu_topology_plan_base::plan::decide(
+                &copy_route,
+                compositor_developer_environment_config_router::router::primary_mode(),
+            ) {
+                abort!("option B (local_render): {msg}");
+            }
+            let render_path = compositor_developer_environment_config_router::router::primary_render();
+            // A RENDER node (`renderD*`) is NOT seat-managed — `seat_open` returns
+            // ENODEV. It needs no DRM master either; open it directly (RDWR) for GBM
+            // allocation. (Only the KMS SCANOUT card goes through libseat/master.)
+            let render_file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&render_path)
+                .unwrap_or_else(|e| {
+                    abort!("option B (local_render): cannot open render node {render_path:?}: {e}")
+                });
+            let render_fd =
+                compositor_kernel_drm_device_open_base::open::wrap_fd(render_file.into());
+            info!("option B (local_render): opened render node {render_path:?} for its own compositing GBM");
+            Some(compositor_kernel_drm_gbm_device_base::device::create(render_fd))
+        } else {
+            None
+        }
+    };
 
     // 5. Connector: scan, select (preference default-output identity, else first
     //    connected). `profiles` are priority-ordered; the first is the default.
@@ -181,6 +229,7 @@ pub fn assemble() -> DisplayAssembly {
         drm_notifier,
         drm_fd,
         gbm,
+        render_gbm,
         connector,
         pipe,
         drm_mode,

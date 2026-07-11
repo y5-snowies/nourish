@@ -7,6 +7,7 @@ edition = "2024"
 smithay = { workspace = true }
 compositor_kernel_native_context_render_base = { workspace = true }
 compositor_kernel_native_context_display_build = { workspace = true }
+compositor_kernel_scanout_surface_output_base = { workspace = true }
 compositor_kernel_drm_output_physical_base = { workspace = true }
 compositor_support_smithay_dispatch_state_base = { workspace = true }
 compositor_kernel_native_context_display_enumerate = { workspace = true }

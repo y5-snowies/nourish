@@ -67,7 +67,7 @@ fn panel_dpms(state: &mut Loop, ctx_rc: &Rc<RefCell<NativeRenderContext>>, on: b
                 warn!("DPMS on failed: {e}");
             }
         }
-        if let Err(e) = output::activate(&mut ctx_ref.drm_output_manager.borrow_mut(), true) {
+        if let Err(e) = output::activate(&mut ctx_ref.primary_manager().borrow_mut(), true) {
             warn!("DPMS-on modeset failed: {e}");
         }
         if let Some(o) = ctx_ref.pipe_mut().drm_output.as_mut() {

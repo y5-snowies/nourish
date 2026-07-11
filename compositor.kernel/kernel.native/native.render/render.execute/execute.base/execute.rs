@@ -206,7 +206,12 @@ pub fn execute(
 
     let gpu_binding = ctx_ref.gpu_binding.clone();
     let mut binding = gpu_binding.borrow_mut();
-    let StateDRMBinding { gpus, primary } = &mut *binding;
+    let StateDRMBinding { gpus, primary, scanout, cross_device } = &mut *binding;
+    // Copy the split-GPU flag out as a plain bool: the Vulkan option-B present
+    // (`present_option_b`) redirects the displayed frame through a render-node
+    // offscreen when set. `false` (render == scanout) keeps every render_frame on
+    // the single Vulkan device, byte-identical.
+    let cross_device_flag = *cross_device;
 
     // The capture registry is pre-created at startup (loader prewarm) from the
     // shared bevy context — never built mid-render. Its tap subscription, by
@@ -221,7 +226,14 @@ pub fn execute(
     // Wrap the renderer in Rc<RefCell> so capture closures can defer borrow
     // tracking to runtime, sidestepping the bind+blit double-borrow problem
     // at compile time.
-    let gles_renderer = Rc::new(RefCell::new(gpus.single_renderer(primary).unwrap()));
+    // OPTION B (`cross_device`): render on the compositing node, import to the
+    // scanout node (smithay handles the cross-device copy, incl. cross-vendor via
+    // `copy_format`). Default: `single_renderer` (render == scanout), byte-identical.
+    let gles_renderer = Rc::new(RefCell::new(if *cross_device {
+        gpus.renderer(primary, scanout, smithay::backend::allocator::Fourcc::Argb8888).unwrap()
+    } else {
+        gpus.single_renderer(primary).unwrap()
+    }));
 
     // ---- Per-output render loop -------------------------------------------------
     // The renderer + GPU binding above are shared (built once); `size`, the render
@@ -362,7 +374,7 @@ pub fn execute(
     // A TEST commit validates first; on rejection we fall back to SDR and never
     // retry — a bad blob cannot blank the display.
     if ctx_ref.outputs[output_idx].hdr_active && !ctx_ref.outputs[output_idx].hdr_signalled && (*state.inner.kernel.get(&compositor_orchestration_driver_resume_base::base::VBLANK_SEEN)) {
-        match crate::hdr::signal_hdr(&ctx_ref.drm_fd, ctx_ref.outputs[output_idx].connector, &ctx_ref.outputs[output_idx].hdr_caps) {
+        match crate::hdr::signal_hdr(ctx_ref.drm_fd_for(&ctx_ref.outputs[output_idx].device), ctx_ref.outputs[output_idx].connector, &ctx_ref.outputs[output_idx].hdr_caps) {
             Ok(()) => {
                 ctx_ref.outputs[output_idx].hdr_signalled = true;
                 info!("HDR output signalling applied (connector BT.2020 RGB + PQ metadata)");
@@ -636,7 +648,22 @@ pub fn execute(
                 if !targets.is_empty() {
                     let vk = ctx_ref.vulkan.as_mut().expect("vulkan_mode without renderer");
                     vk.set_capture_targets(targets);
-                    if let Err(e) = ctx_ref.outputs[output_idx].drm_output.as_mut().unwrap().render_frame(
+                    if cross_device_flag {
+                        // OPTION B: compose the capture pass into the render-node
+                        // offscreen — the capture copy is `vk.finish()`'s side effect.
+                        // Not queued, so no scanout handoff (`handoff = false`).
+                        let mut gr = gles_renderer.borrow_mut();
+                        let svk = ctx_ref.vulkan_scanout.as_mut();
+                        present_option_b(
+                            vk,
+                            svk,
+                            &mut *gr,
+                            &mut ctx_ref.outputs[output_idx],
+                            &scene_outputs,
+                            frame_flags,
+                            false,
+                        );
+                    } else if let Err(e) = ctx_ref.outputs[output_idx].drm_output.as_mut().unwrap().render_frame(
                         &mut *vk,
                         &scene_outputs,
                         [0.0, 0.0, 0.0, 1.0],
@@ -654,17 +681,33 @@ pub fn execute(
             if !combined.is_empty() {
                 let vk = ctx_ref.vulkan.as_mut().expect("vulkan_mode without renderer");
                 vk.set_capture_targets(Vec::new()); // never capture lock content
-                match ctx_ref.outputs[output_idx].drm_output.as_mut().unwrap().render_frame(
-                    &mut *vk,
-                    &combined,
-                    [0.0, 0.0, 0.0, 1.0],
-                    frame_flags,
-                ) {
-                    Ok(result) => {
-                        honor_needs_sync(&result);
-                        last_result_empty = result.is_empty;
+                if cross_device_flag {
+                    let mut gr = gles_renderer.borrow_mut();
+                    let svk = ctx_ref.vulkan_scanout.as_mut();
+                    if let Some(empty) = present_option_b(
+                        vk,
+                        svk,
+                        &mut *gr,
+                        &mut ctx_ref.outputs[output_idx],
+                        &combined,
+                        frame_flags,
+                        true,
+                    ) {
+                        last_result_empty = empty;
                     }
-                    Err(e) => error!("native vulkan render_frame failed: {e:?}"),
+                } else {
+                    match ctx_ref.outputs[output_idx].drm_output.as_mut().unwrap().render_frame(
+                        &mut *vk,
+                        &combined,
+                        [0.0, 0.0, 0.0, 1.0],
+                        frame_flags,
+                    ) {
+                        Ok(result) => {
+                            honor_needs_sync(&result);
+                            last_result_empty = result.is_empty;
+                        }
+                        Err(e) => error!("native vulkan render_frame failed: {e:?}"),
+                    }
                 }
             }
         } else {
@@ -690,17 +733,33 @@ pub fn execute(
                 {
                     let vk = ctx_ref.vulkan.as_mut().expect("vulkan_mode without renderer");
                     vk.set_capture_targets(targets);
-                    match ctx_ref.outputs[output_idx].drm_output.as_mut().unwrap().render_frame(
-                        &mut *vk,
-                        &elements,
-                        [0.0, 0.0, 0.0, 1.0],
-                        frame_flags,
-                    ) {
-                        Ok(result) => {
-                            honor_needs_sync(&result);
-                            last_result_empty = result.is_empty;
+                    if cross_device_flag {
+                        let mut gr = gles_renderer.borrow_mut();
+                        let svk = ctx_ref.vulkan_scanout.as_mut();
+                        if let Some(empty) = present_option_b(
+                            vk,
+                            svk,
+                            &mut *gr,
+                            &mut ctx_ref.outputs[output_idx],
+                            &elements,
+                            frame_flags,
+                            true,
+                        ) {
+                            last_result_empty = empty;
                         }
-                        Err(e) => error!("native vulkan render_frame failed: {e:?}"),
+                    } else {
+                        match ctx_ref.outputs[output_idx].drm_output.as_mut().unwrap().render_frame(
+                            &mut *vk,
+                            &elements,
+                            [0.0, 0.0, 0.0, 1.0],
+                            frame_flags,
+                        ) {
+                            Ok(result) => {
+                                honor_needs_sync(&result);
+                                last_result_empty = result.is_empty;
+                            }
+                            Err(e) => error!("native vulkan render_frame failed: {e:?}"),
+                        }
                     }
                 }
                 if let Some(job) = render_job {
@@ -1088,4 +1147,173 @@ fn present(
     );
     compositor_kernel_graphic_draw_present_callbacks::callbacks::send_layer_frames(state, &current_output);
     true
+}
+
+/// OPTION-B Vulkan cross-device present (both approaches, gated on `cross_device`).
+///
+/// The RENDER-node `vk` composites `elements` into this output's render-node offscreen
+/// dmabuf (`OutputPipe::vk_offscreen`, reallocated on resize); the offscreen is then
+/// handed to the SCANOUT card and scanned out through the pipe's `DrmOutput`:
+///   - APPROACH B — `scanout_vk` is a second `VulkanRenderer` on the scanout card: it
+///     imports the offscreen and `render_frame`s it (a GPU-side blit that untiles).
+///   - APPROACH A — fallback when the scanout Vulkan device can't import the render
+///     node's buffer (cross-vendor) or wasn't built: import via the cross-device GLES
+///     `MultiRenderer` (`gles`, already `gpus.renderer(render, scanout, …)`), letting
+///     smithay do the cross-device copy.
+///
+/// `handoff == false` composes into the offscreen only — the capture-copy side effect of
+/// `vk.finish()` — for the lock-fade capture pass, which is rendered but never queued.
+///
+/// Returns `Some(is_empty)` for a queued frame (the caller threads it into pacing), or
+/// `None` when nothing was queued (offscreen alloc/bind failure, or `handoff == false`).
+fn present_option_b(
+    vk: &mut VulkanRenderer,
+    scanout_vk: Option<&mut VulkanRenderer>,
+    gles: &mut compositor_kernel_gles_multigpu_factory_base::factory::NativeMultiRenderer<'_>,
+    pipe: &mut compositor_kernel_native_context_render_base::render::OutputPipe,
+    elements: &[VkOutput],
+    frame_flags: smithay::backend::drm::compositor::FrameFlags,
+    handoff: bool,
+) -> Option<bool> {
+    use smithay::backend::renderer::element::texture::TextureRenderElement;
+    use smithay::backend::renderer::{Bind, Color32F, Frame, ImportDma, Renderer};
+
+    let size = pipe.mode.size;
+    let full = Rectangle::<i32, Physical>::from_loc_and_size((0, 0), size);
+    let scale = Scale::from(1.0);
+
+    // (Re)allocate the render-node offscreen to the current output size.
+    let need = pipe
+        .vk_offscreen
+        .as_ref()
+        .map(|(_, m)| *m != pipe.mode)
+        .unwrap_or(true);
+    if need {
+        match vk.create_output_target((size.w.max(1), size.h.max(1))) {
+            Ok(d) => pipe.vk_offscreen = Some((d, pipe.mode)),
+            Err(e) => {
+                error!("option-b: render-node offscreen realloc failed: {e:?}");
+                return None;
+            }
+        }
+    }
+
+    // Compose the scene into the offscreen on the render node. `finish()` returns the
+    // render-completion fence and performs the capture copy (targets set by the caller).
+    let mut vk_sync: Option<smithay::backend::renderer::sync::SyncPoint> = None;
+    {
+        let (dmabuf, _) = pipe.vk_offscreen.as_mut().unwrap();
+        match Bind::bind(vk, dmabuf) {
+            Ok(mut fb) => {
+                if let Ok(mut frame) = vk.render(&mut fb, size, Transform::Normal) {
+                    let _ = frame.clear(Color32F::new(0.0, 0.0, 0.0, 1.0), &[full]);
+                    // Elements are front-to-back (smithay); draw back-to-front.
+                    for element in elements.iter().rev() {
+                        let _ = element.draw(
+                            &mut frame,
+                            element.src(),
+                            element.geometry(scale),
+                            &[full],
+                            element.opaque_regions(scale).iter().as_slice(),
+                            None,
+                        );
+                    }
+                    match frame.finish() {
+                        Ok(sp) => vk_sync = Some(sp),
+                        Err(e) => {
+                            error!("option-b: offscreen finish failed: {e:?}");
+                            return None;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                error!("option-b: bind render-node offscreen failed: {e:?}");
+                return None;
+            }
+        }
+    }
+
+    if !handoff {
+        return None;
+    }
+
+    // Wait on the render fence before the scanout card samples the offscreen.
+    if let Some(ref sp) = vk_sync {
+        let _ = sp.wait();
+    }
+
+    let dmabuf = pipe.vk_offscreen.as_ref().unwrap().0.clone();
+    let drm = pipe.drm_output.as_mut()?;
+
+    // APPROACH B: import into the scanout Vulkan device and scan it out (GPU blit).
+    if let Some(svk) = scanout_vk {
+        match svk.import_dmabuf(&dmabuf, None) {
+            Ok(tex) => {
+                let elem = TextureRenderElement::from_static_texture(
+                    Id::new(),
+                    svk.context_id(),
+                    (0.0, 0.0),
+                    tex,
+                    1,
+                    Transform::Normal,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Kind::Unspecified,
+                );
+                match drm.render_frame(&mut *svk, &[elem], [0.0, 0.0, 0.0, 1.0], frame_flags) {
+                    Ok(result) => {
+                        honor_needs_sync(&result);
+                        return Some(result.is_empty);
+                    }
+                    Err(e) => {
+                        error!("option-b(B): scanout vulkan render_frame failed: {e:?}");
+                        return None;
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "option-b(B): scanout vulkan import failed ({e:?}); \
+                     falling back to GLES cross-copy (approach A)"
+                );
+            }
+        }
+    }
+
+    // APPROACH A: import into the cross-device GLES `MultiRenderer` and scan it out.
+    match gles.import_dmabuf(&dmabuf, None) {
+        Ok(tex) => {
+            let cid = gles.context_id();
+            let elem = TextureRenderElement::from_static_texture(
+                Id::new(),
+                cid,
+                (0.0, 0.0),
+                tex,
+                1,
+                Transform::Normal,
+                None,
+                None,
+                None,
+                None,
+                Kind::Unspecified,
+            );
+            match drm.render_frame(gles, &[elem], [0.0, 0.0, 0.0, 1.0], frame_flags) {
+                Ok(result) => {
+                    honor_needs_sync(&result);
+                    Some(result.is_empty)
+                }
+                Err(e) => {
+                    error!("option-b(A): gles cross render_frame failed: {e:?}");
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            error!("option-b(A): gles cross import failed: {e:?}");
+            None
+        }
+    }
 }

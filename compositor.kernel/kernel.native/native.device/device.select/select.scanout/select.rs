@@ -92,44 +92,80 @@ pub fn resolve<S: Session>(
     render_pref: Option<&Path>,
     heuristic: Option<&Path>,
     scanout_pref: Option<&Path>,
+    render_fallback: bool,
+    scan_fallback: bool,
 ) -> Resolved
 where
     S::Error: std::fmt::Debug,
 {
-    // --- Render node: anchored to settings, dev_id-normalized, heuristic fallback.
-    let render_card_path: PathBuf = render_pref
+    // --- Render node: anchored to settings at CARD (dev_id) granularity. STRICT — if
+    // the configured render_node isn't a present card, panic UNLESS `render_discovery`,
+    // which re-enables the heuristic→first-card fallback (never a silent substitution).
+    let render_card_path: PathBuf = match render_pref
         .and_then(card_id)
         .and_then(|id| card_path_for(cards, id))
-        .or_else(|| heuristic.and_then(card_id).and_then(|id| card_path_for(cards, id)))
-        .or_else(|| cards.first().map(|(_, p)| p))
-        .cloned()
-        .unwrap_or_else(|| abort!("no DRM cards on seat — cannot select a render GPU"));
+    {
+        Some(p) => p.clone(),
+        None => {
+            if !render_fallback {
+                abort!(
+                    "FATAL: render_node {render_pref:?} is not a present DRM card on the seat. \
+                     Point render_node at an available card, or add the `render_discovery` mode \
+                     token to allow heuristic/first-card fallback. (strict: no silent substitution)"
+                );
+            }
+            heuristic
+                .and_then(card_id)
+                .and_then(|id| card_path_for(cards, id))
+                .or_else(|| cards.first().map(|(_, p)| p))
+                .cloned()
+                .unwrap_or_else(|| abort!("no DRM cards on seat — cannot select a render GPU"))
+        }
+    };
     let render = render_of(&render_card_path)
         .unwrap_or_else(|| abort!("render card {render_card_path:?} has no resolvable DRM node"));
     let render_card_node = card_node(&render_card_path).unwrap();
     let render_card = render_card_node.dev_id();
 
-    // --- Explicit scanout override: probe-or-panic, NO auto-discovery fallback.
+    // --- Explicit scanout override. KMS-capable → use it. Not KMS → panic UNLESS
+    //     `scanout_discovery`, which lets a bad explicit choice fall THROUGH to
+    //     auto-discovery instead of aborting.
     if let Some(p) = scanout_pref {
         let (fd, cap) = open_probe(session, p);
-        if !cap.is_scanout_capable() {
+        if cap.is_scanout_capable() {
+            return finish(render, render_card_node, p.to_path_buf(), fd, cap);
+        }
+        if !scan_fallback {
             abort!(
                 "FATAL: explicit scanout_node {p:?} (driver {:?}) has no KMS/modeset \
-                 capability (crtcs={}, connectors={}). scanout_node is an explicit override \
-                 with no fallback — point it at a KMS-capable card or remove it to auto-discover.",
+                 capability (crtcs={}, connectors={}). Point it at a KMS-capable card, or add \
+                 the `scanout_discovery` mode token to fall through to auto-discovery.",
                 cap.driver, cap.crtcs, cap.connectors
             );
         }
-        return finish(render, render_card_node, p.to_path_buf(), fd, cap);
+        warn!(
+            "explicit scanout_node {p:?} is not KMS-capable; `scanout_discovery` set → \
+             falling through to auto-discovery"
+        );
     }
 
-    // --- Auto-discover. #3 first: render card itself, if KMS-capable (desktop).
+    // --- Auto-discover. #3 first: render card itself, if KMS-capable (desktop — the
+    //     stable path, needs no token).
     let (render_fd, render_cap) = open_probe(session, &render_card_path);
     if render_cap.is_scanout_capable() {
         return finish(render, render_card_node, render_card_path, render_fd, render_cap);
     }
 
-    // #2: render card is render-only (e.g. Tegra nvgpu). Probe the other cards and
+    // #2: render card is render-only (e.g. Tegra nvgpu). STRICT — discovering a
+    // *different* KMS card requires `scanout_discovery`; otherwise panic.
+    if !scan_fallback {
+        abort!(
+            "FATAL: render_node {render_card_path:?} is render-only (no KMS) and no KMS-capable \
+             `scanout_node` is set. Set `scanout_node` to your display card, or add the \
+             `scanout_discovery` mode token to auto-discover one. (strict: no silent discovery)"
+        );
+    }
+    // Probe the other cards and
     // pick a KMS-capable one, anchored to the render card: rank by connected
     // displays desc (the card actually driving output), then card path asc.
     let mut probed: Vec<(PathBuf, DrmDeviceFd, KmsCapability)> = Vec::new();

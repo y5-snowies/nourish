@@ -269,6 +269,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_developer_environment_config_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_environment_config_mode",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "compositor_developer_environment_config_mode"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
+ "serde",
+]
+
+[[package]]
+name = "compositor_developer_environment_config_router"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_mode",
+]
+
+[[package]]
 name = "compositor_kernel_gpu_preference_select_base"
 version = "0.0.1"
 dependencies = [
@@ -285,6 +310,21 @@ dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_gpu_topology_feedback_base"
+version = "0.0.1"
+dependencies = [
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_gpu_topology_plan_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_environment_config_mode",
+ "compositor_kernel_gpu_topology_route_base",
 ]
 
 [[package]]
@@ -311,6 +351,8 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_mode",
+ "compositor_developer_environment_config_router",
  "smithay",
 ]
 
@@ -1480,6 +1522,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]

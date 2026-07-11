@@ -1,9 +1,9 @@
 //! Cross-API `(fourcc × modifier)` intersection for the dmabuf bridge, plus the
-//! experimental-flag-driven modifier selection the bridge allocator honors.
+//! per-node `mode`-driven modifier selection the bridge allocator honors.
 
 use std::collections::HashSet;
 
-use compositor_developer_environment_experimental_base::base::GpuFlags;
+use compositor_developer_environment_config_mode::mode::ModeFlags;
 use compositor_kernel_graphic_bridge_negotiate_classify::classify::{is_dcc, is_tiled, rank};
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::{Format as DrmFormat, Fourcc, Modifier};
@@ -42,9 +42,9 @@ impl BridgeFormats {
         v
     }
 
-    /// The gbm modifier list to allocate `fourcc` with under the experimental
-    /// flags (see the plan for composition). Empty ⇒ implicit path.
-    pub fn modifiers_for(&self, fourcc: Fourcc, flags: GpuFlags, raw: &[String]) -> Vec<Modifier> {
+    /// The gbm modifier list to allocate `fourcc` with under the render node's
+    /// `mode` (polarity preserved from stable). Empty ⇒ implicit path.
+    pub fn modifiers_for(&self, fourcc: Fourcc, mode: ModeFlags) -> Vec<Modifier> {
         let mut mods: Vec<Modifier> = self
             .set
             .iter()
@@ -53,14 +53,17 @@ impl BridgeFormats {
             .collect();
         mods.sort_by_key(|m| std::cmp::Reverse(rank(*m))); // best-first
 
-        let (force_linear, force_tiled) = resolve_force(flags, raw);
-        // Negotiation is the default; only the opt-out flag falls back to implicit.
-        // With it set (and no force flag) the `(false, false, false)` arm yields an
-        // empty list → the allocator's byte-identical implicit path.
-        let negotiate = !flags.contains(GpuFlags::NO_NEGOTIATE_MODIFIERS);
+        // Negotiation is the default; only the opt-out `no_negotiate_modifiers`
+        // token falls back to implicit. With it set (and no force token) the
+        // `(false, false, false)` arm yields an empty list → the allocator's
+        // byte-identical implicit path. FORCE_LINEAR/FORCE_TILED are already
+        // mutually exclusive (fold resolves the last-wins conflict).
+        let negotiate = !mode.contains(ModeFlags::NO_NEGOTIATE_MODIFIERS);
+        let force_linear = mode.contains(ModeFlags::FORCE_LINEAR);
+        let force_tiled = mode.contains(ModeFlags::FORCE_TILED);
 
         let mut result = match (negotiate, force_linear, force_tiled) {
-            (false, false, false) if !flags.contains(GpuFlags::FORCE_MULTIPLANE) => Vec::new(),
+            (false, false, false) if !mode.contains(ModeFlags::FORCE_MULTIPLANE) => Vec::new(),
             (false, true, _) => vec![Modifier::Linear],
             (false, false, true) => mods.into_iter().filter(|m| is_tiled(*m)).collect(),
             (true, false, false) | (false, false, false) => mods,
@@ -75,7 +78,7 @@ impl BridgeFormats {
         };
         // Require a multi-plane (DCC) modifier — drop everything else. If none
         // survive, the empty list falls back to the implicit path at the allocator.
-        if flags.contains(GpuFlags::FORCE_MULTIPLANE) {
+        if mode.contains(ModeFlags::FORCE_MULTIPLANE) {
             result.retain(|m| is_dcc(*m));
         }
         result
@@ -84,14 +87,14 @@ impl BridgeFormats {
 
 /// Convenience for bridge call sites: intersect the renderer-importable and
 /// wgpu-importable sets and resolve the modifier list for `fourcc` under the
-/// current experimental flags. Empty result ⇒ the allocator's implicit path.
+/// render node's `mode`. Empty result ⇒ the allocator's implicit path.
 pub fn bridge_modifiers(
     renderer: FormatSet,
     wgpu_importable: FormatSet,
     fourcc: Fourcc,
+    mode: ModeFlags,
 ) -> Vec<Modifier> {
-    use compositor_developer_environment_experimental_base::base as ex;
-    BridgeFormats::intersect(&[renderer, wgpu_importable]).modifiers_for(fourcc, ex::get(), ex::raw())
+    BridgeFormats::intersect(&[renderer, wgpu_importable]).modifiers_for(fourcc, mode)
 }
 
 /// Whether the render-importable ∩ wgpu-importable intersection has NO modifier
@@ -108,23 +111,4 @@ pub fn bridge_intersection_empty(
 ) -> bool {
     let shared = BridgeFormats::intersect(&[renderer, wgpu_importable]);
     !shared.set.iter().any(|f| f.code == fourcc)
-}
-
-/// Resolve FORCE_LINEAR / FORCE_TILED; when both are set, last-in-`raw` wins.
-fn resolve_force(flags: GpuFlags, raw: &[String]) -> (bool, bool) {
-    let fl = flags.contains(GpuFlags::FORCE_LINEAR);
-    let ft = flags.contains(GpuFlags::FORCE_TILED);
-    if fl && ft {
-        match raw
-            .iter()
-            .rev()
-            .find(|s| *s == "gpu_force_linear" || *s == "gpu_force_tiled")
-            .map(String::as_str)
-        {
-            Some("gpu_force_tiled") => (false, true),
-            _ => (true, false),
-        }
-    } else {
-        (fl, ft)
-    }
 }

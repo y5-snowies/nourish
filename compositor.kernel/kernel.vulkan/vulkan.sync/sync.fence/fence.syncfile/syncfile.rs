@@ -10,11 +10,21 @@ use std::os::unix::io::{AsRawFd, OwnedFd};
 #[derive(Debug)]
 pub struct SyncFileFence {
     fd: OwnedFd,
+    /// `infence_2`: treat `POLLNVAL`/`POLLERR` as a failed wait (`Err`) instead of
+    /// a fake success. The original `infence` path keeps the lenient behaviour
+    /// (`strict = false`) to stay byte-identical.
+    strict: bool,
 }
 
 impl SyncFileFence {
     pub fn new(fd: OwnedFd) -> Self {
-        Self { fd }
+        Self { fd, strict: false }
+    }
+
+    /// Strict variant (`infence_2`): a `POLLNVAL`/`POLLERR` on the fd is reported as
+    /// `Interrupted` rather than a (fake) completed wait.
+    pub fn new_strict(fd: OwnedFd) -> Self {
+        Self { fd, strict: true }
     }
 
     /// poll(2) the sync_file: POLLIN means the fence is signaled.
@@ -40,6 +50,11 @@ impl Fence for SyncFileFence {
                         "SyncFileFence::wait: poll revents={:#x} on fd={} (invalid/err — NOT a real GPU wait)",
                         pfd.revents, self.fd.as_raw_fd()
                     );
+                    // Strict (`infence_2`): a bad fd is a failed wait, not a fake
+                    // completed one — the caller must not proceed as if synced.
+                    if self.strict {
+                        return Err(Interrupted);
+                    }
                 }
                 return Ok(());
             }

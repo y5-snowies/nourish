@@ -36,10 +36,18 @@ pub fn interactive(base: Environment) -> Environment {
             base.depth,
         ),
         vrr: yes_no("vrr", "Enable adaptive sync / VRR.", base.vrr),
-        render_node: select_render_node(&base.render_node),
+        // Simple-variant device picker. If the file is an advanced `gpu_router`
+        // config, don't prompt or clobber it — pass it through and leave render_node
+        // unset (setting both would fail config validation).
+        render_node: if base.gpu_router.is_some() {
+            None
+        } else {
+            Some(select_render_node(base.render_node.as_deref().unwrap_or("")))
+        },
         // Optional PRIME scanout override — not prompted (advanced/rare); preserved
         // as-is from the existing file so hand-set values survive a re-run.
         scanout_node: base.scanout_node.clone(),
+        gpu_router: base.gpu_router.clone(),
         desktop_name: ask(
             "desktop_name",
             "XDG desktop name advertised to clients.",

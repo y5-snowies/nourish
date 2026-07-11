@@ -1,10 +1,30 @@
+use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::OnceLock;
+
+use compositor_developer_environment_config_mode::mode::ModeToken;
+
+/// One render node's routing in the advanced (`gpu_router`) variant. The map KEY is
+/// the render-node path; this is its value. `mode` COMPOSES per-node behaviour tokens
+/// (see `config.mode`); `scanout` is the KMS card this node scans out to (`None` =
+/// auto-anchor to this node's own card).
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RouteEntry {
+    #[serde(default)]
+    pub mode: Vec<ModeToken>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scanout: Option<String>,
+}
 
 /// The compositor's complete runtime configuration, read from a JSON file
 /// (`~/.config/y5.compositor/settings.json`, override with `--config-file=<path>`).
-/// Every field is REQUIRED — no defaults; startup panics otherwise — with ONE
-/// exception: `scanout_node`, the single optional field (omit it from the JSON
-/// and it is `None`). This is the ONE place the compositor reads its own configuration.
+/// Every field is REQUIRED — no defaults; startup panics otherwise — EXCEPT the GPU
+/// routing fields, which form two mutually-exclusive variants (exactly one must be
+/// present; both or neither panics in [`Environment::validate`]):
+/// - **simple**: `render_node` (+ optional `scanout_node`), the single-GPU shape; or
+/// - **advanced**: `gpu_router`, a render-node → [`RouteEntry`] map for N GPUs/scanouts.
+/// This is the ONE place the compositor reads its own configuration.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Environment {
@@ -12,7 +32,10 @@ pub struct Environment {
     pub renderer: String,
     /// Fall back to GLES if Vulkan initialization fails.
     pub renderer_fallback: bool,
-    /// Frame-sync: `""` (off), `"infence"` (KMS IN_FENCE), or `"kms"`.
+    /// Frame-sync: `""` (off / synchronous `device_wait_idle`), `"infence"` (KMS
+    /// IN_FENCE via a binary-semaphore sync_file — original, fragile), or
+    /// `"infence_2"` (KMS IN_FENCE via a VkFence `external_fence_fd` sync_file —
+    /// fd-guarded + strict, the less-fragile path).
     pub renderer_sync: String,
     /// Enable HDR output (Vulkan only).
     pub hdr: bool,
@@ -25,15 +48,26 @@ pub struct Environment {
     /// this same device also scans out; on split render/scanout systems (PRIME —
     /// e.g. Jetson/Tegra, where `nvgpu` renders but `nvidia-drm` owns the display)
     /// it does not, and `scanout_node` (below) names the KMS card.
-    pub render_node: String,
-    /// The single OPTIONAL field. DRM **scanout** card path (a KMS-capable card,
-    /// e.g. `/dev/dri/card0`) for PRIME split render/scanout systems. Absent/`None`
-    /// = auto-discover the KMS card, anchored to `render_node`. When set, it is an
-    /// EXPLICIT override with NO fallback to auto-discovery: a card that fails the
-    /// KMS capability probe panics verbosely. Serialized only when present, so a
-    /// normal single-GPU config never carries it.
+    ///
+    /// **Simple variant** (mutually exclusive with `gpu_router`). An existing bare
+    /// `"render_node": "..."` still deserializes to `Some(..)`; an advanced-only file
+    /// omits it and [`Environment::validate`] routes via `gpu_router` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub render_node: Option<String>,
+    /// Optional DRM **scanout** card path (a KMS-capable card, e.g. `/dev/dri/card0`)
+    /// for PRIME split render/scanout systems — valid **only** alongside `render_node`.
+    /// Absent/`None` = auto-discover the KMS card, anchored to `render_node`. When set,
+    /// it is an EXPLICIT override with NO fallback to auto-discovery. Serialized only
+    /// when present, so a normal single-GPU config never carries it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scanout_node: Option<String>,
+    /// **Advanced variant** (mutually exclusive with `render_node`/`scanout_node`): a
+    /// render-node-path → [`RouteEntry`] map describing N render→scanout pairs. Exactly
+    /// one entry must carry the `session_primary` token when the map has ≥2 entries; for
+    /// a single-entry map the lone entry is the implicit anchor. Serialized only when
+    /// present, so a normal single-GPU config never carries it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gpu_router: Option<BTreeMap<String, RouteEntry>>,
     /// XDG desktop name advertised to clients, e.g. `Y5Compositor`.
     pub desktop_name: String,
     /// Developer-log level spec, e.g. `"info,warn,error"`.
@@ -129,8 +163,86 @@ pub fn init() {
     let parsed: Environment = serde_json::from_str(&raw).unwrap_or_else(|e| {
         panic!("settings file {} is invalid: {e}. Every field is required.", path.display())
     });
+    parsed.validate(&path);
     if ENV.set(parsed).is_err() {
         panic!("environment already initialized");
+    }
+}
+
+impl Environment {
+    /// Strict, load-time validation of the two mutually-exclusive GPU routing
+    /// variants. Runs in [`init`] after parse, before the config is published, so the
+    /// compositor never runs with an ambiguous topology. No logging dep → `panic!`.
+    pub fn validate(&self, path: &Path) {
+        let where_ = || path.display().to_string();
+        let simple = self.render_node.is_some();
+        let advanced = self.gpu_router.is_some();
+        if simple && advanced {
+            panic!(
+                "settings {}: set EITHER `render_node` (simple) OR `gpu_router` (advanced), never both.",
+                where_()
+            );
+        }
+        if !simple && !advanced {
+            panic!(
+                "settings {}: must set `render_node` (single-GPU) or `gpu_router` (multi-GPU).",
+                where_()
+            );
+        }
+        if advanced && self.scanout_node.is_some() {
+            panic!(
+                "settings {}: `scanout_node` is only valid with `render_node`; put `scanout` inside each `gpu_router` entry.",
+                where_()
+            );
+        }
+        if let Some(r) = &self.render_node
+            && r.trim().is_empty()
+        {
+            panic!("settings {}: `render_node` is empty.", where_());
+        }
+        let Some(map) = &self.gpu_router else { return };
+        if map.is_empty() {
+            panic!(
+                "settings {}: `gpu_router` is empty; add at least one render-node entry, or use `render_node`.",
+                where_()
+            );
+        }
+        let mut primary_count = 0usize;
+        for (key, e) in map {
+            if key.trim().is_empty() {
+                panic!("settings {}: `gpu_router` has an empty render-node key.", where_());
+            }
+            let has = |t: ModeToken| e.mode.contains(&t);
+            let is_primary = has(ModeToken::SessionPrimary);
+            if is_primary {
+                primary_count += 1;
+            }
+            let routes_somewhere = e.scanout.is_some() || is_primary;
+            if !routes_somewhere
+                && (has(ModeToken::ZeroCopy)
+                    || has(ModeToken::LocalRender)
+                    || has(ModeToken::BlitFallback))
+            {
+                panic!(
+                    "settings {}: `gpu_router[{key}]` has a routing token (zero_copy/local_render/blit_fallback) but no `scanout` and is not `session_primary` — it routes nowhere.",
+                    where_()
+                );
+            }
+            if has(ModeToken::BlitFallback) && !has(ModeToken::UntileBlit) {
+                panic!(
+                    "settings {}: `gpu_router[{key}]` has `blit_fallback` without `untile_blit` — nothing to fall back to.",
+                    where_()
+                );
+            }
+        }
+        // session_primary is implicit for a single-entry map; required (exactly one)
+        // only to disambiguate a multi-entry map.
+        if map.len() >= 2 && primary_count != 1 {
+            panic!(
+                "settings {}: a multi-entry `gpu_router` needs exactly one `session_primary` entry (found {primary_count}).",
+                where_()
+            );
+        }
     }
 }
 
@@ -144,8 +256,8 @@ pub fn get() -> &'static Environment {
 /// NOT used by the compositor at runtime — [`init`] still requires a fully-populated file
 /// and never falls back to these, so a real config can't be silently half-default. Living
 /// here (with the struct) means the editor and the installer agree on one set of values
-/// across the full schema (19 required fields + the optional `scanout_node`), so any
-/// seeded file is always complete and valid.
+/// across the full schema (the required fields plus the simple `render_node` variant; the
+/// optional `scanout_node`/`gpu_router` are omitted), so any seeded file is complete and valid.
 pub fn default_settings() -> Environment {
     Environment {
         renderer: "vulkan".to_string(),
@@ -154,8 +266,9 @@ pub fn default_settings() -> Environment {
         hdr: false,
         depth: 8,
         vrr: false,
-        render_node: "/dev/dri/renderD128".to_string(),
+        render_node: Some("/dev/dri/renderD128".to_string()),
         scanout_node: None,
+        gpu_router: None,
         desktop_name: "Y5Compositor".to_string(),
         log_level: "info,warn,error".to_string(),
         vk_diag: String::new(),

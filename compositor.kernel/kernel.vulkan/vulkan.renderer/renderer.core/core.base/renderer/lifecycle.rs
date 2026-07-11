@@ -31,21 +31,49 @@ impl VulkanRenderer {
         let descriptor_pool = Self::create_descriptor_pool(&dev)?;
         let timeline = Self::create_timeline(&dev)?;
         let render_semaphore = Self::create_render_semaphore(&dev)?;
-        let frame_fence = unsafe {
-            dev.device.create_fence(
-                &vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED),
-                None,
-            )?
+        // Render-sync mode from `COMPOSITOR_RENDERER_SYNC`: `infence_2` (VkFence
+        // external_fence_fd path) > `infence` (binary-semaphore path) > synchronous
+        // (DEFAULT). `infence_2` needs `VK_KHR_external_fence_fd`; without it, fall
+        // back to synchronous rather than a path that can't produce its fence.
+        let rs = &compositor_developer_environment_config_base::base::get().renderer_sync;
+        let has_ext_fence_fd = phd.has_device_extension(ash::khr::external_fence_fd::NAME);
+        let sync_mode = if rs.eq_ignore_ascii_case("infence_2") {
+            if has_ext_fence_fd {
+                super::SyncMode::InFenceV2
+            } else {
+                warn!(
+                    "renderer_sync=infence_2 but VK_KHR_external_fence_fd is unavailable; \
+                     falling back to synchronous"
+                );
+                super::SyncMode::Synchronous
+            }
+        } else if rs.eq_ignore_ascii_case("infence") {
+            super::SyncMode::InFence
+        } else {
+            super::SyncMode::Synchronous
         };
 
-        // `renderer_sync == "infence"` opts in to the native KMS IN_FENCE path.
-        // DEFAULT is synchronous `device_wait_idle`.
-        let native_fence_optin = compositor_developer_environment_config_base::base::get()
-            .renderer_sync
-            .eq_ignore_ascii_case("infence");
+        // The `infence_2` path exports THIS fence as a `sync_file`, so it must be
+        // created SYNC_FD-exportable; the other modes use a plain signaled fence.
+        let frame_fence = if sync_mode == super::SyncMode::InFenceV2 {
+            let mut export_ci = vk::ExportFenceCreateInfo::default()
+                .handle_types(vk::ExternalFenceHandleTypeFlags::SYNC_FD);
+            let ci = vk::FenceCreateInfo::default()
+                .flags(vk::FenceCreateFlags::SIGNALED)
+                .push_next(&mut export_ci);
+            unsafe { dev.device.create_fence(&ci, None)? }
+        } else {
+            unsafe {
+                dev.device.create_fence(
+                    &vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED),
+                    None,
+                )?
+            }
+        };
+
         info!(
-            "VulkanRenderer initialized (queue family {}, native_fence_optin={})",
-            queue.family_index, native_fence_optin
+            "VulkanRenderer initialized (queue family {}, sync_mode={sync_mode:?})",
+            queue.family_index
         );
         stats::set_renderer("vulkan", true);
         stats::set_sync_mode("synchronous (device_wait_idle)");
@@ -69,7 +97,7 @@ impl VulkanRenderer {
             render_semaphore,
             frame_fence,
             drm_fd: None,
-            native_fence_optin,
+            sync_mode,
             last_fence_warn: None,
             capture_targets: Vec::new(),
             capture_cache: CaptureCache::new(),
@@ -80,6 +108,23 @@ impl VulkanRenderer {
             upscale: TextureFilter::Linear,
             context_id: ContextId::new(),
         })
+    }
+
+    /// Build a renderer on the physical device matching a specific DRM node — the
+    /// OPTION-B path (`local_render`), where the compositor composites on the RENDER
+    /// node (not the first-enumerated / scanout device). The composited frame must
+    /// then cross to the scanout card (a Vulkan→scanout handoff — see the native
+    /// backend's option-B present path).
+    pub fn new_for_node(
+        node: smithay::backend::drm::DrmNode,
+    ) -> Result<Self, VulkanError> {
+        let instance = compositor_kernel_vulkan_instance_factory_base::factory::create()
+            .map_err(|e| VulkanError::Vk(format!("instance: {e:?}")))?;
+        let phd = compositor_kernel_vulkan_instance_physical_base::physical::for_node(&instance, node)
+            .map_err(VulkanError::Vk)?
+            .ok_or(VulkanError::Unimplemented("no vulkan physical device for render node"))?;
+        info!("vulkan renderer: pinned to render node {node:?} → device '{}'", phd.name());
+        Self::new(phd)
     }
 
     /// Build a renderer on the first available vulkan physical device. Used by

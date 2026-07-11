@@ -85,7 +85,7 @@ pub fn register(
             // lid policy sees current external/internal presence.
             let active = ctx_rc.borrow().pipe().connector;
             let ctx = ctx_rc.borrow();
-            let manager = ctx.drm_output_manager.borrow();
+            let manager = ctx.primary_manager().borrow();
             let snap = compositor_kernel_native_context_display_base::base::compute(
                 manager.device(),
                 active,

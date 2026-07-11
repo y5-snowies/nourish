@@ -101,10 +101,11 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
     });
     info!("Created wgpu::Instance (Vulkan backend)");
 
-    use compositor_developer_environment_experimental_base::base as experimental;
-    // Pin the wgpu adapter to the render node by default; opt out via gpu_no_pin_wgpu_node.
-    let pinned = (!experimental::get().contains(experimental::GpuFlags::NO_PIN_WGPU_NODE)).then(|| {
-        let node = compositor_developer_environment_config_base::base::get().render_node.clone();
+    use compositor_developer_environment_config_mode::mode::ModeFlags;
+    let mode = compositor_developer_environment_config_router::router::primary_mode();
+    // Pin the wgpu adapter to the render node by default; opt out via the `no_pin_wgpu` mode token.
+    let pinned = (!mode.contains(ModeFlags::NO_PIN_WGPU)).then(|| {
+        let node = compositor_developer_environment_config_router::router::primary_render_string();
         compositor_kernel_graphic_bridge_negotiate_wgpu::query::pick_adapter(&instance, &node)
     });
     let adapter = match pinned.flatten() {
@@ -160,8 +161,8 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
     let importable = compositor_kernel_graphic_bridge_negotiate_wgpu::query::query_importable(
         &instance,
         &adapter,
-        experimental::get().contains(experimental::GpuFlags::ALLOW_DCC),
-        experimental::get().contains(experimental::GpuFlags::PROBE_MODIFIERS),
+        mode.contains(ModeFlags::ALLOW_DCC),
+        mode.contains(ModeFlags::PROBE_MODIFIERS),
     );
     info!("iced wgpu importable dmabuf formats: {}", importable.iter().count());
 

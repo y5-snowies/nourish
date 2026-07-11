@@ -82,12 +82,13 @@ fn bring_up(ctx: &mut NativeRenderContext, target: &connector::Info, requested: 
     // (the atomic modeset of a second simultaneous pipe is rejected).
     ctx.pipe_mut().drm_output = None;
     let built = compositor_kernel_native_context_display_build::build::build(
-        &ctx.drm_output_manager,
+        ctx.primary_manager(),
         &ctx.gpu_binding,
         &ctx.pipe().output,
         busy,
         target,
         requested,
+        None,
     )?;
     let env = compositor_developer_environment_config_base::base::get();
     let new_hdr_active = env.hdr && built.hdr.hdr_capable() && ctx.vulkan_mode;
@@ -127,7 +128,7 @@ fn write_snapshots(state: &mut Loop, ctx: &NativeRenderContext) {
         .map(|p| (p.connector, mode_info(p.current_drm_mode)))
         .collect();
     let snap = {
-        let mgr = ctx.drm_output_manager.borrow();
+        let mgr = ctx.primary_manager().borrow();
         let drm = mgr.device();
         let snap = compositor_kernel_native_context_display_enumerate::enumerate::enumerate(drm, active, &lit);
         let display_snap = compositor_kernel_native_context_display_base::base::compute(drm, active);
@@ -198,9 +199,29 @@ fn add_output(
     target: &connector::Info,
     requested: Option<ModeInfo>,
 ) -> Result<(), String> {
+    // Primary card: its own manager/node, primary render path (`render_target` None).
+    let manager = ctx.primary_manager().clone();
+    let node = ctx.primary_device().node;
+    add_output_on(state, ctx, &manager, node, None, target, requested)
+}
+
+/// Light `target` as a new output on a SPECIFIC card. `manager`/`device` name the
+/// card; `render_target` = `Some(node)` composites this output LOCALLY on `node` (a
+/// secondary card driving its own monitors), `None` = the primary render path. This
+/// is the device-agnostic form: the primary calls it with `(primary_manager,
+/// primary_node, None)`, a secondary card with `(its manager, its node, Some(node))`.
+pub fn add_output_on(
+    state: &mut Loop,
+    ctx: &mut NativeRenderContext,
+    manager: &Rc<RefCell<compositor_kernel_scanout_surface_output_base::output::NativeDrmOutputManager>>,
+    device: smithay::backend::drm::DrmNode,
+    render_target: Option<smithay::backend::drm::DrmNode>,
+    target: &connector::Info,
+    requested: Option<ModeInfo>,
+) -> Result<(), String> {
     // Fresh smithay Output from this connector's EDID identity.
     let output = {
-        let mgr = ctx.drm_output_manager.borrow();
+        let mgr = manager.borrow();
         let drm = mgr.device();
         let raw = compositor_kernel_drm_edid_parse_base::parse::read(drm, target);
         let parsed = raw.as_ref().and_then(compositor_kernel_drm_edid_parse_base::parse::parse);
@@ -210,15 +231,18 @@ fn add_output(
         );
         compositor_kernel_drm_output_physical_base::physical::create(target, &identity)
     };
-    // Second pipe on a free CRTC (excluding the ones already lit).
-    let busy: Vec<crtc::Handle> = ctx.outputs.iter().map(|p| p.crtc).collect();
+    // Free CRTC on THIS card (CRTC handles are per-device, so only exclude CRTCs
+    // already lit on the same `device`).
+    let busy: Vec<crtc::Handle> =
+        ctx.outputs.iter().filter(|p| p.device == device).map(|p| p.crtc).collect();
     let built = compositor_kernel_native_context_display_build::build::build(
-        &ctx.drm_output_manager,
+        manager,
         &ctx.gpu_binding,
         &output,
         &busy,
         target,
         requested,
+        render_target,
     )?;
     // Place to the right of the existing outputs (non-overlapping horizontal tiling,
     // matching `graphic.preference.layout.output::tile_positions`).
@@ -245,6 +269,7 @@ fn add_output(
         ctx.outputs.len() + 1,
     );
     ctx.outputs.push(compositor_kernel_native_context_render_base::render::OutputPipe {
+        device,
         crtc: built.crtc,
         mode,
         output,
@@ -258,6 +283,7 @@ fn add_output(
         modes: built.modes,
         mode_revert: None,
         global: Some(global),
+        vk_offscreen: None,
         in_flight: false,
     });
     Ok(())
@@ -283,7 +309,7 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
     let mut ctx = ctx_rc.borrow_mut();
     let was_dark = ctx.outputs.iter().all(|p| p.drm_output.is_none());
     let connected = {
-        let mgr = ctx.drm_output_manager.borrow();
+        let mgr = ctx.primary_manager().borrow();
         let drm = mgr.device();
         let res = compositor_kernel_drm_connector_scan_base::scan::resources(drm);
         let infos = compositor_kernel_drm_connector_scan_base::scan::connectors(drm, &res);
@@ -298,7 +324,7 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
         profiles.iter().find(|p| p.identity.as_deref() == Some(key)).map(|p| p.active).unwrap_or(true)
     };
     let (drive_set, connected_keys): (Vec<connector::Info>, Vec<String>) = {
-        let mgr = ctx.drm_output_manager.borrow();
+        let mgr = ctx.primary_manager().borrow();
         let drm = mgr.device();
         let keyed: Vec<(connector::Info, String)> =
             connected.iter().map(|c| (c.clone(), identity_key(drm, c))).collect();
@@ -351,7 +377,7 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
         && drive_handles.contains(&ctx.outputs[0].connector);
     if !primary_ok {
         let target = {
-            let mgr = ctx.drm_output_manager.borrow();
+            let mgr = ctx.primary_manager().borrow();
             pick_target(mgr.device(), &drive_set)
         };
         match target {
@@ -377,7 +403,7 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
                     }
                 }
                 let requested = {
-                    let mgr = ctx.drm_output_manager.borrow();
+                    let mgr = ctx.primary_manager().borrow();
                     pref_mode(mgr.device(), &t)
                 };
                 // CRTCs still held by surviving secondaries must be excluded so the
@@ -416,7 +442,7 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
         drive_set.iter().filter(|c| !driven.contains(&c.handle())).cloned().collect();
     for c in &to_add {
         let requested = {
-            let mgr = ctx.drm_output_manager.borrow();
+            let mgr = ctx.primary_manager().borrow();
             pref_mode(mgr.device(), c)
         };
         match add_output(state, &mut ctx, c, requested) {

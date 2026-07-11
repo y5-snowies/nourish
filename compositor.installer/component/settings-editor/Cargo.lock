@@ -36,8 +36,32 @@ version = "0.0.1"
 name = "compositor_developer_environment_config_base"
 version = "0.0.1"
 dependencies = [
+ "compositor_developer_environment_config_mode",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "compositor_developer_environment_config_mode"
+version = "0.0.1"
+dependencies = [
+ "bitflags",
+ "serde",
+]
+
+[[package]]
+name = "compositor_developer_environment_config_router"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_mode",
+]
+
+[[package]]
+name = "compositor_developer_environment_graphics_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -45,6 +69,7 @@ name = "compositor_developer_environment_preference_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "serde",
  "serde_json",
 ]
@@ -333,6 +358,8 @@ version = "0.1.0"
 dependencies = [
  "compositor_configurator_hardware_gpu_base",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_mode",
+ "compositor_developer_environment_config_router",
  "compositor_developer_environment_preference_base",
  "drm",
  "rustix 1.1.4",

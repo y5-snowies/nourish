@@ -23,6 +23,7 @@ compositor_kernel_drm_edid_parse_base.workspace = true
 compositor_developer_stats_registry_base = { workspace = true }
 compositor_kernel_gles_element_combined_base.workspace = true
 compositor_kernel_gles_element_wrap_base.workspace = true
+compositor_kernel_gles_multigpu_factory_base.workspace = true
 compositor_kernel_native_context_render_base.workspace = true
 compositor_kernel_native_context_display_mode.workspace = true
 compositor_kernel_native_context_display_reconcile.workspace = true

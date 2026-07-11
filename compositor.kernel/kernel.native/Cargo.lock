@@ -2258,18 +2258,25 @@ dependencies = [
 name = "compositor_developer_environment_config_base"
 version = "0.0.1"
 dependencies = [
+ "compositor_developer_environment_config_mode",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "compositor_developer_environment_experimental_base"
+name = "compositor_developer_environment_config_mode"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_environment_config_base",
  "serde",
- "serde_json",
+]
+
+[[package]]
+name = "compositor_developer_environment_config_router"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_mode",
 ]
 
 [[package]]
@@ -3384,6 +3391,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_kernel_gpu_topology_plan_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_environment_config_mode",
+ "compositor_kernel_gpu_topology_route_base",
+]
+
+[[package]]
 name = "compositor_kernel_gpu_topology_role_base"
 version = "0.0.1"
 dependencies = [
@@ -3405,7 +3420,7 @@ dependencies = [
 name = "compositor_kernel_graphic_bridge_negotiate_base"
 version = "0.0.1"
 dependencies = [
- "compositor_developer_environment_experimental_base",
+ "compositor_developer_environment_config_mode",
  "compositor_kernel_graphic_bridge_negotiate_classify",
  "smithay",
 ]
@@ -3480,7 +3495,8 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
- "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_mode",
+ "compositor_developer_environment_config_router",
  "smithay",
 ]
 
@@ -3558,6 +3574,7 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_router",
  "compositor_kernel_drm_connector_diff_base",
  "compositor_kernel_drm_connector_kind_base",
  "compositor_kernel_drm_connector_scan_base",
@@ -3570,6 +3587,7 @@ dependencies = [
  "compositor_kernel_drm_mode_select_base",
  "compositor_kernel_drm_mode_synthesize_base",
  "compositor_kernel_drm_output_physical_base",
+ "compositor_kernel_gpu_topology_plan_base",
  "compositor_kernel_gpu_topology_role_base",
  "compositor_kernel_gpu_topology_route_base",
  "compositor_kernel_graphic_preference_enable_safety",
@@ -3603,6 +3621,7 @@ dependencies = [
  "compositor_kernel_gles_element_wrap_base",
  "compositor_kernel_gles_multigpu_bind_base",
  "compositor_kernel_gles_multigpu_factory_base",
+ "compositor_kernel_gpu_topology_route_base",
  "compositor_kernel_graphic_preference_enable_safety",
  "compositor_kernel_graphic_preference_renderer_rank",
  "compositor_kernel_graphic_render_contract_base",
@@ -3637,6 +3656,28 @@ dependencies = [
  "compositor_kernel_vulkan_sync_timeline_base",
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_draw_scene_element",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_native_assemble_secondary_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_base",
+ "compositor_kernel_drm_connector_scan_base",
+ "compositor_kernel_drm_device_capability_base",
+ "compositor_kernel_drm_device_open_base",
+ "compositor_kernel_drm_gbm_alloc_base",
+ "compositor_kernel_drm_gbm_device_base",
+ "compositor_kernel_gles_multigpu_factory_base",
+ "compositor_kernel_native_context_display_reconcile",
+ "compositor_kernel_native_context_render_base",
+ "compositor_kernel_native_wire_frame_base",
+ "compositor_kernel_scanout_surface_output_base",
+ "compositor_kernel_seat_interface_open_base",
+ "compositor_kernel_udev_enumerate_scan_base",
+ "compositor_orchestration_core_state_base",
  "smithay",
 ]
 
@@ -3723,6 +3764,7 @@ dependencies = [
  "compositor_kernel_native_context_display_build",
  "compositor_kernel_native_context_display_enumerate",
  "compositor_kernel_native_context_render_base",
+ "compositor_kernel_scanout_surface_output_base",
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_driver_lid_base",
  "compositor_orchestration_driver_output_base",
@@ -3838,6 +3880,7 @@ dependencies = [
  "compositor_kernel_drm_edid_parse_base",
  "compositor_kernel_gles_element_combined_base",
  "compositor_kernel_gles_element_wrap_base",
+ "compositor_kernel_gles_multigpu_factory_base",
  "compositor_kernel_graphic_draw_plan_frame",
  "compositor_kernel_graphic_draw_plan_tap",
  "compositor_kernel_graphic_draw_present_callbacks",
@@ -3871,10 +3914,12 @@ dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_router",
  "compositor_developer_stats_registry_base",
  "compositor_kernel_drm_connector_kind_base",
  "compositor_kernel_drm_syncobj_device_base",
  "compositor_kernel_gpu_registry_node_base",
+ "compositor_kernel_gpu_topology_route_base",
  "compositor_kernel_graphic_draw_plan_tap",
  "compositor_kernel_graphic_preference_enable_safety",
  "compositor_kernel_graphic_preference_renderer_rank",
@@ -3882,6 +3927,7 @@ dependencies = [
  "compositor_kernel_input_loop_libinput_base",
  "compositor_kernel_native_assemble_display_base",
  "compositor_kernel_native_assemble_renderer_base",
+ "compositor_kernel_native_assemble_secondary_base",
  "compositor_kernel_native_context_display_apply",
  "compositor_kernel_native_context_display_base",
  "compositor_kernel_native_context_display_enumerate",
@@ -4130,6 +4176,8 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_mode",
+ "compositor_developer_environment_config_router",
  "compositor_kernel_scanout_plane_assign_base",
  "smithay",
 ]
@@ -4663,7 +4711,8 @@ version = "0.1.0"
 dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_config_base",
- "compositor_developer_environment_experimental_base",
+ "compositor_developer_environment_config_mode",
+ "compositor_developer_environment_config_router",
  "compositor_developer_stats_registry_gpu",
  "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_kernel_graphic_bridge_negotiate_classify",
@@ -4745,6 +4794,7 @@ dependencies = [
  "compositor_orchestration_driver_settings_base",
  "compositor_orchestration_environment_type_base",
  "compositor_orchestration_seat_gesture_state",
+ "compositor_orchestration_seat_gesture_touch",
  "compositor_orchestration_seat_pointer_state",
  "compositor_orchestration_seat_pointer_texture",
  "compositor_orchestration_seat_system_pointer",
@@ -5030,6 +5080,7 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_router",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -5094,6 +5145,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_seat_lid_policy",
+ "compositor_orchestration_seat_pointer_input",
  "compositor_y5_lock_seat_input",
  "smithay",
 ]
@@ -5113,6 +5165,13 @@ dependencies = [
 [[package]]
 name = "compositor_orchestration_seat_gesture_state"
 version = "0.0.1"
+
+[[package]]
+name = "compositor_orchestration_seat_gesture_touch"
+version = "0.0.1"
+dependencies = [
+ "smithay",
+]
 
 [[package]]
 name = "compositor_orchestration_seat_keyboard_input"
@@ -5185,6 +5244,7 @@ dependencies = [
  "compositor_orchestration_draw_layer_base",
  "compositor_orchestration_driver_output_base",
  "compositor_orchestration_input_drive_base",
+ "compositor_orchestration_seat_gesture_touch",
  "compositor_orchestration_seat_system_pointer",
  "compositor_support_iced_core_engine_base",
  "compositor_support_smithay_dispatch_state_base",
@@ -5192,11 +5252,14 @@ dependencies = [
  "compositor_y5_camera_state_base",
  "compositor_y5_camera_system_base",
  "compositor_y5_camera_transform_translate",
+ "compositor_y5_canvas_input_gesture",
  "compositor_y5_canvas_input_keyboard",
  "compositor_y5_canvas_input_state",
  "compositor_y5_canvas_system_base",
+ "compositor_y5_lock_seat_input",
  "compositor_y5_lock_system_base",
  "compositor_y5_overview_input_pointer",
+ "compositor_y5_picker_seat_pointer",
  "compositor_y5_surface_interface_base",
  "compositor_y5_surface_system_base",
  "compositor_y5_viewport_interaction_base",
@@ -5892,7 +5955,8 @@ version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_config_base",
- "compositor_developer_environment_experimental_base",
+ "compositor_developer_environment_config_mode",
+ "compositor_developer_environment_config_router",
  "compositor_kernel_graphic_bridge_negotiate_wgpu",
  "compositor_support_bevy_core_fault_base",
  "pollster",
@@ -6134,6 +6198,9 @@ name = "compositor_support_bevy_core_surface_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_mode",
+ "compositor_developer_environment_config_router",
  "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_support_bevy_core_alloc_base",
  "compositor_support_bevy_core_context_base",
@@ -7876,6 +7943,7 @@ name = "compositor_y5_graphic_capture_registry"
 version = "0.1.0"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_router",
  "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_support_bevy_core_runtime_base",
  "smithay",
@@ -7905,6 +7973,7 @@ dependencies = [
  "cc",
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_router",
  "pkg-config",
  "smithay",
 ]

@@ -34,6 +34,7 @@ pub fn wire(
     //      failure — a compositor without a display/renderer cannot run.
     trace!("native: assembling display (DRM/GBM) then renderer");
     let mut display = compositor_kernel_native_assemble_display_base::display::assemble();
+
     // Compile-time renderer override (the loader's `renderer-vulkan` feature
     // forwards here); preference decides otherwise. No fallback either way.
     let override_kind = if cfg!(feature = "renderer-vulkan") {
@@ -110,8 +111,23 @@ pub fn wire(
     let env = compositor_developer_environment_config_base::base::get();
     let mut vulkan_mode = !env.renderer.eq_ignore_ascii_case("gles");
     let vulkan_fallback = env.renderer_fallback;
+    // OPTION B (`local_render`): build the Vulkan renderer on the RENDER node (not the
+    // default first-enumerated / scanout device), so the frame is composited on the
+    // render GPU and crossed to the scanout card by the option-B present path
+    // (`render.execute`: native Vulkan blit → GLES-cross fallback). Default: the
+    // first-enumerated device (scanout card), byte-identical.
+    let render_node = display.primary_gpu;
+    let vk_new = || {
+        if compositor_developer_environment_config_router::router::composite_on_render_node() {
+            compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::new_for_node(
+                render_node,
+            )
+        } else {
+            compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::new_default()
+        }
+    };
     let mut vulkan = if vulkan_mode {
-        match compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::new_default() {
+        match vk_new() {
             Ok(mut vk) => {
                 // Hand the renderer the display's DRM fd so finish() takes the
                 // KMS IN_FENCE path (render-completion sync_file via DRM syncobj)
@@ -179,9 +195,45 @@ pub fn wire(
         color_format,
     );
 
+    // The KMS card (device) the compositor scans out on — resolved from the scanout
+    // card PATH so it is a CARD node whose `dev_id` matches the udev card enumeration
+    // (the RENDER node has a DIFFERENT `dev_id`, so using it here would make
+    // `assemble.secondary` fail to skip the primary card and re-open it). This is the
+    // `dev_id` key shared by `OutputPipe::device`, `DeviceRender::node`, and vblank
+    // routing. `device_path` is the scanout card for both desktop and split.
+    let card_node = smithay::backend::drm::DrmNode::from_path(&display.device_path)
+        .expect("scanout card path resolves to a DRM node");
+
+    // OPTION B APPROACH B: a second Vulkan renderer on the SCANOUT card, used to blit
+    // the render-node offscreen into the scanout buffer (a GPU untile). `None` disables
+    // approach B → the frame path falls back to the GLES-cross copy (approach A).
+    let vulkan_scanout = if vulkan_mode
+        && compositor_developer_environment_config_router::router::composite_on_render_node()
+    {
+        match compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::new_for_node(
+            card_node,
+        ) {
+            Ok(mut vk) => {
+                vk.set_drm_fd(display.drm_fd.clone());
+                info!("option B (approach B): scanout-card Vulkan renderer ready ({card_node:?})");
+                Some(vk)
+            }
+            Err(e) => {
+                warn!(
+                    "option B: scanout-card Vulkan init failed ({e}); approach B disabled — using \
+                     the GLES-cross copy (approach A)"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let ctx_rc = Rc::new(RefCell::new(NativeRenderContext {
         display_handle: _loop.inner.loader.display_handle.clone(),
         outputs: vec![compositor_kernel_native_context_render_base::render::OutputPipe {
+            device: card_node,
             crtc: display.pipe,
             mode: display.mode,
             output: display.output.clone(),
@@ -195,16 +247,22 @@ pub fn wire(
             modes: display.connector.modes().to_vec(),
             mode_revert: None,
             global: None,
+            vk_offscreen: None,
             in_flight: false,
         }],
-        drm_output_manager: renderer.drm_output_manager,
+        devices: vec![compositor_kernel_native_context_render_base::render::DeviceRender {
+            node: card_node,
+            drm_fd: display.drm_fd.clone(),
+            drm_output_manager: renderer.drm_output_manager,
+            vblank_token: None,
+        }],
         gpu_binding: renderer.gpu_binding.clone(),
         libinput_context,
         tap_subscriptions: compositor_kernel_graphic_draw_plan_tap::tap::TapSubscriptions::new(),
         safety: compositor_kernel_graphic_preference_enable_safety::safety::get(),
         vulkan_mode,
         vulkan,
-        drm_fd: display.drm_fd.clone(),
+        vulkan_scanout,
         dark_tick: None,
     }));
 
@@ -264,7 +322,7 @@ pub fn wire(
     {
         let active = display.connector.handle();
         let ctx = ctx_rc.borrow();
-        let manager = ctx.drm_output_manager.borrow();
+        let manager = ctx.primary_manager().borrow();
         let snap = compositor_kernel_native_context_display_base::base::compute(
             manager.device(),
             active,
@@ -288,7 +346,7 @@ pub fn wire(
             refresh_mhz: display.drm_mode.vrefresh() * 1000,
         };
         let ctx = ctx_rc.borrow();
-        let manager = ctx.drm_output_manager.borrow();
+        let manager = ctx.primary_manager().borrow();
         // Only the primary pipe exists at boot; secondaries are added by the hotplug
         // reconcile, which rewrites this snapshot with every lit pipe's current mode.
         let lit = [(display.connector.handle(), active_mode)];
@@ -322,11 +380,30 @@ pub fn wire(
         },
     );
 
-    compositor_kernel_native_wire_frame_base::frame::register(
+    // Register this card's vblank source, keyed by its node so routing is correct
+    // once a second card is added. Store the token on the DeviceRender so the source
+    // can be torn down if the card is removed.
+    let vblank_token = compositor_kernel_native_wire_frame_base::frame::register(
         event_loop,
         _loop,
         display.drm_notifier,
+        card_node,
         ctx_rc.clone(),
+    );
+    if let Some(dev) = ctx_rc.borrow_mut().device_mut(&card_node) {
+        dev.vblank_token = Some(vblank_token);
+    }
+
+    // Multi-GPU: open + drive every OTHER KMS card (each composites its own monitors
+    // locally). ADDITIVE — a single-card system finds none and this is a no-op, so the
+    // primary path above is untouched. Runtime-unverified without a real 2nd card.
+    compositor_kernel_native_assemble_secondary_base::secondary::open_secondary_devices(
+        &mut display.session,
+        &display.seat_name,
+        card_node.dev_id(),
+        event_loop,
+        _loop,
+        &ctx_rc,
     );
 
     compositor_kernel_native_wire_input_base::input::register(

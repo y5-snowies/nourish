@@ -1,0 +1,13 @@
+[package]
+name = "compositor_developer_environment_config_router"
+version = "0.0.1"
+edition = "2024"
+
+# Normalizes the two settings variants (simple `render_node` / advanced `gpu_router`)
+# into one resolved model. Depends only on config.base + config.mode; NO logging dep.
+[dependencies]
+compositor_developer_environment_config_base = { workspace = true }
+compositor_developer_environment_config_mode = { workspace = true }
+
+[lib]
+path = "lib.rs"

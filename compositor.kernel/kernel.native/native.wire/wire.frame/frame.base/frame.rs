@@ -12,7 +12,7 @@
 
 use compositor_kernel_native_context_render_base::render::NativeRenderContext;
 use compositor_kernel_native_render_execute_base::execute::FrameOutcome;
-use smithay::backend::drm::DrmDeviceNotifier;
+use smithay::backend::drm::{DrmDeviceNotifier, DrmNode};
 use smithay::reexports::calloop::ping::make_ping;
 use smithay::reexports::calloop::EventLoop;
 use smithay::reexports::calloop::LoopHandle;
@@ -32,8 +32,9 @@ pub fn register(
     event_loop: &mut EventLoop<'static, Loop>,
     state: &mut Loop,
     drm_notifier: DrmDeviceNotifier,
+    device: DrmNode,
     ctx_rc: Rc<RefCell<NativeRenderContext>>,
-) {
+) -> smithay::reexports::calloop::RegistrationToken {
     let refresh = compositor_kernel_scanout_timing_vblank_base::vblank::interval(
         &ctx_rc.borrow().pipe().mode,
     );
@@ -106,7 +107,7 @@ pub fn register(
     let throttle = Rc::new(RefCell::new(
         compositor_kernel_scanout_timing_throttle_base::throttle::VblankThrottle::new(),
     ));
-    event_loop
+    let vblank_token = event_loop
         .handle()
         .insert_source(drm_notifier, move |event, event_meta, state| {
             use compositor_kernel_drm_loop_notifier_base::notifier::{decode, DecodedDrmEvent};
@@ -169,6 +170,7 @@ pub fn register(
                         state,
                         time,
                         sequence,
+                        device,
                         crtc,
                         refresh,
                         #[cfg(feature = "flip-estimate")]
@@ -207,6 +209,8 @@ pub fn register(
             state.inner.start_time.elapsed(),
         );
     });
+
+    vblank_token
 }
 
 /// One vblank: feedback for the completed frame, predict-clock update,
@@ -219,6 +223,7 @@ fn process_vblank(
     state: &mut Loop,
     time: Option<Duration>,
     sequence: u64,
+    device: DrmNode,
     crtc: smithay::reexports::drm::control::crtc::Handle,
     refresh: Duration,
     #[cfg(feature = "flip-estimate")] estimate_slot: &EstimateSlot,
@@ -235,7 +240,7 @@ fn process_vblank(
     // back to `outputs[0]`: clearing the primary's `in_flight` and popping its
     // feedback for someone else's flip corrupts the primary's flip state, causing a
     // double-queue that fails the primary's scanout and tears it down (both-black).
-    let Some(idx) = ctx.outputs.iter().position(|p| p.crtc == crtc) else {
+    let Some(idx) = ctx.outputs.iter().position(|p| p.device == device && p.crtc == crtc) else {
         return;
     };
 

@@ -1,4 +1,7 @@
 {
+  "compositor.kernel/kernel.vulkan/vulkan.sync/sync.export/export.base": [
+    "size"
+  ],
   "compositor.expansion/compositor.background/background.two/two.shader/shader.property": [
     "size"
   ],
@@ -343,6 +346,21 @@
     "size"
   ],
   "compositor.developer/developer.environment/environment.config/config.base": [
+    "size"
+  ],
+  "compositor.developer/developer.environment/environment.config/config.mode": [
+    "size"
+  ],
+  "compositor.developer/developer.environment/environment.config/config.router": [
+    "size"
+  ],
+  "compositor.kernel/kernel.gpu/gpu.topology/topology.plan/plan.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.gpu/gpu.topology/topology.feedback/feedback.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.assemble/assemble.secondary/secondary.base": [
     "size"
   ],
   "compositor.developer/developer.environment/environment.graphics/graphics.base": [

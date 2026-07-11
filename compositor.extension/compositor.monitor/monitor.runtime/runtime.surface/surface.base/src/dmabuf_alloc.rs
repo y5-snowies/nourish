@@ -16,12 +16,13 @@ use gbm::{BufferObjectFlags, Device as GbmDevice, Format as GbmFormat};
 use smithay::backend::allocator::dmabuf::{Dmabuf, DmabufFlags};
 use smithay::backend::allocator::{Buffer, Fourcc, Modifier};
 
-/// TEMPORARY (`gpu_scanout_bridge`): whether to allocate bridge buffers with
+/// The `scanout_bridge` mode token (primary node): allocate bridge buffers with
 /// `SCANOUT` usage so the driver picks a scanout-plane-compatible (tiled)
 /// modifier. Off = today's RENDERING-only behavior.
 fn scanout_bridge() -> bool {
-    use compositor_developer_environment_experimental_base::base as ex;
-    ex::get().contains(ex::GpuFlags::SCANOUT_BRIDGE)
+    use compositor_developer_environment_config_mode::mode::ModeFlags;
+    compositor_developer_environment_config_router::router::primary_mode()
+        .contains(ModeFlags::SCANOUT_BRIDGE)
 }
 
 /// BO usage flags for a bridge allocation: `SCANOUT` is added under the

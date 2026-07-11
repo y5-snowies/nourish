@@ -17,7 +17,7 @@ use compositor_support_bevy_core_gles_base::import_dmabuf_to_gles;
 use compositor_support_bevy_core_import_base::{
     TEXTURE_FORMAT, import_dmabuf_to_wgpu, import_dmabuf_to_wgpu_transfer_dst,
 };
-use compositor_developer_debug_instance_record::{info, warn};
+use compositor_developer_debug_instance_record::{abort, info, warn};
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::utils::{Physical, Size};
 
@@ -199,32 +199,47 @@ impl Backing {
         let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
         let gles_formats = smithay::backend::renderer::ImportDma::dmabuf_formats(gles);
 
-        if let Some(scanout_node) = blit_scanout_node() {
+        if let Some(scanout_node) = distinct_scanout_node() {
             let empty = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_intersection_empty(
                 gles_formats.clone(),
                 wgpu_ctx.importable.clone(),
                 fourcc,
             );
             if empty {
+                if !untile_blit_enabled() {
+                    abort!(
+                        "FATAL: empty render∩scanout modifier intersection on a split system \
+                         (scanout {scanout_node}): no single buffer satisfies both the render GPU \
+                         and the scanout card, and the `untile_blit` mode token is not set. Add \
+                         `untile_blit` to gpu_router[render].mode. See document/GPU_UNTILE_BLIT.md."
+                    );
+                }
                 info!(
                     "untile-blit (bevy): split (scanout={scanout_node}) with empty modifier \
                      intersection; two-buffer backing {}x{}",
                     size.w, size.h
                 );
-                match BlitBacking::allocate(render_node, &scanout_node, wgpu_ctx, gles, size) {
-                    Ok(b) => return Ok(Backing::Blit(b)),
-                    Err(e) => warn!(
-                        "untile-blit (bevy) backing failed ({e:?}); degrading to single-buffer path"
+                return match BlitBacking::allocate(render_node, &scanout_node, wgpu_ctx, gles, size) {
+                    Ok(b) => Ok(Backing::Blit(b)),
+                    // STRICT: no silent degrade — a failed blit is fatal (was: degrade + BAD_MATCH).
+                    Err(e) => abort!(
+                        "FATAL: untile-blit (bevy) backing allocation failed for scanout \
+                         {scanout_node} ({e:?}). The blit floor is mandatory here and has no \
+                         fallback. See document/GPU_UNTILE_BLIT.md."
                     ),
-                }
+                };
             }
         }
 
         // Single-buffer path (today).
+        let mode = compositor_developer_environment_config_router::router::mode_for(
+            std::path::Path::new(render_node),
+        );
         let mods = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_modifiers(
             gles_formats,
             wgpu_ctx.importable.clone(),
             fourcc,
+            mode,
         );
         let allocated =
             allocate_dmabuf_negotiated(render_node, size.w as u32, size.h as u32, fourcc, &mods)?;
@@ -282,18 +297,17 @@ impl BlitBacking {
     }
 }
 
-/// The scanout card path (decision signal), or `None` when the untiling blit does
-/// not apply: experiment off, no distinct scanout card configured, or scanout ==
-/// render. The empty-intersection check is done separately by the caller.
-fn blit_scanout_node() -> Option<String> {
-    use compositor_developer_environment_experimental_base::base as ex;
-    if !ex::get().contains(ex::GpuFlags::UNTILE_BLIT) {
-        return None;
-    }
-    let cfg = compositor_developer_environment_config_base::base::get();
-    let scanout = cfg.scanout_node.as_ref()?;
-    if *scanout == cfg.render_node {
-        return None;
-    }
-    Some(scanout.clone())
+/// The distinct scanout card (`primary_scanout` != `primary_render`) — the split
+/// signal, independent of `untile_blit`. `None` on a single-card system.
+fn distinct_scanout_node() -> Option<String> {
+    use compositor_developer_environment_config_router::router;
+    let scanout = router::primary_scanout()?.to_string_lossy().into_owned();
+    (scanout != router::primary_render_string()).then_some(scanout)
+}
+
+/// Whether the primary render node carries the `untile_blit` mode token.
+fn untile_blit_enabled() -> bool {
+    use compositor_developer_environment_config_mode::mode::ModeFlags;
+    compositor_developer_environment_config_router::router::primary_mode()
+        .contains(ModeFlags::UNTILE_BLIT)
 }

@@ -4,6 +4,9 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_kernel_gpu_topology_route_base.workspace = true
+compositor_kernel_native_assemble_secondary_base.workspace = true
+compositor_developer_environment_config_router.workspace = true
 compositor_orchestration_driver_output_base.workspace = true
 compositor_kernel_vulkan_renderer_core_base.workspace = true
 compositor_developer_debug_instance_record.workspace = true

@@ -2258,18 +2258,25 @@ dependencies = [
 name = "compositor_developer_environment_config_base"
 version = "0.0.1"
 dependencies = [
+ "compositor_developer_environment_config_mode",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "compositor_developer_environment_experimental_base"
+name = "compositor_developer_environment_config_mode"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_environment_config_base",
  "serde",
- "serde_json",
+]
+
+[[package]]
+name = "compositor_developer_environment_config_router"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_mode",
 ]
 
 [[package]]
@@ -3149,7 +3156,7 @@ dependencies = [
 name = "compositor_kernel_graphic_bridge_negotiate_base"
 version = "0.0.1"
 dependencies = [
- "compositor_developer_environment_experimental_base",
+ "compositor_developer_environment_config_mode",
  "compositor_kernel_graphic_bridge_negotiate_classify",
  "smithay",
 ]
@@ -3218,7 +3225,8 @@ version = "0.1.0"
 dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_config_base",
- "compositor_developer_environment_experimental_base",
+ "compositor_developer_environment_config_mode",
+ "compositor_developer_environment_config_router",
  "compositor_developer_stats_registry_gpu",
  "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_kernel_graphic_bridge_negotiate_classify",
@@ -3597,6 +3605,7 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_router",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -4471,7 +4480,8 @@ version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_config_base",
- "compositor_developer_environment_experimental_base",
+ "compositor_developer_environment_config_mode",
+ "compositor_developer_environment_config_router",
  "compositor_kernel_graphic_bridge_negotiate_wgpu",
  "compositor_support_bevy_core_fault_base",
  "pollster",
@@ -4713,6 +4723,9 @@ name = "compositor_support_bevy_core_surface_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_mode",
+ "compositor_developer_environment_config_router",
  "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_support_bevy_core_alloc_base",
  "compositor_support_bevy_core_context_base",
@@ -6455,6 +6468,7 @@ name = "compositor_y5_graphic_capture_registry"
 version = "0.1.0"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_router",
  "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_support_bevy_core_runtime_base",
  "smithay",
@@ -6484,6 +6498,7 @@ dependencies = [
  "cc",
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_router",
  "pkg-config",
  "smithay",
 ]

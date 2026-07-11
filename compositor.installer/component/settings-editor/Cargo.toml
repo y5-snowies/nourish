@@ -23,6 +23,8 @@ path = "src/main.rs"
 # The single source of truth for the settings schema + path resolution. Same
 # crate the compositor uses; sharing it by path makes drift impossible.
 compositor_developer_environment_config_base = { path = "../../../compositor.developer/developer.environment/environment.config/config.base" }
+compositor_developer_environment_config_mode = { path = "../../../compositor.developer/developer.environment/environment.config/config.mode" }
+compositor_developer_environment_config_router = { path = "../../../compositor.developer/developer.environment/environment.config/config.router" }
 # GPU render-node enumeration + estimated card names (pure std::fs, zero deps).
 # The SAME method the in-compositor settings window uses, shared by path so the
 # names shown here match what the compositor reports.

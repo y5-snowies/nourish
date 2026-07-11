@@ -60,6 +60,38 @@ pub fn export_sync_file(
     Ok(unsafe { OwnedFd::from_raw_fd(raw) })
 }
 
+/// Export a VkFence's pending signal as a `sync_file` fd (SYNC_FD, via
+/// `VK_KHR_external_fence_fd`). Call right after the submit that signals the
+/// fence. `Ok(Some(fd))` is the render-completion fence; `Ok(None)` is the SYNC_FD
+/// `-1` sentinel (already signalled → no wait needed); `Err` is a real export
+/// failure (the caller should fall back to a CPU drain). The `infence_2` render
+/// fence — cleaner completion semantics than a binary-semaphore SYNC_FD, plus the
+/// invalid-fd guard the semaphore path lacks.
+pub fn export_fence_sync_file(
+    device: &VulkanDevice,
+    fence: vk::Fence,
+) -> Result<Option<OwnedFd>, SemExportError> {
+    let loader = ash::khr::external_fence_fd::Device::new(&device.instance, &device.device);
+    let info = vk::FenceGetFdInfoKHR::default()
+        .fence(fence)
+        .handle_type(vk::ExternalFenceHandleTypeFlags::SYNC_FD);
+    let raw = unsafe {
+        loader
+            .get_fence_fd(&info)
+            .map_err(|e| SemExportError::Export(format!("{e}")))?
+    };
+    if raw == -1 {
+        // SYNC_FD sentinel: the fence is already signalled → no fence to wait on.
+        return Ok(None);
+    }
+    if raw < 0 {
+        return Err(SemExportError::Export(format!(
+            "get_fence_fd returned invalid fd {raw}"
+        )));
+    }
+    Ok(Some(unsafe { OwnedFd::from_raw_fd(raw) }))
+}
+
 /// Import an exported semaphore fd as a DRM syncobj on `drm_fd` — the vulkan
 /// half of the timeline-semaphore <-> syncobj round trip. The kernel treats
 /// an opaque drm-syncobj-backed semaphore fd and a syncobj fd as the same

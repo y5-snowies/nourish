@@ -73,14 +73,14 @@ pub fn build<'a>(e: &'a Environment, devices: &'a [RenderDevice]) -> El<'a> {
     rows.push(textfield("Log level", e, &e.log_level, d.log_level.clone(), |x, v| x.log_level = v));
     // Render device: dropdown of detected render nodes (estimated GPU names).
     if !devices.is_empty() {
-        let cur = devices.iter().find(|r| r.node == e.render_node).map(|r| r.name.clone()).unwrap_or_else(|| e.render_node.clone());
+        let cur = devices.iter().find(|r| e.render_node.as_deref() == Some(r.node.as_str())).map(|r| r.name.clone()).unwrap_or_else(|| e.render_node.clone().unwrap_or_default());
         let names: Vec<String> = devices.iter().map(|r| r.name.clone()).collect();
         let devs = devices.to_vec();
         let e3 = e.clone();
         let picker = pick_list(Some(cur), names, |s: &String| s.clone())
             .on_select(move |name: String| {
                 let mut x = e3.clone();
-                if let Some(dv) = devs.iter().find(|r| r.name == name) { x.render_node = dv.node.clone(); }
+                if let Some(dv) = devs.iter().find(|r| r.name == name) { x.render_node = Some(dv.node.clone()); }
                 SettingsMessage::Env(x)
             })
             .width(Length::Fixed(220.0)).style(control::picklist).menu_style(control::menu);

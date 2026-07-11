@@ -1746,6 +1746,7 @@ dependencies = [
  "compositor_configurator_bluetooth_backend_base",
  "compositor_configurator_network_backend_base",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "compositor_developer_environment_preference_base",
  "compositor_orchestration_driver_output_base",
  "compositor_y5_audio_controller_interface",
@@ -1778,18 +1779,32 @@ dependencies = [
 name = "compositor_developer_environment_config_base"
 version = "0.0.1"
 dependencies = [
+ "compositor_developer_environment_config_mode",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "compositor_developer_environment_experimental_base"
+name = "compositor_developer_environment_config_mode"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_environment_config_base",
  "serde",
- "serde_json",
+]
+
+[[package]]
+name = "compositor_developer_environment_config_router"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_mode",
+]
+
+[[package]]
+name = "compositor_developer_environment_graphics_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -1806,6 +1821,7 @@ name = "compositor_developer_environment_preference_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "serde",
  "serde_json",
 ]
@@ -2611,7 +2627,7 @@ dependencies = [
 name = "compositor_kernel_graphic_bridge_negotiate_base"
 version = "0.0.1"
 dependencies = [
- "compositor_developer_environment_experimental_base",
+ "compositor_developer_environment_config_mode",
  "compositor_kernel_graphic_bridge_negotiate_classify",
  "smithay",
 ]
@@ -2686,6 +2702,8 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_mode",
+ "compositor_developer_environment_config_router",
  "smithay",
 ]
 
@@ -2768,7 +2786,8 @@ version = "0.1.0"
 dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_config_base",
- "compositor_developer_environment_experimental_base",
+ "compositor_developer_environment_config_mode",
+ "compositor_developer_environment_config_router",
  "compositor_developer_stats_registry_gpu",
  "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_kernel_graphic_bridge_negotiate_classify",
@@ -2850,6 +2869,7 @@ dependencies = [
  "compositor_orchestration_driver_settings_base",
  "compositor_orchestration_environment_type_base",
  "compositor_orchestration_seat_gesture_state",
+ "compositor_orchestration_seat_gesture_touch",
  "compositor_orchestration_seat_pointer_state",
  "compositor_orchestration_seat_pointer_texture",
  "compositor_orchestration_seat_system_pointer",
@@ -3024,6 +3044,7 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_router",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -3041,6 +3062,13 @@ dependencies = [
 [[package]]
 name = "compositor_orchestration_seat_gesture_state"
 version = "0.0.1"
+
+[[package]]
+name = "compositor_orchestration_seat_gesture_touch"
+version = "0.0.1"
+dependencies = [
+ "smithay",
+]
 
 [[package]]
 name = "compositor_orchestration_seat_pointer_element"
@@ -3230,7 +3258,8 @@ version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_config_base",
- "compositor_developer_environment_experimental_base",
+ "compositor_developer_environment_config_mode",
+ "compositor_developer_environment_config_router",
  "compositor_kernel_graphic_bridge_negotiate_wgpu",
  "compositor_support_bevy_core_fault_base",
  "pollster",
@@ -3472,6 +3501,9 @@ name = "compositor_support_bevy_core_surface_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_mode",
+ "compositor_developer_environment_config_router",
  "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_support_bevy_core_alloc_base",
  "compositor_support_bevy_core_context_base",
@@ -4955,6 +4987,7 @@ name = "compositor_y5_graphic_capture_registry"
 version = "0.1.0"
 dependencies = [
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_config_router",
  "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_support_bevy_core_runtime_base",
  "smithay",
@@ -4984,6 +5017,7 @@ dependencies = [
  "cc",
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_config_router",
  "pkg-config",
  "smithay",
 ]

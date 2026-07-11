@@ -30,10 +30,13 @@ pub fn apply(ctx: &mut NativeRenderContext, setting: DeviceSetting) {
         DeviceSetting::Mode(drm_mode) => {
             let gpu_binding = ctx.gpu_binding.clone();
             let mut binding = gpu_binding.borrow_mut();
-            let StateDRMBinding { gpus, primary } = &mut *binding;
-            let mut renderer = gpus
-                .single_renderer(primary)
-                .expect("renderer unavailable for mode application");
+            let StateDRMBinding { gpus, primary, scanout, cross_device } = &mut *binding;
+            let mut renderer = if *cross_device {
+                gpus.renderer(primary, scanout, smithay::backend::allocator::Fourcc::Argb8888)
+            } else {
+                gpus.single_renderer(primary)
+            }
+            .expect("renderer unavailable for mode application");
 
             let output = ctx
                 .pipe_mut()

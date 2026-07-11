@@ -52,10 +52,21 @@ pub fn build(
     busy: &[crtc::Handle],
     target: &connector::Info,
     requested: Option<ModeInfo>,
+    // `Some(node)` = composite this output LOCALLY on `node` (a secondary card driving
+    // its own monitors); `None` = the primary path (its `single_renderer`/cross-device
+    // choice from the binding). Multi-device secondary cards pass their own node.
+    render_target: Option<smithay::backend::drm::DrmNode>,
 ) -> Result<BuiltOutput, String> {
     let mut binding = gpu_binding.borrow_mut();
-    let StateDRMBinding { gpus, primary } = &mut *binding;
-    let mut renderer = gpus.single_renderer(primary).map_err(|e| format!("renderer: {e:?}"))?;
+    let StateDRMBinding { gpus, primary, scanout, cross_device } = &mut *binding;
+    let mut renderer = match render_target {
+        Some(node) => gpus.single_renderer(&node),
+        None if *cross_device => {
+            gpus.renderer(primary, scanout, smithay::backend::allocator::Fourcc::Argb8888)
+        }
+        None => gpus.single_renderer(primary),
+    }
+    .map_err(|e| format!("renderer: {e:?}"))?;
 
     let mut mgr = manager.borrow_mut();
     // Read everything off the device before the mutable `initialize` borrow.

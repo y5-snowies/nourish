@@ -386,6 +386,38 @@ impl VulkanRenderer {
                 .queue_submit2(self.queue.queue, &[submit], self.frame_fence)
                 .map_err(|e| VulkanError::Vk(format!("queue_submit2: {e}")))?;
         }
+        if self.use_fence_v2() {
+            // infence_2: export the VkFence this submit signalled as a sync_file —
+            // cleaner completion semantics than a binary semaphore, with an fd
+            // guard, a strict wait, and a clean CPU-drain fallback on any failure.
+            return match compositor_kernel_vulkan_sync_export_base::export::export_fence_sync_file(
+                dev,
+                self.frame_fence,
+            ) {
+                Ok(Some(fd)) => {
+                    stats::fence_kms_infence();
+                    Ok(SyncPoint::from(crate::sync_fence::SyncFileFence::new_strict(fd)))
+                }
+                Ok(None) => {
+                    // -1 sentinel: render already complete, no fence to wait on.
+                    stats::fence_kms_infence();
+                    Ok(SyncPoint::signaled())
+                }
+                Err(e) => {
+                    if self
+                        .last_fence_warn
+                        .is_none_or(|t| t.elapsed().as_secs() >= 60)
+                    {
+                        warn!("infence_2 fence export failed ({e}); draining device (throttled: once/min)");
+                        self.last_fence_warn = Some(std::time::Instant::now());
+                    }
+                    unsafe { dev.device.device_wait_idle()? };
+                    stats::fence_fallback();
+                    Ok(SyncPoint::signaled())
+                }
+            };
+        }
+
         match compositor_kernel_vulkan_sync_export_base::export::export_sync_file(
             dev,
             self.render_semaphore,
