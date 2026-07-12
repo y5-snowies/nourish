@@ -91,6 +91,10 @@ pub struct Orchestrator {
     /// event arrives, so the cursor reappears exactly where it was. See
     /// [`TouchCursor`].
     pub saved_cursor: Option<CursorSnapshot>,
+    /// Softens the start of a two-finger touchpad scroll forwarded to a window
+    /// (libinput dumps the accumulated pre-recognition distance in the first
+    /// event, so the gesture lurches at the start). See [`FingerScrollRamp`].
+    pub finger_scroll_ramp: FingerScrollRamp,
     pub status: Status,
     /// One-shot request to run the renderer-free lock engage (`lock_logical`) off
     /// the render loop. The lock keybinding sets `Status::Locked` synchronously and
@@ -286,6 +290,7 @@ impl Orchestrator {
             render_output: None,
             cursor_output: None,
             saved_cursor: None,
+            finger_scroll_ramp: FingerScrollRamp::default(),
             lock_engage: false,
             control_ping: None,
             __set_picker: None,
@@ -877,6 +882,42 @@ pub struct CursorSnapshot {
     pub output: Option<compositor_orchestration_driver_output_base::base::OutputKey>,
     /// The seat pointer's world location.
     pub location: smithay::utils::Point<f64, smithay::utils::Logical>,
+}
+
+/// Softens the start of a two-finger window scroll on libinput touchpads.
+/// libinput releases the accumulated pre-recognition distance in the first event
+/// of a two-finger scroll, so a gesture forwarded to a client starts with a lurch
+/// even though the steady cadence is fine. `factor` ramps the first few events up
+/// to full strength; the gesture's stop event (or a >200ms gap) resets it. Only
+/// the window/iced scroll path uses this — canvas pan/zoom is handled elsewhere.
+#[derive(Default)]
+pub struct FingerScrollRamp {
+    count: u32,
+    last_msec: u32,
+}
+
+impl FingerScrollRamp {
+    /// Attenuation in `0..=1` for this event's forwarded amount; advances the ramp.
+    pub fn factor(&mut self, time_msec: u32) -> f64 {
+        // No stop event delivered but a long gap since the last one → fresh gesture.
+        if time_msec.wrapping_sub(self.last_msec) > 200 {
+            self.count = 0;
+        }
+        self.last_msec = time_msec;
+        let f = match self.count {
+            0 => 0.3,
+            1 => 0.5,
+            2 => 0.7,
+            3 => 0.85,
+            _ => 1.0,
+        };
+        self.count = self.count.saturating_add(1);
+        f
+    }
+    /// Terminating (stop) event: the next gesture ramps from the start again.
+    pub fn end(&mut self) {
+        self.count = 0;
+    }
 }
 
 /// The single shared cursor "disappears" while a touch sequence owns the active
