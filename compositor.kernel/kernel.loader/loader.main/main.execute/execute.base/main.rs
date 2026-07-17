@@ -314,7 +314,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // event-driven (replaces the old per-iteration generation poll).
     state.inner.bus.register(
         &compositor_orchestration_core_state_base::state::WORLD_SWITCHED,
-        |l, _event| l.reconcile_foreign_on_world_change(),
+        |l, _event| l.on_world_switched(),
     );
 
     let wayland_socket_name_default_subprocess = wayland_socket.name.clone();

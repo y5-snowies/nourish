@@ -554,27 +554,20 @@ pub fn surface_under_filtered_cx(
         return Some(hit);
     }
 
-    // For layer-shell: screen-logical (camera applied, top-left anchored
-    // per output).
+    // For layer-shell: screen-logical (camera applied, top-left anchored per output).
+    // `cursor_xform` was projected through `pane_context()` — the CURSOR's output — so
+    // this point is in THAT output's LOCAL, 0-based logical pixels, not global multi-
+    // output space. Hit-test the SAME output's layer map with the local point (mirrors
+    // the iced-screen path, whose `screen_point` is likewise output-local).
+    //
+    // The old code re-derived the output by testing this LOCAL point against GLOBAL
+    // `output_geometry`; the two coincide only on the output at the global origin, so a
+    // layer surface on any other monitor got the wrong output's layer map and silently
+    // received no pointer input (the multi-monitor layer-shell input bug).
     let cursor_logical: Point<f64, Logical> = cursor_xform.into();
     let position_screen = cursor_logical;
-
-    // Find which output the cursor is on. output_geometry is logical.
-    let output = hcx.space_state().state.outputs().find(|o| {
-        hcx.space_state()
-            .state
-            .output_geometry(o)
-            .map(|g| g.to_f64().contains(position_screen))
-            .unwrap_or(false)
-    })?;
-
-    let output_loc = hcx.space_state()
-        .state
-        .output_geometry(output)
-        .map(|g| g.loc)?;
-
-    let output_pos = position_screen - output_loc.to_f64();
-
+    let output = hcx.current_output();
+    let output_pos = position_screen;
     let layer_map = layer_map_for_output(output);
 
     // Hit-test each layer at its natural z-band. Layer ordering (Overlay/Top
@@ -613,7 +606,7 @@ pub fn surface_under_filtered_cx(
                 continue;
             };
 
-            let surface_origin_space = geo.loc.to_f64() + sub_pos.to_f64() + output_loc.to_f64();
+            let surface_origin_space = geo.loc.to_f64() + sub_pos.to_f64();
             let unscaled = position_screen - surface_origin_space;
 
             let hit = SurfaceHit::Layer {

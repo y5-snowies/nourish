@@ -204,6 +204,16 @@ impl<A: WireTrait + 'static> Wire<A> {
         self.foreign_reconcile();
     }
 
+    /// The rim's full response to a `WORLD_SWITCHED` event, in order: carry keyboard
+    /// focus + `activated` to the incoming world (this sets the new activation), then
+    /// re-advertise the foreign-toplevel mirror against it. Kept together here so the
+    /// composition root only wires an opaque "on world switched" and stays agnostic of
+    /// which concerns (focus, docks) react to a switch.
+    pub fn on_world_switched(&mut self) {
+        self.apply_world_switch_focus();
+        self.foreign_reconcile();
+    }
+
     /// Reconcile the foreign-toplevel mirror against the space(s) it advertises: just the
     /// hosted world, or EVERY world when `protocol_foreign_all_worlds` is set. Shared by the
     /// per-commit drain and the world-switch handler.
@@ -218,6 +228,30 @@ impl<A: WireTrait + 'static> Wire<A> {
         } else {
             self.state.foreign.reconcile::<Dispatch>(&[&self.inner.host_space().state]);
         }
+    }
+
+    /// Carry keyboard focus + `activated` across a world switch. Keyboard focus is a
+    /// single global on the seat, so switching worlds otherwise strands focus (and typed
+    /// input) on the outgoing world's window. Runs from the `WORLD_SWITCHED` rim handler
+    /// (post-switch: focus is still the outgoing window, `spawn_target` is the incoming
+    /// world). Saves the outgoing world's focus, then restores the incoming world's
+    /// remembered window (or clears when it has none) — the seat plumbing lives here; the
+    /// world/memory/activation logic is behind `WireTrait`. Restoring the incoming focus
+    /// transitively pulls the global focus off the outgoing window.
+    pub fn apply_world_switch_focus(&mut self) {
+        let Some(keyboard) = self.state.seat.seat.get_keyboard() else {
+            return;
+        };
+        // Save: the surface that still holds global focus belongs to the world we just
+        // left (disable does not move windows), so it is keyed under the outgoing world.
+        if let Some(surface) = keyboard.current_focus() {
+            self.inner.remember_focus_of(&surface);
+        }
+        // Restore: the incoming world's remembered window (activates it too), or `None`
+        // to clear focus when it has no live remembered window.
+        let focus = self.inner.restore_focus_for_current_world();
+        let serial = SERIAL_COUNTER.next_serial();
+        keyboard.set_focus(&mut self.state, focus, serial);
     }
 
     pub fn apply_constraint_restoration(&mut self, token: (WlSurface, Point<f64, Logical>)) {

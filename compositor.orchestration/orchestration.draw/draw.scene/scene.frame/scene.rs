@@ -386,25 +386,30 @@ where
     if draw_screen {
         let pointer = compositor_orchestration_seat_pointer_draw::scene::element(state, renderer, size);
         plan.extend(layer::POINTER, pointer.into_iter().map(DrawNode::Pointer));
+    }
 
-        // Split the four wlr layer-shell layers into their own render bands so
-        // z-order matches hit-testing: Background/Bottom under content, Top/Overlay
-        // above windows but below the compositor's screen iced.
-        //
-        // While the overview overlay is open, suppress the LIVE layer bands: the frozen
-        // freeze-backdrop already captured them (like windows), so rendering them live on
-        // top would leave them animating above the frozen desktop. Windows get the same
-        // treatment (the overview owns the content band).
-        if !state.inner.overview().visible {
-            for (wlr_layer, node) in layershell(state, size) {
-                let band = match wlr_layer {
-                    WlrLayer::Background => layer::LAYER_BACKGROUND,
-                    WlrLayer::Bottom => layer::LAYER_BOTTOM,
-                    WlrLayer::Top => layer::LAYER_TOP,
-                    WlrLayer::Overlay => layer::LAYER_OVERLAY,
-                };
-                plan.push(band, DrawNode::Surface(node));
-            }
+    // Split the four wlr layer-shell layers into their own render bands so z-order
+    // matches hit-testing: Background/Bottom under content, Top/Overlay above windows
+    // but below the compositor's screen iced.
+    //
+    // NOT gated by `draw_screen`: layer surfaces are OUTPUT-BOUND, so each output draws
+    // its OWN bars (via `render_key`) regardless of which monitor the cursor is on —
+    // unlike the unbound cursor/launcher, which follow the active output. A bar therefore
+    // stays put on its monitor instead of chasing the cursor / duplicating onto others.
+    //
+    // While the overview overlay is open, suppress the LIVE layer bands: the frozen
+    // freeze-backdrop already captured them (like windows), so rendering them live on top
+    // would leave them animating above the frozen desktop. Windows get the same treatment
+    // (the overview owns the content band).
+    if !state.inner.overview().visible {
+        for (wlr_layer, node) in layershell(state, size, render_key.as_deref()) {
+            let band = match wlr_layer {
+                WlrLayer::Background => layer::LAYER_BACKGROUND,
+                WlrLayer::Bottom => layer::LAYER_BOTTOM,
+                WlrLayer::Top => layer::LAYER_TOP,
+                WlrLayer::Overlay => layer::LAYER_OVERLAY,
+            };
+            plan.push(band, DrawNode::Surface(node));
         }
     }
     for elem in surfaces_screen {

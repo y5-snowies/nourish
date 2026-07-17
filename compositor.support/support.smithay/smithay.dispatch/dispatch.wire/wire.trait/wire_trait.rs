@@ -3,6 +3,7 @@ use smithay::desktop::{Space, Window};
 use smithay::utils::{Logical, Point, Rectangle};
 use smithay::wayland::dmabuf::{DmabufGlobal, ImportNotifier};
 use smithay::wayland::shell::xdg::ToplevelSurface;
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use compositor_support_smithay_dispatch_state_base::state::Dispatch;
 use compositor_support_smithay_state_space_base::state::SpaceState;
 
@@ -51,4 +52,14 @@ pub trait WireTrait {
         _dmabuf: Dmabuf,
         notifier: ImportNotifier,
     ) -> Option<(Dmabuf, ImportNotifier)>;
+    /// Remember `surface`'s window as the keyboard focus of the world it lives on, so a
+    /// later switch back to that world can restore it. No-op if the surface is not a
+    /// mapped toplevel (e.g. a layer/iced surface). Called on a world switch with the
+    /// still-current (outgoing) focus — see `Wire::apply_world_switch_focus`.
+    fn remember_focus_of(&mut self, surface: &WlSurface);
+    /// Restore the keyboard focus for the CURRENT (spawn-target) world: activate its
+    /// remembered window exclusively and return its surface to focus, or deactivate all
+    /// and return `None` when the world has no live remembered window (pruning a stale
+    /// entry). The caller applies the returned focus to the seat.
+    fn restore_focus_for_current_world(&mut self) -> Option<WlSurface>;
 }

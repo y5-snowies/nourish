@@ -12,10 +12,24 @@ use compositor_orchestration_core_state_base::Loop;
 /// render band (LAYER_BACKGROUND/BOTTOM below content, LAYER_TOP/OVERLAY above) —
 /// keeping draw z-order consistent with hit-testing rather than lumping every
 /// layer above windows.
-pub fn layershell(state: &mut Loop, _size: Size<i32, Physical>) -> Vec<(Layer, SurfaceNode)> {
+pub fn layershell(
+    state: &mut Loop,
+    _size: Size<i32, Physical>,
+    render_key: Option<&str>,
+) -> Vec<(Layer, SurfaceNode)> {
     let mut nodes = vec![];
 
     for output in state.inner.space_state().state.outputs() {
+        // A layer surface is OUTPUT-BOUND: it lives in exactly one output's layer map, at
+        // that output's LOCAL coords. scene() runs once per physical output, so gather
+        // ONLY the output being drawn — otherwise every monitor also draws the OTHER
+        // monitors' bars (at foreign local coords), the duplicated/mispositioned artifact.
+        // `None` = winit / single-output pass → gather all (there is only one).
+        if let Some(key) = render_key {
+            if compositor_orchestration_core_state_base::state::output_key(output).as_str() != key {
+                continue;
+            }
+        }
         let scale = output.current_scale().fractional_scale();
         let layer_map = layer_map_for_output(output);
 

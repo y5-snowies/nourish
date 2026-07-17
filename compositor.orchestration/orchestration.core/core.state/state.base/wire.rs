@@ -5,6 +5,8 @@ use smithay::desktop::{Space, Window};
 use smithay::utils::{Logical, Physical, Point, Rectangle};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::ToplevelSurface;
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::utils::IsAlive;
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 use compositor_y5_camera_transform_translate::transform::Transform;
@@ -35,6 +37,45 @@ impl WireTrait for Orchestrator {
                     .map(|w| &w.inner)
             })
             .collect()
+    }
+
+    fn remember_focus_of(&mut self, surface: &WlSurface) {
+        // Resolve the focused surface to its mapped toplevel window (across every world),
+        // then stash it under the world it lives on. Non-toplevel focus (layer/iced) or a
+        // surface with no window → nothing to remember.
+        let focused = self
+            .all_world_spaces()
+            .iter()
+            .flat_map(|s| s.state.elements())
+            .find(|w| w.toplevel().map(|t| t.wl_surface() == surface).unwrap_or(false))
+            .cloned();
+        if let Some(window) = focused {
+            if let Some(world) = self.world_of_window(&window) {
+                self.world_focus_memory.insert(world, window);
+            }
+        }
+    }
+
+    fn restore_focus_for_current_world(&mut self) -> Option<WlSurface> {
+        let target = self.worlds.spawn_target();
+        // Only restore a remembered window that is still alive and still on this world;
+        // a stale entry (window closed, or moved worlds) is dropped and treated as none.
+        let restore = self
+            .world_focus_memory
+            .get(&target)
+            .filter(|w| w.alive() && self.world_of_window(w) == Some(target))
+            .cloned();
+        match restore {
+            Some(window) => {
+                self.set_activated_exclusive(Some(&window));
+                window.toplevel().map(|t| t.wl_surface().clone())
+            }
+            None => {
+                self.world_focus_memory.remove(&target);
+                self.set_activated_exclusive(None);
+                None
+            }
+        }
     }
 
     fn active_output(&self) -> Option<smithay::output::Output> {

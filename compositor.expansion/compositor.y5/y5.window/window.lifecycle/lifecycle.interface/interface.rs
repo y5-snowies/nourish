@@ -47,11 +47,13 @@ fn activate_window(_loop: &mut Loop, window: Window) {
     _loop.inner.navigator_mut().set(State::Travel(travel));
 
     _loop.inner.space_state_mut().state.raise_element(&window, true);
-    window.set_activated(true);
+    // Activate the target and DEACTIVATE every other window across all worlds (not just
+    // the hosted one). A cross-world activate otherwise leaves the previously-focused
+    // window still `activated` in another world; the foreign mirror advertises all worlds
+    // (when `all_worlds`), so that stale flag makes the target's re-activation a no-op
+    // diff and sfwbar never sees it become focused.
+    _loop.inner.set_activated_exclusive(Some(&window));
     let surface = window.toplevel().map(|t| t.wl_surface().clone());
-    if let Some(toplevel) = window.toplevel() {
-        toplevel.send_pending_configure();
-    }
     if let Some(keyboard) = _loop.state.seat.seat.get_keyboard() {
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
         keyboard.set_focus(&mut _loop.state, surface, serial);
