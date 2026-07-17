@@ -16,7 +16,7 @@ fn card<'a>(inner: El<'a>) -> El<'a> {
     container(inner).style(style::card).width(Length::Fill).into()
 }
 
-pub fn build<'a>(ime: &'a Ime, kbd: &'a KeyboardLayout) -> El<'a> {
+pub fn build<'a>(ime: &'a Ime, kbd: &'a KeyboardLayout, protocol_foreign: &'a str, protocol_foreign_all_worlds: bool) -> El<'a> {
     let head = column![
         text("MISC").size(16).color(style::ACCENT),
         text("Keyboard layout and the input method launched by the compositor.").size(11).color(style::MUTED),
@@ -57,6 +57,41 @@ pub fn build<'a>(ime: &'a Ime, kbd: &'a KeyboardLayout) -> El<'a> {
     let add = button(text("+ add argument").size(12)).style(control::action)
         .on_press({ let mut x = ime.clone(); x.args.push(String::new()); SettingsMessage::Ime(x) });
     rows.push(add.into());
+
+    // Foreign-toplevel (dock/taskbar) protocols — wlr + ext, gated as one. Applied
+    // on next start; when disabled the globals stay bound but advertise nothing.
+    rows.push(text("DOCK PROTOCOLS").size(14).color(style::ACCENT).into());
+    rows.push(text("Expose open windows to external docks/taskbars (Waybar, sfwbar) via wlr + ext foreign-toplevel. Applied on next start.").size(11).color(style::MUTED).into());
+    let on = protocol_foreign == "enabled";
+    let mk = |label: &'a str, value: &'a str, active: bool| {
+        let b = button(text(label).size(12)).on_press(SettingsMessage::SetProtocolForeign(value.to_string()));
+        if active { b.style(control::accent) } else { b.style(control::action) }
+    };
+    rows.push(card(
+        row![
+            text("Foreign-toplevel").width(Length::Fill),
+            mk("Enabled", "enabled", on),
+            mk("Disabled", "disabled", !on),
+        ]
+        .align_y(Alignment::Center).spacing(10).padding(12).into(),
+    ));
+
+    // Advertise windows from ALL worlds vs just the active one. Only meaningful when the
+    // foreign protocols are enabled; applied live (re-advertises immediately, no reboot).
+    let all = protocol_foreign_all_worlds;
+    let mkb = |label: &'a str, value: bool, active: bool| {
+        let b = button(text(label).size(12))
+            .on_press(SettingsMessage::SetProtocolForeignAllWorlds(value));
+        if active { b.style(control::accent) } else { b.style(control::action) }
+    };
+    rows.push(card(
+        row![
+            text("Show windows from all worlds").width(Length::Fill),
+            mkb("On", true, all),
+            mkb("Off", false, !all),
+        ]
+        .align_y(Alignment::Center).spacing(10).padding(12).into(),
+    ));
 
     scrollable(Column::with_children(rows).spacing(10)).height(Length::Fill).into()
 }

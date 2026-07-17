@@ -150,6 +150,25 @@ pub struct Preference {
     /// settings "Graphics" tab). Applied live and pushed to the kernel renderer.
     #[serde(default)]
     pub graphics: compositor_developer_environment_graphics_base::base::GraphicsAaConfig,
+    /// wlr + ext foreign-toplevel-management (taskbar/dock protocols), gated as ONE
+    /// preference: `"enabled"` advertises open windows to docks; anything else
+    /// (the default) keeps both globals bound but mute (no toplevels announced,
+    /// control requests ignored). Read once at startup — a change takes effect on
+    /// the next launch. Edited in the Misc tab.
+    #[serde(default = "default_protocol_foreign")]
+    pub protocol_foreign: String,
+    /// When true, the foreign-toplevel advertisement shows windows from EVERY world,
+    /// not just the hosted (active) one. Startup snapshot, like `protocol_foreign`.
+    /// Edited on the same (Misc) tab.
+    #[serde(default)]
+    pub protocol_foreign_all_worlds: bool,
+}
+
+/// Default for `protocol_foreign`: `"disabled"` — off unless the user opts in, so
+/// an older `preferences.json` (or a fresh install) does not expose the dock
+/// protocols by default.
+fn default_protocol_foreign() -> String {
+    "disabled".to_string()
 }
 
 /// Where the keyboard layout comes from. `Env` (the historical default) leaves the
@@ -211,6 +230,8 @@ impl Default for Preference {
             keyboard: KeyboardLayout::default(),
             background_shader: None,
             graphics: compositor_developer_environment_graphics_base::base::GraphicsAaConfig::default(),
+            protocol_foreign: default_protocol_foreign(),
+            protocol_foreign_all_worlds: false,
         }
     }
 }

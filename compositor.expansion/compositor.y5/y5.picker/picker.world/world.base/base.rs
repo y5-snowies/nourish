@@ -77,7 +77,7 @@ pub fn start(state: &mut Loop) {
     // Tear down the picker scene + clear active + switch, then make `target` the
     // spawn-target so new windows map into it, mapping the outputs on first entry.
     compositor_y5_picker_interface_base::base::enter(state, target);
-    state.inner.worlds.set_spawn_target(target);
+    state.inner.set_spawn_target_world(target);
     info!("picker.start: spawn-target set to {target}");
     if state.inner.space_state().state.outputs().next().is_none() {
         for (output, loc) in &outputs {

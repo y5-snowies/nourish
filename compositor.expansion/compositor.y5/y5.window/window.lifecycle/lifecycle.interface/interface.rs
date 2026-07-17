@@ -13,6 +13,53 @@ use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_orchestration_core_state_base::{Loop, Transform};
 use compositor_y5_window_interface_record::window::LoopWindow;
 use compositor_y5_window_lifecycle_event::event::WindowLifecycleEvent;
+/// Activate `window` on behalf of an external request (e.g. a dock via wlr foreign-toplevel
+/// `activate`): ease the camera to frame it (navigator `view`), then raise + activate + give
+/// it keyboard focus. Mirrors the keybinding "view window" path.
+fn activate_window(_loop: &mut Loop, window: Window) {
+    use compositor_y5_navigator_state_base::state::State;
+    use compositor_y5_navigator_travel_state::state::{Target, Travel};
+
+    // Cross-world activation: if the window lives on another world, switch to it FIRST
+    // (immediately), then frame it. The frame is then a no-animation jump — an eased pan
+    // across a just-switched world would be jarring.
+    let hosted = _loop.inner.worlds.spawn_target();
+    let cross_world = matches!(_loop.inner.world_of_window(&window), Some(w) if w != hosted);
+    if cross_world {
+        if let Some(w) = _loop.inner.world_of_window(&window) {
+            _loop.inner.switch_to_world(w);
+        }
+    }
+
+    // `fit_absolute = true` adds ZOOM_OUT_TO_FIT so the WHOLE window is framed (zooms out
+    // when it's bigger than the screen), matching the Super+Left/Right "view window" feel —
+    // not just zoom-in-to-fit. A dock activation should show the whole window.
+    let result = compositor_y5_navigator_travel_machine::view::view(_loop, vec![&window], true);
+    let travel = Travel {
+        position: result.position.map(|target| Target { start: None, target }),
+        zoom: result.zoom.map(|target| Target { start: None, target }),
+        // Same-world: default eased travel (`None` → the 500ms config default). Cross-world:
+        // instant — `0.0`s makes the tick complete on the first frame, so we jump straight to
+        // the framing instead of animating a pan on top of the world switch.
+        duration: cross_world.then(|| 0.0),
+        time_start: None,
+    };
+    _loop.inner.navigator_mut().set(State::Travel(travel));
+
+    _loop.inner.space_state_mut().state.raise_element(&window, true);
+    // Activate the target and DEACTIVATE every other window across all worlds (not just
+    // the hosted one). A cross-world activate otherwise leaves the previously-focused
+    // window still `activated` in another world; the foreign mirror advertises all worlds
+    // (when `all_worlds`), so that stale flag makes the target's re-activation a no-op
+    // diff and sfwbar never sees it become focused.
+    _loop.inner.set_activated_exclusive(Some(&window));
+    let surface = window.toplevel().map(|t| t.wl_surface().clone());
+    if let Some(keyboard) = _loop.state.seat.seat.get_keyboard() {
+        let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+        keyboard.set_focus(&mut _loop.state, surface, serial);
+    }
+}
+
 /// Generally all hooks are temporary - they indicate something immediate is being deferred(due to complex ownership.)
 /// This hook is temporary because it wires the WireTrait impl and WireObject state.
 pub fn hook(_loop: &mut Loop, renderer: &mut GlesRenderer) {
@@ -38,6 +85,9 @@ pub fn hook(_loop: &mut Loop, renderer: &mut GlesRenderer) {
                 compositor_y5_window_interface_draw::fullscreen::fullscreen_set(
                     _loop, window, fullscreen,
                 );
+            }
+            WindowLifecycleEvent::Activate(window, _origin) => {
+                activate_window(_loop, window);
             }
             WindowLifecycleEvent::Destroyed(uuid, activation) => {
                 _destroy(_loop, uuid, renderer);

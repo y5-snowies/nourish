@@ -109,6 +109,13 @@ pub struct Orchestrator {
     /// The world set (phase 3, document/ARCHITECTURE.md). The active world
     /// hosts the kernel systems; grows per-output/lock/selection worlds later.
     pub worlds: compositor_orchestration_world_manager_base::manager::WorldManager,
+    /// Per-world keyboard-focus memory: the window that held keyboard focus when
+    /// each world was last left. Keyboard focus is a single global on the seat, so a
+    /// world switch otherwise strands focus on the outgoing world's window. The
+    /// `WORLD_SWITCHED` rim handler saves the outgoing world's focus here and restores
+    /// the incoming world's (see `Wire::apply_world_switch_focus`). Entries for
+    /// destroyed windows are pruned on restore (stale `Window` handles read `!alive`).
+    pub world_focus_memory: std::collections::HashMap<uuid::Uuid, Window>,
     /// KernelData: smithay wiring handles behind storage tokens (read-only for
     /// systems; populated post-init by the loader via smithay.data populate()).
     pub kernel: compositor_support_system_storage_slot_base::base::Storage,
@@ -188,6 +195,12 @@ pub enum StatusSession {
     Active,
     Paused,
 }
+
+/// Announced when the spawn-target world changes (i.e. the window Space the foreign
+/// mirror advertises — see `Orchestrator::space_state`). The rim's foreign reconciler
+/// listens for this (registered in the loader) instead of polling a change token.
+pub struct WorldSwitched;
+compositor_support_system_channel_token_base::y5_channel!(pub WORLD_SWITCHED, WORLD_SWITCHED_TX: WorldSwitched);
 
 impl Orchestrator {
     pub fn new(
@@ -285,6 +298,7 @@ impl Orchestrator {
             loader,
             kernel: kernel_data,
             worlds,
+            world_focus_memory: std::collections::HashMap::new(),
             bus: compositor_orchestration_bus_legacy_base::legacy::LegacyBus::new(),
             pilot_tick: 0,
             // Seed the live preference object from preferences.json (one disk read
@@ -300,6 +314,63 @@ impl Orchestrator {
     /// "Window tracking"); this is the driver-side accessor. Borrows only
     /// `self` (Orchestrator/`inner`), so it stays disjoint from `Wire.state`.
     /// (WT2 generalizes "main" to the tracked spawn-target.)
+    /// Reassign the spawn-target world and, when it actually changes, announce
+    /// `WORLD_SWITCHED` so the foreign-toplevel mirror re-advertises the now-hosted
+    /// world's windows. Use this instead of `self.worlds.set_spawn_target` directly.
+    pub fn set_spawn_target_world(&mut self, id: uuid::Uuid) {
+        if self.worlds.set_spawn_target(id) {
+            self.bus.send(&WORLD_SWITCHED_TX, WorldSwitched);
+        }
+    }
+
+    /// The world whose Space contains `window`, if any (used by cross-world foreign
+    /// activation to switch to a window that lives on another world).
+    pub fn world_of_window(&self, window: &smithay::desktop::Window) -> Option<uuid::Uuid> {
+        self.worlds.ids().into_iter().find(|&id| {
+            self.worlds
+                .get(id)
+                .storage()
+                .try_get(&compositor_support_world_host_space_base::base::SPACE)
+                .map(|w| w.inner.state.elements().any(|e| e == window))
+                .unwrap_or(false)
+        })
+    }
+
+    /// Make `id` both the active AND the spawn-target world (a full switch), enabling
+    /// the incoming world and disabling the outgoing one, and announcing `WORLD_SWITCHED`.
+    pub fn switch_to_world(&mut self, id: uuid::Uuid) {
+        self.worlds.switch(id, &self.kernel);
+        self.set_spawn_target_world(id);
+    }
+
+    /// Set the `activated` xdg state exclusively on `keep` — true on it, false on every
+    /// other mapped window across ALL worlds — sending each a pending configure. Pass
+    /// `None` to deactivate everything (e.g. switching into a world with no remembered
+    /// focus). `send_pending_configure` is a no-op where nothing changed, so only the
+    /// windows whose flag actually flips emit traffic. Enforces exactly-one-activated:
+    /// leaving a world never deactivates its windows, so without clearing across every
+    /// world a cross-world activation leaves stale `activated=true` flags in other
+    /// worlds. That stale flag makes re-activating the target a no-op diff the foreign
+    /// mirror never forwards, so a dock (sfwbar) never learns the target became focused.
+    pub fn set_activated_exclusive(&self, keep: Option<&smithay::desktop::Window>) {
+        for id in self.worlds.ids() {
+            let Some(world) = self
+                .worlds
+                .get(id)
+                .storage()
+                .try_get(&compositor_support_world_host_space_base::base::SPACE)
+            else {
+                continue;
+            };
+            for w in world.inner.state.elements() {
+                w.set_activated(Some(w) == keep);
+                if let Some(toplevel) = w.toplevel() {
+                    toplevel.send_pending_configure();
+                }
+            }
+        }
+    }
+
     pub fn space_state(&self) -> &compositor_support_smithay_state_space_base::state::SpaceState {
         let target = self.worlds.spawn_target();
         &self

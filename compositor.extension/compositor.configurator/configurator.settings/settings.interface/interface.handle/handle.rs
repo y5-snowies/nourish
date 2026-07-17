@@ -133,6 +133,23 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
             state.inner.preference.ime = Some(ime);
             let _ = pref::save(&state.inner.preference);
         }
+        SettingsMessage::SetProtocolForeign(v) => {
+            // Gate for the wlr + ext foreign-toplevel (dock) protocols. Persist to
+            // preferences.json; read once at the next start (globals are bound then).
+            state.inner.preference.protocol_foreign = v;
+            let _ = pref::save(&state.inner.preference);
+        }
+        SettingsMessage::SetProtocolForeignAllWorlds(v) => {
+            // Advertise windows from all worlds vs just the active one. Unlike
+            // `protocol_foreign` (which binds globals, so it's boot-only), this only
+            // changes which windows the reconcile publishes — so hot-reload it live:
+            // persist, flip the live scope flag, then re-reconcile once. This message
+            // IS the event, so the re-advertise is event-driven (no per-frame poll).
+            state.inner.preference.protocol_foreign_all_worlds = v;
+            let _ = pref::save(&state.inner.preference);
+            state.state.foreign.set_all_worlds(v);
+            state.foreign_reconcile();
+        }
         SettingsMessage::Keyboard(kl) => {
             // Persist AND apply the keyboard layout live: mutate the preference, save,
             // then recompile the keymap on the seat's keyboard. `get_keyboard()` hands

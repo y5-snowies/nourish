@@ -1,0 +1,46 @@
+/* Minimal readable style for the popup-testing bar. */
+* {
+    font-family: "Sans", "Font Awesome 6 Free";
+    font-size: 13px;
+}
+
+window#waybar {
+    background: rgba(30, 30, 46, 0.96);
+    color: #cdd6f4;
+}
+
+#custom-menu,
+#clock,
+#cpu,
+#memory,
+#tray,
+#custom-note {
+    padding: 0 10px;
+    margin: 2px 2px;
+}
+
+#custom-menu {
+    color: #89b4fa;
+    font-size: 16px;
+}
+
+#custom-note {
+    color: #a6e3a1;
+}
+
+/* The dropdown popover + tooltips (the xdg_popups). */
+tooltip,
+popover {
+    background: #181825;
+    color: #cdd6f4;
+    border: 1px solid rgba(180, 190, 254, 0.3);
+    border-radius: 8px;
+}
+
+modelbutton {
+    padding: 4px 12px;
+    border-radius: 6px;
+}
+modelbutton:hover {
+    background: #313244;
+}

@@ -8,3 +8,7 @@ compositor_installer_process_packages_enumerate_model = { path = "../enumerate.m
 
 [lib]
 path = "lib.rs"
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "Per-distro package enumeration list; inherently a flat list, splitting adds no value."

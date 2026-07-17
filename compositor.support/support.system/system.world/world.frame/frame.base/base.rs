@@ -7,12 +7,23 @@ use std::time::Duration;
 pub struct Layer(pub u16);
 
 pub const BACKGROUND: Layer = Layer(0);
+// wlr-layer-shell Background/Bottom sit BELOW window/world content, matching the
+// hit-test order (interface.core/hit.rs): a Background wallpaper or Bottom panel
+// only receives a click where nothing above it is hit. Splitting the four
+// layer-shell layers into their own bands (instead of one lumped LAYERSHELL band
+// above everything) is what keeps render z-order consistent with hit-testing —
+// e.g. an interactive wallpaper draws under windows AND is clicked only through them.
+pub const LAYER_BACKGROUND: Layer = Layer(10);
+pub const LAYER_BOTTOM: Layer = Layer(20);
 pub const WORLD_3D: Layer = Layer(100);
 pub const ICED_WORLD: Layer = Layer(200);
 pub const CAPTURE_DIM: Layer = Layer(300);
 pub const CANVAS: Layer = Layer(400);
+// Top/Overlay sit ABOVE windows but below the compositor's own screen iced
+// (ICED_SCREEN) — again mirroring the hit-test priority (Iced Screen > Overlay > Top).
+pub const LAYER_TOP: Layer = Layer(450);
+pub const LAYER_OVERLAY: Layer = Layer(480);
 pub const ICED_SCREEN: Layer = Layer(500);
-pub const LAYERSHELL: Layer = Layer(600);
 pub const POINTER: Layer = Layer(700);
 
 /// Transitional draw-node currency: type-erased until the concrete draw-node
