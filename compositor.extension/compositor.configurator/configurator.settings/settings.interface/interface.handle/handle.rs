@@ -399,6 +399,9 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
         | SettingsMessage::LayoutSelect(_)
         | SettingsMessage::LayoutRemove(_)
         | SettingsMessage::WifiSelect(_)
-        | SettingsMessage::WifiPassword(_) => {}
+        | SettingsMessage::WifiPassword(_)
+        // Language-tab layout picker open/search: UI-local, handled only in the view.
+        | SettingsMessage::LangPickerOpen(_)
+        | SettingsMessage::LangSearch(_) => {}
     }
 }

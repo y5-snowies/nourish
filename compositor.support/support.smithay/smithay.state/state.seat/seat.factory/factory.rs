@@ -53,8 +53,10 @@ where
     //
     // Repeat rate: 200ms delay, 25/sec. The keymap comes from the saved layout
     // preference (see `seat.xkb`); the settings window hot-reloads it via `apply`.
+    // `checked_config` compile-checks the layout (fallback keymap if unavailable), so a stale/bad preference can't panic this unwrap.
     let layout = compositor_support_smithay_state_seat_xkb::xkb::load();
-    let cfg = compositor_support_smithay_state_seat_xkb::xkb::config(&layout);
+    let csv = compositor_support_smithay_state_seat_xkb::xkb::layout_csv(&layout);
+    let cfg = compositor_support_smithay_state_seat_xkb::xkb::checked_config(&layout, &csv);
     let keyboard = seat.add_keyboard(cfg, 200, 25).unwrap();
 
     // Enable NumLock at startup. In Wayland the compositor owns the xkb state,

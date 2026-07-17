@@ -1,5 +1,5 @@
 [package]
-name = "compositor_configurator_settings_surface_misc"
+name = "compositor_configurator_settings_surface_language"
 version = "0.0.1"
 edition = "2024"
 
@@ -7,6 +7,8 @@ edition = "2024"
 compositor_configurator_settings_surface_message = { workspace = true }
 compositor_configurator_settings_surface_style = { workspace = true }
 compositor_configurator_settings_surface_control = { workspace = true }
+compositor_configurator_settings_surface_keyboard = { workspace = true }
+compositor_developer_environment_preference_base = { workspace = true }
 compositor_support_iced_core_engine_base = { workspace = true }
 iced_core = { workspace = true }
 iced_widget = { workspace = true }

@@ -89,6 +89,7 @@ compositor_configurator_hardware_gpu_base = { path = "configurator.hardware/hard
 compositor_configurator_network_backend_base = { path = "configurator.network/network.backend/backend.base" }
 compositor_configurator_network_tab_base = { path = "configurator.network/network.tab/tab.base" }
 compositor_configurator_settings_interface_handle = { path = "configurator.settings/settings.interface/interface.handle" }
+compositor_configurator_settings_surface_catalog = { path = "configurator.settings/settings.surface/surface.catalog" }
 compositor_configurator_settings_surface_chrome = { path = "configurator.settings/settings.surface/surface.chrome" }
 compositor_configurator_settings_surface_control = { path = "configurator.settings/settings.surface/surface.control" }
 compositor_configurator_settings_surface_cursor = { path = "configurator.settings/settings.surface/surface.cursor" }
@@ -97,6 +98,7 @@ compositor_configurator_settings_surface_environment = { path = "configurator.se
 compositor_configurator_settings_surface_graphics = { path = "configurator.settings/settings.surface/surface.graphics" }
 compositor_configurator_settings_surface_keyboard = { path = "configurator.settings/settings.surface/surface.keyboard" }
 compositor_configurator_settings_surface_keys = { path = "configurator.settings/settings.surface/surface.keys" }
+compositor_configurator_settings_surface_language = { path = "configurator.settings/settings.surface/surface.language" }
 compositor_configurator_settings_surface_message = { path = "configurator.settings/settings.surface/surface.message" }
 compositor_configurator_settings_surface_misc = { path = "configurator.settings/settings.surface/surface.misc" }
 compositor_configurator_settings_surface_preview = { path = "configurator.settings/settings.surface/surface.preview" }

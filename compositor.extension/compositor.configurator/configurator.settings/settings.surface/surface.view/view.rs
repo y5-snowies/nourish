@@ -91,6 +91,14 @@ pub struct Settings {
     pub next_placement_id: u64,
     /// Cursor-teleport CYCLIC (wrap-around) preference — the Display-tab checkbox.
     pub cyclic: bool,
+    /// All xkb layouts available on this system, `(code, human name)`, for the
+    /// Language tab's add-layout picker. Read ONCE from the system catalogue at
+    /// construction (never per-render).
+    pub catalog: Vec<(String, String)>,
+    /// Language tab: whether the add-layout picker is open (UI-local).
+    pub lang_picker_open: bool,
+    /// Language tab: the add-layout picker's search query (UI-local).
+    pub lang_search: String,
 }
 
 /// A new placement's default width/height in abstract layout units.
@@ -179,6 +187,9 @@ impl Settings {
             selected_placement: None,
             next_placement_id,
             cyclic,
+            catalog: compositor_configurator_settings_surface_catalog::catalog::available(),
+            lang_picker_open: false,
+            lang_search: String::new(),
         }
     }
 
@@ -259,6 +270,8 @@ impl IcedUi for Settings {
             }
             SettingsMessage::Ime(i) => self.ime = i,
             SettingsMessage::Keyboard(k) => self.keyboard = k,
+            SettingsMessage::LangPickerOpen(open) => self.lang_picker_open = open,
+            SettingsMessage::LangSearch(q) => self.lang_search = q,
             SettingsMessage::SetProtocolForeign(s) => self.protocol_foreign = s,
             SettingsMessage::SetProtocolForeignAllWorlds(v) => self.protocol_foreign_all_worlds = v,
             SettingsMessage::SelectDisplay(key) => {
@@ -476,6 +489,9 @@ impl IcedUi for Settings {
             self.selected_inactive,
             &self.ime,
             &self.keyboard,
+            &self.catalog,
+            self.lang_picker_open,
+            &self.lang_search,
             &self.protocol_foreign,
             self.protocol_foreign_all_worlds,
             &self.shader_options,
