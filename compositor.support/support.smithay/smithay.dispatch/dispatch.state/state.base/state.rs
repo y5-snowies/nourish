@@ -112,6 +112,11 @@ pub struct Dispatch {
     // before the initial configure), and that handler can't reach the world Space —
     // so the rim mirrors it here. Cheap: one or two outputs.
     pub outputs_snapshot: Vec<(smithay::output::Output, Rectangle<i32, Logical>)>,
+    // True while an xdg-popup explicit grab (a menu) holds the seat. Set by
+    // `establish_popup_grab`, cleared by the seat press path when the seat is no longer
+    // grabbed. Lets that path drive THIS grab's buttons without touching the DnD grab
+    // (which never sets this).
+    pub in_popup_grab: bool,
     // Pointer-constraint restoration tokens (seat warp); drain performs them.
     pub pending_restoration: Vec<(WlSurface, Point<f64, Logical>)>,
     // Syncobj fence sources recorded by the pre-commit hook (which has no
@@ -121,6 +126,11 @@ pub struct Dispatch {
     // recorded by `focus_changed`, applied by the rim drain. The inner
     // `Option<Client>` is the focused client (None == clear focus).
     pub pending_data_focus: Option<Option<Client>>,
+    // Deferred pointer-constraint activate-on-focus: `focus_changed` records the newly
+    // focused surface here (it can't touch the pointer inline — see that handler), and
+    // the drain does the is-pointer-over check + `constraint.activate()` with the pointer
+    // unlocked. `None` = nothing pending.
+    pub pending_constraint_activation: Option<WlSurface>,
 }
 
 // ── Redraw scheduling (inlined; handlers call these on Dispatch) ──────────────
@@ -156,6 +166,58 @@ impl Dispatch {
     pub fn mark_vblank_arrived(&mut self) { self.render_in_flight = false; }
 }
 
+/// Establish a popup's explicit grab. Called INLINE from `XdgShellHandler::grab` (while the
+/// popup is still alive — deferring it let clients tear the popup down first). The one seat
+/// operation that used to deadlock from here — `is_pointer_over` via `focus_changed` inside a
+/// `pointer.motion` teardown — is deferred separately (`pending_constraint_activation`), so
+/// `set_grab`/`set_focus` are safe synchronously. Standard smithay popup-grab wiring: keeps
+/// pointer/keyboard focus on the popup chain and dismisses it (popup_done) on an outside
+/// interaction. `in_popup_grab` lets the seat press path drive this grab's buttons (see the
+/// seat's button handler) without disturbing the DnD grab.
+pub fn establish_popup_grab(
+    dispatch: &mut Dispatch,
+    surface: smithay::wayland::shell::xdg::PopupSurface,
+    seat: smithay::reexports::wayland_server::protocol::wl_seat::WlSeat,
+    serial: smithay::utils::Serial,
+) {
+    use smithay::desktop::{
+        PopupKeyboardGrab, PopupKind, PopupPointerGrab, PopupUngrabStrategy, find_popup_root_surface,
+    };
+    use smithay::input::Seat;
+    use smithay::input::pointer::Focus;
+
+    let Some(seat) = Seat::<Dispatch>::from_resource(&seat) else { return };
+    let kind = PopupKind::Xdg(surface);
+    let Ok(root) = find_popup_root_surface(&kind) else { return };
+    let mut grab = match dispatch.popup.state.grab_popup(root, kind, &seat, serial) {
+        Ok(grab) => grab,
+        Err(_) => return,
+    };
+    if let Some(keyboard) = seat.get_keyboard() {
+        if keyboard.is_grabbed()
+            && !(keyboard.has_grab(serial)
+                || keyboard.has_grab(grab.previous_serial().unwrap_or(serial)))
+        {
+            grab.ungrab(PopupUngrabStrategy::All);
+            return;
+        }
+        keyboard.set_focus(dispatch, grab.current_grab(), serial);
+        keyboard.set_grab(dispatch, PopupKeyboardGrab::new(&grab), serial);
+    }
+    if let Some(pointer) = seat.get_pointer() {
+        if pointer.is_grabbed()
+            && !(pointer.has_grab(serial)
+                || pointer.has_grab(grab.previous_serial().unwrap_or(serial)))
+        {
+            grab.ungrab(PopupUngrabStrategy::All);
+            return;
+        }
+        pointer.set_grab(dispatch, PopupPointerGrab::new(&grab), serial, Focus::Keep);
+    }
+    dispatch.in_popup_grab = true;
+    dispatch.schedule_redraw();
+}
+
 // ── SeatHandler for Dispatch (REQUIRED here: `Seat<Dispatch>` field) ──────────
 // Inlined from seat.dispatch / seat.focus. `set_data_device_focus` is deferred
 // to wire.base via `pending_data_focus` (it needs DataDeviceHandler).
@@ -182,16 +244,12 @@ impl SeatHandler for Dispatch {
                     self.pending_restoration.push(token);
                 }
             }
-            // Activate on the newly focused surface if the pointer is also over it.
-            if let Some(new_focus) = focused {
-                if self.seat.is_pointer_over(&pointer, new_focus) {
-                    with_pointer_constraint(new_focus, &pointer, |c| {
-                        if let Some(c) = c {
-                            if !c.is_active() { c.activate(); }
-                        }
-                    });
-                }
-            }
+            // Activate-on-focus is DEFERRED to the drain. This callback can re-enter from
+            // INSIDE `pointer.motion` (a popup-grab teardown restores keyboard focus while
+            // motion holds the pointer's mutex); `is_pointer_over` → `pointer.current_focus()`
+            // would re-lock that same non-reentrant mutex → deadlock. The drain runs with the
+            // pointer unlocked, so the pointer-over check + constraint activate are safe there.
+            self.pending_constraint_activation = focused.cloned();
             self.seat.previous_focus = focused.cloned();
         }
 
@@ -339,16 +397,15 @@ mod foreign_impls {
             use zwlr_foreign_toplevel_handle_v1::Request as R;
             let surface = data.surface.clone();
             match request {
-                R::SetMaximized => state.foreign.push_request(surface, ForeignRequest::Maximized(true)),
-                R::UnsetMaximized => state.foreign.push_request(surface, ForeignRequest::Maximized(false)),
-                R::SetMinimized => state.foreign.push_request(surface, ForeignRequest::Minimized(true)),
-                R::UnsetMinimized => state.foreign.push_request(surface, ForeignRequest::Minimized(false)),
+                // Supported set only. maximize/minimize are intentionally NOT handled — y5
+                // has no such window model, so they fall through to the ignore arm rather than
+                // manufacturing a request the rim discards (docks then don't act on them).
                 R::Activate { .. } => state.foreign.push_request(surface, ForeignRequest::Activate),
                 R::Close => state.foreign.push_request(surface, ForeignRequest::Close),
                 R::SetFullscreen { .. } => state.foreign.push_request(surface, ForeignRequest::Fullscreen(true)),
                 R::UnsetFullscreen => state.foreign.push_request(surface, ForeignRequest::Fullscreen(false)),
-                R::SetRectangle { .. } => {}
-                R::Destroy => {}
+                // set_maximized/unset_maximized, set_minimized/unset_minimized, set_rectangle,
+                // destroy: accepted by the protocol, ignored by us.
                 _ => {}
             }
         }
@@ -535,8 +592,18 @@ mod handler_impls {
         }
         fn move_request(&mut self, _: ToplevelSurface, _: WlSeat, _: Serial) {}
         fn resize_request(&mut self, _: ToplevelSurface, _: WlSeat, _: Serial, _: ResizeEdge) {}
-        fn grab(&mut self, _surface: PopupSurface, _seat: WlSeat, _serial: Serial) {
-            // TODO: popup grabs.
+        fn grab(&mut self, surface: PopupSurface, seat: WlSeat, serial: Serial) {
+            // Honor the client's explicit popup grab (menus / GTK popovers — incl. old GTK
+            // apps like GIMP that DISMISS the popup if the grab isn't honored). This is the
+            // ONLY grab we accept; window move/resize grabs stay disabled by design.
+            //
+            // Establish it INLINE, while the popup is still alive. Deferring to the drain let
+            // the client tear the popup down first (we observed alive=false at drain → the grab
+            // silently no-op'd → GTK re-tried → the "click twice" bug). The re-entrant deadlock
+            // that once motivated deferral was the `is_pointer_over` call in `focus_changed`
+            // (only reachable via a grab teardown inside `pointer.motion`); that is now deferred
+            // on its own (`pending_constraint_activation`), so the seat grab is safe here.
+            super::establish_popup_grab(self, surface, seat, serial);
             self.schedule_redraw();
         }
         fn reposition_request(&mut self, surface: PopupSurface, positioner: PositionerState, token: u32) {

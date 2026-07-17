@@ -21,14 +21,14 @@ pub trait WireTrait {
     /// space-host slice (document/ARCHITECTURE.md → "Window tracking").
     fn host_space(&self) -> &SpaceState;
     fn host_space_mut(&mut self) -> &mut SpaceState;
+    /// Every SPATIAL world's window Space (skips overlay worlds with no Space). Used by
+    /// the foreign-toplevel mirror when `protocol_foreign_all_worlds` is set to advertise
+    /// windows from all worlds; otherwise only `host_space` is reconciled.
+    fn all_world_spaces(&self) -> Vec<&SpaceState>;
     /// The monitor the user is currently on (cursor's output, else primary), or
     /// `None` if nothing is mapped yet. Used to place a NULL-output layer surface
     /// on the focused monitor instead of always the first one.
     fn active_output(&self) -> Option<smithay::output::Output>;
-    /// Monotonic token that changes whenever the active world / spawn-target
-    /// changes. The rim polls it to re-advertise per-world foreign-toplevels on a
-    /// world switch (input-driven, so not covered by the client-driven drain).
-    fn world_generation(&self) -> u64;
     fn initialize_surface_data(&mut self, window: Window);
     fn destroy_surface_data(&mut self, surface: ToplevelSurface);
     /// Warp the pointer to a world-space point. The handler reads its own

@@ -19,10 +19,6 @@ pub struct WorldManager {
     /// The spatial world new client windows map into. Invariant: always a valid
     /// SPATIAL world, so there is always somewhere to spawn.
     spawn_target: Uuid,
-    /// Bumped whenever the active world or the spawn-target changes. A cheap
-    /// change token the rim polls to re-advertise foreign-toplevels (per-world
-    /// dock contents) on world switch, without an event bus.
-    generation: u64,
 }
 
 impl WorldManager {
@@ -33,12 +29,7 @@ impl WorldManager {
         let id = main.id;
         let mut index = HashMap::new();
         index.insert(id, 0);
-        Self { worlds: vec![main], index, active: id, spawn_target: id, generation: 0 }
-    }
-
-    /// Monotonic token bumped on every active-world / spawn-target change.
-    pub fn generation(&self) -> u64 {
-        self.generation
+        Self { worlds: vec![main], index, active: id, spawn_target: id }
     }
 
     fn idx(&self, id: Uuid) -> usize {
@@ -51,12 +42,15 @@ impl WorldManager {
     }
 
     /// Reassign the spawn-target spatial world. Caller ensures `id` is SPATIAL.
-    pub fn set_spawn_target(&mut self, id: Uuid) {
+    /// Returns `true` if the target actually changed (the space the foreign mirror
+    /// advertises is the spawn-target's — see `Orchestrator::space_state`).
+    pub fn set_spawn_target(&mut self, id: Uuid) -> bool {
         assert!(self.index.contains_key(&id), "spawn-target to unknown world {id}");
-        if self.spawn_target != id {
-            self.spawn_target = id;
-            self.generation += 1;
+        if self.spawn_target == id {
+            return false;
         }
+        self.spawn_target = id;
+        true
     }
 
     /// Add a dormant world (no enable). Returns its id.
@@ -107,6 +101,5 @@ impl WorldManager {
         self.worlds[out].disable(kernel);
         self.active = id;
         self.worlds[inc].enable(kernel);
-        self.generation += 1;
     }
 }

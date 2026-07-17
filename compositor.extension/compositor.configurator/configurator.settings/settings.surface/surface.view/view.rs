@@ -29,6 +29,8 @@ pub struct Settings {
     /// Foreign-toplevel (dock) protocol gate (Misc tab): "enabled"/"disabled".
     /// Persisted to preferences.json; applied on next start.
     pub protocol_foreign: String,
+    /// Foreign-toplevel: advertise windows from ALL worlds (Misc tab). Persisted; applied live.
+    pub protocol_foreign_all_worlds: bool,
     /// Graphics / anti-aliasing config (Graphics tab), persisted + applied live.
     pub graphics: compositor_developer_environment_graphics_base::base::GraphicsAaConfig,
     pub dirty: bool,
@@ -130,7 +132,7 @@ fn default_mode(d: &DisplayInfo) -> Option<ModeInfo> {
 }
 
 impl Settings {
-    pub fn new(env: Environment, cursor: f32, natural: bool, show_fps: bool, release_hidden: bool, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String) -> Self {
+    pub fn new(env: Environment, cursor: f32, natural: bool, show_fps: bool, release_hidden: bool, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool) -> Self {
         let active = snap.displays.iter().find(|d| d.active).cloned();
         let active_edid = active.as_ref().map(|d| d.edid_key.clone()).unwrap_or_default();
         let selected_mode = active.as_ref().and_then(default_mode);
@@ -145,6 +147,7 @@ impl Settings {
             ime,
             keyboard,
             protocol_foreign,
+            protocol_foreign_all_worlds,
             // Seeded from the process-global (mirrors the persisted preference).
             graphics: compositor_developer_environment_graphics_base::base::get(),
             dirty: false,
@@ -257,6 +260,7 @@ impl IcedUi for Settings {
             SettingsMessage::Ime(i) => self.ime = i,
             SettingsMessage::Keyboard(k) => self.keyboard = k,
             SettingsMessage::SetProtocolForeign(s) => self.protocol_foreign = s,
+            SettingsMessage::SetProtocolForeignAllWorlds(v) => self.protocol_foreign_all_worlds = v,
             SettingsMessage::SelectDisplay(key) => {
                 self.selected_display = key.clone();
                 self.seed_selection(&key);
@@ -473,6 +477,7 @@ impl IcedUi for Settings {
             &self.ime,
             &self.keyboard,
             &self.protocol_foreign,
+            self.protocol_foreign_all_worlds,
             &self.shader_options,
             self.shader_current.as_deref(),
             &self.shader_props,

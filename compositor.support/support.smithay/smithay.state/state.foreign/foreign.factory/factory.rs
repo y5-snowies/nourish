@@ -14,7 +14,7 @@ use smithay::wayland::foreign_toplevel_list::{
 use compositor_support_smithay_dispatch_state_base::state::DispatchWire;
 use compositor_support_smithay_state_foreign_base::base::{ForeignManagerGlobalData, ForeignToplevel};
 
-pub fn new<I>(display_handle: &DisplayHandle, enabled: bool) -> ForeignToplevel
+pub fn new<I>(display_handle: &DisplayHandle, enabled: bool, all_worlds: bool) -> ForeignToplevel
 where
     I: DispatchWire
         + GlobalDispatch<ZwlrForeignToplevelManagerV1, ForeignManagerGlobalData>
@@ -23,5 +23,5 @@ where
         + Dispatch<ExtForeignToplevelHandleV1, ForeignToplevelHandle>
         + 'static,
 {
-    ForeignToplevel::new::<I>(display_handle, enabled)
+    ForeignToplevel::new::<I>(display_handle, enabled, all_worlds)
 }

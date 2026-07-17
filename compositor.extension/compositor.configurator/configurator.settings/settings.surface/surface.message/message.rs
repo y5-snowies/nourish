@@ -219,4 +219,8 @@ pub enum SettingsMessage {
     /// `"disabled"` — gating the wlr + ext foreign-toplevel (dock) protocols.
     /// Persisted to preferences.json; takes effect on the next start.
     SetProtocolForeign(String),
+    /// Forwarded (Misc tab): `protocol_foreign_all_worlds` — when on, the foreign-toplevel
+    /// advertisement lists windows from ALL worlds, not just the active one. Persisted;
+    /// takes effect on the next start.
+    SetProtocolForeignAllWorlds(bool),
 }

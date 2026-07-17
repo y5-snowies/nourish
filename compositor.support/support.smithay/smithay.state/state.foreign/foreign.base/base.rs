@@ -64,8 +64,6 @@ pub enum ForeignRequest {
     Activate,
     Close,
     Fullscreen(bool),
-    Maximized(bool),
-    Minimized(bool),
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -117,8 +115,9 @@ pub struct ForeignToplevel {
     dh: DisplayHandle,
     /// `protocol_foreign == "enabled"` snapshot: gates advertising + callbacks.
     enabled: bool,
-    /// Last world generation the rim reconciled at (drives re-advertise on switch).
-    pub last_generation: u64,
+    /// `protocol_foreign_all_worlds` snapshot: when set, the rim reconciles against
+    /// EVERY world's Space (docks see all windows), not just the active/hosted one.
+    all_worlds: bool,
     // wlr: Some only while advertised (enabled at startup); held so the global's
     // lifetime is documented. Never mutated at runtime — this is a boot snapshot.
     #[allow(dead_code)]
@@ -134,7 +133,7 @@ pub struct ForeignToplevel {
 impl ForeignToplevel {
     /// Register BOTH globals (always bound). `enabled` gates whether they actually
     /// advertise toplevels + honor requests.
-    pub fn new<D>(dh: &DisplayHandle, enabled: bool) -> Self
+    pub fn new<D>(dh: &DisplayHandle, enabled: bool, all_worlds: bool) -> Self
     where
         D: GlobalDispatch<ZwlrForeignToplevelManagerV1, ForeignManagerGlobalData>
             + GlobalDispatch<ExtForeignToplevelListV1, ForeignToplevelListGlobalData>
@@ -157,7 +156,7 @@ impl ForeignToplevel {
         Self {
             dh: dh.clone(),
             enabled,
-            last_generation: 0,
+            all_worlds,
             wlr_global,
             managers: Vec::new(),
             requests: Vec::new(),
@@ -168,6 +167,18 @@ impl ForeignToplevel {
 
     pub fn enabled(&self) -> bool {
         self.enabled
+    }
+
+    /// Whether to advertise windows from ALL worlds (vs just the hosted one).
+    pub fn all_worlds(&self) -> bool {
+        self.all_worlds
+    }
+
+    /// Live-toggle the all-worlds scope. Unlike `enabled` (which creates/removes the
+    /// registry globals and so is boot-only), this only changes which windows the next
+    /// reconcile advertises — safe to flip at runtime. The caller re-reconciles after.
+    pub fn set_all_worlds(&mut self, all_worlds: bool) {
+        self.all_worlds = all_worlds;
     }
 
     /// The ext list state (for the `ForeignToplevelListHandler` impl in state.base).
@@ -215,11 +226,12 @@ impl ForeignToplevel {
 
     // ── reconcile the mirror against the ACTIVE world's Space (rim, each drain) ─
 
-    /// Diff the tracked toplevels against `space` (the active world's window Space),
+    /// Diff the tracked toplevels against `spaces` (one window Space per advertised
+    /// world — a single active world normally, or every world when `all_worlds` is set),
     /// emitting wlr `toplevel`/`closed` + title/app_id/state/output deltas and the
     /// ext `new_toplevel`/`closed`/title/app_id updates. When muted, tears the
     /// advertisement down (so a live-disable stops showing windows) and returns.
-    pub fn reconcile<D>(&mut self, space: &Space<Window>)
+    pub fn reconcile<D>(&mut self, spaces: &[&Space<Window>])
     where
         D: Dispatch<ZwlrForeignToplevelHandleV1, ToplevelHandleData>
             + ForeignToplevelListHandler
@@ -232,17 +244,20 @@ impl ForeignToplevel {
         }
         let dh = self.dh.clone();
 
-        // Snapshot the current toplevels (surface + metadata + outputs) up front so
-        // the borrow of `space` ends before we mutate `self.toplevels`.
-        let current: Vec<(WlSurface, String, String, ToplevelStates, Vec<Output>)> = space
-            .elements()
-            .filter_map(|window| {
-                let toplevel = window.toplevel()?;
-                let surface = toplevel.wl_surface().clone();
-                let (title, app_id) = title_app_id(&surface);
-                let states = read_states(window);
-                let outputs = outputs_for(space, window);
-                Some((surface, title, app_id, states, outputs))
+        // Snapshot the current toplevels across every advertised space (surface +
+        // metadata + outputs) up front so the space borrows end before we mutate
+        // `self.toplevels`. Outputs are computed per-space (a window belongs to its world).
+        let current: Vec<(WlSurface, String, String, ToplevelStates, Vec<Output>)> = spaces
+            .iter()
+            .flat_map(|&space| {
+                space.elements().filter_map(move |window| {
+                    let toplevel = window.toplevel()?;
+                    let surface = toplevel.wl_surface().clone();
+                    let (title, app_id) = title_app_id(&surface);
+                    let states = read_states(window);
+                    let outputs = outputs_for(space, window);
+                    Some((surface, title, app_id, states, outputs))
+                })
             })
             .collect();
 

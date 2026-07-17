@@ -16,7 +16,7 @@ fn card<'a>(inner: El<'a>) -> El<'a> {
     container(inner).style(style::card).width(Length::Fill).into()
 }
 
-pub fn build<'a>(ime: &'a Ime, kbd: &'a KeyboardLayout, protocol_foreign: &'a str) -> El<'a> {
+pub fn build<'a>(ime: &'a Ime, kbd: &'a KeyboardLayout, protocol_foreign: &'a str, protocol_foreign_all_worlds: bool) -> El<'a> {
     let head = column![
         text("MISC").size(16).color(style::ACCENT),
         text("Keyboard layout and the input method launched by the compositor.").size(11).color(style::MUTED),
@@ -72,6 +72,23 @@ pub fn build<'a>(ime: &'a Ime, kbd: &'a KeyboardLayout, protocol_foreign: &'a st
             text("Foreign-toplevel").width(Length::Fill),
             mk("Enabled", "enabled", on),
             mk("Disabled", "disabled", !on),
+        ]
+        .align_y(Alignment::Center).spacing(10).padding(12).into(),
+    ));
+
+    // Advertise windows from ALL worlds vs just the active one. Only meaningful when the
+    // foreign protocols are enabled; applied live (re-advertises immediately, no reboot).
+    let all = protocol_foreign_all_worlds;
+    let mkb = |label: &'a str, value: bool, active: bool| {
+        let b = button(text(label).size(12))
+            .on_press(SettingsMessage::SetProtocolForeignAllWorlds(value));
+        if active { b.style(control::accent) } else { b.style(control::action) }
+    };
+    rows.push(card(
+        row![
+            text("Show windows from all worlds").width(Length::Fill),
+            mkb("On", true, all),
+            mkb("Off", false, !all),
         ]
         .align_y(Alignment::Center).spacing(10).padding(12).into(),
     ));

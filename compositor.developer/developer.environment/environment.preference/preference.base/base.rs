@@ -157,6 +157,11 @@ pub struct Preference {
     /// the next launch. Edited in the Misc tab.
     #[serde(default = "default_protocol_foreign")]
     pub protocol_foreign: String,
+    /// When true, the foreign-toplevel advertisement shows windows from EVERY world,
+    /// not just the hosted (active) one. Startup snapshot, like `protocol_foreign`.
+    /// Edited on the same (Misc) tab.
+    #[serde(default)]
+    pub protocol_foreign_all_worlds: bool,
 }
 
 /// Default for `protocol_foreign`: `"disabled"` — off unless the user opts in, so
@@ -226,6 +231,7 @@ impl Default for Preference {
             background_shader: None,
             graphics: compositor_developer_environment_graphics_base::base::GraphicsAaConfig::default(),
             protocol_foreign: default_protocol_foreign(),
+            protocol_foreign_all_worlds: false,
         }
     }
 }

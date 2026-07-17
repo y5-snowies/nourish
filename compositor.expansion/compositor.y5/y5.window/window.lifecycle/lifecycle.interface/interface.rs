@@ -19,11 +19,29 @@ use compositor_y5_window_lifecycle_event::event::WindowLifecycleEvent;
 fn activate_window(_loop: &mut Loop, window: Window) {
     use compositor_y5_navigator_state_base::state::State;
     use compositor_y5_navigator_travel_state::state::{Target, Travel};
-    let result = compositor_y5_navigator_travel_machine::view::view(_loop, vec![&window], false);
+
+    // Cross-world activation: if the window lives on another world, switch to it FIRST
+    // (immediately), then frame it. The frame is then a no-animation jump — an eased pan
+    // across a just-switched world would be jarring.
+    let hosted = _loop.inner.worlds.spawn_target();
+    let cross_world = matches!(_loop.inner.world_of_window(&window), Some(w) if w != hosted);
+    if cross_world {
+        if let Some(w) = _loop.inner.world_of_window(&window) {
+            _loop.inner.switch_to_world(w);
+        }
+    }
+
+    // `fit_absolute = true` adds ZOOM_OUT_TO_FIT so the WHOLE window is framed (zooms out
+    // when it's bigger than the screen), matching the Super+Left/Right "view window" feel —
+    // not just zoom-in-to-fit. A dock activation should show the whole window.
+    let result = compositor_y5_navigator_travel_machine::view::view(_loop, vec![&window], true);
     let travel = Travel {
         position: result.position.map(|target| Target { start: None, target }),
         zoom: result.zoom.map(|target| Target { start: None, target }),
-        duration: None,
+        // Same-world: default eased travel (`None` → the 500ms config default). Cross-world:
+        // instant — `0.0`s makes the tick complete on the first frame, so we jump straight to
+        // the framing instead of animating a pan on top of the world switch.
+        duration: cross_world.then(|| 0.0),
         time_start: None,
     };
     _loop.inner.navigator_mut().set(State::Travel(travel));

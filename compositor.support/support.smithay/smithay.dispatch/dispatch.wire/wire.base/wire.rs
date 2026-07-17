@@ -105,9 +105,10 @@ pub fn new_dispatch(
             // disabled, NEITHER foreign-toplevel global is advertised (clients can't bind
             // them); when enabled, both are. Read once at boot — no hot-reload; a change
             // takes effect on the next launch.
-            let enabled = compositor_developer_environment_preference_base::base::load()
-                .protocol_foreign == "enabled";
-            compositor_support_smithay_state_foreign_factory::factory::new::<Dispatch>(display_handle, enabled)
+            let prefs = compositor_developer_environment_preference_base::base::load();
+            let enabled = prefs.protocol_foreign == "enabled";
+            let all_worlds = prefs.protocol_foreign_all_worlds;
+            compositor_support_smithay_state_foreign_factory::factory::new::<Dispatch>(display_handle, enabled, all_worlds)
         },
         compositor: compositor_support_smithay_state_compositor_factory::factory::new::<Dispatch>(display_handle),
         presentation: compositor_support_smithay_state_presentation_factory::factory::new::<Dispatch>(display_handle),
@@ -129,6 +130,8 @@ pub fn new_dispatch(
         pending_dmabuf: vec![],
         geometries: std::collections::HashMap::new(),
         outputs_snapshot: vec![],
+        in_popup_grab: false,
+        pending_constraint_activation: None,
         pending_restoration: vec![],
         pending_blockers: vec![],
         pending_data_focus: None,
@@ -153,21 +156,23 @@ impl<A: WireTrait + 'static> Wire<A> {
         rd::window_for_toplevel(&self.inner.host_space().state, surface.wl_surface())
     }
     /// Apply a control request a dock sent through wlr-foreign-toplevel-management.
-    /// `close` asks the client to close; `fullscreen` routes through the world.
-    /// `activate` is intentionally a no-op for now (focus integration with y5's own
-    /// selection is a later concern) — the protocol is still advertised and the
-    /// request accepted, just not acted on. maximize/minimize have no y5 model.
+    /// `close` asks the client to close; `fullscreen` routes through the world; `activate`
+    /// queues a view+activate (see `request_activation`). maximize/minimize have no y5 model
+    /// and are dropped at the protocol layer, so they never reach here.
     fn apply_foreign_request(
         &mut self,
         surface: WlSurface,
         request: compositor_support_smithay_state_foreign_base::base::ForeignRequest,
     ) {
         use compositor_support_smithay_state_foreign_base::base::ForeignRequest;
+        // Search EVERY world, not just the hosted one — with `all_worlds` a dock can send a
+        // request for a window on another world (cross-world activate). `request_activation`
+        // downstream switches to that window's world before framing it.
         let Some(window) = self
             .inner
-            .host_space()
-            .state
-            .elements()
+            .all_world_spaces()
+            .iter()
+            .flat_map(|s| s.state.elements())
             .find(|w| w.toplevel().map(|t| *t.wl_surface() == surface).unwrap_or(false))
             .cloned()
         else {
@@ -188,26 +193,31 @@ impl<A: WireTrait + 'static> Wire<A> {
                 // camera `view`) applies it. `Foreign` records the source for later.
                 self.inner.request_activation(window, ActivationOrigin::Foreign);
             }
-            ForeignRequest::Maximized(_) | ForeignRequest::Minimized(_) => {}
         }
     }
 
-    /// Re-advertise foreign-toplevels when the ACTIVE world changed. World switches
-    /// are input-driven, so `drain_protocol` (client-driven) may not run promptly
-    /// after one; the main loop calls this every iteration. Cheap u64 generation
-    /// compare — reconciles only on an actual change, which diffs the new world's
-    /// Space against the mirror (closing the old world's toplevels, announcing the
-    /// new world's).
+    /// Re-advertise foreign-toplevels after a world switch: diff the now-hosted world's
+    /// Space against the mirror (closing the old world's toplevels, announcing the new
+    /// world's). Event-driven — the loader registers this on the `WORLD_SWITCHED` bus
+    /// channel, so it runs once per actual switch, not on a per-iteration poll.
     pub fn reconcile_foreign_on_world_change(&mut self) {
+        self.foreign_reconcile();
+    }
+
+    /// Reconcile the foreign-toplevel mirror against the space(s) it advertises: just the
+    /// hosted world, or EVERY world when `protocol_foreign_all_worlds` is set. Shared by the
+    /// per-commit drain and the world-switch handler.
+    pub fn foreign_reconcile(&mut self) {
         if !self.state.foreign.enabled() {
             return;
         }
-        let generation = self.inner.world_generation();
-        if generation == self.state.foreign.last_generation {
-            return;
+        if self.state.foreign.all_worlds() {
+            let states = self.inner.all_world_spaces();
+            let spaces: Vec<_> = states.iter().map(|s| &s.state).collect();
+            self.state.foreign.reconcile::<Dispatch>(&spaces);
+        } else {
+            self.state.foreign.reconcile::<Dispatch>(&[&self.inner.host_space().state]);
         }
-        self.state.foreign.last_generation = generation;
-        self.state.foreign.reconcile::<Dispatch>(&self.inner.host_space().state);
     }
 
     pub fn apply_constraint_restoration(&mut self, token: (WlSurface, Point<f64, Logical>)) {
@@ -290,14 +300,30 @@ impl<A: WireTrait + 'static> Wire<A> {
                 .collect()
         };
         self.state.outputs_snapshot = outputs_snapshot;
+        // Deferred pointer-constraint activate-on-focus (recorded by `focus_changed`).
+        // Done here — NOT in the callback — because the pointer is unlocked now, so the
+        // `is_pointer_over` → `current_focus()` query can't re-lock a held pointer mutex.
+        if let Some(surface) = self.state.pending_constraint_activation.take() {
+            if let Some(pointer) = self.state.seat.seat.get_pointer() {
+                if self.state.seat.is_pointer_over(&pointer, &surface) {
+                    with_pointer_constraint(&surface, &pointer, |c| {
+                        if let Some(c) = c {
+                            if !c.is_active() {
+                                c.activate();
+                            }
+                        }
+                    });
+                }
+            }
+        }
         // Destroyed toplevels.
         for surface in std::mem::take(&mut self.state.destroyed_toplevels) {
             self.inner.destroy_surface_data(surface);
         }
         // wlr foreign-toplevel-management: reconcile the dock-facing mirror against
-        // the now-updated Space (announce new toplevels, close gone ones, push
+        // the now-updated Space(s) (announce new toplevels, close gone ones, push
         // title/app_id/state deltas), then apply any control requests docks queued.
-        self.state.foreign.reconcile::<Dispatch>(&self.inner.host_space().state);
+        self.foreign_reconcile();
         for (surface, request) in self.state.foreign.take_requests() {
             self.apply_foreign_request(surface, request);
         }

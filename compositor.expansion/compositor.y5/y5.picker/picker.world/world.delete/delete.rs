@@ -38,7 +38,7 @@ pub fn delete(state: &mut Loop) {
 
     transfer_windows(state, world, target);
     if state.inner.worlds.spawn_target() == world {
-        state.inner.worlds.set_spawn_target(target);
+        state.inner.set_spawn_target_world(target);
     }
     info!("picker: deleted world {world} (cell {cell}); windows -> world {target}");
 }

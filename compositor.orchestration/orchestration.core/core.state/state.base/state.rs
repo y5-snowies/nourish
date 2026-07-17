@@ -189,6 +189,12 @@ pub enum StatusSession {
     Paused,
 }
 
+/// Announced when the spawn-target world changes (i.e. the window Space the foreign
+/// mirror advertises — see `Orchestrator::space_state`). The rim's foreign reconciler
+/// listens for this (registered in the loader) instead of polling a change token.
+pub struct WorldSwitched;
+compositor_support_system_channel_token_base::y5_channel!(pub WORLD_SWITCHED, WORLD_SWITCHED_TX: WorldSwitched);
+
 impl Orchestrator {
     pub fn new(
         environment: Environment,
@@ -300,6 +306,35 @@ impl Orchestrator {
     /// "Window tracking"); this is the driver-side accessor. Borrows only
     /// `self` (Orchestrator/`inner`), so it stays disjoint from `Wire.state`.
     /// (WT2 generalizes "main" to the tracked spawn-target.)
+    /// Reassign the spawn-target world and, when it actually changes, announce
+    /// `WORLD_SWITCHED` so the foreign-toplevel mirror re-advertises the now-hosted
+    /// world's windows. Use this instead of `self.worlds.set_spawn_target` directly.
+    pub fn set_spawn_target_world(&mut self, id: uuid::Uuid) {
+        if self.worlds.set_spawn_target(id) {
+            self.bus.send(&WORLD_SWITCHED_TX, WorldSwitched);
+        }
+    }
+
+    /// The world whose Space contains `window`, if any (used by cross-world foreign
+    /// activation to switch to a window that lives on another world).
+    pub fn world_of_window(&self, window: &smithay::desktop::Window) -> Option<uuid::Uuid> {
+        self.worlds.ids().into_iter().find(|&id| {
+            self.worlds
+                .get(id)
+                .storage()
+                .try_get(&compositor_support_world_host_space_base::base::SPACE)
+                .map(|w| w.inner.state.elements().any(|e| e == window))
+                .unwrap_or(false)
+        })
+    }
+
+    /// Make `id` both the active AND the spawn-target world (a full switch), enabling
+    /// the incoming world and disabling the outgoing one, and announcing `WORLD_SWITCHED`.
+    pub fn switch_to_world(&mut self, id: uuid::Uuid) {
+        self.worlds.switch(id, &self.kernel);
+        self.set_spawn_target_world(id);
+    }
+
     pub fn space_state(&self) -> &compositor_support_smithay_state_space_base::state::SpaceState {
         let target = self.worlds.spawn_target();
         &self

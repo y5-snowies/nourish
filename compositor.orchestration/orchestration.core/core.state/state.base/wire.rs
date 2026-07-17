@@ -23,6 +23,19 @@ impl WireTrait for Orchestrator {
     fn host_space_mut(&mut self) -> &mut compositor_support_smithay_state_space_base::state::SpaceState {
         self.space_state_mut()
     }
+    fn all_world_spaces(&self) -> Vec<&compositor_support_smithay_state_space_base::state::SpaceState> {
+        self.worlds
+            .ids()
+            .into_iter()
+            .filter_map(|id| {
+                self.worlds
+                    .get(id)
+                    .storage()
+                    .try_get(&compositor_support_world_host_space_base::base::SPACE)
+                    .map(|w| &w.inner)
+            })
+            .collect()
+    }
 
     fn active_output(&self) -> Option<smithay::output::Output> {
         // The monitor the user is on (cursor's output, else primary). Non-panicking
@@ -36,10 +49,6 @@ impl WireTrait for Orchestrator {
             .find(|o| crate::state::output_key(o) == key)
             .or_else(|| space.state.outputs().next())
             .cloned()
-    }
-
-    fn world_generation(&self) -> u64 {
-        self.worlds.generation()
     }
 
     fn initialize_surface_data(&mut self, window: Window) {
