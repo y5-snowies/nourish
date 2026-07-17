@@ -76,10 +76,20 @@ pub fn process_input_event<I: InputBackend>(_loop: &mut Loop, event: &InputEvent
         InputEvent::TouchUp { event, .. } => touch::session::up::<I>(event, _loop),
         InputEvent::TouchCancel { event, .. } => touch::session::cancel::<I>(event, _loop),
         InputEvent::TouchFrame { event, .. } => touch::session::frame::<I>(event, _loop),
-        InputEvent::TabletToolAxis { .. } => {}
-        InputEvent::TabletToolProximity { .. } => {}
-        InputEvent::TabletToolTip { .. } => {}
-        InputEvent::TabletToolButton { .. } => {}
+        // Pen / stylus: native zwp_tablet_v2 to a tablet-aware client, else pan the
+        // canvas. Role latched at tip-down (see seat.pointer tablet::session).
+        InputEvent::TabletToolProximity { event, .. } => {
+            compositor_orchestration_seat_pointer_input::tablet::proximity::proximity::<I>(event, _loop)
+        }
+        InputEvent::TabletToolAxis { event, .. } => {
+            compositor_orchestration_seat_pointer_input::tablet::axis::axis::<I>(event, _loop)
+        }
+        InputEvent::TabletToolTip { event, .. } => {
+            compositor_orchestration_seat_pointer_input::tablet::tip::tip::<I>(event, _loop)
+        }
+        InputEvent::TabletToolButton { event, .. } => {
+            compositor_orchestration_seat_pointer_input::tablet::button::button::<I>(event, _loop)
+        }
         InputEvent::SwitchToggle { event, .. } => {
             if event.switch() == Some(Switch::Lid) {
                 // libinput: switch On == lid closed.

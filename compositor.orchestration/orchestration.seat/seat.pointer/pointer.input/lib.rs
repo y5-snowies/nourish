@@ -7,4 +7,5 @@ pub mod native_motion;
 pub mod native_press;
 pub mod pan;
 pub mod pinch;
+pub mod tablet;
 pub mod touch;

@@ -59,6 +59,9 @@ fn load_incoming_buffer(state: &mut Loop, x: &mut GlesRenderer, size: Size<i32, 
             SurfaceMessageType::Overview(overview_message) => {
                 compositor_y5_overview_interface_base::base::handle(state, x, overview_message)
             }
+            SurfaceMessageType::TouchPane(touch_pane_message) => {
+                compositor_y5_touch_pane_handle::handle::delegate(state, touch_pane_message)
+            }
             SurfaceMessageType::Settings(settings_message) => {
                 compositor_configurator_settings_interface_handle::handle::handle(state, x, settings_message)
             }

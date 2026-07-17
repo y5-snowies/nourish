@@ -52,6 +52,14 @@ pub fn over_window(_loop: &mut Loop, world: Point<f64, Logical>) -> bool {
     )
 }
 
+/// Is the topmost thing under this world point a compositor iced surface (the
+/// touch pane, overview menu bar, selection toolbar, …)? Such UI must receive a
+/// normal pointer tap in EVERY tool-mode — otherwise, e.g., the pane could not be
+/// tapped to leave Hand mode (whose canvas taps are otherwise inert).
+pub fn over_iced(_loop: &mut Loop, world: Point<f64, Logical>) -> bool {
+    topmost(_loop, world).map(|h| h.is_iced()).unwrap_or(false)
+}
+
 fn slot(id: i32) -> smithay::backend::input::TouchSlot {
     if id >= 0 { Some(id as u32) } else { None }.into()
 }

@@ -75,6 +75,7 @@ impl<A: WireTrait + 'static> Wire<A> {
     ) -> Self {
         let dispatch = new_dispatch(display_handle, drm_device);
         cm::create_global::<Dispatch>(display_handle);
+        compositor_support_smithay_dispatch_wire_tablet::tablet::create_global::<Dispatch>(display_handle);
         Self { state: dispatch, inner, loop_handle }
     }
 }
@@ -108,6 +109,7 @@ pub fn new_dispatch(
         text_input: compositor_support_smithay_state_text_input_factory::factory::new::<Dispatch>(display_handle),
         dnd: compositor_support_smithay_state_dnd_factory::factory::new(),
         singlepixel: compositor_support_smithay_state_singlepixel_factory::factory::new::<Dispatch>(display_handle),
+        tablet: Default::default(),
         needs_redraw: true,
         redraw_ping: None,
         render_in_flight: false,

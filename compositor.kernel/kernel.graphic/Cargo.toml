@@ -510,6 +510,7 @@ compositor_support_smithay_dispatch_wire_base = { path = "../../compositor.suppo
 compositor_support_smithay_dispatch_wire_color = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.color" }
 compositor_support_smithay_dispatch_wire_colorsurf = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.colorsurf" }
 compositor_support_smithay_dispatch_wire_redraw = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.redraw" }
+compositor_support_smithay_dispatch_wire_tablet = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.tablet" }
 compositor_support_smithay_dispatch_wire_trait = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.trait" }
 compositor_support_smithay_state_buffer_dispatch = { path = "../../compositor.support/support.smithay/smithay.state/state.buffer/buffer.dispatch" }
 compositor_support_smithay_state_clipboard_base = { path = "../../compositor.support/support.smithay/smithay.state/state.clipboard/clipboard.base" }
@@ -766,6 +767,9 @@ compositor_y5_surface_interface_core = { path = "../../compositor.expansion/comp
 compositor_y5_surface_protocol_base = { path = "../../compositor.expansion/compositor.y5/y5.surface/surface.protocol/protocol.base" }
 compositor_y5_surface_state_base = { path = "../../compositor.expansion/compositor.y5/y5.surface/surface.state/state.base" }
 compositor_y5_surface_system_base = { path = "../../compositor.expansion/compositor.y5/y5.surface/surface.system/system.base" }
+compositor_y5_touch_pane_create = { path = "../../compositor.expansion/compositor.y5/y5.touch/touch.pane/pane.create" }
+compositor_y5_touch_pane_handle = { path = "../../compositor.expansion/compositor.y5/y5.touch/touch.pane/pane.handle" }
+compositor_y5_touch_pane_view = { path = "../../compositor.expansion/compositor.y5/y5.touch/touch.pane/pane.view" }
 compositor_y5_viewport_interaction_base = { path = "../../compositor.expansion/compositor.y5/y5.viewport/viewport.interaction/interaction.base" }
 compositor_y5_viewport_interface_base = { path = "../../compositor.expansion/compositor.y5/y5.viewport/viewport.interface/interface.base" }
 compositor_y5_viewport_layout_base = { path = "../../compositor.expansion/compositor.y5/y5.viewport/viewport.layout/layout.base" }

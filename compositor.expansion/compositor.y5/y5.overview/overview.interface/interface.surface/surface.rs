@@ -142,6 +142,8 @@ fn dispatch(message: &OverviewMessage, tx: &Sender<SurfaceMessage>) {
         }
         // Clicking the username toggles the logout popup.
         OverviewMessage::ToggleUser => OverviewSurfaceMessage::ToggleLogout,
+        // The menu-bar ✕ closes the overlay.
+        OverviewMessage::Close => OverviewSurfaceMessage::Close,
         // Pushed-in indicators — nothing to forward.
         OverviewMessage::Clock(_) | OverviewMessage::Battery(_) => return,
     };

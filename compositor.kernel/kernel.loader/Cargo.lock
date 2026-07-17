@@ -4065,6 +4065,8 @@ dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_draw_state_lifecycle",
  "compositor_orchestration_driver_lid_base",
+ "compositor_support_smithay_dispatch_state_base",
+ "compositor_support_smithay_dispatch_wire_tablet",
  "smithay",
 ]
 
@@ -5126,6 +5128,7 @@ dependencies = [
  "compositor_y5_surface_draw_scene",
  "compositor_y5_surface_interface_base",
  "compositor_y5_surface_system_base",
+ "compositor_y5_touch_pane_create",
  "compositor_y5_viewport_layout_base",
  "compositor_y5_viewport_state_base",
  "compositor_y5_window_interface_record",
@@ -5423,6 +5426,7 @@ dependencies = [
  "compositor_orchestration_seat_system_pointer",
  "compositor_support_iced_core_engine_base",
  "compositor_support_smithay_dispatch_state_base",
+ "compositor_support_smithay_dispatch_wire_tablet",
  "compositor_support_system_input_event_base",
  "compositor_y5_camera_state_base",
  "compositor_y5_camera_system_base",
@@ -6524,6 +6528,7 @@ dependencies = [
  "compositor_support_smithay_dispatch_wire_color",
  "compositor_support_smithay_dispatch_wire_colorsurf",
  "compositor_support_smithay_dispatch_wire_redraw",
+ "compositor_support_smithay_dispatch_wire_tablet",
  "compositor_support_smithay_state_clipboard_base",
  "compositor_support_smithay_state_compositor_base",
  "compositor_support_smithay_state_cursor_shape_base",
@@ -6609,6 +6614,7 @@ dependencies = [
  "compositor_support_smithay_dispatch_wire_color",
  "compositor_support_smithay_dispatch_wire_colorsurf",
  "compositor_support_smithay_dispatch_wire_redraw",
+ "compositor_support_smithay_dispatch_wire_tablet",
  "compositor_support_smithay_dispatch_wire_trait",
  "compositor_support_smithay_state_buffer_dispatch",
  "compositor_support_smithay_state_clipboard_dispatch",
@@ -6674,6 +6680,13 @@ version = "0.0.1"
 dependencies = [
  "compositor_support_smithay_state_fractional_base",
  "compositor_support_smithay_state_space_base",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_support_smithay_dispatch_wire_tablet"
+version = "0.0.1"
+dependencies = [
  "smithay",
 ]
 
@@ -9317,6 +9330,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_orchestration_core_state_base",
+ "compositor_y5_picker_interface_base",
  "compositor_y5_picker_state_base",
  "compositor_y5_picker_surface_view",
  "compositor_y5_picker_system_base",
@@ -9681,6 +9695,7 @@ dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_draw_layer_base",
  "compositor_orchestration_driver_selection_base",
+ "compositor_orchestration_seat_gesture_touch",
  "compositor_remote_client_handle_aspect",
  "compositor_remote_client_handle_selection",
  "compositor_remote_message_client_base",
@@ -9797,6 +9812,7 @@ dependencies = [
  "compositor_y5_select_overlay_interface",
  "compositor_y5_surface_protocol_base",
  "compositor_y5_surface_system_base",
+ "compositor_y5_touch_pane_handle",
  "smithay",
 ]
 
@@ -9891,6 +9907,7 @@ dependencies = [
  "compositor_y5_overview_state_base",
  "compositor_y5_picker_surface_view",
  "compositor_y5_placeholder_protocol_base",
+ "compositor_y5_touch_pane_view",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -9926,6 +9943,42 @@ dependencies = [
  "compositor_support_system_trait_system_base",
  "compositor_y5_surface_state_base",
  "smithay",
+]
+
+[[package]]
+name = "compositor_y5_touch_pane_create"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_compositor_iced_base",
+ "compositor_monitor_selection_font_base",
+ "compositor_orchestration_core_state_base",
+ "compositor_orchestration_draw_layer_base",
+ "compositor_orchestration_seat_gesture_touch",
+ "compositor_y5_surface_draw_handle",
+ "compositor_y5_surface_protocol_base",
+ "compositor_y5_touch_pane_view",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_y5_touch_pane_handle"
+version = "0.0.1"
+dependencies = [
+ "compositor_orchestration_core_state_base",
+ "compositor_orchestration_seat_gesture_touch",
+ "compositor_y5_overview_interface_base",
+ "compositor_y5_picker_interface_entry",
+ "compositor_y5_touch_pane_view",
+]
+
+[[package]]
+name = "compositor_y5_touch_pane_view"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_selection_font_base",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
 ]
 
 [[package]]

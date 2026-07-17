@@ -3,10 +3,10 @@
 //!   * finger on a client surface  → forward to `wl_touch` (native multi-touch),
 //!   * one finger on the desktop/UI → emulate the pointer (move + tap/drag),
 //!   * two+ fingers on the desktop  → compositor gestures (pan/zoom/swipe/fit).
-use super::{client, emulate, geom, gesture};
+use super::{client, edge, emulate, geom, gesture};
 use smithay::backend::input::{Event, InputBackend, TouchEvent};
 use compositor_orchestration_core_state_base::Loop;
-use compositor_orchestration_seat_gesture_touch::touch::{Mode, Role};
+use compositor_orchestration_seat_gesture_touch::touch::{Mode, Role, TouchMode};
 
 /// Gesture mode for a given desktop finger count (0/1 → no gesture).
 fn mode_for(n: usize) -> Mode {
@@ -41,15 +41,35 @@ pub fn down<I: InputBackend>(event: &I::TouchDownEvent, _loop: &mut Loop) {
 
     if first {
         let world = geom::world(_loop, phys);
-        if client::is_client(_loop, world) {
+        // Compositor iced UI (the touch pane, overview menu, selection bar, …)
+        // must take a normal pointer tap in EVERY tool-mode, so it stays usable
+        // even in Hand mode (whose canvas taps are inert).
+        let over_ui = client::over_iced(_loop, world);
+        // `Touch` (default) delegates to a client's `wl_touch` when it bound one;
+        // the other tool-modes always emulate the pointer (never forward touch),
+        // so the canvas/window sees a mouse and the mode's behaviour applies.
+        let forward_client = !over_ui
+            && _loop.inner.touch.tool_mode == TouchMode::Touch
+            && client::is_client(_loop, world);
+        if forward_client {
             _loop.inner.touch.role = Role::Client;
             client::down(_loop, id, world, time);
         } else {
             _loop.inner.touch.role = Role::Pointer;
             emulate::move_to(_loop, nx, ny, time);
-            // Empty canvas → glide-pan (momentum) on drag; over a window/UI →
-            // click/drag. The tap-vs-drag decision is settled at release.
-            let glide = !client::over_window(_loop, world);
+            // Glide-pan (momentum) vs press-on-down. Compositor UI always presses
+            // (so its buttons work in every mode). Otherwise `Pointer`/`Select`/
+            // `Hand` press-on-down — Hand's press drives the armed canvas Hand
+            // grab (1:1 pan, ignores windows), Pointer/Select drive the pointer /
+            // Select tool. Only `Touch` mode glides, and only off a window/UI.
+            let glide = if over_ui {
+                false
+            } else {
+                match _loop.inner.touch.tool_mode {
+                    TouchMode::Pointer | TouchMode::Select | TouchMode::Hand => false,
+                    TouchMode::Touch => !client::over_window(_loop, world),
+                }
+            };
             _loop.inner.touch.pointer_glide = glide;
             _loop.inner.touch.pointer_moved = false;
             _loop.inner.touch.prev_centroid = _loop.inner.touch.centroid();
@@ -62,19 +82,28 @@ pub fn down<I: InputBackend>(event: &I::TouchDownEvent, _loop: &mut Loop) {
 
     match _loop.inner.touch.role {
         Role::Client => {
-            let world = geom::world(_loop, phys);
-            client::down(_loop, id, world, time);
+            // A 2-finger swipe from a screen edge is swallowed even over a client:
+            // cancel the `wl_touch` stream and claim it as an edge gesture.
+            if _loop.inner.touch.len() == 2 && edge::maybe_begin(_loop, time) {
+                client::cancel(_loop);
+            } else {
+                let world = geom::world(_loop, phys);
+                client::down(_loop, id, world, time);
+            }
         }
         Role::Pointer => {
-            // A second finger on the desktop means the sequence is a gesture, not
-            // a tap: release the emulated press and switch to gesture mode.
+            // Second finger: end the emulated press. A 2-finger swipe from a screen
+            // edge is swallowed as an edge gesture; otherwise it's a camera gesture.
             emulate::release(_loop, time);
-            _loop.inner.touch.role = Role::Gesture;
-            let m = mode_for(_loop.inner.touch.len());
-            _loop.inner.touch.mode = m;
-            gesture::begin(_loop, m, time);
+            if !edge::maybe_begin(_loop, time) {
+                _loop.inner.touch.role = Role::Gesture;
+                let m = mode_for(_loop.inner.touch.len());
+                _loop.inner.touch.mode = m;
+                gesture::begin(_loop, m, time);
+            }
         }
         Role::Gesture => resync(_loop, time),
+        Role::Edge => {}
         Role::Idle => {}
     }
 }
@@ -106,6 +135,7 @@ pub fn motion<I: InputBackend>(event: &I::TouchMotionEvent, _loop: &mut Loop) {
             }
         }
         Role::Gesture => gesture::update(_loop, time),
+        Role::Edge => edge::update(_loop, time),
         Role::Idle => {}
     }
 }
@@ -122,10 +152,11 @@ pub fn up<I: InputBackend>(event: &I::TouchUpEvent, _loop: &mut Loop) {
         Role::Client => client::up(_loop, id, time),
         Role::Pointer => {
             if _loop.inner.touch.pointer_glide {
+                // Glide is Touch-mode only (empty canvas): fling on a drag, or a
+                // stationary tap → a click that clears the selection.
                 if _loop.inner.touch.pointer_moved {
                     emulate::pan(_loop, 0.0, 0.0, true); // terminate → launch coast
                 } else {
-                    // A stationary tap on empty canvas → a click (clear selection).
                     emulate::press(_loop, time);
                     emulate::release(_loop, time);
                 }
@@ -141,6 +172,7 @@ pub fn up<I: InputBackend>(event: &I::TouchUpEvent, _loop: &mut Loop) {
                 resync(_loop, time);
             }
         }
+        Role::Edge => {}
         Role::Idle => {}
     }
     if empty {
@@ -156,6 +188,7 @@ pub fn cancel<I: InputBackend>(_event: &I::TouchCancelEvent, _loop: &mut Loop) {
             let m = _loop.inner.touch.mode;
             gesture::end(_loop, m, 0, true);
         }
+        Role::Edge => {}
         Role::Idle => {}
     }
     _loop.inner.touch.reset();

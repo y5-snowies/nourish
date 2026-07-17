@@ -87,6 +87,13 @@ pub(crate) fn press(cx: &mut SystemCx, button: u32, x: f64, y: f64) -> InputFlow
             != 0;
     }
 
+    // A press on compositor iced UI goes to that UI even with the Hand tool armed,
+    // so the touch pane / selection toolbar stay tappable in Hand mode — otherwise
+    // the `canvas_grab_hand` pan below would swallow the press.
+    if canvas_grab_hand && over_ice {
+        return InputFlow::Pass;
+    }
+
     // Over a window and not targeting: clear selection (unless over ice) and Pass
     // so the rim's native_press routes the click to the window.
     if !canvas_grab_hand
@@ -114,6 +121,15 @@ pub(crate) fn press(cx: &mut SystemCx, button: u32, x: f64, y: f64) -> InputFlow
 
         if candidate.is_none() && over_ice {
             // Let ice dispatch (transitive with canvas ownership).
+            return InputFlow::Pass;
+        }
+
+        // The Select tool only ever selects windows; a tap on compositor iced UI
+        // (the selection toolbar, the touch pane) must reach that UI rather than
+        // be swallowed as a no-op select. This matters for touch's persistent
+        // Select mode, where the tool stays armed while the bottom-centre menu is
+        // used. Move/Scale keep their iced candidates (group / placeholder tiles).
+        if canvas_grab_selecting && matches!(candidate, Some(PressCandidate::IcedSurface(_))) {
             return InputFlow::Pass;
         }
 

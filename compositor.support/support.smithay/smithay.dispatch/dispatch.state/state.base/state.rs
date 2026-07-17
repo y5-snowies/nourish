@@ -88,6 +88,9 @@ pub struct Dispatch {
     pub text_input: compositor_support_smithay_state_text_input_base::state::TextInput,
     pub dnd: compositor_support_smithay_state_dnd_base::state::DNDState,
     pub singlepixel: compositor_support_smithay_state_singlepixel_base::state::SinglePixel,
+    /// External `zwp_tablet_manager_v2` state (tool + pad). Hand-rolled — smithay
+    /// hides its tablet-seat instances and has no pad support (see `mod tablet_impls`).
+    pub tablet: compositor_support_smithay_dispatch_wire_tablet::tablet::TabletState,
     pub needs_redraw: bool,
 
     // Additional safety for ping
@@ -274,6 +277,87 @@ mod color_impls {
     }
     impl WLDispatch<WpImageDescriptionInfoV1, ()> for Dispatch {
         fn request(_: &mut Self, _: &Client, _: &WpImageDescriptionInfoV1, _: <WpImageDescriptionInfoV1 as Resource>::Request, _: &(), _: &DisplayHandle, _: &mut DataInit<'_, Self>) {}
+    }
+}
+
+// ── external zwp_tablet_manager_v2 (tool + pad) ────────────────────────────────
+// Hand-rolled like `color_impls`: smithay implements only the tool protocol AND
+// hides its seat instances (`pub(crate)`), so we can't advertise pads through it.
+// We own the whole stack. Userdata is `()` (state lives in `Dispatch.tablet`),
+// cleaned up in `destroyed`. Coexists with `delegate_dispatch2!` because our `()`
+// userdata never matches smithay's tablet `Dispatch2` impls (GlobalData/…UserData).
+mod tablet_impls {
+    use smithay::reexports::wayland_protocols::wp::tablet::zv2::server::{
+        zwp_tablet_manager_v2::{self, ZwpTabletManagerV2},
+        zwp_tablet_pad_group_v2::{self, ZwpTabletPadGroupV2},
+        zwp_tablet_pad_ring_v2::{self, ZwpTabletPadRingV2},
+        zwp_tablet_pad_strip_v2::{self, ZwpTabletPadStripV2},
+        zwp_tablet_pad_v2::{self, ZwpTabletPadV2},
+        zwp_tablet_seat_v2::{self, ZwpTabletSeatV2},
+        zwp_tablet_tool_v2::{self, ZwpTabletToolV2},
+        zwp_tablet_v2::{self, ZwpTabletV2},
+    };
+    use smithay::reexports::wayland_server::{
+        backend::ClientId, Client, DataInit, Dispatch as WLDispatch, DisplayHandle, GlobalDispatch,
+        New, Resource,
+    };
+    use super::Dispatch;
+
+    impl GlobalDispatch<ZwpTabletManagerV2, ()> for Dispatch {
+        fn bind(_: &mut Self, _: &DisplayHandle, _: &Client, resource: New<ZwpTabletManagerV2>, _: &(), di: &mut DataInit<'_, Self>) {
+            di.init(resource, ());
+        }
+    }
+    impl WLDispatch<ZwpTabletManagerV2, ()> for Dispatch {
+        fn request(state: &mut Self, client: &Client, _: &ZwpTabletManagerV2, request: zwp_tablet_manager_v2::Request, _: &(), dh: &DisplayHandle, di: &mut DataInit<'_, Self>) {
+            if let zwp_tablet_manager_v2::Request::GetTabletSeat { tablet_seat, .. } = request {
+                // y5 is single-seat: track every bound tablet-seat flatly.
+                let seat = di.init(tablet_seat, ());
+                state.tablet.add_seat::<Dispatch>(dh, &seat, client);
+            }
+        }
+    }
+    impl WLDispatch<ZwpTabletSeatV2, ()> for Dispatch {
+        fn request(_: &mut Self, _: &Client, _: &ZwpTabletSeatV2, _: zwp_tablet_seat_v2::Request, _: &(), _: &DisplayHandle, _: &mut DataInit<'_, Self>) {}
+        fn destroyed(state: &mut Self, _: ClientId, seat: &ZwpTabletSeatV2, _: &()) {
+            state.tablet.remove_seat(&seat.id());
+        }
+    }
+    impl WLDispatch<ZwpTabletV2, ()> for Dispatch {
+        fn request(_: &mut Self, _: &Client, _: &ZwpTabletV2, _: zwp_tablet_v2::Request, _: &(), _: &DisplayHandle, _: &mut DataInit<'_, Self>) {}
+        fn destroyed(state: &mut Self, _: ClientId, tablet: &ZwpTabletV2, _: &()) {
+            // NB: `ZwpTabletV2::id` is also a protocol event method — disambiguate.
+            state.tablet.remove_tablet_resource(&Resource::id(tablet));
+        }
+    }
+    impl WLDispatch<ZwpTabletToolV2, ()> for Dispatch {
+        // tablet-only: we ignore `set_cursor` (no tool-cursor rendering).
+        fn request(_: &mut Self, _: &Client, _: &ZwpTabletToolV2, _: zwp_tablet_tool_v2::Request, _: &(), _: &DisplayHandle, _: &mut DataInit<'_, Self>) {}
+        fn destroyed(state: &mut Self, _: ClientId, tool: &ZwpTabletToolV2, _: &()) {
+            state.tablet.remove_tool_resource(&tool.id());
+        }
+    }
+    // ── pad objects (server-created via seat.pad_added; no globals) ──────────────
+    impl WLDispatch<ZwpTabletPadV2, ()> for Dispatch {
+        fn request(_: &mut Self, _: &Client, _: &ZwpTabletPadV2, _: zwp_tablet_pad_v2::Request, _: &(), _: &DisplayHandle, _: &mut DataInit<'_, Self>) {}
+        fn destroyed(state: &mut Self, _: ClientId, pad: &ZwpTabletPadV2, _: &()) {
+            state.tablet.remove_pad_resource(&pad.id());
+        }
+    }
+    impl WLDispatch<ZwpTabletPadGroupV2, ()> for Dispatch {
+        fn request(_: &mut Self, _: &Client, _: &ZwpTabletPadGroupV2, _: zwp_tablet_pad_group_v2::Request, _: &(), _: &DisplayHandle, _: &mut DataInit<'_, Self>) {}
+    }
+    impl WLDispatch<ZwpTabletPadRingV2, ()> for Dispatch {
+        fn request(_: &mut Self, _: &Client, _: &ZwpTabletPadRingV2, _: zwp_tablet_pad_ring_v2::Request, _: &(), _: &DisplayHandle, _: &mut DataInit<'_, Self>) {}
+        fn destroyed(state: &mut Self, _: ClientId, ring: &ZwpTabletPadRingV2, _: &()) {
+            state.tablet.remove_pad_resource(&ring.id());
+        }
+    }
+    impl WLDispatch<ZwpTabletPadStripV2, ()> for Dispatch {
+        fn request(_: &mut Self, _: &Client, _: &ZwpTabletPadStripV2, _: zwp_tablet_pad_strip_v2::Request, _: &(), _: &DisplayHandle, _: &mut DataInit<'_, Self>) {}
+        fn destroyed(state: &mut Self, _: ClientId, strip: &ZwpTabletPadStripV2, _: &()) {
+            state.tablet.remove_pad_resource(&strip.id());
+        }
     }
 }
 

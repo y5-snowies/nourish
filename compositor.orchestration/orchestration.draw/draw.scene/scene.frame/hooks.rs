@@ -14,6 +14,8 @@ pub fn hooks(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Phys
     compositor_y5_select_overlay_interface::interface::per_frame(state, renderer, size);
     // Debug FPS overlay (top-right): measures the composited-frame rate.
     compositor_y5_surface_draw_fps::fps::per_frame(state, renderer, size);
+    // Reconcile the sticky touch pane against `inner.touch.pane_world`.
+    compositor_y5_touch_pane_create::create::per_frame(state, renderer, size);
     // Per-frame screen context for systems (KernelData). Background systems read
     // physical output size from here (SCREEN) — the former background.shared
     // OUTPUT_SIZE world token is gone.

@@ -18,6 +18,18 @@ pub enum Role {
     Client,
     Pointer,
     Gesture,
+    /// A 2-finger swipe that began at a screen edge — swallowed by the compositor
+    /// and dispatched as `(edge, angle)` (never reaches the camera or a client).
+    Edge,
+}
+
+/// Which screen edge a 2-finger edge-swipe started from.
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum TouchEdge {
+    Left,
+    Right,
+    Top,
+    Bottom,
 }
 
 /// The active compositor gesture, by finger count: 2 = pinch-zoom (+ centroid pan),
@@ -29,6 +41,20 @@ pub enum Mode {
     Zoom,
     Swipe,
     Fit,
+}
+
+/// The sticky touch tool-mode, chosen from the touch pane and held across
+/// sequences. `Touch` (default) delegates to `wl_touch`/pointer per window;
+/// `Pointer` forces pointer emulation (double-tap-drag text select); `Hand`
+/// makes a single finger pan anywhere; `Select` taps to append-select / drags a
+/// select-box. Multi-finger camera pan/zoom stays available in every mode.
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+pub enum TouchMode {
+    #[default]
+    Touch,
+    Pointer,
+    Hand,
+    Select,
 }
 
 #[derive(Default)]
@@ -46,6 +72,22 @@ pub struct TouchTracker {
     /// click/drag over a window); `pointer_moved` tells a tap (→ click) from a drag.
     pub pointer_glide: bool,
     pub pointer_moved: bool,
+    /// Sticky tool-mode + pane visibility — set from the touch pane, held across
+    /// sequences (NOT cleared by `reset`). In `Pointer` mode a finger always
+    /// emulates the pointer with press-on-down, so two quick taps naturally read
+    /// as a double-click and a tap-then-drag extends a text selection — the client
+    /// toolkit does its own double-click detection.
+    pub tool_mode: TouchMode,
+    /// The world (uuid `as_u128`) the pane was summoned in, or `None` when hidden.
+    /// The pane shows ONLY on that world (the per-world iced registry keeps it
+    /// there), so switching worlds hides it rather than following the focus.
+    pub pane_world: Option<u128>,
+    /// Edge-swipe (Role::Edge) per-sequence state: the edge the swipe began at,
+    /// the centroid at that moment (angle origin), and whether the binding already
+    /// fired (a swipe dispatches once). Cleared by `reset`.
+    pub start_edge: Option<TouchEdge>,
+    pub edge_start: Point<f64, Physical>,
+    pub edge_fired: bool,
 }
 
 impl TouchTracker {
@@ -95,5 +137,7 @@ impl TouchTracker {
         self.fit_scale = 1.0;
         self.pointer_glide = false;
         self.pointer_moved = false;
+        self.start_edge = None;
+        self.edge_fired = false;
     }
 }
