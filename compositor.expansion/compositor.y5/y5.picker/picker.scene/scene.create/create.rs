@@ -11,6 +11,11 @@ use compositor_y5_picker_three_scene::{PickerCommand, PickerScene};
 /// Build the sphere scene (PICKER world's own registry) + the details panel
 /// (session registry). No-op if the picker isn't active / bevy isn't ready.
 pub fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physical>) {
+    // Bake at the ACTIVE output's size (the monitor the picker opens on and only
+    // renders on), not whichever output's pass triggered this open — a wrong size
+    // forced a first-frame resize that raced the bevy first render and blanked it.
+    let size = state.inner.active_output().current_mode().map(|m| m.size).unwrap_or(size);
+
     // Per-cell thumbnails (None → transparent), occupancy (cell holds a world,
     // even with no thumbnail — e.g. restored from disk), + cell to focus.
     let (thumbnails, occupied, selected): (Vec<Option<Arc<wgpu::Texture>>>, Vec<bool>, Option<usize>) = {
