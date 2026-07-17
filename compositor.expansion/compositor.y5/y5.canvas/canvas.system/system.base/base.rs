@@ -16,6 +16,10 @@ use smithay::utils::SERIAL_COUNTER;
 use std::any::Any;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Max cursor travel (world px) for a select-rect interior press to count as a TAP
+/// (→ toggle selection) rather than a group move.
+const SELECT_TAP_SLOP: f64 = 6.0;
+
 pub static CANVAS: Token<CanvasState> = Token::new();
 /// TRANSITIONAL pub: legacy call sites still write this slot directly until
 /// their logic moves into systems/events (pass 2 of phase 4).
@@ -31,6 +35,9 @@ pub(crate) enum CanvasCmd {
     /// top-level z). Goes via the buffer because the `Platform` hatch handed to
     /// the press handler only exposes the smithay `Space`, not DRAW_ORDER.
     RaiseDrawable(uuid::Uuid),
+    /// Mark (or clear) that the active Move/Scale grab was started from the Select
+    /// tool's bounding rect, so the release restores the Select tool.
+    SetSelectTransform(bool),
 }
 y5_buffer!(CANVAS_BUF: CanvasCmd);
 
@@ -76,18 +83,43 @@ impl System for CanvasSystem {
         }
 
         // End the active grab, collecting any windows whose resize must be flushed.
+        // A Move/Scale grab that was started from the Select tool's bounding rect
+        // (`select_transform`) restores the SELECT tool on release — not Move/Scale —
+        // so the sticky touch Select mode is preserved; and a Move grab released
+        // without a real drag is a TAP that toggles selection instead.
+        let select_transform = cx.storage.get(&CANVAS).select_transform;
+        // Only a WINDOW-selection move resolves a no-drag release to a select toggle;
+        // a placeholder move (Select-mode placeholder transform) must NOT clear the
+        // window selection on a tap.
+        let move_start = match &cx.storage.get(&CANVAS).Grab {
+            CanvasGrab::Active(ActiveOption::Moving { start_cursor, candidates, .. })
+                if matches!(candidates, ActiveTransformCandidate::Window(_)) =>
+            {
+                Some(*start_cursor)
+            }
+            _ => None,
+        };
         let mut finish: Vec<Window> = Vec::new();
         let mut hand = false;
+        let select_revert = || CanvasGrab::Target(TargetOption::Select { Append: true });
         let next = match &cx.storage.get(&CANVAS).Grab {
             CanvasGrab::Active(opt) => match opt {
-                ActiveOption::Moving { .. } => Some(CanvasGrab::Target(TargetOption::Move)),
+                ActiveOption::Moving { .. } => Some(if select_transform {
+                    select_revert()
+                } else {
+                    CanvasGrab::Target(TargetOption::Move)
+                }),
                 ActiveOption::Scaling { candidates, .. } => {
                     if let ActiveTransformCandidate::Window(list) = candidates {
                         finish = list.iter().map(|(w, _)| w.clone()).collect();
                     }
-                    Some(CanvasGrab::Target(TargetOption::Scale))
+                    Some(if select_transform {
+                        select_revert()
+                    } else {
+                        CanvasGrab::Target(TargetOption::Scale)
+                    })
                 }
-                ActiveOption::SelectBox { .. } => Some(CanvasGrab::Target(TargetOption::Select { Append: true })),
+                ActiveOption::SelectBox { .. } => Some(select_revert()),
                 ActiveOption::Hand => {
                     hand = true;
                     None
@@ -103,7 +135,21 @@ impl System for CanvasSystem {
         for window in finish {
             finish_resize(window);
         }
+        // A select-rect interior press released within a small slop of its start is a
+        // TAP (not a move) → toggle the selection of the window under it (or clear on
+        // empty canvas), so tapping still (de)selects even inside the frame.
+        if select_transform {
+            cx.write(&CANVAS_BUF, CanvasCmd::SetSelectTransform(false));
+            if let Some(start) = move_start {
+                let moved = ((*x - start.x).hypot(*y - start.y)) > SELECT_TAP_SLOP;
+                if !moved {
+                    crate::press::select_tap(cx, *x, *y);
+                }
+            }
+        }
 
+        // The wayland pointer button-up goes to the window under the pointer only
+        // for a NON-hand release — a hand pan must not release a button on a client.
         if !hand {
             let serial = SERIAL_COUNTER.next_serial();
             let time = SystemTime::now()
@@ -119,9 +165,14 @@ impl System for CanvasSystem {
                 );
                 pointer.frame(dispatch);
             }
-            // Iced button-up routes through the surface system's slot (we can't touch it).
-            announce_iced_button(cx.channels, *button, false);
         }
+
+        // Iced button-up ALWAYS routes through the surface system's slot — including
+        // in Hand mode, where a tap on the SCREEN-space touch pane was Passed to iced
+        // on press (see `press.rs`). Without delivering the matching up here, an iced
+        // Button never fires (it emits on release), so the pane menu stopped
+        // responding while Hand was active. A no-op when nothing was pressed on iced.
+        announce_iced_button(cx.channels, *button, false);
 
         InputFlow::Consume
     }
@@ -154,6 +205,7 @@ impl System for CanvasSystem {
                     .get_mut(&compositor_support_world_order_track_base::base::DRAW_ORDER_MUT)
                     .raise(compositor_support_world_order_track_base::base::ComponentId(uuid));
             }
+            CanvasCmd::SetSelectTransform(v) => cx.storage.get_mut(&CANVAS_MUT).select_transform = v,
         }
     }
 }

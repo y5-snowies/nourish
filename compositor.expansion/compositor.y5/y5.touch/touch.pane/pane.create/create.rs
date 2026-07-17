@@ -17,17 +17,21 @@ use compositor_y5_surface_protocol_base::protocol::{SurfaceMessage, SurfaceMessa
 use compositor_y5_touch_pane_view::{PaneMode, TouchPane, TouchPaneMessage};
 
 const PANE_W: i32 = 112;
-const PANE_H: i32 = 580;
+/// Tall enough for the 7 tap-cells (4 tool-modes + Overview + World Picker + Close)
+/// plus their separators; the reconciler centres it and clamps to the output.
+const PANE_H: i32 = 704;
 /// Gap from the left screen edge (physical px). Kept clear of the edge-swipe
 /// band (see `touch/edge.rs` `EDGE_BAND`) so the swipe that hides the pane starts
 /// on bare screen to the pane's left, never on a pane button.
 const MARGIN: i32 = 56;
 
 thread_local! {
-    /// Live pane per world (the iced registry is per-world): handle + the last
-    /// active mode pushed. Keyed by the spawn-target world's uuid, so a world
-    /// switch makes a fresh pane in that world's registry.
-    static PANE: RefCell<HashMap<u128, (compositor_monitor_compositor_iced_base::HandleId, PaneMode)>> =
+    /// Live pane per (world, output). The iced registry is per-world, but a
+    /// Screen-space surface is drawn by EVERY output pass of that world unless it is
+    /// output-bound — so, like the FPS overlay, we key by (world uuid, output key),
+    /// keep exactly ONE instance (on the active output, bound to it), and tear down
+    /// any instance left on a formerly-active output when that output is next drawn.
+    static PANE: RefCell<HashMap<(u128, String), (compositor_monitor_compositor_iced_base::HandleId, PaneMode)>> =
         RefCell::new(HashMap::new());
 }
 
@@ -40,42 +44,41 @@ fn pane_mode(m: TouchMode) -> PaneMode {
     }
 }
 
-/// Cursor-output only (mirrors the selection overlay), so the pane is created
-/// once rather than once per output pass.
-fn on_active_output(state: &Loop) -> bool {
-    state
-        .inner
-        .render_output
-        .as_ref()
-        .is_none_or(|k| *k == state.inner.active_output_key())
-}
-
 /// Left-centre vertical strip.
 fn rect(size: Size<i32, Physical>) -> Rectangle<i32, Physical> {
     let y = ((size.h - PANE_H) / 2).max(0);
     Rectangle::new(Point::from((MARGIN, y)), Size::new(PANE_W, PANE_H))
 }
 
+/// Reconciler — runs once PER OUTPUT (like the FPS overlay). The pane shows on the
+/// ACTIVE monitor only (the one the user is on) and only in its summoning world; on
+/// every other output pass this tears down a stray instance keyed to that output.
 pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physical>) {
     if state.inner.surface().registry.is_none() {
         return;
     }
-    if !on_active_output(state) {
-        return;
-    }
 
-    let key = state.inner.worlds.spawn_target().as_u128();
-    // Visible only on the world it was summoned in (its own per-world registry
-    // holds the surface, so other worlds simply don't have — or show — it).
-    let visible = state.inner.touch.pane_world == Some(key);
+    // The output being drawn (`render_output`), falling back to the active-output key
+    // on a non-loop / single-output pass so `out == active` holds there.
+    let active = state.inner.active_output_key();
+    let out = state.inner.render_output.clone().unwrap_or_else(|| active.clone());
+    let world = state.inner.worlds.spawn_target().as_u128();
+    let key = (world, out.clone());
 
-    // Reuse only if this world's registry still holds the pane's handle.
+    // Show ONLY on the active monitor's pass, and only in the world it was summoned
+    // in. Any other pass (a different output, or a different world) tears its own
+    // keyed instance down — so the pane never lingers on more than one monitor.
+    let want = !out.is_empty()
+        && out == active
+        && state.inner.touch.pane_world == Some(world);
+
+    // Reuse only if the world's registry still holds this key's handle.
     let live = PANE.with(|p| p.borrow().get(&key).copied());
     let live = live.filter(|(h, _)| {
         state.inner.surface().registry.as_ref().is_some_and(|r| r.contains(*h))
     });
 
-    if !visible {
+    if !want {
         if let Some((id, _)) = live {
             if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
                 reg.destroy_by_id(id);
@@ -87,26 +90,26 @@ pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, 
         return;
     }
 
-    let active = pane_mode(state.inner.touch.tool_mode);
+    let active_mode = pane_mode(state.inner.touch.tool_mode);
     match live {
         None => {
-            if let Some(handle) = create(state, renderer, size, active) {
+            if let Some(handle) = create(state, renderer, size, active_mode, &out) {
                 PANE.with(|p| {
-                    p.borrow_mut().insert(key, (handle.id, active));
+                    p.borrow_mut().insert(key, (handle.id, active_mode));
                 });
             }
         }
         Some((id, shown)) => {
-            if shown != active {
+            if shown != active_mode {
                 if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
                     let _ = reg.dispatch_message(
                         IcedHandle::<TouchPane>::from_id(id),
-                        TouchPaneMessage::SetActive(active),
+                        TouchPaneMessage::SetActive(active_mode),
                     );
                 }
                 PANE.with(|p| {
                     if let Some(e) = p.borrow_mut().get_mut(&key) {
-                        e.1 = active;
+                        e.1 = active_mode;
                     }
                 });
             }
@@ -127,6 +130,7 @@ fn create(
     renderer: &mut GlesRenderer,
     size: Size<i32, Physical>,
     active: PaneMode,
+    out: &str,
 ) -> Option<IcedHandle<TouchPane>> {
     ensure_font();
     let mut pane = TouchPane::new();
@@ -140,8 +144,13 @@ fn create(
         compositor_orchestration_draw_layer_base::base::Layer::SCENE.bits(),
     );
 
+    // Pin the pane to the output being drawn (`out`) — the scene gate then draws (and
+    // hit-tests) this Screen overlay ONLY on that monitor, matching the FPS overlay.
     let tx = state.inner.surface_mut().surface_message_buffer_channel.0.clone();
     let registry = state.inner.surface_mut().registry.as_mut()?;
+    if !out.is_empty() {
+        registry.set_output_affinity_by_id(handle.id, Some(out.to_string()));
+    }
     registry
         .instance_mut(handle)?
         .runtime_mut()

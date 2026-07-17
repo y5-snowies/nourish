@@ -54,6 +54,11 @@ pub enum InputEvent {
         /// touchpad glide and a 1-finger touch glide; false for a 2-finger touch
         /// pan, which is a strict 1:1 move with no coast.
         momentum: bool,
+        /// The pan originates from a touchscreen (not the trackpad). Touch deltas
+        /// are true 1:1 pixel motion, so the release velocity already equals the
+        /// finger velocity — the camera skips the trackpad's fling boost for it,
+        /// so the coast never runs faster than the drag.
+        from_touch: bool,
     },
     /// Touchpad pinch gesture, translated from the libinput pinch lifecycle.
     /// Carries the cursor location (the zoom anchor) and, on `Update`, the

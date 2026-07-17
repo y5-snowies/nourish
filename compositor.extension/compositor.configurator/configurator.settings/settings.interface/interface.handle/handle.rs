@@ -116,6 +116,16 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
             state.inner.preference.input_natural_scroll = b;
             let _ = pref::save(&state.inner.preference);
         }
+        SettingsMessage::TouchPanSpeed(v) => {
+            // Read live per touch event, so this takes effect immediately; save
+            // persists it for the next launch.
+            state.inner.preference.input_touch_pan_speed = v as f64;
+            let _ = pref::save(&state.inner.preference);
+        }
+        SettingsMessage::TouchLinearPan(b) => {
+            state.inner.preference.input_touch_linear_pan = b;
+            let _ = pref::save(&state.inner.preference);
+        }
         SettingsMessage::SetShowFps(b) => {
             state.inner.preference.show_fps = b;
             let _ = pref::save(&state.inner.preference);

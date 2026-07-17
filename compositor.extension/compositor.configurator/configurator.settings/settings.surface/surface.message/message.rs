@@ -16,13 +16,29 @@ use compositor_y5_audio_controller_interface::interface::AudioState;
 use compositor_configurator_network_backend_base::base::WifiSnapshot;
 use compositor_configurator_bluetooth_backend_base::base::BtSnapshot;
 
+/// Sub-sections of the INPUT module, shown as a tab bar inside the Input panel.
+/// Carried INSIDE `Tab::Input` (not a separate field) so the selected sub-tab
+/// round-trips through the session `SettingsState` u8 — restored on the next
+/// settings open exactly like the top-level module.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum InputTab {
+    /// Pointer speed + touchpad natural scroll.
+    #[default]
+    Mouse,
+    /// Touchscreen: pan speed, linear pan, and the touch↔display link.
+    Touch,
+    /// Keyboard shortcut bindings.
+    Keyboard,
+}
+
 /// The settings modules shown in the sidebar (design: SYSTEM CONFIGURATION).
-/// `Input` merges the former Cursor + Keys; `System` is the Environment editor.
+/// `Input` merges the former Cursor + Keys (now sub-tabbed via [`InputTab`]);
+/// `System` is the Environment editor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
     Display,
     Audio,
-    Input,
+    Input(InputTab),
     Network,
     Bluetooth,
     Performance,
@@ -41,16 +57,20 @@ impl Tab {
     /// (orchestration can't name `Tab`, so the selected module round-trips as a `u8`).
     pub fn to_index(self) -> u8 {
         match self {
-            Tab::Display => 0, Tab::Audio => 1, Tab::Input => 2, Tab::Network => 3,
+            Tab::Display => 0, Tab::Audio => 1, Tab::Input(InputTab::Mouse) => 2, Tab::Network => 3,
             Tab::Bluetooth => 4, Tab::Performance => 5, Tab::System => 6, Tab::Misc => 7,
             Tab::World => 8, Tab::Graphics => 9, Tab::Language => 10,
+            // Extend past the original range so existing persisted indices (Mouse = 2)
+            // stay stable; only the two new Input sub-tabs claim fresh slots.
+            Tab::Input(InputTab::Touch) => 11, Tab::Input(InputTab::Keyboard) => 12,
         }
     }
     pub fn from_index(i: u8) -> Self {
         match i {
-            1 => Tab::Audio, 2 => Tab::Input, 3 => Tab::Network, 4 => Tab::Bluetooth,
+            1 => Tab::Audio, 2 => Tab::Input(InputTab::Mouse), 3 => Tab::Network, 4 => Tab::Bluetooth,
             5 => Tab::Performance, 6 => Tab::System, 7 => Tab::Misc, 8 => Tab::World,
             9 => Tab::Graphics, 10 => Tab::Language,
+            11 => Tab::Input(InputTab::Touch), 12 => Tab::Input(InputTab::Keyboard),
             _ => Tab::Display,
         }
     }
@@ -93,6 +113,11 @@ pub enum SettingsMessage {
     Cursor(f32),
     /// Live touchpad natural-scroll (forwarded).
     NaturalScroll(bool),
+    /// Live touch pan-speed multiplier (forwarded: persisted to preferences.json,
+    /// read live per touch event).
+    TouchPanSpeed(f32),
+    /// Toggle linear (strict, no-coast) touch pan (forwarded; persisted).
+    TouchLinearPan(bool),
     /// Toggle the per-monitor FPS overlay (forwarded; persisted to preferences).
     SetShowFps(bool),
     /// Toggle releasing hidden iced surfaces' GPU memory (forwarded; persisted).

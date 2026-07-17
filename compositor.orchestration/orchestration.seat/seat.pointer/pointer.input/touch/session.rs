@@ -6,7 +6,12 @@
 use super::{client, edge, emulate, geom, gesture};
 use smithay::backend::input::{Event, InputBackend, TouchEvent};
 use compositor_orchestration_core_state_base::Loop;
+use compositor_orchestration_core_state_base::export::{CanvasGrab, TargetOption};
 use compositor_orchestration_seat_gesture_touch::touch::{Mode, Role, TouchMode};
+
+/// Max lifetime of a pointer-mode 2-finger tap that still counts as a right click
+/// (a slower two-finger hold is not a tap).
+const RTAP_MAX_MS: u32 = 300;
 
 /// Gesture mode for a given desktop finger count (0/1 → no gesture).
 fn mode_for(n: usize) -> Mode {
@@ -15,6 +20,17 @@ fn mode_for(n: usize) -> Mode {
         3 => Mode::Swipe,
         _ if n >= 4 => Mode::Fit,
         _ => Mode::None,
+    }
+}
+
+/// Disarm the transient Select-tool grab armed for a touch sequence, so the mouse's
+/// canvas grab returns to normal between touches. No-op when no touch Select grab set.
+fn disarm_select(_loop: &mut Loop) {
+    if matches!(
+        _loop.inner.canvas_mut().Grab,
+        CanvasGrab::Target(TargetOption::Select { .. })
+    ) {
+        _loop.inner.canvas_mut().Grab = CanvasGrab::None;
     }
 }
 
@@ -40,6 +56,13 @@ pub fn down<I: InputBackend>(event: &I::TouchDownEvent, _loop: &mut Loop) {
     _loop.inner.touch.upsert(id, phys);
 
     if first {
+        // Touch tool-modes are TOUCH-EXCLUSIVE: arm the canvas Select tool only for
+        // the life of THIS touch sequence (disarmed on lift), so the mouse — which
+        // shares the canvas grab — is never switched into Select by the touch pane.
+        if _loop.inner.touch.tool_mode == TouchMode::Select {
+            _loop.inner.canvas_mut().Grab =
+                CanvasGrab::Target(TargetOption::Select { Append: true });
+        }
         let world = geom::world(_loop, phys);
         // Compositor iced UI (the touch pane, overview menu, selection bar, …)
         // must take a normal pointer tap in EVERY tool-mode, so it stays usable
@@ -62,18 +85,32 @@ pub fn down<I: InputBackend>(event: &I::TouchDownEvent, _loop: &mut Loop) {
             // `Hand` press-on-down — Hand's press drives the armed canvas Hand
             // grab (1:1 pan, ignores windows), Pointer/Select drive the pointer /
             // Select tool. Only `Touch` mode glides, and only off a window/UI.
-            let glide = if over_ui {
+            let glide = if _loop.inner.touch.tool_mode == TouchMode::Hand {
+                // Hand pans the world under a single finger ANYWHERE (windows,
+                // placeholders, empty canvas) via glide — NO persistent canvas grab,
+                // so the touch pane stays tappable to switch modes. Only SCREEN-space
+                // compositor UI (the pane / a docked toolbar) takes a normal tap.
+                !client::over_screen_iced(_loop, world)
+            } else if over_ui {
                 false
             } else {
                 match _loop.inner.touch.tool_mode {
-                    TouchMode::Pointer | TouchMode::Select | TouchMode::Hand => false,
+                    TouchMode::Pointer | TouchMode::Select => false,
+                    TouchMode::Hand => unreachable!(),
                     TouchMode::Touch => !client::over_window(_loop, world),
                 }
             };
             _loop.inner.touch.pointer_glide = glide;
             _loop.inner.touch.pointer_moved = false;
             _loop.inner.touch.prev_centroid = _loop.inner.touch.centroid();
-            if !glide {
+            // Pointer mode over a surface DEFERS the left press: it's held back until
+            // the touch proves to be a click/drag (motion or lift) rather than the
+            // start of a 2-finger gesture, so a 2-finger tap fires a clean right click
+            // with no stray left click. UI taps and the other press-on-down modes
+            // (Select/Hand) are unaffected — they still press immediately.
+            let defer = _loop.inner.touch.tool_mode == TouchMode::Pointer && !over_ui;
+            _loop.inner.touch.pending_press = !glide && defer;
+            if !glide && !defer {
                 emulate::press(_loop, time);
             }
         }
@@ -92,17 +129,38 @@ pub fn down<I: InputBackend>(event: &I::TouchDownEvent, _loop: &mut Loop) {
             }
         }
         Role::Pointer => {
-            // Second finger: end the emulated press. A 2-finger swipe from a screen
-            // edge is swallowed as an edge gesture; otherwise it's a camera gesture.
-            emulate::release(_loop, time);
+            // Second finger: end the primary press. If it was deferred (pointer mode)
+            // it never went out — just drop it, so the 2-finger gesture leaves no
+            // stray left click. Otherwise release the held button. A 2-finger swipe
+            // from a screen edge is swallowed as an edge gesture; else a camera gesture.
+            if _loop.inner.touch.pending_press {
+                _loop.inner.touch.pending_press = false;
+            } else if !_loop.inner.touch.pointer_glide {
+                // A glide (Hand, or Touch over empty canvas) never pressed a button, so
+                // there is nothing to release; only a real press-on-down does.
+                emulate::release(_loop, time);
+            }
             if !edge::maybe_begin(_loop, time) {
                 _loop.inner.touch.role = Role::Gesture;
                 let m = mode_for(_loop.inner.touch.len());
                 _loop.inner.touch.mode = m;
                 gesture::begin(_loop, m, time);
+                // Pointer mode: a 2-finger tap (quick, still) is a right click — arm
+                // the candidate now; `gesture::update` / a 3rd finger disqualify it.
+                if _loop.inner.touch.tool_mode == TouchMode::Pointer && _loop.inner.touch.len() == 2 {
+                    _loop.inner.touch.rtap_candidate = true;
+                    _loop.inner.touch.rtap_ms = time;
+                    _loop.inner.touch.rtap_origin = _loop.inner.touch.centroid();
+                }
             }
         }
-        Role::Gesture => resync(_loop, time),
+        Role::Gesture => {
+            // A third finger rules out the 2-finger-tap right click.
+            if _loop.inner.touch.len() > 2 {
+                _loop.inner.touch.rtap_candidate = false;
+            }
+            resync(_loop, time);
+        }
         Role::Edge => {}
         Role::Idle => {}
     }
@@ -131,6 +189,12 @@ pub fn motion<I: InputBackend>(event: &I::TouchMotionEvent, _loop: &mut Loop) {
                 _loop.inner.touch.prev_centroid = c;
                 emulate::pan(_loop, c.x - prev.x, c.y - prev.y, true);
             } else {
+                // Pointer mode: the first motion turns a deferred tap into a drag —
+                // send the held-back press now so the button stays down through it.
+                if _loop.inner.touch.pending_press {
+                    _loop.inner.touch.pending_press = false;
+                    emulate::press(_loop, time);
+                }
                 emulate::move_to(_loop, nx, ny, time);
             }
         }
@@ -152,14 +216,21 @@ pub fn up<I: InputBackend>(event: &I::TouchUpEvent, _loop: &mut Loop) {
         Role::Client => client::up(_loop, id, time),
         Role::Pointer => {
             if _loop.inner.touch.pointer_glide {
-                // Glide is Touch-mode only (empty canvas): fling on a drag, or a
-                // stationary tap → a click that clears the selection.
+                // A drag flings/coasts; a stationary tap in Touch mode is a click
+                // (clears the selection), but in Hand mode it is a NO-OP (the Hand
+                // tool never clicks the canvas/window under the finger).
                 if _loop.inner.touch.pointer_moved {
                     emulate::pan(_loop, 0.0, 0.0, true); // terminate → launch coast
-                } else {
+                } else if _loop.inner.touch.tool_mode != TouchMode::Hand {
                     emulate::press(_loop, time);
                     emulate::release(_loop, time);
                 }
+            } else if _loop.inner.touch.pending_press {
+                // Stationary pointer-mode tap: the press was deferred, so synthesize
+                // the whole click now (press + release) at the tap location.
+                _loop.inner.touch.pending_press = false;
+                emulate::press(_loop, time);
+                emulate::release(_loop, time);
             } else {
                 emulate::release(_loop, time);
             }
@@ -168,6 +239,17 @@ pub fn up<I: InputBackend>(event: &I::TouchUpEvent, _loop: &mut Loop) {
             if empty {
                 let m = _loop.inner.touch.mode;
                 gesture::end(_loop, m, time, false);
+                // A quick, still 2-finger tap (pointer mode) → right click at its
+                // centroid. `rtap_candidate` survives only if nothing panned/pinched
+                // and no 3rd finger arrived; the time gate rejects a slow hold.
+                if _loop.inner.touch.rtap_candidate
+                    && time.wrapping_sub(_loop.inner.touch.rtap_ms) <= RTAP_MAX_MS
+                {
+                    let origin = _loop.inner.touch.rtap_origin;
+                    let (nx, ny) = geom::fraction_of(_loop, origin);
+                    emulate::move_to(_loop, nx, ny, time);
+                    emulate::right_click(_loop, time);
+                }
             } else {
                 resync(_loop, time);
             }
@@ -176,6 +258,7 @@ pub fn up<I: InputBackend>(event: &I::TouchUpEvent, _loop: &mut Loop) {
         Role::Idle => {}
     }
     if empty {
+        disarm_select(_loop);
         _loop.inner.touch.reset();
     }
 }
@@ -191,6 +274,7 @@ pub fn cancel<I: InputBackend>(_event: &I::TouchCancelEvent, _loop: &mut Loop) {
         Role::Edge => {}
         Role::Idle => {}
     }
+    disarm_select(_loop);
     _loop.inner.touch.reset();
 }
 

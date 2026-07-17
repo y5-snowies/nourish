@@ -66,7 +66,8 @@ use wayland_client::{
 };
 use wayland_protocols::wp::tablet::zv2::client::{
     zwp_tablet_manager_v2::{self, ZwpTabletManagerV2},
-    zwp_tablet_pad_group_v2::{self, ZwpTabletPadGroupV2, EVT_RING_OPCODE, EVT_STRIP_OPCODE},
+    zwp_tablet_pad_dial_v2::{self, ZwpTabletPadDialV2},
+    zwp_tablet_pad_group_v2::{self, ZwpTabletPadGroupV2, EVT_DIAL_OPCODE, EVT_RING_OPCODE, EVT_STRIP_OPCODE},
     zwp_tablet_pad_ring_v2::{self, ZwpTabletPadRingV2},
     zwp_tablet_pad_strip_v2::{self, ZwpTabletPadStripV2},
     zwp_tablet_pad_v2::{self, ZwpTabletPadV2, EVT_GROUP_OPCODE},
@@ -193,6 +194,7 @@ struct PadState {
     ring_finger: bool,        // ring source == finger
     strip_pos: Option<f64>,   // 0..1, None when the finger left the strip
     strip_finger: bool,       // strip source == finger
+    dial_v120: i32,           // accumulated dial delta (120 units per detent)
 }
 
 struct App {
@@ -462,7 +464,13 @@ impl App {
                     self.pad.mode,
                     self.pad.modes,
                 );
-                let l2 = format!("  BTN [{}]  RING {}  STRIP {}", pad_btns.join(","), ring, strip);
+                let l2 = format!(
+                    "  BTN [{}]  RING {}  STRIP {}  DIAL {}",
+                    pad_btns.join(","),
+                    ring,
+                    strip,
+                    self.pad.dial_v120 / 120,
+                );
                 font::text(&mut cv, 8, sy, 1, color::LTGREY, &l1);
                 font::text(&mut cv, 8, sy + 12, 1, color::LTGREY, &l2);
             }
@@ -725,6 +733,7 @@ impl Dispatch<ZwpTabletPadGroupV2, ()> for App {
     event_created_child!(App, ZwpTabletPadGroupV2, [
         EVT_RING_OPCODE => (ZwpTabletPadRingV2, ()),
         EVT_STRIP_OPCODE => (ZwpTabletPadStripV2, ()),
+        EVT_DIAL_OPCODE => (ZwpTabletPadDialV2, ()),
     ]);
 }
 
@@ -750,6 +759,16 @@ impl Dispatch<ZwpTabletPadStripV2, ()> for App {
             zwp_tablet_pad_strip_v2::Event::Position { position } => state.pad.strip_pos = Some(position as f64 / 65535.0),
             zwp_tablet_pad_strip_v2::Event::Stop => state.pad.strip_pos = None,
             _ => {}
+        }
+    }
+}
+
+// zwp_tablet_pad_dial_v2 (protocol v2): high-res detented dial.
+impl Dispatch<ZwpTabletPadDialV2, ()> for App {
+    fn event(state: &mut Self, _: &ZwpTabletPadDialV2, event: zwp_tablet_pad_dial_v2::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let zwp_tablet_pad_dial_v2::Event::Delta { value120 } = event {
+            state.pad.dial_v120 += value120;
+            state.note(format!("PAD DIAL {value120:+}"));
         }
     }
 }
@@ -922,7 +941,7 @@ fn main() {
     // Bind the tablet manager global up front (if the compositor advertises it). The
     // per-seat tablet seat is created lazily once a wl_seat appears (see reconcile).
     let tablet_manager = if want_tablet {
-        match globals.bind::<ZwpTabletManagerV2, _, _>(&qh, 1..=1, ()) {
+        match globals.bind::<ZwpTabletManagerV2, _, _>(&qh, 1..=2, ()) {
             Ok(m) => Some(m),
             Err(e) => {
                 eprintln!("[pen] no zwp_tablet_manager_v2 — compositor lacks tablet support ({e}); pointer-only");

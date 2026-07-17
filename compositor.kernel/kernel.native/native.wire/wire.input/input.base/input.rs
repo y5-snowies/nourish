@@ -38,6 +38,10 @@ fn handle_pad(state: &mut Loop, event: &TabletPadEvent) {
             let finger = e.source() == StripAxisSource::Finger;
             state.state.tablet.pad_strip(&key, e.number(), e.position(), finger, e.time());
         }
+        TabletPadEvent::Dial(e) => {
+            // libinput reports high-res v120 delta (120 units per detent).
+            state.state.tablet.pad_dial(&key, e.number(), e.dial_v120() as i32, e.time());
+        }
         _ => {}
     }
 }

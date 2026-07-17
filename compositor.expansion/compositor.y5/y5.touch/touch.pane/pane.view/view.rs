@@ -31,6 +31,8 @@ pub enum TouchPaneMessage {
     SetMode(PaneMode),
     OpenOverview,
     OpenWorldPicker,
+    /// Dismiss the pane.
+    Close,
     SetActive(PaneMode),
 }
 
@@ -105,6 +107,8 @@ impl IcedUi for TouchPane {
             Space::new().height(12),
             icon_button(font_map::GridView, TouchPaneMessage::OpenOverview, false),
             icon_button(font_map::Public, TouchPaneMessage::OpenWorldPicker, false),
+            Space::new().height(12),
+            icon_button(font_map::Close, TouchPaneMessage::Close, false),
         ]
         .spacing(8)
         .width(Length::Fill);

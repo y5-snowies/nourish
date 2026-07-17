@@ -88,6 +88,24 @@ pub struct TouchTracker {
     pub start_edge: Option<TouchEdge>,
     pub edge_start: Point<f64, Physical>,
     pub edge_fired: bool,
+    /// Pointer-mode only: the primary finger's left press is DEFERRED (not sent on
+    /// down) until it's clear the touch is a click/drag and not the start of a
+    /// 2-finger gesture — so a 2-finger tap fires a clean right click with no stray
+    /// left click first. Sent on first motion (→ drag) or on lift (→ click);
+    /// dropped silently when a second finger arrives.
+    pub pending_press: bool,
+    /// Pointer-mode 2-finger-tap → right-click detection: `rtap_candidate` stays
+    /// true while the 2-finger phase reads as a tap (no pan, no pinch, ≤2 fingers);
+    /// `rtap_ms` is when it began (duration gate) and `rtap_origin` the centroid
+    /// then (the right-click location). Cleared by `reset`.
+    pub rtap_candidate: bool,
+    pub rtap_ms: u32,
+    pub rtap_origin: Point<f64, Physical>,
+    /// The active input modality: `true` after a touch event, `false` after a real
+    /// pointer / pen event. Cross-sequence (NOT cleared by `reset`). Lets UI that
+    /// differs by modality — e.g. the selection toolbar's placement — follow the
+    /// device actually in use rather than the sticky tool-mode or the pane's visibility.
+    pub last_input_touch: bool,
 }
 
 impl TouchTracker {
@@ -139,5 +157,8 @@ impl TouchTracker {
         self.pointer_moved = false;
         self.start_edge = None;
         self.edge_fired = false;
+        self.pending_press = false;
+        self.rtap_candidate = false;
+        self.rtap_ms = 0;
     }
 }

@@ -194,30 +194,11 @@ pub fn build<'a>(
         );
     }
 
-    // Touch-input claim for the selected monitor: each connected touch device is a
-    // row; tapping claims it for this monitor (moving it off any other), tapping the
-    // one already claimed here releases it back to auto-correlation.
-    let mut touch: Vec<El<'a>> = vec![text("TOUCH INPUT").size(11).color(style::MUTED).into()];
-    if touch_devices.is_empty() {
-        touch.push(text("No touch devices connected.").size(12).color(style::MUTED).into());
-    } else {
-        for d in touch_devices {
-            let here = d.assigned_edid.as_deref() == Some(selected_display);
-            let other = d.assigned_edid.is_some() && !here;
-            let label = if other { format!("{}   ·   (claimed by another monitor)", d.name) } else { d.name.clone() };
-            let msg = if here {
-                SettingsMessage::ClaimTouch(selected_display.to_string(), None)
-            } else {
-                SettingsMessage::ClaimTouch(selected_display.to_string(), Some(d.id.clone()))
-            };
-            let b = button(text(label)).width(Length::Fill).on_press(msg);
-            touch.push(if here { b.style(control::accent) } else { b.style(control::action) }.into());
-        }
-    }
+    // The touch↔display link moved to Settings → Input → Touch (a self-contained
+    // per-device monitor picker), so the Display tab no longer renders it here.
 
     col.push(Column::with_children(monitors).spacing(6))
         .push(actions)
-        .push(Column::with_children(touch).spacing(6))
         .push(scrollable(Column::with_children(modes).spacing(6)).height(Length::Fill))
         .into()
 }

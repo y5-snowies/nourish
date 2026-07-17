@@ -3,21 +3,25 @@
 //! Select tool) and opens Overview / World Picker.
 
 use compositor_orchestration_core_state_base::Loop;
-use compositor_orchestration_core_state_base::export::{ActiveOption, CanvasGrab, TargetOption};
 use compositor_orchestration_seat_gesture_touch::touch::TouchMode;
 use compositor_y5_touch_pane_view::{PaneMode, TouchPaneMessage};
 
 pub fn delegate(state: &mut Loop, message: TouchPaneMessage) {
     match message {
         TouchPaneMessage::SetMode(m) => set_mode(state, mode_of(m)),
+        // Overview / World Picker TOGGLE (open if closed, close if open) and the pane
+        // stays visible + on top, so the same button closes them again. The pane
+        // out-stacks the overview (it draws in the higher ICED_SCREEN band) and its
+        // taps route to it (Screen-iced is hit-tested first).
         TouchPaneMessage::OpenOverview => {
-            // Hide the pane so it doesn't sit over the overlay, then open it.
-            state.inner.touch.pane_world = None;
             compositor_y5_overview_interface_base::base::toggle(state);
         }
         TouchPaneMessage::OpenWorldPicker => {
+            compositor_y5_picker_interface_entry::entry::toggle(state);
+        }
+        // Close button: hide the pane in this world.
+        TouchPaneMessage::Close => {
             state.inner.touch.pane_world = None;
-            compositor_y5_picker_interface_entry::entry::request_open(state);
         }
         TouchPaneMessage::SetActive(_) => {}
     }
@@ -32,18 +36,12 @@ fn mode_of(m: PaneMode) -> TouchMode {
     }
 }
 
-/// Switch the sticky tool-mode by arming the matching canvas grab, so touch uses
-/// the SAME canvas machinery as the keyboard tools:
-///   * `Select` → the Select tool (always append): a touch press selects windows
-///     / drags a select-box.
-///   * `Hand` → the canvas Hand grab: a touch press+drag pans the camera 1:1 and
-///     ignores window hit-testing/focus, exactly like the keyboard Hand tool.
-///   * `Touch` / `Pointer` → no armed tool (plain pointer emulation).
+/// Switch the sticky touch tool-mode. The tool-modes are TOUCH-EXCLUSIVE — none of
+/// them arms a persistent canvas grab, so the MOUSE (which shares the canvas grab) is
+/// never put into Hand/Select by the touch pane. Select just flags `select_visual`
+/// (draws the selection frame); the touch `session` arms the real Select grab only
+/// for the span of a touch sequence. Hand pans via forced glide in the session.
 fn set_mode(state: &mut Loop, mode: TouchMode) {
-    state.inner.canvas_mut().Grab = match mode {
-        TouchMode::Select => CanvasGrab::Target(TargetOption::Select { Append: true }),
-        TouchMode::Hand => CanvasGrab::Active(ActiveOption::Hand),
-        _ => CanvasGrab::None,
-    };
+    state.inner.canvas_mut().select_visual = mode == TouchMode::Select;
     state.inner.touch.tool_mode = mode;
 }

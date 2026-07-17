@@ -109,6 +109,15 @@ pub struct Preference {
     /// Natural scrolling: invert the touchpad finger-axis direction for canvas
     /// pan, window scroll, and multi-finger swipe navigation (wheel unaffected).
     pub input_natural_scroll: bool,
+    /// Touch pan speed: a multiplier on finger-driven canvas pans (both the
+    /// 2-finger pan and the single-finger glide). `1.0` = the built-in default
+    /// gain; lower is slower. Touch only — the trackpad/mouse axis is unaffected.
+    /// Read live per touch event (Settings → Input → Touch).
+    pub input_touch_pan_speed: f64,
+    /// Linear (strict) touch pan: a finger pan tracks 1:1 with NO post-release
+    /// momentum/coast. On by default. Off restores the glide/fling feel. Read live
+    /// per touch event (Settings → Input → Touch).
+    pub input_touch_linear_pan: bool,
     /// Show the per-monitor FPS overlay (Settings → Performance). Off by default;
     /// each driven output gets a small top-right counter of its own draw rate.
     #[serde(default)]
@@ -311,6 +320,8 @@ impl Default for Preference {
         Self {
             cursor_sensitivity: 1.0,
             input_natural_scroll: true,
+            input_touch_pan_speed: 1.0,
+            input_touch_linear_pan: true,
             show_fps: false,
             release_hidden_surfaces: true,
             outputs: Vec::new(),
@@ -340,6 +351,12 @@ pub fn normalize(mut p: Preference) -> Preference {
             m.refresh_mhz = 30_000;
         }
     }
+    // Keep a hand-edited pan speed in a sane range (a 0 would freeze touch pan,
+    // a huge value would fling the world off-screen).
+    if !p.input_touch_pan_speed.is_finite() || p.input_touch_pan_speed <= 0.0 {
+        p.input_touch_pan_speed = 1.0;
+    }
+    p.input_touch_pan_speed = p.input_touch_pan_speed.clamp(0.1, 4.0);
     // Keyboard migration: an old file has `layout`/`variant`/`options` but no
     // `layouts`/`switch`. Seed the ordered list from the comma-separated `layout`
     // and recover a preset switch from a known `grp:` option, then clear the legacy

@@ -4,7 +4,12 @@
 use super::backend::{PinchEvent, TouchEmu};
 use super::{emulate, geom};
 use compositor_orchestration_core_state_base::Loop;
-use compositor_orchestration_seat_gesture_touch::touch::Mode;
+use compositor_orchestration_seat_gesture_touch::touch::{Mode, TouchMode};
+
+/// 2-finger-tap slop (physical px of centroid drift) and pinch tolerance (|scale-1|)
+/// beyond which the gesture is a pan/pinch, not a tap → cancels the right click.
+const RTAP_SLOP: f64 = 24.0;
+const RTAP_PINCH: f64 = 0.12;
 
 /// Enter a gesture mode: latch the reference spread + centroid and open the
 /// matching native gesture (pinch for zoom, swipe accumulator for 3-finger).
@@ -13,6 +18,22 @@ pub fn begin(_loop: &mut Loop, mode: Mode, time: u32) {
     _loop.inner.touch.prev_centroid = _loop.inner.touch.centroid();
     _loop.inner.touch.fit_scale = 1.0;
     match mode {
+        // Pointer AND Hand modes keep the pinch on the CANVAS (camera zoom) and never
+        // forward it to the window under the fingers — a 2-finger pinch/pan zooms & pans
+        // the y5-world. Hand needs this explicitly now that it no longer arms the canvas
+        // Hand grab (the camera's `canvas_owns_gesture` used to key off that grab; with
+        // Hand panning via glide instead, we must latch canvas ownership here). A
+        // canvas-owned pinch needs no window begin/end, so we just set the state that
+        // `pinch::update`/`end` read (mirroring `pinch::begin`'s canvas branch).
+        Mode::Zoom
+            if matches!(
+                _loop.inner.touch.tool_mode,
+                TouchMode::Pointer | TouchMode::Hand
+            ) =>
+        {
+            _loop.inner.gesture.pinch_to_window = false;
+            _loop.inner.gesture.pinch_prev_scale = 1.0;
+        }
         Mode::Zoom => crate::pinch::begin::<TouchEmu>(&pinch(time, 1.0, 0.0, 0.0, false), _loop),
         Mode::Swipe => _loop.inner.gesture.begin(3),
         Mode::Fit | Mode::None => {}
@@ -25,6 +46,17 @@ pub fn update(_loop: &mut Loop, time: u32) {
     let prev = _loop.inner.touch.prev_centroid;
     let (dx, dy) = (centroid.x - prev.x, centroid.y - prev.y);
     _loop.inner.touch.prev_centroid = centroid;
+    // A 2-finger tap (pointer-mode right click) is disqualified the moment the
+    // fingers pan or pinch past a small slop. Only checked with both fingers down
+    // (a single remaining finger has no meaningful spread).
+    if _loop.inner.touch.rtap_candidate && _loop.inner.touch.len() == 2 {
+        let origin = _loop.inner.touch.rtap_origin;
+        let drift = (centroid.x - origin.x).hypot(centroid.y - origin.y);
+        let scale = _loop.inner.touch.spread() / _loop.inner.touch.base_spread.max(1.0);
+        if drift > RTAP_SLOP || (scale - 1.0).abs() > RTAP_PINCH {
+            _loop.inner.touch.rtap_candidate = false;
+        }
+    }
     match _loop.inner.touch.mode {
         Mode::Zoom => {
             let scale = _loop.inner.touch.spread() / _loop.inner.touch.base_spread;

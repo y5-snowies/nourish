@@ -36,6 +36,10 @@ const MAX_ZOOM: f64 = 50.0;
 ///   terminating axis event arrives; the real touchpad path launches immediately
 ///   off the libinput 0,0 finger event, so this only backstops odd devices.
 const PAN_LAUNCH_GAIN: f64 = 2.5;
+/// Launch gain for a touchscreen glide: 1.0 = the coast starts at the exact
+/// release velocity and only decays, so it never runs faster than the finger drag
+/// it continues (touch deltas are already 1:1, unlike the trackpad's).
+const TOUCH_PAN_LAUNCH_GAIN: f64 = 1.0;
 const PAN_FRICTION: f64 = 3.6;
 const PAN_DAMPING: f64 = 400.0;
 const PAN_MIN_SPEED: f64 = 8.0;
@@ -79,7 +83,9 @@ enum CamCmd {
     /// by the current zoom and advances the camera position. Unlike `Pan`, there
     /// is no screen-cursor accumulator — the libinput axis delta is already
     /// relative — so this never touches `position_previous`.
-    PanBy(f64, f64),
+    /// The trailing bool is `from_touch` — a touchscreen glide launches its coast
+    /// without the trackpad fling boost (see `Camera::pan_from_touch`).
+    PanBy(f64, f64, bool),
     /// Strict variant of `PanBy` (2-finger touch pan): advance the camera by the
     /// zoom-scaled scroll delta with NO momentum — no accumulator, no coast.
     PanByStrict(f64, f64),
@@ -181,7 +187,7 @@ impl System for CameraSystem {
             return InputFlow::Consume;
         }
 
-        let InputEvent::PointerAxis { horizontal, vertical, x, y, finger, momentum } = event else {
+        let InputEvent::PointerAxis { horizontal, vertical, x, y, finger, momentum, from_touch } = event else {
             return InputFlow::Pass;
         };
         let cursor = Point::<f64, Logical>::from((*x, *y));
@@ -204,7 +210,7 @@ impl System for CameraSystem {
                 // `momentum` glides (fling/coast); otherwise a strict 1:1 move (a
                 // 2-finger touch pan) that never feeds the coast.
                 if *momentum {
-                    cx.write(&CAM_BUF, CamCmd::PanBy(*horizontal, *vertical));
+                    cx.write(&CAM_BUF, CamCmd::PanBy(*horizontal, *vertical, *from_touch));
                 } else {
                     cx.write(&CAM_BUF, CamCmd::PanByStrict(*horizontal, *vertical));
                 }
@@ -330,10 +336,11 @@ impl System for CameraSystem {
                     cx.channels.send(&CAMERA_MOVED_TX, CameraMoved { x: new_x, y: new_y });
                 }
             }
-            CamCmd::PanBy(dx, dy) => {
+            CamCmd::PanBy(dx, dy, from_touch) => {
                 // Touchpad two-finger scroll: advance the camera by the zoom-scaled
                 // scroll delta. Direction is set upstream (natural-scroll inversion
                 // in the rim's axis handler), so no sign flip here.
+                camera.pan_from_touch = from_touch;
                 let zoom = *camera.transform.zoom();
                 let px = camera.transform.position().x;
                 let py = camera.transform.position().y;
@@ -376,8 +383,12 @@ impl System for CameraSystem {
                 if camera.panning && (camera.pan_ending || camera.pan_idle_frames >= PAN_END_IDLE_FRAMES) {
                     camera.panning = false;
                     camera.pan_ending = false;
-                    camera.pan_velocity =
-                        Point::from((camera.pan_velocity.x * PAN_LAUNCH_GAIN, camera.pan_velocity.y * PAN_LAUNCH_GAIN));
+                    // Touch deltas are 1:1 finger motion, so their release velocity
+                    // already equals the drag — launch at 1.0 (coast never outruns
+                    // the pan). Trackpad deltas under-represent the flick, so they
+                    // keep the punchier boost.
+                    let gain = if camera.pan_from_touch { TOUCH_PAN_LAUNCH_GAIN } else { PAN_LAUNCH_GAIN };
+                    camera.pan_velocity = Point::from((camera.pan_velocity.x * gain, camera.pan_velocity.y * gain));
                 }
                 if !camera.panning && (camera.pan_velocity.x != 0.0 || camera.pan_velocity.y != 0.0) {
                     let px = camera.transform.position().x;

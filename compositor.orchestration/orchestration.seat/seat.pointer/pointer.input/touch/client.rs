@@ -60,6 +60,17 @@ pub fn over_iced(_loop: &mut Loop, world: Point<f64, Logical>) -> bool {
     topmost(_loop, world).map(|h| h.is_iced()).unwrap_or(false)
 }
 
+/// Is the topmost thing under this point SCREEN-space compositor UI (the touch
+/// pane, a docked toolbar)? Distinct from [`over_iced`], which also matches
+/// WORLD-space iced (placeholders, group tiles). Hand mode pans over world-space
+/// content but must let a tap reach the SCREEN-space pane (to switch modes).
+pub fn over_screen_iced(_loop: &mut Loop, world: Point<f64, Logical>) -> bool {
+    matches!(
+        topmost(_loop, world).and_then(|h| h.iced_space()),
+        Some(compositor_monitor_compositor_iced_base::IcedSpace::Screen)
+    )
+}
+
 fn slot(id: i32) -> smithay::backend::input::TouchSlot {
     if id >= 0 { Some(id as u32) } else { None }.into()
 }

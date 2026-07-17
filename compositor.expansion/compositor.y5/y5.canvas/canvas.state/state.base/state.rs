@@ -14,6 +14,18 @@ pub struct CanvasState {
     /// separate from `Grab` — so the two never entangle; the keyboard handler flips
     /// it, the camera reads it.
     pub finger_pan: bool,
+    /// True while a Move/Scale grab was started by dragging the SELECT tool's
+    /// bounding rect (a corner handle → resize, the interior → move) rather than the
+    /// Move/Scale tools. The release restores the Select tool (not Move/Scale) so the
+    /// touch Select mode stays sticky, and a no-drag tap toggles selection instead.
+    /// Also gates drawing the persistent selection frame during the drag.
+    pub select_transform: bool,
+    /// Touch Select tool-mode is active (set by the touch pane, touch-only). Drives
+    /// drawing the persistent selection frame + handles WITHOUT arming a global canvas
+    /// grab, so the mouse — which shares [`Grab`] — is never put into Select mode by a
+    /// touch tool-mode. The actual Select grab is armed only for the span of a touch
+    /// sequence (see the touch `session`).
+    pub select_visual: bool,
 }
 
 impl CanvasState {
@@ -22,6 +34,8 @@ impl CanvasState {
             Grab: CanvasGrab::None,
             position_updating: false,
             finger_pan: false,
+            select_transform: false,
+            select_visual: false,
         }
     }
 

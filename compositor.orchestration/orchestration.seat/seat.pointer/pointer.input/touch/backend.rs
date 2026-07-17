@@ -16,6 +16,9 @@ use std::path::PathBuf;
 
 /// BTN_LEFT from `<linux/input-event-codes.h>`; a tap emulates a left click.
 pub const BTN_LEFT: u32 = 0x110;
+/// BTN_RIGHT from `<linux/input-event-codes.h>`; a 2-finger tap (pointer mode)
+/// emulates a right click.
+pub const BTN_RIGHT: u32 = 0x111;
 
 /// Zero-variant marker backend. Never instantiated; it exists only to carry the
 /// associated event types below so the generic pointer handlers can be reused.
@@ -77,10 +80,12 @@ impl AbsolutePositionEvent<TouchEmu> for AbsEvent {
 }
 impl PointerMotionAbsoluteEvent<TouchEmu> for AbsEvent {}
 
-/// Button event: a touch down/up emulates a BTN_LEFT press/release.
+/// Button event: a touch tap emulates a pointer button press/release. `button` is
+/// `BTN_LEFT` for the primary finger and `BTN_RIGHT` for a 2-finger tap.
 pub struct BtnEvent {
     pub time: u32,
     pub state: ButtonState,
+    pub button: u32,
 }
 impl Event<TouchEmu> for BtnEvent {
     fn time(&self) -> u64 {
@@ -92,7 +97,7 @@ impl Event<TouchEmu> for BtnEvent {
 }
 impl PointerButtonEvent<TouchEmu> for BtnEvent {
     fn button_code(&self) -> u32 {
-        BTN_LEFT
+        self.button
     }
     fn state(&self) -> ButtonState {
         self.state

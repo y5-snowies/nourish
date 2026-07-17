@@ -24,7 +24,7 @@ use compositor_y5_select_state_base::select::SELECT;
 use compositor_y5_surface_interface_core::hit::surface_under_filtered_cx;
 use compositor_y5_surface_system_base::base::{announce_iced_button, announce_iced_focus};
 use compositor_y5_window_interface_record::window::LoopWindow;
-use compositor_monitor_compositor_iced_base::HandleId;
+use compositor_monitor_compositor_iced_base::{HandleId, IcedSpace};
 use smithay::backend::input::{ButtonState, KeyState};
 use smithay::desktop::Window;
 use smithay::input::keyboard::Keycode;
@@ -87,11 +87,45 @@ pub(crate) fn press(cx: &mut SystemCx, button: u32, x: f64, y: f64) -> InputFlow
             != 0;
     }
 
-    // A press on compositor iced UI goes to that UI even with the Hand tool armed,
-    // so the touch pane / selection toolbar stay tappable in Hand mode — otherwise
-    // the `canvas_grab_hand` pan below would swallow the press.
-    if canvas_grab_hand && over_ice {
+    // A press on compositor SCREEN-space iced UI (the touch pane, a docked toolbar)
+    // goes to that UI even with the Hand tool armed, so the menu stays tappable in
+    // Hand mode. But WORLD-space iced (placeholders, group tiles) must NOT short-
+    // circuit here — the Hand tool has to pan even when the finger lands on a
+    // placeholder or a grouped window, so those fall through to the pan branch below.
+    let over_world_iced = matches!(
+        over_surface.as_ref().and_then(|h| h.iced_space()),
+        Some(IcedSpace::World)
+    );
+    if canvas_grab_hand && over_ice && !over_world_iced {
         return InputFlow::Pass;
+    }
+
+    // Select tool: the persistent selection bounding rect is draggable like a vector
+    // editor — a corner handle uniformly resizes the selected windows, the interior
+    // moves them as a group. Checked before tap-to-select so a handle/interior drag
+    // wins over selecting the window beneath. Skipped over compositor iced UI (the
+    // bottom-centre selection toolbar stays tappable). A no-drag interior tap is
+    // resolved back to a selection toggle on release (see `base.rs`).
+    if canvas_grab_selecting && !over_ice {
+        if let Some(grab) = select_rect_grab(cx, cursor) {
+            cx.write(&CANVAS_BUF, CanvasCmd::SetSelectTransform(true));
+            cx.write(&CANVAS_BUF, CanvasCmd::SetGrab(grab));
+            return InputFlow::Consume;
+        }
+    }
+
+    // Select tool: placeholders aren't selection participants yet, so a press on a
+    // placeholder moves it (interior) or scales it (corner) DIRECTLY — the Move/Scale
+    // tools' behaviour reachable from Select mode. Placeholders are world-space iced,
+    // so `over_ice` is true and the window select-rect above skipped them.
+    if canvas_grab_selecting {
+        if let Some(handle_id) = over_surface.as_ref().and_then(|h| h.iced_handle()) {
+            if let Some(grab) = select_placeholder_grab(cx, cursor, handle_id) {
+                cx.write(&CANVAS_BUF, CanvasCmd::SetSelectTransform(true));
+                cx.write(&CANVAS_BUF, CanvasCmd::SetGrab(grab));
+                return InputFlow::Consume;
+            }
+        }
     }
 
     // Over a window and not targeting: clear selection (unless over ice) and Pass
@@ -185,7 +219,10 @@ pub(crate) fn press(cx: &mut SystemCx, button: u32, x: f64, y: f64) -> InputFlow
         }
     }
 
-    if temporary_passthrough {
+    // A Hand press always OWNS the event (it started a pan): consume it so a
+    // passthrough world-iced hit (a group tile) doesn't also leak the press to the
+    // window behind via the rim's native_press.
+    if temporary_passthrough && !canvas_grab_hand {
         InputFlow::Pass
     } else {
         InputFlow::Consume
@@ -403,6 +440,161 @@ fn trigger_grab(cx: &mut SystemCx, candidate: &PressCandidate, cursor: Point<f64
         Kind::Select => unreachable!(),
     };
     cx.write(&CANVAS_BUF, CanvasCmd::SetGrab(grab));
+}
+
+/// Corner-handle grab radius (world px) for the selection frame — generous so it is
+/// touch-friendly. A press within this of a bbox corner resizes; elsewhere inside
+/// the bbox moves.
+const SELECT_HANDLE_R: f64 = 30.0;
+
+/// Select tool: if the press lands on the selection frame — a corner handle (→
+/// uniform Scaling) or the interior (→ group Moving) — build that grab. `None` when
+/// there is no selection or the press is outside the frame, so a tap there still
+/// selects / starts a select-box normally. `candidates` are the whole selection so
+/// the transform math (motion.rs) moves/resizes every selected window together.
+fn select_rect_grab(cx: &mut SystemCx, cursor: Point<f64, Logical>) -> Option<CanvasGrab> {
+    let selection: Vec<Window> = cx
+        .storage
+        .get(&SELECT)
+        .Selection
+        .iter()
+        .map(|w| w.as_ref().clone())
+        .collect();
+    if selection.is_empty() {
+        return None;
+    }
+    let candidates = trigger_candidates(cx, selection);
+    let bbox = candidates_bbox(&candidates)?;
+
+    let corner = corner_anchor(bbox, cursor, SELECT_HANDLE_R);
+    let inside = bbox.to_f64().contains(cursor);
+    if corner.is_none() && !inside {
+        return None;
+    }
+
+    // No snapping for the select-rect drag: a snap correction pulls the selection's
+    // bbox to a nearby window/screen edge on the FIRST motion, which reads as the
+    // whole group jumping. Touch move/resize is a predictable 1:1 drag instead.
+    let snap = SnapMap::default();
+    let candidates = ActiveTransformCandidate::Window(candidates);
+
+    Some(match corner {
+        Some(anchor) => CanvasGrab::Active(ActiveOption::Scaling {
+            candidates,
+            start_cursor: cursor,
+            Anchor: anchor,
+            snap,
+        }),
+        None => CanvasGrab::Active(ActiveOption::Moving {
+            candidates,
+            start_cursor: cursor,
+            Anchor: Anchor { Horizontal: false, Vertical: false },
+            snap,
+        }),
+    })
+}
+
+/// Select tool: a press on a PLACEHOLDER moves it (interior) or scales it (corner),
+/// directly (placeholders aren't selection participants yet). `None` when `handle_id`
+/// isn't a live placeholder or the press is outside its rect.
+fn select_placeholder_grab(
+    cx: &mut SystemCx,
+    cursor: Point<f64, Logical>,
+    handle_id: HandleId,
+) -> Option<CanvasGrab> {
+    let (uuid, rect) = placeholder_rect(cx, handle_id)?;
+    let corner = corner_anchor(rect, cursor, SELECT_HANDLE_R);
+    if corner.is_none() && !rect.to_f64().contains(cursor) {
+        return None;
+    }
+    // No snapping — a 1:1 drag (matches the window select-rect), so it can't jump.
+    let candidate = ActiveTransformCandidate::Placeholder(uuid, rect);
+    let snap = SnapMap::default();
+    Some(match corner {
+        Some(anchor) => CanvasGrab::Active(ActiveOption::Scaling {
+            candidates: candidate,
+            start_cursor: cursor,
+            Anchor: anchor,
+            snap,
+        }),
+        None => CanvasGrab::Active(ActiveOption::Moving {
+            candidates: candidate,
+            start_cursor: cursor,
+            Anchor: Anchor { Horizontal: false, Vertical: false },
+            snap,
+        }),
+    })
+}
+
+/// A live (visible, not launching, not being restored) placeholder's uuid + rect in
+/// world/storage space, for the given iced handle.
+fn placeholder_rect(cx: &mut SystemCx, handle_id: HandleId) -> Option<(Uuid, Rectangle<i32, Logical>)> {
+    cx.storage.get(&PLACEHOLDER).visible.iter().find_map(|w| {
+        if w.0.restoration.is_none() && w.1.id == handle_id && !w.0.launching {
+            Some((
+                w.0.uuid,
+                Rectangle {
+                    loc: Point::from((w.0.position.0, w.0.position.1)),
+                    size: Size::from((w.0.size.0, w.0.size.1)),
+                },
+            ))
+        } else {
+            None
+        }
+    })
+}
+
+/// Union of the candidate windows' start geometries (the selection's bounding box).
+fn candidates_bbox(list: &[(Window, Rectangle<i32, Logical>)]) -> Option<Rectangle<i32, Logical>> {
+    let mut acc: Option<Rectangle<i32, Logical>> = None;
+    for (_, g) in list {
+        acc = Some(match acc {
+            Some(a) => a.merge(*g),
+            None => *g,
+        });
+    }
+    acc
+}
+
+/// If `cursor` is within `r` of a bbox corner, the Scaling anchor for that handle
+/// (the OPPOSITE corner stays fixed). Mirrors [`anchor_flags`]: Horizontal/Vertical
+/// true ⇒ the right/bottom edge moves (grab the right/bottom corner).
+fn corner_anchor(bbox: Rectangle<i32, Logical>, cursor: Point<f64, Logical>, r: f64) -> Option<Anchor> {
+    let l = bbox.loc.x as f64;
+    let t = bbox.loc.y as f64;
+    let right = l + bbox.size.w as f64;
+    let bottom = t + bbox.size.h as f64;
+    for (hx, hy, horizontal, vertical) in [
+        (l, t, false, false),
+        (right, t, true, false),
+        (l, bottom, false, true),
+        (right, bottom, true, true),
+    ] {
+        if (cursor.x - hx).hypot(cursor.y - hy) <= r {
+            return Some(Anchor { Horizontal: horizontal, Vertical: vertical });
+        }
+    }
+    None
+}
+
+/// Resolve a no-drag tap on the selection frame back to a selection edit: toggle the
+/// window under the point (append semantics), else clear on empty canvas. Called
+/// from `base.rs` when a select-rect Move grab is released without a real drag.
+pub(crate) fn select_tap(cx: &mut SystemCx, x: f64, y: f64) {
+    let cursor = Point::<f64, Logical>::from((x, y));
+    let overview_open =
+        cx.storage.get(&compositor_y5_overview_state_base::base::OVERVIEW).visible;
+    let hit = surface_under_filtered_cx(cx.storage, cursor, &|hit| {
+        if let Some(window) = hit.window() {
+            return !overview_open && window_visible(cx.storage, window);
+        }
+        true
+    });
+    let next = match hit.as_ref().and_then(|h| h.window()) {
+        Some(window) => cx.storage.get(&SELECT).append(window.clone()),
+        None => cx.storage.get(&SELECT).clear(),
+    };
+    announce_selection(cx.channels, SelectionCmd::Set(next));
 }
 
 fn trigger_select(cx: &mut SystemCx, window: Window) {

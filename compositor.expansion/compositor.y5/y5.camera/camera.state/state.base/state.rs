@@ -20,5 +20,9 @@ pub struct Camera {
     /// Set when the touchpad reports lift-off (terminating 0,0 finger axis), so the
     /// coast launches on the NEXT tick with no idle delay — the snappy release.
     pub pan_ending: bool,
+    /// The live momentum pan came from a touchscreen. Touch deltas are 1:1 finger
+    /// motion, so the coast launches WITHOUT the trackpad's fling boost — otherwise
+    /// the glide would visibly outrun the drag it continues.
+    pub pan_from_touch: bool,
 }
 

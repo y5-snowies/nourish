@@ -3,7 +3,7 @@
 //! (not the main desktop's), so touch there just drives *those* handlers: down =
 //! move + press, motion = move, up = release. No multi-touch / gestures / wl_touch
 //! (they are compositor UI, not client surfaces).
-use super::backend::{AbsEvent, BtnEvent, TouchEmu};
+use super::backend::{AbsEvent, BTN_LEFT, BtnEvent, TouchEmu};
 use super::emulate::fraction;
 use smithay::backend::input::{ButtonState, Event, InputBackend};
 use compositor_orchestration_core_state_base::Loop;
@@ -17,7 +17,7 @@ fn down<I: InputBackend>(event: &I::TouchDownEvent, _loop: &mut Loop, abs: Abs, 
     let (nx, ny) = fraction::<I, _>(event);
     let time = event.time_msec();
     abs(&AbsEvent { time, nx, ny }, _loop);
-    btn(&BtnEvent { time, state: ButtonState::Pressed }, _loop);
+    btn(&BtnEvent { time, state: ButtonState::Pressed, button: BTN_LEFT }, _loop);
 }
 
 fn motion<I: InputBackend>(event: &I::TouchMotionEvent, _loop: &mut Loop, abs: Abs) {
@@ -26,7 +26,7 @@ fn motion<I: InputBackend>(event: &I::TouchMotionEvent, _loop: &mut Loop, abs: A
 }
 
 fn release<I: InputBackend, E: Event<I>>(event: &E, _loop: &mut Loop, btn: Btn) {
-    btn(&BtnEvent { time: event.time_msec(), state: ButtonState::Released }, _loop);
+    btn(&BtnEvent { time: event.time_msec(), state: ButtonState::Released, button: BTN_LEFT }, _loop);
 }
 
 /// Lock screen (`compositor_y5_lock_seat_input`).

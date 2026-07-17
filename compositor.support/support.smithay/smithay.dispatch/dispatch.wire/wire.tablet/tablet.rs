@@ -19,6 +19,7 @@ use smithay::backend::input::{
     ButtonState, TabletToolCapabilities, TabletToolDescriptor,
 };
 use smithay::reexports::wayland_protocols::wp::tablet::zv2::server::{
+    zwp_tablet_pad_dial_v2::ZwpTabletPadDialV2,
     zwp_tablet_pad_group_v2::ZwpTabletPadGroupV2,
     zwp_tablet_pad_ring_v2::{self, ZwpTabletPadRingV2},
     zwp_tablet_pad_strip_v2::{self, ZwpTabletPadStripV2},
@@ -36,8 +37,9 @@ use smithay::wayland::tablet_manager::TabletDescriptor;
 
 pub use smithay::reexports::wayland_protocols::wp::tablet::zv2::server::zwp_tablet_manager_v2::ZwpTabletManagerV2;
 
-/// `zwp_tablet_manager_v2` version we advertise (matches smithay + the protocol).
-pub const VERSION: u32 = 1;
+/// `zwp_tablet_manager_v2` version we advertise. The protocol's current version is
+/// 2 (adds the pad `dial` + tablet `bustype`); v1 clients still bind at v1.
+pub const VERSION: u32 = 2;
 
 /// What a pen stroke (tip-down → tip-up) is doing, latched at tip-down by the
 /// input session so tip-up releases the matching thing. Opaque here — the routing
@@ -170,6 +172,7 @@ impl TabletState {
             + Dispatch<ZwpTabletPadGroupV2, ()>
             + Dispatch<ZwpTabletPadRingV2, ()>
             + Dispatch<ZwpTabletPadStripV2, ()>
+            + Dispatch<ZwpTabletPadDialV2, ()>
             + 'static,
     {
         for (desc, instances) in self.tablets.iter_mut() {
@@ -183,10 +186,11 @@ impl TabletState {
             }
         }
         for pad in self.pads.values_mut() {
-            if let Some((wl, rings, strips)) = create_pad::<D>(client, dh, seat, &pad.desc) {
+            if let Some((wl, rings, strips, dials)) = create_pad::<D>(client, dh, seat, &pad.desc) {
                 pad.pads.push(wl.downgrade());
                 pad.rings.extend(rings);
                 pad.strips.extend(strips);
+                pad.dials.extend(dials);
             }
         }
         self.seats.push(seat.downgrade());
@@ -384,14 +388,18 @@ pub struct PadDesc {
     pub groups: Vec<GroupDesc>,
 }
 
-/// One libinput mode group: which button/ring/strip indices it owns + its modes.
+/// One libinput mode group: which button/ring/strip/dial indices it owns + modes.
 #[derive(Clone, Default)]
 pub struct GroupDesc {
     pub modes: u32,
     pub buttons: Vec<u32>,
     pub rings: Vec<u32>,
     pub strips: Vec<u32>,
+    pub dials: Vec<u32>,
 }
+
+/// libinput exposes no dial count; probe `has_dial` over a small range (dials are few).
+const MAX_DIALS: u32 = 8;
 
 /// Live pad: the created resources across clients (ring/strip carry their index so
 /// runtime events route to the right object). Focus/enter-leave is not modelled —
@@ -402,7 +410,16 @@ struct Pad {
     pads: Vec<Weak<ZwpTabletPadV2>>,
     rings: Vec<(u32, Weak<ZwpTabletPadRingV2>)>,
     strips: Vec<(u32, Weak<ZwpTabletPadStripV2>)>,
+    dials: Vec<(u32, Weak<ZwpTabletPadDialV2>)>,
 }
+
+/// Per-client resources created for one pad, returned by `create_pad`.
+type PadResources = (
+    ZwpTabletPadV2,
+    Vec<(u32, Weak<ZwpTabletPadRingV2>)>,
+    Vec<(u32, Weak<ZwpTabletPadStripV2>)>,
+    Vec<(u32, Weak<ZwpTabletPadDialV2>)>,
+);
 
 /// Build a [`PadDesc`] from a libinput pad device (called on `DeviceAdded`).
 pub fn pad_desc_from_device(device: &smithay::reexports::input::Device) -> PadDesc {
@@ -418,6 +435,7 @@ pub fn pad_desc_from_device(device: &smithay::reexports::input::Device) -> PadDe
             buttons: (0..buttons).filter(|&b| g.has_button(b)).collect(),
             rings: (0..rings).filter(|&r| g.has_ring(r)).collect(),
             strips: (0..strips).filter(|&s| g.has_strip(s)).collect(),
+            dials: (0..MAX_DIALS).filter(|&d| g.has_dial(d)).collect(),
         });
     }
     // Fallback: a single group owning everything (pads that report no mode groups).
@@ -427,6 +445,7 @@ pub fn pad_desc_from_device(device: &smithay::reexports::input::Device) -> PadDe
             buttons: (0..buttons).collect(),
             rings: (0..rings).collect(),
             strips: (0..strips).collect(),
+            dials: Vec::new(),
         });
     }
     PadDesc {
@@ -442,19 +461,20 @@ fn create_pad<D>(
     dh: &DisplayHandle,
     seat: &ZwpTabletSeatV2,
     desc: &PadDesc,
-) -> Option<(ZwpTabletPadV2, Vec<(u32, Weak<ZwpTabletPadRingV2>)>, Vec<(u32, Weak<ZwpTabletPadStripV2>)>)>
+) -> Option<PadResources>
 where
     D: Dispatch<ZwpTabletPadV2, ()>
         + Dispatch<ZwpTabletPadGroupV2, ()>
         + Dispatch<ZwpTabletPadRingV2, ()>
         + Dispatch<ZwpTabletPadStripV2, ()>
+        + Dispatch<ZwpTabletPadDialV2, ()>
         + 'static,
 {
     let pad = client
         .create_resource::<ZwpTabletPadV2, (), D>(dh, seat.version(), ())
         .ok()?;
     seat.pad_added(&pad);
-    let (mut rings, mut strips) = (Vec::new(), Vec::new());
+    let (mut rings, mut strips, mut dials) = (Vec::new(), Vec::new(), Vec::new());
     for g in &desc.groups {
         let group = client
             .create_resource::<ZwpTabletPadGroupV2, (), D>(dh, pad.version(), ())
@@ -470,6 +490,15 @@ where
             if let Ok(strip) = client.create_resource::<ZwpTabletPadStripV2, (), D>(dh, pad.version(), ()) {
                 group.strip(&strip);
                 strips.push((s, strip.downgrade()));
+            }
+        }
+        // The `dial` event + interface are protocol v2 — only a v2 client's group.
+        if group.version() >= 2 {
+            for &d in &g.dials {
+                if let Ok(dial) = client.create_resource::<ZwpTabletPadDialV2, (), D>(dh, pad.version(), ()) {
+                    group.dial(&dial);
+                    dials.push((d, dial.downgrade()));
+                }
             }
         }
         // group.buttons is a wl_array of native-endian u32 button indices.
@@ -488,7 +517,7 @@ where
         pad.path(path.clone());
     }
     pad.done();
-    Some((pad, rings, strips))
+    Some((pad, rings, strips, dials))
 }
 
 impl TabletState {
@@ -499,6 +528,7 @@ impl TabletState {
             + Dispatch<ZwpTabletPadGroupV2, ()>
             + Dispatch<ZwpTabletPadRingV2, ()>
             + Dispatch<ZwpTabletPadStripV2, ()>
+            + Dispatch<ZwpTabletPadDialV2, ()>
             + 'static,
     {
         if self.pads.contains_key(&key) {
@@ -510,10 +540,11 @@ impl TabletState {
         };
         for seat in self.seats.iter().filter_map(|s| s.upgrade().ok()) {
             if let Ok(client) = dh.get_client(seat.id()) {
-                if let Some((wl, rings, strips)) = create_pad::<D>(&client, dh, &seat, &pad.desc) {
+                if let Some((wl, rings, strips, dials)) = create_pad::<D>(&client, dh, &seat, &pad.desc) {
                     pad.pads.push(wl.downgrade());
                     pad.rings.extend(rings);
                     pad.strips.extend(strips);
+                    pad.dials.extend(dials);
                 }
             }
         }
@@ -579,11 +610,26 @@ impl TabletState {
         }
     }
 
+    /// A pad dial turned. `v120` is high-res delta (120 units per detent).
+    pub fn pad_dial(&self, key: &str, dial: u32, v120: i32, time: u32) {
+        let Some(pad) = self.pads.get(key) else { return };
+        for wl in pad
+            .dials
+            .iter()
+            .filter(|(n, _)| *n == dial)
+            .filter_map(|(_, w)| w.upgrade().ok())
+        {
+            wl.delta(v120);
+            wl.frame(time);
+        }
+    }
+
     pub fn remove_pad_resource(&mut self, id: &ObjectId) {
         for pad in self.pads.values_mut() {
             pad.pads.retain(|p| &p.id() != id);
             pad.rings.retain(|(_, r)| &r.id() != id);
             pad.strips.retain(|(_, s)| &s.id() != id);
+            pad.dials.retain(|(_, d)| &d.id() != id);
         }
     }
 }

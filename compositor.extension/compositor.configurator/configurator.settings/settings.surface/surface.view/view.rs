@@ -19,6 +19,10 @@ pub struct Settings {
     pub tab: Tab,
     pub cursor_sensitivity: f32,
     pub natural_scroll: bool,
+    /// Touch pan-speed multiplier (Input → Touch), persisted + read live.
+    pub touch_pan_speed: f32,
+    /// Linear (strict, no-coast) touch pan (Input → Touch), persisted + read live.
+    pub touch_linear_pan: bool,
     pub show_fps: bool,
     pub release_hidden: bool,
     pub env: Environment,
@@ -142,7 +146,8 @@ fn default_mode(d: &DisplayInfo) -> Option<ModeInfo> {
 }
 
 impl Settings {
-    pub fn new(env: Environment, cursor: f32, natural: bool, show_fps: bool, release_hidden: bool, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(env: Environment, cursor: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, show_fps: bool, release_hidden: bool, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool) -> Self {
         let active = snap.displays.iter().find(|d| d.active).cloned();
         let active_edid = active.as_ref().map(|d| d.edid_key.clone()).unwrap_or_default();
         let selected_mode = active.as_ref().and_then(default_mode);
@@ -151,6 +156,8 @@ impl Settings {
             tab,
             cursor_sensitivity: cursor,
             natural_scroll: natural,
+            touch_pan_speed,
+            touch_linear_pan,
             show_fps,
             release_hidden,
             env,
@@ -265,6 +272,8 @@ impl IcedUi for Settings {
             SettingsMessage::SetGraphics(g) => self.graphics = g,
             SettingsMessage::Cursor(v) => self.cursor_sensitivity = v,
             SettingsMessage::NaturalScroll(b) => self.natural_scroll = b,
+            SettingsMessage::TouchPanSpeed(v) => self.touch_pan_speed = v,
+            SettingsMessage::TouchLinearPan(b) => self.touch_linear_pan = b,
             SettingsMessage::SetShowFps(b) => self.show_fps = b,
             SettingsMessage::SetReleaseHidden(b) => self.release_hidden = b,
             SettingsMessage::Env(e) => {
@@ -474,6 +483,8 @@ impl IcedUi for Settings {
             self.dirty,
             self.cursor_sensitivity,
             self.natural_scroll,
+            self.touch_pan_speed,
+            self.touch_linear_pan,
             self.show_fps,
             self.release_hidden,
             &self.env,

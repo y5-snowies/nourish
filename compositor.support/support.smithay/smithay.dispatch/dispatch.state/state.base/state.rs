@@ -354,6 +354,7 @@ mod color_impls {
 mod tablet_impls {
     use smithay::reexports::wayland_protocols::wp::tablet::zv2::server::{
         zwp_tablet_manager_v2::{self, ZwpTabletManagerV2},
+        zwp_tablet_pad_dial_v2::{self, ZwpTabletPadDialV2},
         zwp_tablet_pad_group_v2::{self, ZwpTabletPadGroupV2},
         zwp_tablet_pad_ring_v2::{self, ZwpTabletPadRingV2},
         zwp_tablet_pad_strip_v2::{self, ZwpTabletPadStripV2},
@@ -422,6 +423,12 @@ mod tablet_impls {
         fn request(_: &mut Self, _: &Client, _: &ZwpTabletPadStripV2, _: zwp_tablet_pad_strip_v2::Request, _: &(), _: &DisplayHandle, _: &mut DataInit<'_, Self>) {}
         fn destroyed(state: &mut Self, _: ClientId, strip: &ZwpTabletPadStripV2, _: &()) {
             state.tablet.remove_pad_resource(&strip.id());
+        }
+    }
+    impl WLDispatch<ZwpTabletPadDialV2, ()> for Dispatch {
+        fn request(_: &mut Self, _: &Client, _: &ZwpTabletPadDialV2, _: zwp_tablet_pad_dial_v2::Request, _: &(), _: &DisplayHandle, _: &mut DataInit<'_, Self>) {}
+        fn destroyed(state: &mut Self, _: ClientId, dial: &ZwpTabletPadDialV2, _: &()) {
+            state.tablet.remove_pad_resource(&dial.id());
         }
     }
 }

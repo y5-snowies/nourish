@@ -8,6 +8,32 @@ use compositor_orchestration_seat_pointer_input::touch;
 
 /// Delegation of input events from the compositor seat loop
 pub fn process_input_event<I: InputBackend>(_loop: &mut Loop, event: &InputEvent<I>) {
+    // Track the active input modality (touch vs real pointer / pen). Touch emulation
+    // drives the pointer handlers directly and never routes through here, so these
+    // arms are genuine device input. Using a real pointer / pen again also
+    // auto-dismisses the sticky touch pane. `last_input_touch` lets modality-sensitive
+    // UI (e.g. the selection-toolbar placement) follow the device actually in use.
+    match event {
+        InputEvent::TouchDown { .. }
+        | InputEvent::TouchMotion { .. }
+        | InputEvent::TouchUp { .. }
+        | InputEvent::TouchCancel { .. }
+        | InputEvent::TouchFrame { .. } => {
+            _loop.inner.touch.last_input_touch = true;
+        }
+        InputEvent::PointerMotion { .. }
+        | InputEvent::PointerMotionAbsolute { .. }
+        | InputEvent::PointerButton { .. }
+        | InputEvent::PointerAxis { .. }
+        | InputEvent::TabletToolProximity { .. }
+        | InputEvent::TabletToolAxis { .. }
+        | InputEvent::TabletToolTip { .. }
+        | InputEvent::TabletToolButton { .. } => {
+            _loop.inner.touch.last_input_touch = false;
+            _loop.inner.touch.pane_world = None;
+        }
+        _ => {}
+    }
     match event {
         InputEvent::Keyboard { event, .. } => {
             compositor_orchestration_seat_keyboard_input::keyboard::input_received::<I>(event, _loop);

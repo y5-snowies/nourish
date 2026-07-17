@@ -847,3 +847,7 @@ compositor_y5_window_system_base = { path = "../../compositor.expansion/composit
 
 [patch.crates-io]
 pam-sys = { path = "../../vendor/pam-sys" }
+# Vendored to add tablet-pad DIAL event parsing, which upstream input-0.10.0
+# (latest) is missing — the Dial type exists but the event is never parsed, so
+# libinput dials are dropped before reaching the compositor. See vendor/input.
+input = { path = "../../vendor/input" }
