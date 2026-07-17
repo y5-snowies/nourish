@@ -591,9 +591,8 @@ pub fn surface_under_filtered_cx(
             let Some(geo) = layer_map.layer_geometry(layer_surface) else {
                 continue;
             };
-            // Containment includes popups (so a click on a menu off the bar counts), but
-            // the surface origin used for `surface_under` / world mapping stays the layer's
-            // own top-left — `bbox_with_popups.loc` is negative when a popup extends up/left.
+            // Containment (broad phase) includes popups so a click on a menu off the bar
+            // counts — `bbox_with_popups.loc` is negative when a popup extends up/left.
             let popups = layer_surface.bbox_with_popups();
             let hit_rect = Rectangle::from_loc_and_size(geo.loc + popups.loc, popups.size);
 
@@ -602,14 +601,20 @@ pub fn surface_under_filtered_cx(
             }
 
             let surface_local = output_pos - geo.loc.to_f64();
-            let Some((s, _sub_pos)) =
+            // `sub_pos` is the HIT surface's top-left relative to the layer surface origin:
+            // (0,0) for the bar itself, non-zero for a popup (a menu/submenu offset from the
+            // bar). The pointer-focus origin below MUST be this surface's origin, not the
+            // layer's — otherwise a popup receives motion/clicks measured from the bar and,
+            // once offset far enough, the local coords land outside it and the client drops
+            // the events (the "some popups get no pointer input" bug).
+            let Some((s, sub_pos)) =
                 layer_surface.surface_under(surface_local, WindowSurfaceType::ALL)
             else {
                 continue;
             };
 
-            let layer_origin_space = geo.loc.to_f64() + output_loc.to_f64();
-            let unscaled = position_screen - layer_origin_space;
+            let surface_origin_space = geo.loc.to_f64() + sub_pos.to_f64() + output_loc.to_f64();
+            let unscaled = position_screen - surface_origin_space;
 
             let hit = SurfaceHit::Layer {
                 Ice: Some(true),

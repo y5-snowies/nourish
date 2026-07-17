@@ -106,6 +106,12 @@ pub struct Dispatch {
     pub destroyed_layers: Vec<LayerSurface>,
     pub pending_dmabuf: Vec<(DmabufGlobal, Dmabuf, ImportNotifier)>,
     pub geometries: HashMap<WlSurface, Rectangle<i32, Logical>>,
+    // Outputs (+ logical geometry) mirrored from the spatial world's Space each
+    // drain. Layer-shell popup constrain needs the parent layer's output/size
+    // synchronously inside the world-FREE `new_popup` handler (geometry must be set
+    // before the initial configure), and that handler can't reach the world Space —
+    // so the rim mirrors it here. Cheap: one or two outputs.
+    pub outputs_snapshot: Vec<(smithay::output::Output, Rectangle<i32, Logical>)>,
     // Pointer-constraint restoration tokens (seat warp); drain performs them.
     pub pending_restoration: Vec<(WlSurface, Point<f64, Logical>)>,
     // Syncobj fence sources recorded by the pre-commit hook (which has no
@@ -364,7 +370,7 @@ mod handler_impls {
     use std::sync::Mutex;
     use smithay::backend::allocator::dmabuf::Dmabuf;
     use smithay::backend::renderer::utils::on_commit_buffer_handler;
-    use smithay::desktop::{PopupKind, PopupManager, find_popup_root_surface};
+    use smithay::desktop::{PopupKind, PopupManager, WindowSurfaceType, find_popup_root_surface, get_popup_toplevel_coords, layer_map_for_output};
     use smithay::input::{Seat, SeatState};
     use smithay::input::dnd::{DnDGrab, DndGrabHandler, GrabType, Source};
     use smithay::input::pointer::{Focus, PointerHandle};
@@ -400,6 +406,41 @@ mod handler_impls {
         popup.with_pending_state(|state| {
             state.geometry = state.positioner.get_unconstrained_geometry(infinite_target);
         });
+    }
+
+    /// Constrain a layer-shell popup to the OUTPUT its parent layer surface sits on,
+    /// so a menu off a bar flips/slides to stay on-screen instead of overflowing.
+    /// (Window popups stay unconstrained via `unconstrain_popup`; IME popups are
+    /// positioned by smithay against the text cursor — both intentionally unchanged.)
+    ///
+    /// The geometry MUST be set before the popup's initial configure, which the commit
+    /// handler sends on the popup's first commit — same dispatch as `get_popup` for GTK.
+    /// So this runs synchronously in the handler, not the drain, and reads the outputs
+    /// from `outputs_snapshot` (the world-free handler can't reach the world's Space).
+    fn constrain_layer_popup(dispatch: &Dispatch, parent: &LayerSurface, popup: &PopupSurface) {
+        for (output, output_geo) in &dispatch.outputs_snapshot {
+            let map = layer_map_for_output(output);
+            let Some(layer) = map.layer_for_surface(parent.wl_surface(), WindowSurfaceType::TOPLEVEL)
+            else {
+                continue;
+            };
+            let Some(layer_geo) = map.layer_geometry(layer) else {
+                continue;
+            };
+            // Target = the output rect (output-local, so origin 0) expressed in the
+            // popup's parent-relative space: shift by −the layer's position on the
+            // output and −the offset from the layer down to this popup's immediate
+            // parent (non-zero only for nested submenus).
+            let offset = get_popup_toplevel_coords(&PopupKind::Xdg(popup.clone()));
+            let target = Rectangle::from_loc_and_size(
+                Point::from((0, 0)) - layer_geo.loc - offset,
+                output_geo.size,
+            );
+            popup.with_pending_state(|state| {
+                state.geometry = state.positioner.get_unconstrained_geometry(target);
+            });
+            return;
+        }
     }
 
     impl PointerConstraintsHandler for Dispatch {
@@ -609,7 +650,9 @@ mod handler_impls {
         // created with a NULL xdg parent, then adopted by the layer). Track it in the
         // shared PopupManager so the commit handler sends its initial configure and the
         // draw + hit paths (which walk `PopupManager::popups_for_surface`) find it.
-        fn new_popup(&mut self, _parent: LayerSurface, popup: smithay::wayland::shell::xdg::PopupSurface) {
+        fn new_popup(&mut self, parent: LayerSurface, popup: smithay::wayland::shell::xdg::PopupSurface) {
+            // Layer popups are constrained to their output (unlike window popups).
+            constrain_layer_popup(self, &parent, &popup);
             let _ = self.popup.state.track_popup(PopupKind::Xdg(popup));
             self.schedule_redraw();
         }

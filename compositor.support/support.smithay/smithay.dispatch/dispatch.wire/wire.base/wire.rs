@@ -128,6 +128,7 @@ pub fn new_dispatch(
         destroyed_layers: vec![],
         pending_dmabuf: vec![],
         geometries: std::collections::HashMap::new(),
+        outputs_snapshot: vec![],
         pending_restoration: vec![],
         pending_blockers: vec![],
         pending_data_focus: None,
@@ -278,6 +279,17 @@ impl<A: WireTrait + 'static> Wire<A> {
                 self.inner.host_space(), surface,
             );
         }
+        // Mirror the current outputs (+ logical geometry) for the world-free layer
+        // popup constrain (see `Dispatch::outputs_snapshot`). Cheap; a step behind by
+        // one iteration, which is fine since outputs change only on hotplug.
+        let outputs_snapshot = {
+            let space = &self.inner.host_space().state;
+            space
+                .outputs()
+                .filter_map(|o| space.output_geometry(o).map(|g| (o.clone(), g)))
+                .collect()
+        };
+        self.state.outputs_snapshot = outputs_snapshot;
         // Destroyed toplevels.
         for surface in std::mem::take(&mut self.state.destroyed_toplevels) {
             self.inner.destroy_surface_data(surface);

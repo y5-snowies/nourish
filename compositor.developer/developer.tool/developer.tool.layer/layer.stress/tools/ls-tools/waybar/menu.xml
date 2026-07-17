@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- GtkBuilder popover for waybar's custom/menu module (GTK3). Clicking the ☰
+     module pops this up as an xdg_popup adopted by the layer surface.
+     waybar finds each item by object id == the "menu-actions" key in config.jsonc
+     and connects its "clicked" signal, so the ids below MUST match those keys. -->
+<interface>
+  <object class="GtkPopover" id="menu">
+    <child>
+      <object class="GtkBox">
+        <property name="visible">True</property>
+        <property name="orientation">vertical</property>
+        <property name="margin">6</property>
+        <child>
+          <object class="GtkModelButton" id="hello">
+            <property name="visible">True</property>
+            <property name="text">Hello</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkModelButton" id="term">
+            <property name="visible">True</property>
+            <property name="text">Terminal</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkModelButton" id="quit">
+            <property name="visible">True</property>
+            <property name="text">Quit</property>
+          </object>
+        </child>
+      </object>
+    </child>
+  </object>
+</interface>

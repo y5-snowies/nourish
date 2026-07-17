@@ -1,0 +1,54 @@
+// waybar config for y5 layer-shell popup testing.
+//
+// Three ways this bar produces a real xdg_popup adopted by the layer surface
+// (the compositor's `new_popup` path):
+//   1. clock  — hover it for the calendar tooltip; click cycles months.
+//   2. custom/menu — CLICK the ☰ to open a GtkPopover dropdown.
+//   3. tray   — right-click a tray icon for its SNI menu (if any app is in the tray).
+//
+// Launched by LS.sh via:  waybar -c <this> -s <style.css>
+{
+    "layer": "top",
+    "position": "top",
+    "height": 34,
+    "modules-left": ["custom/menu", "clock"],
+    "modules-center": ["cpu", "memory"],
+    "modules-right": ["tray", "custom/note"],
+
+    // CLICK ☰ → GtkPopover dropdown (xdg_popup off the layer surface).
+    "custom/menu": {
+        "format": "☰",
+        "tooltip": false,
+        "menu": "on-click",
+        "menu-file": "$XDG_CONFIG_HOME/waybar/menu.xml",
+        "menu-actions": {
+            "hello": "notify-send 'waybar menu' 'you clicked Hello'",
+            "term": "notify-send 'waybar menu' 'Terminal item'",
+            "quit": "notify-send 'waybar menu' 'Quit item'"
+        }
+    },
+
+    // HOVER → calendar tooltip (a popup surface). Scroll/click changes month.
+    "clock": {
+        "format": "  {:%H:%M}",
+        "tooltip-format": "<big>{:%B %Y}</big>\n<tt><small>{calendar}</small></tt>",
+        "on-click": "mode",
+        "calendar": {
+            "mode": "month",
+            "on-scroll": 1
+        }
+    },
+
+    "cpu":    { "format": "  {usage}%", "interval": 2 },
+    "memory": { "format": "  {}%", "interval": 5 },
+
+    // SNI tray — right-click an icon (e.g. from an app) for its menu popup.
+    "tray": { "icon-size": 18, "spacing": 8 },
+
+    // HOVER → a plain text tooltip (also a popup surface, simplest of all).
+    "custom/note": {
+        "format": "ⓘ hover me",
+        "tooltip": true,
+        "tooltip-format": "This tooltip is an xdg_popup off the bar."
+    }
+}
