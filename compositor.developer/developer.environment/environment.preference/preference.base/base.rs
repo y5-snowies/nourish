@@ -155,6 +155,25 @@ pub struct Preference {
     /// settings "Graphics" tab). Applied live and pushed to the kernel renderer.
     #[serde(default)]
     pub graphics: compositor_developer_environment_graphics_base::base::GraphicsAaConfig,
+    /// wlr + ext foreign-toplevel-management (taskbar/dock protocols), gated as ONE
+    /// preference: `"enabled"` advertises open windows to docks; anything else
+    /// (the default) keeps both globals bound but mute (no toplevels announced,
+    /// control requests ignored). Read once at startup — a change takes effect on
+    /// the next launch. Edited in the Misc tab.
+    #[serde(default = "default_protocol_foreign")]
+    pub protocol_foreign: String,
+    /// When true, the foreign-toplevel advertisement shows windows from EVERY world,
+    /// not just the hosted (active) one. Startup snapshot, like `protocol_foreign`.
+    /// Edited on the same (Misc) tab.
+    #[serde(default)]
+    pub protocol_foreign_all_worlds: bool,
+}
+
+/// Default for `protocol_foreign`: `"disabled"` — off unless the user opts in, so
+/// an older `preferences.json` (or a fresh install) does not expose the dock
+/// protocols by default.
+fn default_protocol_foreign() -> String {
+    "disabled".to_string()
 }
 
 /// Where the keyboard layout comes from. `Env` (the historical default) leaves the
@@ -169,24 +188,110 @@ pub enum LayoutSource {
 }
 
 /// Keyboard layout (xkb) preference. Applied live on change and at startup via
-/// `compositor_support_smithay_state_seat_xkb`. When `source` is `Env`, the
-/// `layout`/`variant`/`options` fields are retained (so switching back to `Manual`
-/// restores the last choice) but not used.
+/// `compositor_support_smithay_state_seat_xkb`. `Manual` uses the ordered
+/// [`layouts`](KeyboardLayout::layouts) list (the first is the default; the
+/// [`switch`](KeyboardLayout::switch) hotkey cycles them). Per-layout variants and
+/// arbitrary xkb options are intentionally NOT configurable here — set them through
+/// the `XKB_DEFAULT_*` environment (the `Env` source). The legacy `layout`/`variant`/
+/// `options` scratch fields are read only to migrate an old file (see [`normalize`]).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct KeyboardLayout {
     pub source: LayoutSource,
-    /// Comma-separated xkb layout code(s), e.g. `"se"`, `"no"`, `"us,se"`.
+    /// Ordered xkb layout codes, e.g. `["us", "il"]`. First = default; the switch
+    /// hotkey cycles through them in order. Empty falls back to the xkb default (us).
+    pub layouts: Vec<String>,
+    /// Preset layout-switch hotkey (maps to an xkb `grp:` option). Only meaningful
+    /// with two or more layouts.
+    pub switch: LayoutSwitch,
+
+    // --- Legacy single-layout fields (pre-multi-layout). Read once on load to
+    // migrate into `layouts`/`switch`, then cleared; never re-serialized. ---
+    #[serde(default, skip_serializing)]
     pub layout: String,
-    /// Comma-separated xkb variant(s), one per layout (may be empty).
+    #[serde(default, skip_serializing)]
     pub variant: String,
-    /// xkb options, e.g. `"grp:alt_shift_toggle,caps:escape"` (may be empty).
+    #[serde(default, skip_serializing)]
     pub options: String,
 }
 
 impl Default for KeyboardLayout {
     fn default() -> Self {
-        Self { source: LayoutSource::Env, layout: "us".into(), variant: String::new(), options: String::new() }
+        Self {
+            source: LayoutSource::Env,
+            // Empty (not `["us"]`) so a MISSING `layouts` key is distinguishable from
+            // an explicit choice — `normalize` migrates a legacy `layout` into it.
+            layouts: Vec::new(),
+            switch: LayoutSwitch::None,
+            layout: String::new(),
+            variant: String::new(),
+            options: String::new(),
+        }
+    }
+}
+
+/// A preset layout-switch hotkey. Maps to the xkb `grp:` option that libxkbcommon
+/// uses to cycle the ordered layout list. Arbitrary xkb options are not exposed —
+/// this closed set keeps the config crash-safe and the UI a simple dropdown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LayoutSwitch {
+    /// No switch key (single layout, or switching handled elsewhere).
+    #[default]
+    None,
+    AltShift,
+    CtrlShift,
+    AltSpace,
+    CtrlSpace,
+    SuperSpace,
+    CapsToggle,
+}
+
+impl LayoutSwitch {
+    /// Every variant, in dropdown order.
+    pub const ALL: &'static [LayoutSwitch] = &[
+        LayoutSwitch::None,
+        LayoutSwitch::AltShift,
+        LayoutSwitch::CtrlShift,
+        LayoutSwitch::AltSpace,
+        LayoutSwitch::CtrlSpace,
+        LayoutSwitch::SuperSpace,
+        LayoutSwitch::CapsToggle,
+    ];
+
+    /// Human-readable label for the settings dropdown.
+    pub fn label(self) -> &'static str {
+        match self {
+            LayoutSwitch::None => "None",
+            LayoutSwitch::AltShift => "Alt + Shift",
+            LayoutSwitch::CtrlShift => "Ctrl + Shift",
+            LayoutSwitch::AltSpace => "Alt + Space",
+            LayoutSwitch::CtrlSpace => "Ctrl + Space",
+            LayoutSwitch::SuperSpace => "Super + Space",
+            LayoutSwitch::CapsToggle => "Caps Lock",
+        }
+    }
+
+    /// The xkb `grp:` option string, or `None` for [`LayoutSwitch::None`].
+    pub fn grp_option(self) -> Option<&'static str> {
+        match self {
+            LayoutSwitch::None => None,
+            LayoutSwitch::AltShift => Some("grp:alt_shift_toggle"),
+            LayoutSwitch::CtrlShift => Some("grp:ctrl_shift_toggle"),
+            LayoutSwitch::AltSpace => Some("grp:alt_space_toggle"),
+            LayoutSwitch::CtrlSpace => Some("grp:ctrl_space_toggle"),
+            LayoutSwitch::SuperSpace => Some("grp:win_space_toggle"),
+            LayoutSwitch::CapsToggle => Some("grp:caps_toggle"),
+        }
+    }
+
+    /// Recover a preset from a legacy free-text `options` string (migration only):
+    /// the first known `grp:` token wins; anything else is dropped.
+    fn from_legacy_options(options: &str) -> LayoutSwitch {
+        LayoutSwitch::ALL
+            .iter()
+            .copied()
+            .find(|s| s.grp_option().is_some_and(|g| options.split(',').any(|tok| tok.trim() == g)))
+            .unwrap_or(LayoutSwitch::None)
     }
 }
 
@@ -216,6 +321,8 @@ impl Default for Preference {
             keyboard: KeyboardLayout::default(),
             background_shader: None,
             graphics: compositor_developer_environment_graphics_base::base::GraphicsAaConfig::default(),
+            protocol_foreign: default_protocol_foreign(),
+            protocol_foreign_all_worlds: false,
         }
     }
 }
@@ -225,13 +332,28 @@ impl Default for Preference {
 const MIN_DEFAULT_REFRESH_MHZ: u32 = 20_000;
 
 /// Sanitize a freshly-loaded document: clamp an implausible default-mode refresh
-/// up to 30 Hz so a hand-edited file can't drive a monitor at a garbage rate.
+/// up to 30 Hz so a hand-edited file can't drive a monitor at a garbage rate, and
+/// migrate a legacy single-layout keyboard preference into the ordered list.
 pub fn normalize(mut p: Preference) -> Preference {
     if let Some(m) = p.outputs_default_mode.as_mut() {
         if m.refresh_mhz < MIN_DEFAULT_REFRESH_MHZ {
             m.refresh_mhz = 30_000;
         }
     }
+    // Keyboard migration: an old file has `layout`/`variant`/`options` but no
+    // `layouts`/`switch`. Seed the ordered list from the comma-separated `layout`
+    // and recover a preset switch from a known `grp:` option, then clear the legacy
+    // scratch (it is `skip_serializing`, so it never round-trips again).
+    let k = &mut p.keyboard;
+    if k.layouts.is_empty() && !k.layout.is_empty() {
+        k.layouts = k.layout.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    }
+    if k.switch == LayoutSwitch::None && !k.options.is_empty() {
+        k.switch = LayoutSwitch::from_legacy_options(&k.options);
+    }
+    k.layout.clear();
+    k.variant.clear();
+    k.options.clear();
     p
 }
 

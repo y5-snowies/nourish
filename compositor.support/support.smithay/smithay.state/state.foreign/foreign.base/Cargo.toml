@@ -1,0 +1,17 @@
+[package]
+name = "compositor_support_smithay_state_foreign_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+bitflags = { workspace = true }
+smithay = { workspace = true }
+# Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+compositor_developer_debug_instance_record = { workspace = true }
+
+[lib]
+path = "lib.rs"
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "Hand-rolled wlr-foreign-toplevel-management state: mirror + emit + reconcile in one module."

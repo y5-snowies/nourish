@@ -5,12 +5,14 @@ use smithay::desktop::{Space, Window};
 use smithay::utils::{Logical, Physical, Point, Rectangle};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::ToplevelSurface;
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::utils::IsAlive;
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 use compositor_y5_camera_transform_translate::transform::Transform;
 use compositor_support_smithay_dispatch_state_base::state::Dispatch;
 use compositor_support_smithay_dispatch_wire_base::wire::Wire;
-use compositor_support_smithay_dispatch_wire_trait::wire_trait::WireTrait;
+use compositor_support_smithay_dispatch_wire_trait::wire_trait::{ActivationOrigin, WireTrait};
 use compositor_support_smithay_state_xdg_activation_dispatch::wire::ActivationDetails;
 use compositor_y5_window_interface_record::data::WindowData;
 use compositor_y5_window_lifecycle_event::event::WindowLifecycleEvent;
@@ -22,6 +24,72 @@ impl WireTrait for Orchestrator {
     }
     fn host_space_mut(&mut self) -> &mut compositor_support_smithay_state_space_base::state::SpaceState {
         self.space_state_mut()
+    }
+    fn all_world_spaces(&self) -> Vec<&compositor_support_smithay_state_space_base::state::SpaceState> {
+        self.worlds
+            .ids()
+            .into_iter()
+            .filter_map(|id| {
+                self.worlds
+                    .get(id)
+                    .storage()
+                    .try_get(&compositor_support_world_host_space_base::base::SPACE)
+                    .map(|w| &w.inner)
+            })
+            .collect()
+    }
+
+    fn remember_focus_of(&mut self, surface: &WlSurface) {
+        // Resolve the focused surface to its mapped toplevel window (across every world),
+        // then stash it under the world it lives on. Non-toplevel focus (layer/iced) or a
+        // surface with no window → nothing to remember.
+        let focused = self
+            .all_world_spaces()
+            .iter()
+            .flat_map(|s| s.state.elements())
+            .find(|w| w.toplevel().map(|t| t.wl_surface() == surface).unwrap_or(false))
+            .cloned();
+        if let Some(window) = focused {
+            if let Some(world) = self.world_of_window(&window) {
+                self.world_focus_memory.insert(world, window);
+            }
+        }
+    }
+
+    fn restore_focus_for_current_world(&mut self) -> Option<WlSurface> {
+        let target = self.worlds.spawn_target();
+        // Only restore a remembered window that is still alive and still on this world;
+        // a stale entry (window closed, or moved worlds) is dropped and treated as none.
+        let restore = self
+            .world_focus_memory
+            .get(&target)
+            .filter(|w| w.alive() && self.world_of_window(w) == Some(target))
+            .cloned();
+        match restore {
+            Some(window) => {
+                self.set_activated_exclusive(Some(&window));
+                window.toplevel().map(|t| t.wl_surface().clone())
+            }
+            None => {
+                self.world_focus_memory.remove(&target);
+                self.set_activated_exclusive(None);
+                None
+            }
+        }
+    }
+
+    fn active_output(&self) -> Option<smithay::output::Output> {
+        // The monitor the user is on (cursor's output, else primary). Non-panicking
+        // variant of the inherent `active_output()` so a NULL-output layer surface
+        // mapped before any output exists just falls back, not aborts.
+        let key = self.active_output_key();
+        let space = self.space_state();
+        space
+            .state
+            .outputs()
+            .find(|o| crate::state::output_key(o) == key)
+            .or_else(|| space.state.outputs().next())
+            .cloned()
     }
 
     fn initialize_surface_data(&mut self, window: Window) {
@@ -104,6 +172,12 @@ impl WireTrait for Orchestrator {
         self.window_lifecycle_mut()
             .incoming
             .push(WindowLifecycleEvent::Fullscreen(window, fullscreen));
+    }
+
+    fn request_activation(&mut self, window: Window, origin: ActivationOrigin) {
+        self.window_lifecycle_mut()
+            .incoming
+            .push(WindowLifecycleEvent::Activate(window, origin));
     }
 
     fn apply_pointer(&mut self, storage_point: Point<f64, Logical>) {

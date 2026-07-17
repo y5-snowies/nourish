@@ -310,6 +310,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &compositor_y5_group_interface_base::protocol::event::GROUP_UPDATED,
         |l, _event| compositor_y5_select_interface_base::clear(l),
     );
+    // Re-advertise per-world foreign-toplevels when the spawn-target world changes —
+    // event-driven (replaces the old per-iteration generation poll).
+    state.inner.bus.register(
+        &compositor_orchestration_core_state_base::state::WORLD_SWITCHED,
+        |l, _event| l.on_world_switched(),
+    );
 
     let wayland_socket_name_default_subprocess = wayland_socket.name.clone();
     let wayland_socket_name_default_subprocess_2 = wayland_socket.name.clone();
@@ -530,10 +536,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Sampler::Drop closes its internal registration channel, which causes
     // the thread to exit cleanly when state's sampler field is dropped.
     info!("Event Loop start");
-    event_loop.run(None, &mut state, move |_| {
-        // Is now running. (Input-independent control-plane work — display drains,
-        // lock engage — is ping-driven via `state.inner.ping_control()`, drained
-        // in the backend's control-plane ping source, NOT polled per dispatch.)
+    event_loop.run(None, &mut state, move |_state| {
+        // Is now running. (Input-independent control-plane work — display drains, lock
+        // engage — is ping-driven via `state.inner.ping_control()`, drained in the
+        // backend's control-plane ping source, NOT polled per dispatch. Foreign-toplevel
+        // re-advertisement is event-driven off the `WORLD_SWITCHED` bus channel above.)
     })?;
 
     Ok(())

@@ -9,6 +9,7 @@ compositor_support_smithay_state_fractional_base.workspace = true
 compositor_support_smithay_state_compositor_base.workspace = true
 compositor_developer_debug_instance_record = { workspace = true }
 compositor_developer_environment_config_base = { workspace = true }
+compositor_developer_environment_preference_base = { workspace = true }
 bitflags = { workspace = true }
 smithay = { workspace = true }
 # Per-surface HDR color tag (written here by color-management, read by the
@@ -53,6 +54,8 @@ compositor_support_smithay_state_shm_factory.workspace = true
 compositor_support_smithay_state_output_factory.workspace = true
 compositor_support_smithay_state_popup_factory.workspace = true
 compositor_support_smithay_state_layershell_factory.workspace = true
+compositor_support_smithay_state_foreign_factory.workspace = true
+compositor_support_smithay_state_foreign_base.workspace = true
 compositor_support_smithay_state_compositor_factory.workspace = true
 compositor_support_smithay_state_presentation_factory.workspace = true
 compositor_support_smithay_state_viewporter_factory.workspace = true

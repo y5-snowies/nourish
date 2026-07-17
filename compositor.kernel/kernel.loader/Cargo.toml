@@ -149,6 +149,7 @@ compositor_configurator_hardware_gpu_base = { path = "../../compositor.extension
 compositor_configurator_network_backend_base = { path = "../../compositor.extension/compositor.configurator/configurator.network/network.backend/backend.base" }
 compositor_configurator_network_tab_base = { path = "../../compositor.extension/compositor.configurator/configurator.network/network.tab/tab.base" }
 compositor_configurator_settings_interface_handle = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.interface/interface.handle" }
+compositor_configurator_settings_surface_catalog = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.catalog" }
 compositor_configurator_settings_surface_chrome = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.chrome" }
 compositor_configurator_settings_surface_control = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.control" }
 compositor_configurator_settings_surface_cursor = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.cursor" }
@@ -157,6 +158,7 @@ compositor_configurator_settings_surface_environment = { path = "../../composito
 compositor_configurator_settings_surface_graphics = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.graphics" }
 compositor_configurator_settings_surface_keyboard = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.keyboard" }
 compositor_configurator_settings_surface_keys = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.keys" }
+compositor_configurator_settings_surface_language = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.language" }
 compositor_configurator_settings_surface_message = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.message" }
 compositor_configurator_settings_surface_misc = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.misc" }
 compositor_configurator_settings_surface_preview = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.preview" }
@@ -584,6 +586,8 @@ compositor_support_smithay_state_dmabuf_factory = { path = "../../compositor.sup
 compositor_support_smithay_state_dnd_base = { path = "../../compositor.support/support.smithay/smithay.state/state.dnd/dnd.base" }
 compositor_support_smithay_state_dnd_dispatch = { path = "../../compositor.support/support.smithay/smithay.state/state.dnd/dnd.dispatch" }
 compositor_support_smithay_state_dnd_factory = { path = "../../compositor.support/support.smithay/smithay.state/state.dnd/dnd.factory" }
+compositor_support_smithay_state_foreign_base = { path = "../../compositor.support/support.smithay/smithay.state/state.foreign/foreign.base" }
+compositor_support_smithay_state_foreign_factory = { path = "../../compositor.support/support.smithay/smithay.state/state.foreign/foreign.factory" }
 compositor_support_smithay_state_fractional_base = { path = "../../compositor.support/support.smithay/smithay.state/state.fractional/fractional.base" }
 compositor_support_smithay_state_fractional_config = { path = "../../compositor.support/support.smithay/smithay.state/state.fractional/fractional.config" }
 compositor_support_smithay_state_fractional_debounce = { path = "../../compositor.support/support.smithay/smithay.state/state.fractional/fractional.debounce" }

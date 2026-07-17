@@ -256,7 +256,9 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     let cyclic = state.inner.preference.teleport_cyclic;
     let ime = state.inner.preference.ime.clone().unwrap_or_default();
     let keyboard = state.inner.preference.keyboard.clone();
-    let ui = Settings::new(env, cursor, natural, show_fps, release_hidden, snap, keys, tab, layout, cyclic, ime, keyboard);
+    let protocol_foreign = state.inner.preference.protocol_foreign.clone();
+    let protocol_foreign_all_worlds = state.inner.preference.protocol_foreign_all_worlds;
+    let ui = Settings::new(env, cursor, natural, show_fps, release_hidden, snap, keys, tab, layout, cyclic, ime, keyboard, protocol_foreign, protocol_foreign_all_worlds);
     let handle = load(state, renderer, ui, rect, IcedSpace::Screen, Layer::SCENE.bits());
     install_handler(state, handle);
     let untyped = handle.untyped();

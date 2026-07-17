@@ -28,6 +28,8 @@ pub enum Tab {
     Performance,
     System,
     Misc,
+    /// Keyboard layouts (xkb) + the launched input method.
+    Language,
     /// Per-world settings for the active world (background shader, …).
     World,
     /// Graphics / anti-aliasing tuning for the pannable world.
@@ -41,14 +43,14 @@ impl Tab {
         match self {
             Tab::Display => 0, Tab::Audio => 1, Tab::Input => 2, Tab::Network => 3,
             Tab::Bluetooth => 4, Tab::Performance => 5, Tab::System => 6, Tab::Misc => 7,
-            Tab::World => 8, Tab::Graphics => 9,
+            Tab::World => 8, Tab::Graphics => 9, Tab::Language => 10,
         }
     }
     pub fn from_index(i: u8) -> Self {
         match i {
             1 => Tab::Audio, 2 => Tab::Input, 3 => Tab::Network, 4 => Tab::Bluetooth,
             5 => Tab::Performance, 6 => Tab::System, 7 => Tab::Misc, 8 => Tab::World,
-            9 => Tab::Graphics,
+            9 => Tab::Graphics, 10 => Tab::Language,
             _ => Tab::Display,
         }
     }
@@ -221,4 +223,16 @@ pub enum SettingsMessage {
     /// preferences.json AND apply live (forwarded). Carries the whole struct so
     /// the method dropdown + every knob share one variant.
     SetGraphics(compositor_developer_environment_graphics_base::base::GraphicsAaConfig),
+    /// Forwarded (Misc tab): the `protocol_foreign` preference — `"enabled"` or
+    /// `"disabled"` — gating the wlr + ext foreign-toplevel (dock) protocols.
+    /// Persisted to preferences.json; takes effect on the next start.
+    SetProtocolForeign(String),
+    /// Forwarded (Misc tab): `protocol_foreign_all_worlds` — when on, the foreign-toplevel
+    /// advertisement lists windows from ALL worlds, not just the active one. Persisted;
+    /// takes effect on the next start.
+    SetProtocolForeignAllWorlds(bool),
+    /// UI-LOCAL (Language tab): open/close the "add a language" layout picker.
+    LangPickerOpen(bool),
+    /// UI-LOCAL (Language tab): the layout-picker search query.
+    LangSearch(String),
 }

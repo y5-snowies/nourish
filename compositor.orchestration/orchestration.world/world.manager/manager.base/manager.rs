@@ -42,9 +42,15 @@ impl WorldManager {
     }
 
     /// Reassign the spawn-target spatial world. Caller ensures `id` is SPATIAL.
-    pub fn set_spawn_target(&mut self, id: Uuid) {
+    /// Returns `true` if the target actually changed (the space the foreign mirror
+    /// advertises is the spawn-target's — see `Orchestrator::space_state`).
+    pub fn set_spawn_target(&mut self, id: Uuid) -> bool {
         assert!(self.index.contains_key(&id), "spawn-target to unknown world {id}");
+        if self.spawn_target == id {
+            return false;
+        }
         self.spawn_target = id;
+        true
     }
 
     /// Add a dormant world (no enable). Returns its id.

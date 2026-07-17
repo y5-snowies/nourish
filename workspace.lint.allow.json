@@ -1,4 +1,7 @@
 {
+  "compositor.support/support.smithay/smithay.state/state.seat/seat.factory": [
+    "size"
+  ],
   "compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.tablet": [
     "size"
   ],

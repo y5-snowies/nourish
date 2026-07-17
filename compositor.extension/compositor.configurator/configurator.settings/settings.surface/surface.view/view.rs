@@ -26,6 +26,11 @@ pub struct Settings {
     pub ime: Ime,
     /// Keyboard layout (Misc tab), persisted + applied live.
     pub keyboard: KeyboardLayout,
+    /// Foreign-toplevel (dock) protocol gate (Misc tab): "enabled"/"disabled".
+    /// Persisted to preferences.json; applied on next start.
+    pub protocol_foreign: String,
+    /// Foreign-toplevel: advertise windows from ALL worlds (Misc tab). Persisted; applied live.
+    pub protocol_foreign_all_worlds: bool,
     /// Graphics / anti-aliasing config (Graphics tab), persisted + applied live.
     pub graphics: compositor_developer_environment_graphics_base::base::GraphicsAaConfig,
     pub dirty: bool,
@@ -88,6 +93,14 @@ pub struct Settings {
     pub next_placement_id: u64,
     /// Cursor-teleport CYCLIC (wrap-around) preference — the Display-tab checkbox.
     pub cyclic: bool,
+    /// All xkb layouts available on this system, `(code, human name)`, for the
+    /// Language tab's add-layout picker. Read ONCE from the system catalogue at
+    /// construction (never per-render).
+    pub catalog: Vec<(String, String)>,
+    /// Language tab: whether the add-layout picker is open (UI-local).
+    pub lang_picker_open: bool,
+    /// Language tab: the add-layout picker's search query (UI-local).
+    pub lang_search: String,
 }
 
 /// A new placement's default width/height in abstract layout units.
@@ -129,7 +142,7 @@ fn default_mode(d: &DisplayInfo) -> Option<ModeInfo> {
 }
 
 impl Settings {
-    pub fn new(env: Environment, cursor: f32, natural: bool, show_fps: bool, release_hidden: bool, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout) -> Self {
+    pub fn new(env: Environment, cursor: f32, natural: bool, show_fps: bool, release_hidden: bool, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool) -> Self {
         let active = snap.displays.iter().find(|d| d.active).cloned();
         let active_edid = active.as_ref().map(|d| d.edid_key.clone()).unwrap_or_default();
         let selected_mode = active.as_ref().and_then(default_mode);
@@ -143,6 +156,8 @@ impl Settings {
             env,
             ime,
             keyboard,
+            protocol_foreign,
+            protocol_foreign_all_worlds,
             // Seeded from the process-global (mirrors the persisted preference).
             graphics: compositor_developer_environment_graphics_base::base::get(),
             dirty: false,
@@ -175,6 +190,9 @@ impl Settings {
             selected_placement: None,
             next_placement_id,
             cyclic,
+            catalog: compositor_configurator_settings_surface_catalog::catalog::available(),
+            lang_picker_open: false,
+            lang_search: String::new(),
         }
     }
 
@@ -255,6 +273,10 @@ impl IcedUi for Settings {
             }
             SettingsMessage::Ime(i) => self.ime = i,
             SettingsMessage::Keyboard(k) => self.keyboard = k,
+            SettingsMessage::LangPickerOpen(open) => self.lang_picker_open = open,
+            SettingsMessage::LangSearch(q) => self.lang_search = q,
+            SettingsMessage::SetProtocolForeign(s) => self.protocol_foreign = s,
+            SettingsMessage::SetProtocolForeignAllWorlds(v) => self.protocol_foreign_all_worlds = v,
             SettingsMessage::SelectDisplay(key) => {
                 self.selected_display = key.clone();
                 self.seed_selection(&key);
@@ -477,6 +499,11 @@ impl IcedUi for Settings {
             self.selected_inactive,
             &self.ime,
             &self.keyboard,
+            &self.catalog,
+            self.lang_picker_open,
+            &self.lang_search,
+            &self.protocol_foreign,
+            self.protocol_foreign_all_worlds,
             &self.shader_options,
             self.shader_current.as_deref(),
             &self.shader_props,

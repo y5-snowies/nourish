@@ -10,3 +10,7 @@ uuid = { workspace = true }
 
 [lib]
 path = "lib.rs"
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "WorldManager is one cohesive owner of the world set + active/spawn-target/generation invariants."

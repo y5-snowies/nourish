@@ -66,8 +66,24 @@ fn compose(
     context: &mut WinitRenderContext,
     state: &mut Loop,
 ) -> (Rectangle<i32, Physical>, Vec<Window>) {
-    let monitor_size = context.winit_backend.window_size();
+    // Single source of truth for the output size: the static, scale-1 mode `route.rs` set
+    // from the *logical* window size — NOT the raw physical `window_size()`, so the render
+    // stays consistent with the compositor's coordinate system and doesn't drift when the
+    // host DPI changes. The EGL framebuffer from `bind()` stays physical, so under a
+    // fractional host the nested view under-fills (dev-only cosmetic); under a scale-1 host
+    // / udev logical == physical and it's exact.
+    let monitor_size = context
+        .output
+        .current_mode()
+        .map(|m| m.size)
+        .unwrap_or_else(|| context.winit_backend.window_size());
     let damage = Rectangle::from_size(monitor_size);
+    // The compositor renders at the logical `monitor_size`, but the winit EGL framebuffer is
+    // the host's PHYSICAL window size. Present by stretching the logical render up to fill
+    // it, so the nested window occupies the whole host window at any host DPI while the
+    // compositor stays at the logical scale-1 output. Under a scale-1 host these are equal.
+    let present_size = context.winit_backend.window_size();
+    let present_full = Rectangle::<i32, Physical>::from_loc_and_size((0, 0), present_size);
     // The winit output carries Transform::Flipped180 (winit/EGL framebuffers are
     // Y-flipped vs. DRM). The main scene's damage tracker reads this off the
     // output automatically; the manual picker/lock renders below must apply it
@@ -234,21 +250,23 @@ fn compose(
                         let _ = sp.wait();
                     }
                     if let Ok(mut frame) =
-                        gles_renderer.render(&mut gles_framebuffer, monitor_size, Transform::Normal)
+                        gles_renderer.render(&mut gles_framebuffer, present_size, Transform::Normal)
                     {
                         let blit_clear = if diag == "blit" {
                             Color32F::new(0.0, 1.0, 0.0, 1.0) // green
                         } else {
                             Color32F::new(0.0, 0.0, 0.0, 1.0)
                         };
-                        let _ = frame.clear(blit_clear, &[full]);
+                        let _ = frame.clear(blit_clear, &[present_full]);
                         if diag != "blit" {
+                            // src = the logical dmabuf, dst = the physical framebuffer:
+                            // render_texture_from_to stretches, filling the host window.
                             let _ = Frame::render_texture_from_to(
                                 &mut frame,
                                 &tex,
                                 src,
-                                full,
-                                &[full],
+                                present_full,
+                                &[present_full],
                                 &[],
                                 Transform::Flipped180,
                                 1.0,
@@ -380,20 +398,21 @@ fn compose(
         // uncleared regions when switching worlds (white flicker). Same reason
         // lock renders manually below. Elements are front-to-back, so draw rev.
         let mut frame = gles_renderer
-            .render(&mut gles_framebuffer, monitor_size, output_transform)
+            .render(&mut gles_framebuffer, present_size, output_transform)
             .unwrap();
-        let full = Rectangle::<i32, Physical>::from_loc_and_size((0, 0), monitor_size);
         let scale = Scale::from(1.0);
-        let _ = frame.clear([0.04, 0.05, 0.10, 1.0].into(), &[full]);
+        // Stretch the logical picker render up to the physical framebuffer (same reason as
+        // the main vulkan present) so the world picker fills the host window at any host DPI.
+        let sx = present_size.w as f64 / monitor_size.w.max(1) as f64;
+        let sy = present_size.h as f64 / monitor_size.h.max(1) as f64;
+        let _ = frame.clear([0.04, 0.05, 0.10, 1.0].into(), &[present_full]);
         for element in scene.Element.iter().rev() {
-            let _ = element.draw(
-                &mut frame,
-                element.src(),
-                element.geometry(scale),
-                &[full],
-                element.opaque_regions(scale).iter().as_slice(),
-                None,
+            let g = element.geometry(scale);
+            let dst = Rectangle::<i32, Physical>::from_loc_and_size(
+                ((g.loc.x as f64 * sx).round() as i32, (g.loc.y as f64 * sy).round() as i32),
+                ((g.size.w as f64 * sx).round() as i32, (g.size.h as f64 * sy).round() as i32),
             );
+            let _ = element.draw(&mut frame, element.src(), dst, &[present_full], &[], None);
         }
         frame.finish().unwrap();
 
@@ -449,26 +468,22 @@ fn compose(
         // capturing after its handle drops.
         if render_scene {
             let mut frame = gles_renderer
-                .render(&mut gles_framebuffer, monitor_size, output_transform)
+                .render(&mut gles_framebuffer, present_size, output_transform)
                 .unwrap();
 
-            // Damage full screen.
-            let full = Rectangle::<i32, Physical>::from_loc_and_size((0, 0), monitor_size);
-
             let scale = Scale::from(1.0);
+            // Stretch the logical lock render up to the physical framebuffer (same reason as
+            // the main vulkan present) so the lock screen fills the host window at any host DPI.
+            let sx = present_size.w as f64 / monitor_size.w.max(1) as f64;
+            let sy = present_size.h as f64 / monitor_size.h.max(1) as f64;
             for element in &scene.Element {
+                let g = element.geometry(scale);
+                let dst = Rectangle::<i32, Physical>::from_loc_and_size(
+                    ((g.loc.x as f64 * sx).round() as i32, (g.loc.y as f64 * sy).round() as i32),
+                    ((g.size.w as f64 * sx).round() as i32, (g.size.h as f64 * sy).round() as i32),
+                );
                 element
-                    .draw(
-                        &mut frame,
-                        element.src(),
-                        // Scale for lock scene shouldn't matter. It is usually
-                        // the effect of zoom, etc.
-                        element.geometry(scale),
-                        &[full],
-                        element.opaque_regions(scale).iter().as_slice(),
-                        // CHECK carried: what's expected here.
-                        None,
-                    )
+                    .draw(&mut frame, element.src(), dst, &[present_full], &[], None)
                     .unwrap();
             }
             frame.finish().unwrap();
