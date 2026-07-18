@@ -122,6 +122,10 @@ pub enum SettingsMessage {
     TouchPanSpeed(f32),
     /// Toggle linear (strict, no-coast) touch pan (forwarded; persisted).
     TouchLinearPan(bool),
+    /// On-screen keyboard size multiplier (forwarded; persisted, read live).
+    OskSize(f32),
+    /// Auto-summoned OSK floats in world position near the caret (forwarded; persisted).
+    OskWorldPosition(bool),
     /// Toggle the per-monitor FPS overlay (forwarded; persisted to preferences).
     SetShowFps(bool),
     /// Toggle releasing hidden iced surfaces' GPU memory (forwarded; persisted).

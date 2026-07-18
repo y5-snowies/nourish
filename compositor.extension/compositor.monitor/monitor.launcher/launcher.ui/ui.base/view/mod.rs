@@ -31,10 +31,11 @@ use iced_core::{
     Vector,
 };
 use iced_widget::image::FilterMethod;
-use iced_widget::{column, container, image, row, svg, text, Space};
+use iced_widget::{button, column, container, image, row, svg, text, Space};
 use compositor_support_iced_core_engine_base::Renderer;
 
 use crate::message::LauncherMessage;
+use crate::model::{Application, Direction};
 use crate::style;
 use crate::ui::Launcher;
 
@@ -156,14 +157,14 @@ fn carousel(ui: &Launcher) -> Element<'_, LauncherMessage, Theme, Renderer> {
         let app_idx = ui.visible[idx];
         let app = &ui.apps[app_idx];
         let selected = idx == ui.cursor;
-        r = r.push(icon_cell(app.icon_path.as_ref(), selected, ui.is_focused()));
+        r = r.push(icon_cell(app, selected, ui.is_focused()));
     }
 
     r.into()
 }
 
 fn icon_cell<'a>(
-    icon_path: Option<&PathBuf>,
+    app: &Application,
     selected: bool,
     focused: bool,
 ) -> Element<'a, LauncherMessage, Theme, Renderer> {
@@ -172,7 +173,7 @@ fn icon_cell<'a>(
     } else {
         style::ICON_PX
     };
-    let inner = render_icon(icon_path, icon_size);
+    let inner = render_icon(app.icon_path.as_ref(), icon_size);
 
     let mut cell = container(inner)
         .width(Length::Fixed(style::CELL_PX))
@@ -186,7 +187,20 @@ fn icon_cell<'a>(
     // Non-selected cells: no style override → transparent → icon sits
     // directly on the banner background.
 
-    cell.into()
+    // Tap-to-launch: a touch/pen tap (or a mouse click) on a cell launches that app
+    // immediately, skipping the keyboard focus→direction flow. The button is
+    // transparent so only the cell's own styling shows. `direction` is a placement
+    // hint the spawner currently ignores, so any value serves.
+    button(cell)
+        .padding(0)
+        .style(|_: &Theme, _| button::Style { background: None, ..Default::default() })
+        .on_press(LauncherMessage::Launch {
+            id: app.id.clone(),
+            bin: app.bin.clone(),
+            args: app.args.clone(),
+            direction: Direction::Down,
+        })
+        .into()
 }
 
 fn selected_cell_style(focused: bool) -> container::Style {

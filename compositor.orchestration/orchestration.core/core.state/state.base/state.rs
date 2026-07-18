@@ -271,6 +271,9 @@ impl Orchestrator {
         // Selection-overlay driver: the align/distribute toolbar instance.
         kernel_data.insert(&compositor_orchestration_driver_selection_base::base::SELECTION_OVERLAY, Default::default());
 
+        // On-screen-keyboard driver state (shown/pinned/mods/placement).
+        kernel_data.insert(&compositor_y5_osk_board_state::state::OSK, Default::default());
+
         // Output-mode driver: rim-issued mode request + kernel-written advertised
         // modes snapshot and apply result (settings window ↔ DRM, like the lid).
         kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUT_MODE_REQUEST, None);

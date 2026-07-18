@@ -31,6 +31,10 @@ pub enum TouchPaneMessage {
     SetMode(PaneMode),
     OpenOverview,
     OpenWorldPicker,
+    /// Open the app launcher (also auto-opens the OSK for search).
+    OpenLauncher,
+    /// Open the on-screen keyboard (pinned).
+    OpenOsk,
     /// Dismiss the pane.
     Close,
     SetActive(PaneMode),
@@ -105,8 +109,10 @@ impl IcedUi for TouchPane {
             tool(font_map::PanTool, PaneMode::Hand),
             tool(font_map::HighlightAlt, PaneMode::Select),
             Space::new().height(12),
+            icon_button(font_map::Apps, TouchPaneMessage::OpenLauncher, false),
             icon_button(font_map::GridView, TouchPaneMessage::OpenOverview, false),
             icon_button(font_map::Public, TouchPaneMessage::OpenWorldPicker, false),
+            icon_button(font_map::Keyboard, TouchPaneMessage::OpenOsk, false),
             Space::new().height(12),
             icon_button(font_map::Close, TouchPaneMessage::Close, false),
         ]

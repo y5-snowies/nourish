@@ -90,6 +90,7 @@ fn performance<'a>(fps: u32, show_fps: bool, release_hidden: bool) -> El<'a> {
 /// selected sub-tab's body. The sub-tab is carried in `Tab::Input`, so it persists.
 fn input_body<'a>(
     sub: InputTab, cursor_sensitivity: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool,
+    osk_size: f32, osk_world_position: bool,
     keys: &'a [KeyRow], touch_devices: &'a [TouchDeviceInfo], displays: &'a [DisplayInfo], pen: &'a PenConfig,
     pen_capturing: bool,
 ) -> El<'a> {
@@ -108,7 +109,7 @@ fn input_body<'a>(
     ].spacing(6);
     let body: El<'a> = match sub {
         InputTab::Mouse => cursor::build(cursor_sensitivity, natural),
-        InputTab::Touch => touch_input(touch_pan_speed, touch_linear_pan, touch_devices, displays),
+        InputTab::Touch => touch_input(touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, touch_devices, displays),
         InputTab::Pen => pen::build(pen, pen_capturing),
         InputTab::Keyboard => keybinds::build(keys),
     };
@@ -120,7 +121,8 @@ fn input_body<'a>(
 /// per-monitor buttons — the lit one is its current claim; pressing it releases
 /// back to auto, pressing another moves the claim to that monitor.
 fn touch_input<'a>(
-    pan_speed: f32, linear_pan: bool, touch_devices: &'a [TouchDeviceInfo], displays: &'a [DisplayInfo],
+    pan_speed: f32, linear_pan: bool, osk_size: f32, osk_world_position: bool,
+    touch_devices: &'a [TouchDeviceInfo], displays: &'a [DisplayInfo],
 ) -> El<'a> {
     let reset = |msg: SettingsMessage| -> El<'a> {
         button(text("↺").size(12)).on_press(msg).style(control::action).into()
@@ -129,6 +131,14 @@ fn touch_input<'a>(
         text("TOUCH").size(16).color(style::ACCENT),
         text("Touchscreen pan feel and the touch↔display link.").size(11).color(style::MUTED),
     ].spacing(4);
+    // Discoverability hint for the touch menu (the sticky tool-mode pane).
+    let hint = container(
+        row![
+            text("ℹ").size(16).color(style::ACCENT),
+            text("Swipe in from the left edge with two fingers to open the touch menu.")
+                .size(12).color(style::MUTED).width(Length::Fill),
+        ].align_y(Alignment::Center).spacing(10).padding(12),
+    ).style(style::card).width(Length::Fill);
     let speed = column![
         row![
             text("PAN SPEED").size(12).color(style::MUTED).width(Length::Fill),
@@ -172,12 +182,28 @@ fn touch_input<'a>(
             );
         }
     }
-    column![head, speed, linear, Column::with_children(link).spacing(8)].spacing(16).into()
+    let osk = column![
+        row![
+            text("OSK SIZE").size(12).color(style::MUTED).width(Length::Fill),
+            text(format!("{osk_size:.2}×")).size(12).color(style::ACCENT),
+            reset(SettingsMessage::OskSize(1.0)),
+        ].spacing(10).align_y(Alignment::Center),
+        slider(0.6..=1.4, osk_size, SettingsMessage::OskSize).step(0.05f32).style(control::slider),
+    ].spacing(8);
+    let osk_world = container(
+        row![
+            text("On-screen keyboard on world position").width(Length::Fill),
+            toggler(osk_world_position).on_toggle(SettingsMessage::OskWorldPosition).style(control::toggler),
+            reset(SettingsMessage::OskWorldPosition(false)),
+        ].align_y(Alignment::Center).spacing(10).padding(12),
+    ).style(style::card).width(Length::Fill);
+
+    column![head, hint, speed, linear, osk, osk_world, Column::with_children(link).spacing(8)].spacing(16).into()
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn render<'a>(
-    tab: Tab, dirty: bool, cursor_sensitivity: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, show_fps: bool, release_hidden: bool, env: &'a Environment,
+    tab: Tab, dirty: bool, cursor_sensitivity: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, env: &'a Environment,
     displays: &'a [DisplayInfo], touch_devices: &'a [TouchDeviceInfo], active_edid: &'a str, selected_display: &'a str,
     selected_mode: Option<ModeInfo>, pending: Option<&'a Applied>,
     staged_active: Option<&'a (String, Option<ModeInfo>)>, confirming: bool,
@@ -197,7 +223,7 @@ pub fn render<'a>(
     let body: El<'a> = match tab {
         Tab::Display => display::build(displays, touch_devices, active_edid, selected_display, selected_mode, confirming, pending, staged_active, layout, selected_placement, cyclic, selected_inactive),
         Tab::Audio => audio_tab::build(audio),
-        Tab::Input(sub) => input_body(sub, cursor_sensitivity, natural, touch_pan_speed, touch_linear_pan, keys, touch_devices, displays, pen, pen_capturing),
+        Tab::Input(sub) => input_body(sub, cursor_sensitivity, natural, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, keys, touch_devices, displays, pen, pen_capturing),
         Tab::Network => network_tab::build(wifi, wifi_selected, wifi_password),
         Tab::Bluetooth => bluetooth_tab::build(bt),
         Tab::Performance => performance(fps, show_fps, release_hidden),

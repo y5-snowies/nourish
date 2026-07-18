@@ -3367,6 +3367,7 @@ dependencies = [
  "compositor_y5_lock_state_base",
  "compositor_y5_lock_system_base",
  "compositor_y5_navigator_state_base",
+ "compositor_y5_osk_board_state",
  "compositor_y5_overview_state_base",
  "compositor_y5_placeholder_state_base",
  "compositor_y5_placeholder_system_base",
@@ -3492,6 +3493,7 @@ dependencies = [
  "compositor_y5_lock_interface_base",
  "compositor_y5_lock_system_base",
  "compositor_y5_navigator_state_base",
+ "compositor_y5_osk_board_create",
  "compositor_y5_overview_draw_frame",
  "compositor_y5_picker_interface_capture",
  "compositor_y5_placeholder_interface_base",
@@ -7044,6 +7046,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_y5_osk_board_create"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_compositor_iced_base",
+ "compositor_monitor_selection_font_base",
+ "compositor_orchestration_core_state_base",
+ "compositor_orchestration_draw_layer_base",
+ "compositor_support_world_order_track_base",
+ "compositor_y5_camera_state_base",
+ "compositor_y5_navigator_state_base",
+ "compositor_y5_navigator_travel_state",
+ "compositor_y5_osk_board_state",
+ "compositor_y5_osk_board_view",
+ "compositor_y5_surface_draw_handle",
+ "compositor_y5_surface_protocol_base",
+ "smithay",
+ "uuid",
+]
+
+[[package]]
+name = "compositor_y5_osk_board_handle"
+version = "0.0.1"
+dependencies = [
+ "compositor_orchestration_core_state_base",
+ "compositor_orchestration_seat_keyboard_input",
+ "compositor_y5_osk_board_state",
+ "compositor_y5_osk_board_view",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_y5_osk_board_state"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_system_storage_token_base",
+]
+
+[[package]]
+name = "compositor_y5_osk_board_view"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_selection_font_base",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
+]
+
+[[package]]
 name = "compositor_y5_overlay_interface_keyboard"
 version = "0.0.1"
 dependencies = [
@@ -8109,6 +8159,7 @@ dependencies = [
  "compositor_y5_launcher_protocol_interface",
  "compositor_y5_lock_protocol_base",
  "compositor_y5_lock_system_base",
+ "compositor_y5_osk_board_handle",
  "compositor_y5_overview_interface_base",
  "compositor_y5_placeholder_interface_base",
  "compositor_y5_select_overlay_interface",
@@ -8206,6 +8257,7 @@ dependencies = [
  "compositor_y5_group_surface_base",
  "compositor_y5_launcher_protocol_message",
  "compositor_y5_lock_interface_surface",
+ "compositor_y5_osk_board_view",
  "compositor_y5_overview_state_base",
  "compositor_y5_picker_surface_view",
  "compositor_y5_placeholder_protocol_base",
@@ -8268,6 +8320,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_seat_gesture_touch",
+ "compositor_y5_osk_board_state",
  "compositor_y5_overview_interface_base",
  "compositor_y5_picker_interface_entry",
  "compositor_y5_touch_pane_view",

@@ -445,11 +445,11 @@ fn canvas_owns_gesture(cx: &mut SystemCx, cursor: Point<f64, Logical>) -> bool {
     // owns touchpad pan/pinch AND the mouse wheel (zoom) — the user reserves the
     // mouse CLICK for the Move tool it shares the modifier with, but the wheel is
     // free, so Super+wheel zooms the canvas even over a window.
-    // The persistent hand tool, the momentary Super-held tool, and the touch pane's
-    // Hand tool all own every wheel/pinch gesture (so the tablet dial + mouse wheel
-    // zoom under any of them).
+    // The persistent hand tool, the momentary Super-held tool, the touch pane's Hand
+    // tool, and any in-progress canvas pan all own every wheel/pinch gesture (so the
+    // tablet dial + mouse wheel zoom under any of them — incl. mid-pan).
     let hand = matches!(canvas.Grab, CanvasGrab::Active(ActiveOption::Hand));
-    if hand || canvas.finger_pan || canvas.hand_touch {
+    if hand || canvas.finger_pan || canvas.hand_touch || canvas.position_updating {
         return true;
     }
     let over_window = surface_under_filtered_cx(cx.storage, cursor, &|hit| {

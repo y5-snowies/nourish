@@ -35,6 +35,7 @@ compositor_y5_window_interface_record.workspace = true
 compositor_y5_camera_transform_translate.workspace = true
 compositor_monitor_compositor_iced_base.workspace = true
 compositor_support_iced_core_engine_base.workspace = true
+compositor_y5_launcher_interface_base.workspace = true
 compositor_support_smithay_dispatch_state_base.workspace = true
 compositor_support_smithay_dispatch_wire_tablet.workspace = true
 compositor_developer_environment_config_base.workspace = true

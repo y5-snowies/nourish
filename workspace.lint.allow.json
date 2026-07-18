@@ -20,6 +20,15 @@
   "compositor.expansion/compositor.y5/y5.touch/touch.pane/pane.create": [
     "size"
   ],
+  "compositor.expansion/compositor.y5/y5.osk/osk.board/board.view": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.osk/osk.board/board.create": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.osk/osk.board/board.handle": [
+    "size"
+  ],
   "compositor.expansion/compositor.y5/y5.overview/overview.state/state.base": [
     "size"
   ],

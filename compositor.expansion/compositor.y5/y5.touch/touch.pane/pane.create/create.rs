@@ -17,9 +17,10 @@ use compositor_y5_surface_protocol_base::protocol::{SurfaceMessage, SurfaceMessa
 use compositor_y5_touch_pane_view::{PaneMode, TouchPane, TouchPaneMessage};
 
 const PANE_W: i32 = 112;
-/// Tall enough for the 7 tap-cells (4 tool-modes + Overview + World Picker + Close)
-/// plus their separators; the reconciler centres it and clamps to the output.
-const PANE_H: i32 = 704;
+/// Tall enough for the 9 tap-cells (4 tool-modes + Launcher + Overview + World Picker
+/// + OSK + Close) plus their separators; the reconciler centres it and clamps to the
+/// output.
+const PANE_H: i32 = 880;
 /// Gap from the left screen edge (physical px). Kept clear of the edge-swipe
 /// band (see `touch/edge.rs` `EDGE_BAND`) so the swipe that hides the pane starts
 /// on bare screen to the pane's left, never on a pane button.

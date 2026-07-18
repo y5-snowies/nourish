@@ -20,12 +20,14 @@ pub fn process_input_event<I: InputBackend>(_loop: &mut Loop, event: &InputEvent
         | InputEvent::TouchCancel { .. }
         | InputEvent::TouchFrame { .. } => {
             _loop.inner.touch.last_input_touch = true;
+            _loop.inner.touch.last_input_pen = false;
         }
         InputEvent::PointerMotion { .. }
         | InputEvent::PointerMotionAbsolute { .. }
         | InputEvent::PointerButton { .. }
         | InputEvent::PointerAxis { .. } => {
             _loop.inner.touch.last_input_touch = false;
+            _loop.inner.touch.last_input_pen = false;
             _loop.inner.touch.pane_world = None;
         }
         InputEvent::TabletToolProximity { .. }
@@ -34,8 +36,10 @@ pub fn process_input_event<I: InputBackend>(_loop: &mut Loop, event: &InputEvent
         | InputEvent::TabletToolButton { .. } => {
             // The pen is a non-touch modality (so the selection toolbar drops its
             // sticky touch placement), but unlike the mouse it must NOT dismiss the
-            // touch pane — the pen is allowed to operate it (feature parity).
+            // touch pane — the pen is allowed to operate it (feature parity). It IS a
+            // DIRECT modality (`last_input_pen`) that auto-summons the OSK like touch.
             _loop.inner.touch.last_input_touch = false;
+            _loop.inner.touch.last_input_pen = true;
         }
         _ => {}
     }

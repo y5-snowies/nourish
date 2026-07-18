@@ -19,6 +19,26 @@ pub fn delegate(state: &mut Loop, message: TouchPaneMessage) {
         TouchPaneMessage::OpenWorldPicker => {
             compositor_y5_picker_interface_entry::entry::toggle(state);
         }
+        // Open the app launcher AND auto-open the OSK (pinned, screen) so it can be
+        // searched by tapping keys — the launcher takes iced keyboard focus on open, so
+        // injected OSK keys land in its search field.
+        TouchPaneMessage::OpenLauncher => {
+            compositor_y5_launcher_interface_base::interface::start_defered(state);
+            let st = state.inner.kernel.get_mut(&compositor_y5_osk_board_state::state::OSK_MUT);
+            st.open = true;
+            st.pinned = true;
+            st.world = false;
+            st.dismissed = false;
+        }
+        // Open the on-screen keyboard, PINNED (touch-menu opens the screen-space OSK
+        // that stays until dismissed, unlike the auto-summoned one).
+        TouchPaneMessage::OpenOsk => {
+            let st = state.inner.kernel.get_mut(&compositor_y5_osk_board_state::state::OSK_MUT);
+            st.open = true;
+            st.pinned = true;
+            st.world = false;
+            st.dismissed = false;
+        }
         // Close button: hide the pane in this world.
         TouchPaneMessage::Close => {
             state.inner.touch.pane_world = None;

@@ -108,6 +108,21 @@ pub fn apply_focus(
     keyboard: &KeyboardHandle<Dispatch>,
     serial: Serial,
 ) {
+    // Keyboard-transparent iced surfaces (the on-screen keyboard) take the pointer
+    // press but must NOT move keyboard focus or deactivate the focused window — the
+    // text field being typed into has to keep its focus so injected keys reach it.
+    if let SurfaceHit::Iced { handle, .. } = hit {
+        if _loop
+            .inner
+            .surface()
+            .registry
+            .as_ref()
+            .is_some_and(|r| r.is_keyboard_transparent(*handle))
+        {
+            return;
+        }
+    }
+
     let focus_surface: Option<WlSurface> = match hit {
         SurfaceHit::Window { window, .. } => {
             _loop.inner.space_state_mut().state.raise_element(window, true);

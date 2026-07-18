@@ -147,6 +147,14 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
             state.inner.preference.input_touch_linear_pan = b;
             let _ = pref::save(&state.inner.preference);
         }
+        SettingsMessage::OskSize(v) => {
+            state.inner.preference.osk_size = v as f64;
+            let _ = pref::save(&state.inner.preference);
+        }
+        SettingsMessage::OskWorldPosition(b) => {
+            state.inner.preference.osk_world_position = b;
+            let _ = pref::save(&state.inner.preference);
+        }
         SettingsMessage::SetShowFps(b) => {
             state.inner.preference.show_fps = b;
             let _ = pref::save(&state.inner.preference);

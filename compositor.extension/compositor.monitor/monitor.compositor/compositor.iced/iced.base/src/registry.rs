@@ -1181,6 +1181,23 @@ impl IcedRegistry {
         }
     }
 
+    /// Whether a press on this surface should leave keyboard focus untouched.
+    pub fn is_keyboard_transparent(&self, id: HandleId) -> bool {
+        self.get(id).map(|i| i.is_keyboard_transparent()).unwrap_or(false)
+    }
+
+    /// Mark a surface keyboard-transparent: it still receives pointer buttons, but a
+    /// press on it does not move keyboard focus (the OSK keeps the text field focused).
+    pub fn set_keyboard_transparent_by_id(&mut self, id: HandleId, v: bool) -> bool {
+        match self.get_mut(id) {
+            Some(item) => {
+                item.set_keyboard_transparent(v);
+                true
+            }
+            None => false,
+        }
+    }
+
     // ── Tooltip surfaces ──────────────────────────────────────────
 
     /// Create a tooltip-style surface: screen-space, click-through, and

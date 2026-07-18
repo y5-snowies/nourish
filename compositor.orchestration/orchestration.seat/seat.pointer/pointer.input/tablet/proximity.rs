@@ -26,13 +26,9 @@ pub fn proximity<I: InputBackend>(event: &I::TabletToolProximityEvent, _loop: &m
         ProximityState::In => {
             // Position the cursor at the pen, then forward hover to a tablet-aware
             // surface (brush preview / hover cursor) — unless a navigation tool (Hand
-            // grab or touch Hand/Select) or light-touch mode is on, where the pen only
-            // drives the cursor/canvas and never touches the tablet client.
+            // grab or touch Hand/Select) is on, where the pen only drives the canvas.
             cursor::follow(_loop, screen, world, time);
-            if hand_active(_loop)
-                || crate::tablet::select_active(_loop)
-                || _loop.inner.preference.pen.below_threshold_cursor
-            {
+            if hand_active(_loop) || crate::tablet::select_active(_loop) {
                 return;
             }
             if let Some(focus) = client::tablet_focus(_loop, world) {
@@ -46,7 +42,6 @@ pub fn proximity<I: InputBackend>(event: &I::TabletToolProximityEvent, _loop: &m
         ProximityState::Out => {
             _loop.state.tablet.tool_proximity_out(&tool, time);
             _loop.state.tablet.stroke = Stroke::None;
-            _loop.state.tablet.phys_tip = false;
             _loop.state.tablet.last_pen_screen = None;
             // Revert a client tool cursor so a stale cursor surface isn't left behind
             // once the pen lifts out of range.

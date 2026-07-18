@@ -784,6 +784,10 @@ compositor_y5_navigator_tick_base = { path = "y5.navigator/navigator.tick/tick.b
 compositor_y5_navigator_tick_warp = { path = "y5.navigator/navigator.tick/tick.warp" }
 compositor_y5_navigator_travel_machine = { path = "y5.navigator/navigator.travel/travel.machine" }
 compositor_y5_navigator_travel_state = { path = "y5.navigator/navigator.travel/travel.state" }
+compositor_y5_osk_board_create = { path = "y5.osk/osk.board/board.create" }
+compositor_y5_osk_board_handle = { path = "y5.osk/osk.board/board.handle" }
+compositor_y5_osk_board_state = { path = "y5.osk/osk.board/board.state" }
+compositor_y5_osk_board_view = { path = "y5.osk/osk.board/board.view" }
 compositor_y5_overlay_interface_keyboard = { path = "y5.overlay/overlay.interface/interface.keyboard" }
 compositor_y5_overview_draw_backdrop = { path = "y5.overview/overview.draw/draw.backdrop" }
 compositor_y5_overview_draw_blur = { path = "y5.overview/overview.draw/draw.blur" }

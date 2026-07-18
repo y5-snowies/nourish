@@ -9,6 +9,8 @@ compositor_orchestration_seat_gesture_touch = { workspace = true }
 compositor_y5_touch_pane_view = { workspace = true }
 compositor_y5_overview_interface_base = { workspace = true }
 compositor_y5_picker_interface_entry = { workspace = true }
+compositor_y5_osk_board_state = { workspace = true }
+compositor_y5_launcher_interface_base = { workspace = true }
 
 [lib]
 path = "lib.rs"

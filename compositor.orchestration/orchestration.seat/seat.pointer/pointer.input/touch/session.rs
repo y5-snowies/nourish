@@ -64,6 +64,15 @@ pub fn down<I: InputBackend>(event: &I::TouchDownEvent, _loop: &mut Loop) {
                 CanvasGrab::Target(TargetOption::Select { Append: true });
         }
         let world = geom::world(_loop, phys);
+        // A touch OUTSIDE the open launcher dismisses it (a tap ON it falls through so a
+        // cell can launch). Mouse uses a different path, so it never closes the launcher.
+        let hit_handle = compositor_y5_surface_interface_base::hit::surface_under_filtered(
+            _loop, world, &|_| true,
+        )
+        .and_then(|h| h.iced_handle());
+        if compositor_y5_launcher_interface_base::interface::dismiss_if_outside(_loop, hit_handle) {
+            return;
+        }
         // Compositor iced UI (the touch pane, overview menu, selection bar, …)
         // must take a normal pointer tap in EVERY tool-mode, so it stays usable
         // even in Hand mode (whose canvas taps are inert).

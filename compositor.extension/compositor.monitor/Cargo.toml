@@ -702,6 +702,10 @@ compositor_y5_navigator_tick_base = { path = "../../compositor.expansion/composi
 compositor_y5_navigator_tick_warp = { path = "../../compositor.expansion/compositor.y5/y5.navigator/navigator.tick/tick.warp" }
 compositor_y5_navigator_travel_machine = { path = "../../compositor.expansion/compositor.y5/y5.navigator/navigator.travel/travel.machine" }
 compositor_y5_navigator_travel_state = { path = "../../compositor.expansion/compositor.y5/y5.navigator/navigator.travel/travel.state" }
+compositor_y5_osk_board_create = { path = "../../compositor.expansion/compositor.y5/y5.osk/osk.board/board.create" }
+compositor_y5_osk_board_handle = { path = "../../compositor.expansion/compositor.y5/y5.osk/osk.board/board.handle" }
+compositor_y5_osk_board_state = { path = "../../compositor.expansion/compositor.y5/y5.osk/osk.board/board.state" }
+compositor_y5_osk_board_view = { path = "../../compositor.expansion/compositor.y5/y5.osk/osk.board/board.view" }
 compositor_y5_overlay_interface_keyboard = { path = "../../compositor.expansion/compositor.y5/y5.overlay/overlay.interface/interface.keyboard" }
 compositor_y5_overview_draw_backdrop = { path = "../../compositor.expansion/compositor.y5/y5.overview/overview.draw/draw.backdrop" }
 compositor_y5_overview_draw_blur = { path = "../../compositor.expansion/compositor.y5/y5.overview/overview.draw/draw.blur" }

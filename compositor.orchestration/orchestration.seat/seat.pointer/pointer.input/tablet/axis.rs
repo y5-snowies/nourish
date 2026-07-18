@@ -3,6 +3,13 @@
 //! requirement); motion + axes forward to the tablet-aware surface under the pen.
 //! Under the Hand or Select tool the pen drives the CANVAS (glide-pan / rubber-band)
 //! via the pointer bus and forwards nothing to tablet clients.
+//!
+//! In **pressure pen-down** mode (`below_threshold_cursor`) the tip is derived HERE
+//! from pressure crossing `tip_threshold` — the driver's own tip event is ignored, so
+//! a tablet that reports "pen down" on mere detection / max distance only registers a
+//! real press. Below the threshold the pen hovers (cursor + hover forwarding); above
+//! it, `start_draw` runs the normal stroke (draw on a tablet app, click on a window,
+//! inert on bare canvas).
 
 use smithay::backend::input::{Event, InputBackend, TabletToolAxisEvent, TabletToolEvent};
 use smithay::utils::SERIAL_COUNTER;
@@ -33,23 +40,6 @@ pub fn axis<I: InputBackend>(event: &I::TabletToolAxisEvent, _loop: &mut Loop) {
         return;
     }
 
-    // Light-touch mode: the pen is a pure cursor/mouse. Move the cursor, gate the
-    // emulated left button on pressure crossing `tip_threshold`, and forward NO tablet
-    // events — so the tablet never sees pen up/down (or motion) in this mode.
-    if _loop.inner.preference.pen.below_threshold_cursor {
-        cursor::follow(_loop, screen, world, time);
-        if _loop.state.tablet.phys_tip {
-            let above = event.pressure() >= _loop.inner.preference.pen.tip_threshold as f64;
-            let pressing = _loop.state.tablet.stroke != Stroke::None;
-            if above && !pressing {
-                tip::start_draw(_loop, &tool, screen, world, time);
-            } else if !above && pressing {
-                tip::end_draw(_loop, &tool, time);
-            }
-        }
-        return;
-    }
-
     if event.pressure_has_changed() {
         _loop.state.tablet.tool_pressure(&tool, event.pressure());
     }
@@ -72,10 +62,23 @@ pub fn axis<I: InputBackend>(event: &I::TabletToolAxisEvent, _loop: &mut Loop) {
             .tool_wheel(&tool, event.wheel_delta(), event.wheel_delta_discrete());
     }
 
-    // Cursor follows the pen (and drives the canvas via the bus), then native tool
-    // motion (+ queued axes) forwards to the tablet-aware surface under it.
+    // Cursor follows the pen (and drives the canvas via the bus).
     cursor::follow(_loop, screen, world, time);
 
+    // Pressure pen-down: begin/end the stroke as pressure crosses the threshold,
+    // overriding the driver's (possibly broken) tip detection.
+    if _loop.inner.preference.pen.below_threshold_cursor {
+        let above = event.pressure() >= _loop.inner.preference.pen.tip_threshold as f64;
+        let down = _loop.state.tablet.stroke != Stroke::None;
+        if above && !down {
+            tip::start_draw(_loop, &tool, screen, world, time);
+        } else if !above && down {
+            tip::end_draw(_loop, &tool, time);
+        }
+    }
+
+    // Native tool motion (+ queued axes) forwards to the tablet-aware surface under
+    // the pen (hover while not drawing; the live stroke while drawing).
     let focus = client::tablet_focus(_loop, world);
     let serial = SERIAL_COUNTER.next_serial();
     _loop

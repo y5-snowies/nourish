@@ -61,10 +61,10 @@ fn handle_pad(state: &mut Loop, event: &TabletPadEvent) {
                         state, &mods, v120, e.time(),
                     );
                 }
-                // Default: the Hand grab zooms the world; otherwise forward the native
-                // dial event to the focused tablet client.
+                // Default: zoom the world while the Hand tool is on or a pan is in
+                // progress; otherwise forward the native dial event to the client.
                 _ => {
-                    if hand_active(state) {
+                    if dial_zoom_active(state) {
                         dial_zoom(state, v120);
                     } else {
                         state.state.tablet.pad_dial(&key, e.number(), v120, e.time());
@@ -76,10 +76,10 @@ fn handle_pad(state: &mut Loop, event: &TabletPadEvent) {
     }
 }
 
-/// Is the Hand (navigation) tool active? Reuses the pen input layer's check, so the
-/// dial zooms under BOTH the canvas Hand grab and the touch pane's Hand mode.
-fn hand_active(state: &Loop) -> bool {
-    compositor_orchestration_seat_pointer_input::tablet::hand_active(state)
+/// Should the dial zoom now? Reuses the pen input layer's check — true in the Hand
+/// tool (canvas grab OR touch pane) AND while any canvas pan is in progress.
+fn dial_zoom_active(state: &Loop) -> bool {
+    compositor_orchestration_seat_pointer_input::tablet::dial_zoom_active(state)
 }
 
 /// If the settings Pen tab is armed to capture a pad button, record this one and

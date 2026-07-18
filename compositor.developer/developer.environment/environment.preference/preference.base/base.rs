@@ -119,6 +119,13 @@ pub struct Preference {
     /// momentum/coast. On by default. Off restores the glide/fling feel. Read live
     /// per touch event (Settings → Input → Touch).
     pub input_touch_linear_pan: bool,
+    /// On-screen keyboard size multiplier (`1.0` = default). Scales the OSK's height
+    /// as a fraction of the output. Settings → Input → Touch. Read live by the OSK.
+    pub osk_size: f64,
+    /// Auto-summoned OSK floats in WORLD space near the caret (constrained, scales
+    /// with zoom, like an IME) instead of the screen-space bottom bar. The touch-menu
+    /// OSK is always screen-space. Settings → Input → Touch. Read live.
+    pub osk_world_position: bool,
     /// Show the per-monitor FPS overlay (Settings → Performance). Off by default;
     /// each driven output gets a small top-right counter of its own draw rate.
     #[serde(default)]
@@ -386,13 +393,14 @@ pub struct PenConfig {
     pub stylus_buttons: HashMap<String, PenAction>,
     /// Dial-turn override. `Passthrough` still zooms while the Hand grab is held.
     pub dial: PenAction,
-    /// "Light touch" mode: the pen behaves as a plain cursor/mouse and never emits
-    /// tablet pen up/down — below `tip_threshold` it hovers (moves the cursor); at/above
-    /// it emulates a left button (a mouse drag/click), not a `zwp_tablet_tool_v2` tip.
-    /// Off by default, so the pen is a normal tablet stylus.
+    /// "Pressure pen-down" mode: derive the pen-down from `tip_threshold` and IGNORE
+    /// the driver's own tip event — for tablets that report "pen down" on mere
+    /// detection / max distance. Below the threshold the pen hovers (a cursor, plus the
+    /// bound barrel clicks); at/above it, a real press (draw / click). Off by default.
     pub below_threshold_cursor: bool,
-    /// Pressure (0..1) below which the pen is a hovering cursor (only when the toggle
-    /// is on); at/above it, the emulated left button is held.
+    /// Pressure (0..1) at/above which the pen counts as "down" in pressure pen-down
+    /// mode. Raise it so a light hover (which a bad driver may report as a press)
+    /// doesn't register; lower it for a hair trigger.
     pub tip_threshold: f32,
     /// Stylus button (evdev code) that left-clicks while below the threshold.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -473,6 +481,8 @@ impl Default for Preference {
             input_natural_scroll: true,
             input_touch_pan_speed: 1.0,
             input_touch_linear_pan: true,
+            osk_size: 1.0,
+            osk_world_position: false,
             show_fps: false,
             release_hidden_surfaces: true,
             outputs: Vec::new(),
@@ -509,6 +519,10 @@ pub fn normalize(mut p: Preference) -> Preference {
         p.input_touch_pan_speed = 1.0;
     }
     p.input_touch_pan_speed = p.input_touch_pan_speed.clamp(0.1, 4.0);
+    if !p.osk_size.is_finite() || p.osk_size <= 0.0 {
+        p.osk_size = 1.0;
+    }
+    p.osk_size = p.osk_size.clamp(0.6, 1.4);
     // Keyboard migration: an old file has `layout`/`variant`/`options` but no
     // `layouts`/`switch`. Seed the ordered list from the comma-separated `layout`
     // and recover a preset switch from a known `grp:` option, then clear the legacy

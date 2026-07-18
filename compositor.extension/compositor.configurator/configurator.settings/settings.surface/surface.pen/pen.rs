@@ -277,17 +277,17 @@ pub fn build<'a>(cfg: &PenConfig, capturing: bool) -> El<'a> {
 
     rows.push(section("DIAL", "Default forwards the tablet-v2 dial (and zooms while the hand tool is on). Remap to a modifier + wheel for apps without tablet-v2 (e.g. Alt+Wheel = brush size)."));
     rows.push(dial_row(cfg));
-    rows.push(section("LIGHT TOUCH", "Use the pen as a plain cursor/mouse — it never draws (no tablet pen up/down); the barrel buttons click."));
+    rows.push(section("PRESSURE PEN-DOWN", "Decide pen-down from real pressure instead of the driver's tip — for tablets that report \"pen down\" on mere detection. Below the threshold the pen hovers; above it draws/clicks."));
 
-    // Light-touch toggle.
+    // Toggle: derive pen-down from pressure.
     {
         let c = cfg.clone();
         rows.push(
             container(
                 row![
                     column![
-                        text("Light touch acts as cursor").size(13).color(style::ACCENT),
-                        text("Below the pressure threshold the pen hovers (moves the cursor) instead of drawing.")
+                        text("Pressure controls pen-down").size(13).color(style::ACCENT),
+                        text("Ignore the driver's tip event; the pen is down only at/above the pressure below.")
                             .size(11)
                             .color(style::MUTED),
                     ]
@@ -308,13 +308,13 @@ pub fn build<'a>(cfg: &PenConfig, capturing: bool) -> El<'a> {
     }
 
     if cfg.below_threshold_cursor {
-        // Threshold slider.
+        // Pen-down pressure threshold.
         let c = cfg.clone();
         rows.push(
             container(
                 column![
                     row![
-                        text("Left-click pressure").size(12).color(style::MUTED).width(Length::Fill),
+                        text("Pen-down pressure").size(12).color(style::MUTED).width(Length::Fill),
                         text(format!("{:.0}%", cfg.tip_threshold * 100.0)).size(12).color(style::ACCENT),
                     ]
                     .align_y(Alignment::Center)
@@ -330,7 +330,7 @@ pub fn build<'a>(cfg: &PenConfig, capturing: bool) -> El<'a> {
             .width(Length::Fill)
             .into(),
         );
-        rows.push(section("IN-PEN CLICKS", "Which barrel button clicks while the pen is a cursor."));
+        rows.push(section("IN-PEN CLICKS", "Which barrel button clicks while the pen is below the threshold (a hovering cursor)."));
         rows.push(click_row(cfg, "Left click", cfg.below_left, |x, v| x.below_left = v));
         rows.push(click_row(cfg, "Right click", cfg.below_right, |x, v| x.below_right = v));
     }

@@ -82,10 +82,6 @@ pub struct TabletState {
     /// release fire even if the pen has since crossed onto a tablet-aware surface,
     /// so a held barrel button never gets stuck.
     emulated_buttons: Vec<(u32, u32)>,
-    /// Physical tip contact (libinput tip down/up). In below-threshold cursor mode
-    /// the draw stroke is derived from pressure crossing the threshold *while this is
-    /// set*, instead of from the raw tip event.
-    pub phys_tip: bool,
     /// Last pen physical-screen position, for the Hand-tool pan delta. Reset on
     /// proximity-out.
     pub last_pen_screen: Option<Point<f64, Physical>>,

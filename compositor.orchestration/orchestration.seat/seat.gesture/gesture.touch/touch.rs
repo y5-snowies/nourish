@@ -106,6 +106,10 @@ pub struct TouchTracker {
     /// differs by modality — e.g. the selection toolbar's placement — follow the
     /// device actually in use rather than the sticky tool-mode or the pane's visibility.
     pub last_input_touch: bool,
+    /// Last input was the PEN (tablet tool). Distinct from `last_input_touch` (the pen
+    /// is deliberately "non-touch" for the selection toolbar), but touch OR pen is the
+    /// DIRECT modality that auto-summons the on-screen keyboard.
+    pub last_input_pen: bool,
 }
 
 impl TouchTracker {

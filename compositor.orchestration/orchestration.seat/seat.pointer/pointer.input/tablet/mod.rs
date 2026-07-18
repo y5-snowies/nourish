@@ -43,3 +43,10 @@ pub fn hand_active(l: &Loop) -> bool {
 pub fn select_active(l: &Loop) -> bool {
     l.inner.touch.tool_mode == TouchMode::Select
 }
+
+/// Should the dial zoom right now? True in the Hand tool OR while a canvas pan is in
+/// progress — there's no other sensible dial action mid-pan, so the dial always zooms
+/// then (e.g. pan with the pen, then spin the dial to zoom).
+pub fn dial_zoom_active(l: &Loop) -> bool {
+    hand_active(l) || l.inner.canvas().position_updating
+}

@@ -3205,6 +3205,7 @@ dependencies = [
  "compositor_y5_lock_state_base",
  "compositor_y5_lock_system_base",
  "compositor_y5_navigator_state_base",
+ "compositor_y5_osk_board_state",
  "compositor_y5_overview_state_base",
  "compositor_y5_placeholder_state_base",
  "compositor_y5_placeholder_system_base",
@@ -5535,6 +5536,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_y5_osk_board_state"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_system_storage_token_base",
+]
+
+[[package]]
+name = "compositor_y5_osk_board_view"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_selection_font_base",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
+]
+
+[[package]]
 name = "compositor_y5_overview_state_base"
 version = "0.0.1"
 dependencies = [
@@ -5716,6 +5734,7 @@ dependencies = [
  "compositor_y5_group_surface_base",
  "compositor_y5_launcher_protocol_message",
  "compositor_y5_lock_interface_surface",
+ "compositor_y5_osk_board_view",
  "compositor_y5_overview_state_base",
  "compositor_y5_picker_surface_view",
  "compositor_y5_placeholder_protocol_base",

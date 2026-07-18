@@ -121,20 +121,73 @@ pub fn input_received<I: InputBackend>(event: &I::KeyboardKeyEvent, _loop: &mut 
     // the pre-P2 intercept semantics — shortcuts no longer leak to the focused
     // client. (P3, document/SMITHAY_DECOUPLING.md.)
     let keyboard = _loop.state.seat.seat.get_keyboard().unwrap();
-    let ((keysym, modifiers), mods_changed) = keyboard.input_intercept(
+    // Resolve TWO keysyms in one xkb pass. `keysym` = the active-layout MODIFIED sym —
+    // what the user is TYPING (fed to iced text fields; clients re-resolve from the
+    // keycode). `shortcut_sym` = a layout-AGNOSTIC sym (the Latin / base identity of the
+    // physical key) for shortcut + pen-capture matching, so Super+N / Super+F keep
+    // working when the active XKB layout is non-Latin (e.g. `il`) while text entry still
+    // respects the active layout. `raw_latin_sym_or_raw_current_sym` returns the ASCII
+    // sym from another layout when the active one is non-Latin, else the current sym.
+    let ((keysym, shortcut_sym, modifiers), mods_changed) = keyboard.input_intercept(
+        &mut _loop.state,
+        key_code,
+        key_state,
+        |_d, modifiers, handle| {
+            let modified = handle.modified_sym();
+            // Default the shortcut sym to the MODIFIED sym so modifier-produced keysyms
+            // keep working (e.g. Ctrl+Alt+F1 → `XF86Switch_VT_1` for the TTY switch, and
+            // every ASCII binding on a Latin layout). ONLY when the active layout maps
+            // the key to a NON-ASCII printable (a non-Latin letter, e.g. `il`) do we fall
+            // back to the Latin/base sym, so Super+N/Super+F still match there.
+            let shortcut = match modified.key_char() {
+                Some(c) if !c.is_ascii() => {
+                    handle.raw_latin_sym_or_raw_current_sym().unwrap_or(modified)
+                }
+                _ => modified,
+            };
+            (modified, shortcut, *modifiers)
+        },
+    );
+
+    // Pen click-to-bind: while the settings Pen tab is capturing a key, swallow all
+    // keys; the first non-modifier press records the combo (Escape cancels). Uses the
+    // layout-agnostic sym so a captured binding matches regardless of active layout.
+    if capture_pen_key(_loop, key_code, shortcut_sym, key_state, &modifiers) {
+        return;
+    }
+
+    if should_forward::<I>(_loop, keysym, shortcut_sym, key_state, &modifiers) {
+        keyboard.input_forward(&mut _loop.state, key_code, key_state, serial, time, mods_changed);
+    }
+}
+
+/// Inject a synthesized key edge (from the on-screen keyboard) into whatever holds
+/// keyboard focus — a focused compositor ICED surface (a settings text field, etc.)
+/// OR the focused Wayland client — uniformly. The keycode is run through the live xkb
+/// state (`input_intercept`), so it yields the correct keysym/char for the active
+/// layout + held modifiers, exactly like a physical key. Deliberately skips the
+/// shortcut/overlay routing (`should_forward`): OSK keys are text, not compositor
+/// shortcuts. Iced surface focused → dispatch to iced (modifier tracking + char);
+/// otherwise → forward to the focused client.
+pub fn inject_key(_loop: &mut Loop, key_code: Keycode, pressed: bool, time: u32) {
+    let serial = SERIAL_COUNTER.next_serial();
+    let key_state = if pressed { KeyState::Pressed } else { KeyState::Released };
+    let Some(keyboard) = _loop.state.seat.seat.get_keyboard() else { return };
+    let ((keysym, _modifiers), mods_changed) = keyboard.input_intercept(
         &mut _loop.state,
         key_code,
         key_state,
         |_d, modifiers, handle| (handle.modified_sym(), *modifiers),
     );
-
-    // Pen click-to-bind: while the settings Pen tab is capturing a key, swallow all
-    // keys; the first non-modifier press records the combo (Escape cancels).
-    if capture_pen_key(_loop, key_code, keysym, key_state, &modifiers) {
-        return;
-    }
-
-    if should_forward::<I>(_loop, keysym, key_state, &modifiers) {
+    let iced_focused = _loop
+        .inner
+        .surface()
+        .registry
+        .as_ref()
+        .is_some_and(|r| r.keyboard_focus().is_some());
+    if iced_focused {
+        iced_handle(_loop, keysym, key_state);
+    } else {
         keyboard.input_forward(&mut _loop.state, key_code, key_state, serial, time, mods_changed);
     }
 }
@@ -146,11 +199,14 @@ pub fn input_received<I: InputBackend>(event: &I::KeyboardKeyEvent, _loop: &mut 
 fn should_forward<I: InputBackend>(
     _loop: &mut Loop,
     keysym: Keysym,
+    shortcut_sym: Keysym,
     key_state: KeyState,
     modifiers: &smithay::input::keyboard::ModifiersState,
 ) -> bool {
+    // Shortcut matchers (overlay + canvas) get the layout-agnostic `shortcut_sym`; iced
+    // TEXT sinks below get `keysym` (the active-layout char being typed).
     if compositor_y5_overlay_interface_keyboard::keyboard::input_received::<I>(
-        _loop, keysym, key_state, modifiers,
+        _loop, shortcut_sym, key_state, modifiers,
     ) {
         return false; // overlay shortcut consumed it
     }
@@ -181,7 +237,7 @@ fn should_forward<I: InputBackend>(
     }
 
     let shortcut_intercept =
-        compositor_y5_canvas_input_keyboard::keyboard::input_received(key_state, modifiers, keysym, _loop)
+        compositor_y5_canvas_input_keyboard::keyboard::input_received(key_state, modifiers, shortcut_sym, _loop)
             .is_none();
     if shortcut_intercept {
         return false;
