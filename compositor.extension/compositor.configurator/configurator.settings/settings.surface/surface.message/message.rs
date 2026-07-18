@@ -1,7 +1,7 @@
 //! The settings-window message type, shared by the view + tab builders + the
 //! surface protocol/handler. iced-free so the protocol crate can name it.
 use compositor_developer_environment_config_base::base::Environment;
-use compositor_developer_environment_preference_base::base::{Ime, KeyboardLayout};
+use compositor_developer_environment_preference_base::base::{Ime, KeyboardLayout, PenBindTarget, PenConfig};
 use compositor_orchestration_driver_output_base::base::{ApplyResult, DisplayInfo, ModeInfo, TouchDeviceInfo};
 
 /// A provisional per-monitor mode change the user can Keep/Revert: the target
@@ -29,6 +29,8 @@ pub enum InputTab {
     Touch,
     /// Keyboard shortcut bindings.
     Keyboard,
+    /// Pen / tablet overrides (stylus buttons, dial, pressure threshold).
+    Pen,
 }
 
 /// The settings modules shown in the sidebar (design: SYSTEM CONFIGURATION).
@@ -63,6 +65,7 @@ impl Tab {
             // Extend past the original range so existing persisted indices (Mouse = 2)
             // stay stable; only the two new Input sub-tabs claim fresh slots.
             Tab::Input(InputTab::Touch) => 11, Tab::Input(InputTab::Keyboard) => 12,
+            Tab::Input(InputTab::Pen) => 13,
         }
     }
     pub fn from_index(i: u8) -> Self {
@@ -71,6 +74,7 @@ impl Tab {
             5 => Tab::Performance, 6 => Tab::System, 7 => Tab::Misc, 8 => Tab::World,
             9 => Tab::Graphics, 10 => Tab::Language,
             11 => Tab::Input(InputTab::Touch), 12 => Tab::Input(InputTab::Keyboard),
+            13 => Tab::Input(InputTab::Pen),
             _ => Tab::Display,
         }
     }
@@ -260,4 +264,18 @@ pub enum SettingsMessage {
     LangPickerOpen(bool),
     /// UI-LOCAL (Language tab): the layout-picker search query.
     LangSearch(String),
+    /// A full edited pen/tablet config (Pen tab) to persist to preferences.json AND
+    /// apply live (forwarded). Carries the whole `PenConfig` so every control shares
+    /// one variant.
+    SetPen(PenConfig),
+    /// Pen tab: start capturing the next keyboard combo to bind to `target`
+    /// (forwarded: arms the compositor's capture, which applies the result + syncs).
+    PenCaptureKey(PenBindTarget),
+    /// Pen tab: start capturing the next pad button press (forwarded).
+    PenCapturePad,
+    /// Pen tab: cancel an in-progress capture (forwarded).
+    PenCaptureCancel,
+    /// The live pen config, pushed by the reconciler (UI-local) after a capture applies
+    /// it compositor-side, so the tab reflects the new binding.
+    SyncPen(PenConfig),
 }

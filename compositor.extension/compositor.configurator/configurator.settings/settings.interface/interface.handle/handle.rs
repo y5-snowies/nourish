@@ -9,7 +9,7 @@ use compositor_orchestration_driver_output_base::base::{ActiveRevert, ApplyResul
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use compositor_orchestration_driver_settings_base::base::SETTINGS_MUT;
+use compositor_orchestration_driver_settings_base::base::{PenCapture, SETTINGS_MUT};
 use compositor_configurator_settings_surface_message::message::{SettingsMessage, Tab};
 use compositor_configurator_network_backend_base::base::{self as wifi, WifiCmd};
 use compositor_configurator_bluetooth_backend_base::base::{self as bt, BtCmd};
@@ -111,6 +111,27 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
             // the kernel-readable global, so the renderer applies it live.
             state.inner.preference.graphics = g;
             let _ = pref::save(&state.inner.preference);
+        }
+        SettingsMessage::SetPen(p) => {
+            // The input handlers read `preference.pen` live per event, so this applies
+            // immediately; save persists it for the next launch.
+            state.inner.preference.pen = p;
+            let _ = pref::save(&state.inner.preference);
+        }
+        // Pen click-to-bind: arm/disarm the capture the input handlers watch. The
+        // reconciler applies the captured result to the live pen config + syncs the UI.
+        SettingsMessage::PenCaptureKey(target) => {
+            let st = state.inner.kernel.get_mut(&SETTINGS_MUT);
+            st.pen_capture = PenCapture::Key;
+            st.pen_capture_target = Some(target);
+        }
+        SettingsMessage::PenCapturePad => {
+            state.inner.kernel.get_mut(&SETTINGS_MUT).pen_capture = PenCapture::Pad;
+        }
+        SettingsMessage::PenCaptureCancel => {
+            let st = state.inner.kernel.get_mut(&SETTINGS_MUT);
+            st.pen_capture = PenCapture::None;
+            st.pen_capture_target = None;
         }
         SettingsMessage::NaturalScroll(b) => {
             state.inner.preference.input_natural_scroll = b;
@@ -420,6 +441,8 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
         | SettingsMessage::WifiPassword(_)
         // Language-tab layout picker open/search: UI-local, handled only in the view.
         | SettingsMessage::LangPickerOpen(_)
-        | SettingsMessage::LangSearch(_) => {}
+        | SettingsMessage::LangSearch(_)
+        // Pushed straight to the surface by the reconciler (never forwarded here).
+        | SettingsMessage::SyncPen(_) => {}
     }
 }

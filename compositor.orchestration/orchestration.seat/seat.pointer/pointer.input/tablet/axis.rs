@@ -1,20 +1,54 @@
 //! `zwp_tablet_tool_v2` axis events (motion + pressure/distance/tilt/rotation/
 //! slider/wheel). Changed axes are queued and flushed on the next motion (protocol
-//! requirement). If the stroke is `Pan`, the pen drives the canvas instead of a
-//! client; otherwise motion + axes forward to the tablet-aware surface under it.
+//! requirement); motion + axes forward to the tablet-aware surface under the pen.
+//! Under the Hand or Select tool the pen drives the CANVAS (glide-pan / rubber-band)
+//! via the pointer bus and forwards nothing to tablet clients.
 
 use smithay::backend::input::{Event, InputBackend, TabletToolAxisEvent, TabletToolEvent};
 use smithay::utils::SERIAL_COUNTER;
 use smithay::wayland::tablet_manager::TabletDescriptor;
+use compositor_support_smithay_dispatch_wire_tablet::tablet::Stroke;
 use compositor_orchestration_core_state_base::Loop;
-use crate::tablet::{client, coords, cursor};
+use crate::tablet::{client, coords, cursor, hand_active, select_active, tip};
 
 pub fn axis<I: InputBackend>(event: &I::TabletToolAxisEvent, _loop: &mut Loop) {
     let tool = event.tool();
     let device = event.device();
     let tablet = TabletDescriptor::from(&device);
     let time = event.time_msec();
-    let (_, world) = coords::world::<I, _>(event, _loop);
+    let (screen, world) = coords::world::<I, _>(event, _loop);
+
+    // Hand / Select tools: the pen navigates the canvas via the pointer bus, not
+    // tablet events. Cursor tracks the pen; in a Pan stroke, glide-pan by the pen's
+    // physical-screen delta (like the touch Hand tool's finger glide).
+    if hand_active(_loop) || select_active(_loop) {
+        let last = _loop.state.tablet.last_pen_screen;
+        _loop.state.tablet.last_pen_screen = Some(screen);
+        cursor::follow(_loop, screen, world, time);
+        if _loop.state.tablet.stroke == Stroke::Pan {
+            if let Some(last) = last {
+                crate::touch::emulate::pan(_loop, screen.x - last.x, screen.y - last.y, false);
+            }
+        }
+        return;
+    }
+
+    // Light-touch mode: the pen is a pure cursor/mouse. Move the cursor, gate the
+    // emulated left button on pressure crossing `tip_threshold`, and forward NO tablet
+    // events — so the tablet never sees pen up/down (or motion) in this mode.
+    if _loop.inner.preference.pen.below_threshold_cursor {
+        cursor::follow(_loop, screen, world, time);
+        if _loop.state.tablet.phys_tip {
+            let above = event.pressure() >= _loop.inner.preference.pen.tip_threshold as f64;
+            let pressing = _loop.state.tablet.stroke != Stroke::None;
+            if above && !pressing {
+                tip::start_draw(_loop, &tool, screen, world, time);
+            } else if !above && pressing {
+                tip::end_draw(_loop, &tool, time);
+            }
+        }
+        return;
+    }
 
     if event.pressure_has_changed() {
         _loop.state.tablet.tool_pressure(&tool, event.pressure());
@@ -38,9 +72,10 @@ pub fn axis<I: InputBackend>(event: &I::TabletToolAxisEvent, _loop: &mut Loop) {
             .tool_wheel(&tool, event.wheel_delta(), event.wheel_delta_discrete());
     }
 
-    // Cursor follows the pen, then native tool motion (+ queued axes) is forwarded
-    // to the tablet-aware surface under it (or `None` ⇒ the tool leaves it).
-    cursor::follow(_loop, world, time);
+    // Cursor follows the pen (and drives the canvas via the bus), then native tool
+    // motion (+ queued axes) forwards to the tablet-aware surface under it.
+    cursor::follow(_loop, screen, world, time);
+
     let focus = client::tablet_focus(_loop, world);
     let serial = SERIAL_COUNTER.next_serial();
     _loop

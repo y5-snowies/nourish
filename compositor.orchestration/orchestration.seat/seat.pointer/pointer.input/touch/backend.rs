@@ -19,6 +19,9 @@ pub const BTN_LEFT: u32 = 0x110;
 /// BTN_RIGHT from `<linux/input-event-codes.h>`; a 2-finger tap (pointer mode)
 /// emulates a right click.
 pub const BTN_RIGHT: u32 = 0x111;
+/// BTN_MIDDLE from `<linux/input-event-codes.h>`; the pen's upper barrel button
+/// emulates a middle click on non-tablet targets.
+pub const BTN_MIDDLE: u32 = 0x112;
 
 /// Zero-variant marker backend. Never instantiated; it exists only to carry the
 /// associated event types below so the generic pointer handlers can be reused.

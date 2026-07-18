@@ -47,6 +47,14 @@ pub fn release(_loop: &mut compositor_orchestration_core_state_base::Loop, time:
     );
 }
 
+/// Emulate a pointer button press/release with an explicit button code at the
+/// current pointer location (the pen's barrel-button mouse emulation on non-tablet
+/// targets).
+pub fn button(_loop: &mut compositor_orchestration_core_state_base::Loop, button: u32, pressed: bool, time: u32) {
+    let state = if pressed { ButtonState::Pressed } else { ButtonState::Released };
+    crate::button::button::<TouchEmu>(&BtnEvent { time, state, button }, _loop);
+}
+
 /// Emulate a full right-button click (press + release) at the current pointer
 /// location — the pointer-mode 2-finger tap.
 pub fn right_click(_loop: &mut compositor_orchestration_core_state_base::Loop, time: u32) {

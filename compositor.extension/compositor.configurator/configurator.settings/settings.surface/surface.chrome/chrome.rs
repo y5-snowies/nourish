@@ -25,7 +25,9 @@ use compositor_configurator_settings_surface_style::style;
 use compositor_configurator_settings_surface_control::control;
 use compositor_configurator_settings_surface_world::world;
 use compositor_configurator_settings_surface_graphics::graphics;
+use compositor_configurator_settings_surface_pen::pen;
 use compositor_developer_environment_graphics_base::base::GraphicsAaConfig;
+use compositor_developer_environment_preference_base::base::PenConfig;
 use iced_core::{Alignment, Element, Length, Padding, Theme};
 use iced_widget::{button, column, container, row, scrollable, slider, text, toggler, Column, Row};
 
@@ -88,7 +90,8 @@ fn performance<'a>(fps: u32, show_fps: bool, release_hidden: bool) -> El<'a> {
 /// selected sub-tab's body. The sub-tab is carried in `Tab::Input`, so it persists.
 fn input_body<'a>(
     sub: InputTab, cursor_sensitivity: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool,
-    keys: &'a [KeyRow], touch_devices: &'a [TouchDeviceInfo], displays: &'a [DisplayInfo],
+    keys: &'a [KeyRow], touch_devices: &'a [TouchDeviceInfo], displays: &'a [DisplayInfo], pen: &'a PenConfig,
+    pen_capturing: bool,
 ) -> El<'a> {
     let tab = |label: &'a str, t: InputTab| -> El<'a> {
         button(text(label).size(13))
@@ -100,11 +103,13 @@ fn input_body<'a>(
     let bar = row![
         tab("Mouse & Touchpad", InputTab::Mouse),
         tab("Touch", InputTab::Touch),
+        tab("Pen", InputTab::Pen),
         tab("Keyboard", InputTab::Keyboard),
     ].spacing(6);
     let body: El<'a> = match sub {
         InputTab::Mouse => cursor::build(cursor_sensitivity, natural),
         InputTab::Touch => touch_input(touch_pan_speed, touch_linear_pan, touch_devices, displays),
+        InputTab::Pen => pen::build(pen, pen_capturing),
         InputTab::Keyboard => keybinds::build(keys),
     };
     column![bar, body].spacing(16).height(Length::Fill).into()
@@ -186,11 +191,13 @@ pub fn render<'a>(
     preview_source: &'a str, shader_status: Option<&'a str>,
     invert_pan_x: bool, invert_pan_y: bool, srgb: bool,
     graphics: &'a GraphicsAaConfig,
+    pen: &'a PenConfig,
+    pen_capturing: bool,
 ) -> El<'a> {
     let body: El<'a> = match tab {
         Tab::Display => display::build(displays, touch_devices, active_edid, selected_display, selected_mode, confirming, pending, staged_active, layout, selected_placement, cyclic, selected_inactive),
         Tab::Audio => audio_tab::build(audio),
-        Tab::Input(sub) => input_body(sub, cursor_sensitivity, natural, touch_pan_speed, touch_linear_pan, keys, touch_devices, displays),
+        Tab::Input(sub) => input_body(sub, cursor_sensitivity, natural, touch_pan_speed, touch_linear_pan, keys, touch_devices, displays, pen, pen_capturing),
         Tab::Network => network_tab::build(wifi, wifi_selected, wifi_password),
         Tab::Bluetooth => bluetooth_tab::build(bt),
         Tab::Performance => performance(fps, show_fps, release_hidden),

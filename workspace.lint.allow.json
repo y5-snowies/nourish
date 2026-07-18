@@ -387,6 +387,9 @@
   "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.graphics": [
     "size"
   ],
+  "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.pen": [
+    "size"
+  ],
   "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.chrome": [
     "size"
   ],

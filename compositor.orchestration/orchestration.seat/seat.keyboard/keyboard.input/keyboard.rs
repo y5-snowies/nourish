@@ -44,6 +44,52 @@ fn is_modifier_keysym(raw: u32) -> bool {
     matches!(raw, 0xffe1..=0xffee | 0xff7f | 0xfe01..=0xfe13)
 }
 
+/// Escape keysym — cancels a pen key-bind capture.
+const KEY_ESCAPE: u32 = 0xff1b;
+
+/// The evdev+8 (xkb) keycodes of the LEFT modifiers held, in a stable order — for a
+/// captured combo, replayed by the injector (`tablet/inject.rs`).
+fn modifier_keycodes(m: &smithay::input::keyboard::ModifiersState) -> Vec<u32> {
+    let mut v = Vec::new();
+    if m.ctrl { v.push(37); }   // LEFTCTRL 29 + 8
+    if m.alt { v.push(64); }    // LEFTALT  56 + 8
+    if m.shift { v.push(50); }  // LEFTSHIFT 42 + 8
+    if m.logo { v.push(133); }  // LEFTMETA 125 + 8
+    v
+}
+
+/// While the settings Pen tab is armed to capture a key, swallow keys and record the
+/// first non-modifier press as a [`KeyBind`] (raw keycode + held modifier keycodes);
+/// Escape cancels. Returns `true` when the key was consumed by capture.
+fn capture_pen_key(
+    _loop: &mut Loop,
+    key_code: Keycode,
+    keysym: Keysym,
+    key_state: KeyState,
+    modifiers: &smithay::input::keyboard::ModifiersState,
+) -> bool {
+    use compositor_orchestration_driver_settings_base::base::{PenCapture, SETTINGS, SETTINGS_MUT};
+    if _loop.inner.kernel.get(&SETTINGS).pen_capture != PenCapture::Key {
+        return false;
+    }
+    if key_state == KeyState::Pressed {
+        let raw = keysym.raw();
+        if raw == KEY_ESCAPE {
+            _loop.inner.kernel.get_mut(&SETTINGS_MUT).pen_capture = PenCapture::None;
+        } else if !is_modifier_keysym(raw) {
+            let bind = compositor_developer_environment_preference_base::base::KeyBind {
+                mods: modifier_keycodes(modifiers),
+                key: key_code.raw(),
+                hold: false,
+            };
+            let st = _loop.inner.kernel.get_mut(&SETTINGS_MUT);
+            st.pen_capture = PenCapture::None;
+            st.pen_captured_key = Some(bind);
+        }
+    }
+    true // swallow every key while capturing (no forward, no shortcuts)
+}
+
 pub fn input_received<I: InputBackend>(event: &I::KeyboardKeyEvent, _loop: &mut Loop) {
     let serial = SERIAL_COUNTER.next_serial();
     let time = Event::time_msec(event);
@@ -81,6 +127,12 @@ pub fn input_received<I: InputBackend>(event: &I::KeyboardKeyEvent, _loop: &mut 
         key_state,
         |_d, modifiers, handle| (handle.modified_sym(), *modifiers),
     );
+
+    // Pen click-to-bind: while the settings Pen tab is capturing a key, swallow all
+    // keys; the first non-modifier press records the combo (Escape cancels).
+    if capture_pen_key(_loop, key_code, keysym, key_state, &modifiers) {
+        return;
+    }
 
     if should_forward::<I>(_loop, keysym, key_state, &modifiers) {
         keyboard.input_forward(&mut _loop.state, key_code, key_state, serial, time, mods_changed);

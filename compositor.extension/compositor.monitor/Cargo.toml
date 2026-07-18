@@ -116,6 +116,7 @@ compositor_configurator_settings_surface_keys = { path = "../compositor.configur
 compositor_configurator_settings_surface_language = { path = "../compositor.configurator/configurator.settings/settings.surface/surface.language" }
 compositor_configurator_settings_surface_message = { path = "../compositor.configurator/configurator.settings/settings.surface/surface.message" }
 compositor_configurator_settings_surface_misc = { path = "../compositor.configurator/configurator.settings/settings.surface/surface.misc" }
+compositor_configurator_settings_surface_pen = { path = "../compositor.configurator/configurator.settings/settings.surface/surface.pen" }
 compositor_configurator_settings_surface_preview = { path = "../compositor.configurator/configurator.settings/settings.surface/surface.preview" }
 compositor_configurator_settings_surface_style = { path = "../compositor.configurator/configurator.settings/settings.surface/surface.style" }
 compositor_configurator_settings_surface_view = { path = "../compositor.configurator/configurator.settings/settings.surface/surface.view" }

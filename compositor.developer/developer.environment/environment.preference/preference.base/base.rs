@@ -6,6 +6,7 @@
 //! with [`save`]; applied live, no reboot.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// A per-output mode preference keyed by EDID identity. `Advertised` is the only
@@ -176,6 +177,10 @@ pub struct Preference {
     /// Edited on the same (Misc) tab.
     #[serde(default)]
     pub protocol_foreign_all_worlds: bool,
+    /// Pen / tablet overrides (Settings → Pen). Applied live. Empty by default, so a
+    /// stock tablet keeps its driver defaults until the user binds something.
+    #[serde(default)]
+    pub pen: PenConfig,
 }
 
 /// Default for `protocol_foreign`: `"disabled"` — off unless the user opts in, so
@@ -304,6 +309,152 @@ impl LayoutSwitch {
     }
 }
 
+// ── Pen / tablet configuration (Settings → Pen) ────────────────────────────────
+// Most tablets ship no Linux configurator, so y5 lets the user override the driver
+// defaults per control. Every override is opt-in: an absent binding (or
+// `PenAction::Passthrough`) keeps the native driver / tablet-v2 behavior, so a
+// stock-configured tablet is untouched.
+
+/// A pointer button a pen/pad control can emulate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PenButton {
+    Left,
+    Right,
+    Middle,
+}
+
+impl PenButton {
+    /// evdev button code (`<linux/input-event-codes.h>`).
+    pub fn code(self) -> u32 {
+        match self {
+            PenButton::Left => 0x110,
+            PenButton::Right => 0x111,
+            PenButton::Middle => 0x112,
+        }
+    }
+}
+
+/// A captured keyboard combo, stored as evdev keycodes so injection replays it
+/// without an xkb keysym lookup. `hold = true` presses on the trigger's press and
+/// releases on its release (a held chord); `false` fires a full press+release tap.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct KeyBind {
+    /// Modifier keycodes held around `key` (e.g. LEFTALT=56), pressed first.
+    pub mods: Vec<u32>,
+    /// The main evdev keycode.
+    pub key: u32,
+    pub hold: bool,
+}
+
+/// What a pad button, stylus button, or the dial is remapped to. `Passthrough`
+/// (the default for every control) keeps the native tablet-v2 / driver behavior.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum PenAction {
+    /// Keep native behavior (forward the protocol event / driver default).
+    Passthrough,
+    /// Toggle the canvas Hand grab (navigation mode).
+    ToggleHandMode,
+    /// Open the touch pane ("touch menu").
+    OpenTouchMenu,
+    /// Emulate a pointer button.
+    Click(PenButton),
+    /// Inject a keyboard combo into the focused client.
+    Key(KeyBind),
+    /// Dial only: zoom the canvas (independent of hand mode).
+    Zoom,
+    /// Dial only: emit a scroll wheel, optionally with held modifier keycodes — e.g.
+    /// `Alt`+Wheel for apps without tablet-v2 (brush size). Empty `mods` = plain wheel.
+    Wheel { mods: Vec<u32> },
+}
+
+impl Default for PenAction {
+    fn default() -> Self {
+        PenAction::Passthrough
+    }
+}
+
+/// Per-tablet overrides of the driver defaults. Serialized in `preferences.json`;
+/// `#[serde(default)]` keeps older files loading. Maps are keyed by stringified
+/// codes (JSON object keys) and are empty by default (⇒ every control passes through).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PenConfig {
+    /// Pad-button overrides, keyed `"<device-sysname>\u{1f}<button-index>"`.
+    pub pad_buttons: HashMap<String, PenAction>,
+    /// Stylus barrel-button overrides, keyed by evdev button code as text. Absent ⇒
+    /// the built-in default (lower barrel → right-click, upper → middle-click).
+    pub stylus_buttons: HashMap<String, PenAction>,
+    /// Dial-turn override. `Passthrough` still zooms while the Hand grab is held.
+    pub dial: PenAction,
+    /// "Light touch" mode: the pen behaves as a plain cursor/mouse and never emits
+    /// tablet pen up/down — below `tip_threshold` it hovers (moves the cursor); at/above
+    /// it emulates a left button (a mouse drag/click), not a `zwp_tablet_tool_v2` tip.
+    /// Off by default, so the pen is a normal tablet stylus.
+    pub below_threshold_cursor: bool,
+    /// Pressure (0..1) below which the pen is a hovering cursor (only when the toggle
+    /// is on); at/above it, the emulated left button is held.
+    pub tip_threshold: f32,
+    /// Stylus button (evdev code) that left-clicks while below the threshold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub below_left: Option<u32>,
+    /// Stylus button (evdev code) that right-clicks while below the threshold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub below_right: Option<u32>,
+}
+
+impl PenConfig {
+    /// U+001F unit separator joining device + button in a `pad_buttons` key (neither
+    /// a sysname nor a decimal button index contains it).
+    pub fn pad_key(device: &str, button: u32) -> String {
+        format!("{device}\u{1f}{button}")
+    }
+
+    /// The action bound to a pad button, or `Passthrough` if unbound.
+    pub fn pad_action(&self, device: &str, button: u32) -> PenAction {
+        self.pad_buttons
+            .get(&Self::pad_key(device, button))
+            .cloned()
+            .unwrap_or(PenAction::Passthrough)
+    }
+
+    /// The action bound to a stylus barrel button, or `Passthrough` if unbound.
+    pub fn stylus_action(&self, button: u32) -> PenAction {
+        self.stylus_buttons
+            .get(&button.to_string())
+            .cloned()
+            .unwrap_or(PenAction::Passthrough)
+    }
+
+    /// Bind a captured key combo to `target` (Settings → Pen click-to-bind).
+    pub fn set_key_bind(&mut self, target: &PenBindTarget, bind: KeyBind) {
+        let action = PenAction::Key(bind);
+        match target {
+            PenBindTarget::Stylus(code) => {
+                self.stylus_buttons.insert(code.to_string(), action);
+            }
+            PenBindTarget::Pad { device, button } => {
+                self.pad_buttons.insert(Self::pad_key(device, *button), action);
+            }
+        }
+    }
+
+    /// Register a captured pad button (default action) so it appears as a bindable row.
+    pub fn add_pad_button(&mut self, device: &str, button: u32) {
+        self.pad_buttons
+            .entry(Self::pad_key(device, button))
+            .or_insert(PenAction::OpenTouchMenu);
+    }
+}
+
+/// Which pen control a captured key combo binds to (Settings → Pen click-to-bind).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PenBindTarget {
+    /// A stylus barrel button, by evdev code.
+    Stylus(u32),
+    /// A pad button, by device sysname + button index.
+    Pad { device: String, button: u32 },
+}
+
 /// The input-method program y5 launches, e.g. `{ "exec": "fcitx5", "args": ["-r"] }`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Ime {
@@ -334,6 +485,7 @@ impl Default for Preference {
             graphics: compositor_developer_environment_graphics_base::base::GraphicsAaConfig::default(),
             protocol_foreign: default_protocol_foreign(),
             protocol_foreign_all_worlds: false,
+            pen: PenConfig::default(),
         }
     }
 }
@@ -371,6 +523,11 @@ pub fn normalize(mut p: Preference) -> Preference {
     k.layout.clear();
     k.variant.clear();
     k.options.clear();
+    // Keep a hand-edited pen threshold in the valid pressure range.
+    if !p.pen.tip_threshold.is_finite() {
+        p.pen.tip_threshold = 0.0;
+    }
+    p.pen.tip_threshold = p.pen.tip_threshold.clamp(0.0, 1.0);
     p
 }
 

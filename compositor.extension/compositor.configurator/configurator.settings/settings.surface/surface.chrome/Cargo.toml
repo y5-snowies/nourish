@@ -14,6 +14,7 @@ compositor_configurator_settings_surface_misc = { workspace = true }
 compositor_configurator_settings_surface_language = { workspace = true }
 compositor_configurator_settings_surface_world = { workspace = true }
 compositor_configurator_settings_surface_graphics = { workspace = true }
+compositor_configurator_settings_surface_pen = { workspace = true }
 compositor_developer_environment_graphics_base = { workspace = true }
 compositor_developer_environment_preference_base = { workspace = true }
 compositor_configurator_hardware_gpu_base = { workspace = true }

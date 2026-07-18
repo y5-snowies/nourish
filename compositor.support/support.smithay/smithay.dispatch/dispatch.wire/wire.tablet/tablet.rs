@@ -28,12 +28,16 @@ use smithay::reexports::wayland_protocols::wp::tablet::zv2::server::{
     zwp_tablet_tool_v2::{self, ZwpTabletToolV2},
     zwp_tablet_v2::ZwpTabletV2,
 };
+use smithay::input::pointer::{CursorImageAttributes, CursorImageStatus};
 use smithay::reexports::wayland_server::{
     backend::ObjectId, protocol::wl_surface::WlSurface, Client, Dispatch, DisplayHandle,
     GlobalDispatch, Resource, Weak,
 };
-use smithay::utils::{Logical, Point, Serial};
+use smithay::utils::{Logical, Physical, Point, Serial};
+use smithay::wayland::compositor;
+use smithay::wayland::seat::CURSOR_IMAGE_ROLE;
 use smithay::wayland::tablet_manager::TabletDescriptor;
+use std::sync::Mutex;
 
 pub use smithay::reexports::wayland_protocols::wp::tablet::zv2::server::zwp_tablet_manager_v2::ZwpTabletManagerV2;
 
@@ -53,6 +57,8 @@ pub enum Stroke {
     Tablet,
     /// Contact elsewhere → emulated pointer button (pen acts as a mouse).
     Pointer,
+    /// Hand (navigation) tool → the tip-drag glide-pans the world (no draw/click).
+    Pan,
 }
 
 /// Everything the compositor knows about tablets/tools for its single seat.
@@ -68,6 +74,21 @@ pub struct TabletState {
     pads: HashMap<String, Pad>,
     /// Current stroke role (latched at tip-down; see [`Stroke`]).
     pub stroke: Stroke,
+    /// True while a tool client's `set_cursor` owns the pointer image. Reset on
+    /// proximity-out so a stale client cursor surface isn't left as the cursor.
+    pub tool_cursor: bool,
+    /// Stylus barrel buttons currently emulating a pointer button on a non-tablet
+    /// target, as (raw stylus button → emulated pointer button). Lets the matching
+    /// release fire even if the pen has since crossed onto a tablet-aware surface,
+    /// so a held barrel button never gets stuck.
+    emulated_buttons: Vec<(u32, u32)>,
+    /// Physical tip contact (libinput tip down/up). In below-threshold cursor mode
+    /// the draw stroke is derived from pressure crossing the threshold *while this is
+    /// set*, instead of from the raw tip event.
+    pub phys_tip: bool,
+    /// Last pen physical-screen position, for the Hand-tool pan delta. Reset on
+    /// proximity-out.
+    pub last_pen_screen: Option<Point<f64, Physical>>,
 }
 
 /// Per-tool live state, mirroring smithay's `TabletTool` (pending axes flushed on
@@ -186,8 +207,9 @@ impl TabletState {
             }
         }
         for pad in self.pads.values_mut() {
-            if let Some((wl, rings, strips, dials)) = create_pad::<D>(client, dh, seat, &pad.desc) {
+            if let Some((wl, groups, rings, strips, dials)) = create_pad::<D>(client, dh, seat, &pad.desc) {
                 pad.pads.push(wl.downgrade());
+                pad.groups.extend(groups);
                 pad.rings.extend(rings);
                 pad.strips.extend(strips);
                 pad.dials.extend(dials);
@@ -270,6 +292,81 @@ impl TabletState {
             .iter()
             .filter_map(|s| s.upgrade().ok())
             .any(|s| s.id().same_client_as(&surface.id()))
+    }
+
+    /// Honor a tool client's `set_cursor` (tablet-only path — logical surface-local
+    /// coords, no per-client cursor scale). Returns the [`CursorImageStatus`] the rim
+    /// should install into `seat.pointer_status`, or `None` to ignore the request when
+    /// the requesting tool isn't currently in proximity over one of its own client's
+    /// surfaces (mirrors smithay's focus / same-client gate on `wl_pointer::set_cursor`).
+    pub fn set_tool_cursor(
+        &mut self,
+        tool: &ZwpTabletToolV2,
+        surface: Option<WlSurface>,
+        hotspot: Point<i32, Logical>,
+    ) -> Option<CursorImageStatus> {
+        let focused = self.tools.values().any(|t| {
+            t.instances.iter().any(|i| i.id() == tool.id())
+                && t.focus
+                    .as_ref()
+                    .is_some_and(|f| f.id().same_client_as(&tool.id()))
+        });
+        if !focused {
+            return None;
+        }
+        match surface {
+            Some(surface) => {
+                // Reject a surface that already carries an incompatible role.
+                if compositor::give_role(&surface, CURSOR_IMAGE_ROLE).is_err()
+                    && compositor::get_role(&surface) != Some(CURSOR_IMAGE_ROLE)
+                {
+                    return None;
+                }
+                compositor::with_states(&surface, |states| {
+                    states
+                        .data_map
+                        .insert_if_missing_threadsafe(|| Mutex::new(CursorImageAttributes { hotspot: (0, 0).into() }));
+                    states
+                        .data_map
+                        .get::<Mutex<CursorImageAttributes>>()
+                        .unwrap()
+                        .lock()
+                        .unwrap()
+                        .hotspot = hotspot;
+                });
+                self.tool_cursor = true;
+                Some(CursorImageStatus::Surface(surface))
+            }
+            None => {
+                self.tool_cursor = true;
+                Some(CursorImageStatus::Hidden)
+            }
+        }
+    }
+
+    /// Take + clear the "a tool owns the cursor" flag (proximity-out reset).
+    pub fn take_tool_cursor(&mut self) -> bool {
+        std::mem::take(&mut self.tool_cursor)
+    }
+
+    /// Is this tool currently in proximity over a tablet-aware surface? (Its focus
+    /// is set only over a `client_has_tablet` surface — see `tool_motion`.) Drives
+    /// whether a stylus barrel button forwards natively or emulates a pointer button.
+    pub fn tool_has_focus(&self, tool: &TabletToolDescriptor) -> bool {
+        self.tools.get(tool).is_some_and(|t| t.focus.is_some())
+    }
+
+    /// Record a barrel button now emulating a pointer button (see `emulated_buttons`).
+    pub fn push_emulated_button(&mut self, raw: u32, mapped: u32) {
+        self.emulated_buttons.push((raw, mapped));
+    }
+
+    /// If `raw` was emulating a pointer button, remove and return the mapped button.
+    pub fn take_emulated_button(&mut self, raw: u32) -> Option<u32> {
+        self.emulated_buttons
+            .iter()
+            .position(|(r, _)| *r == raw)
+            .map(|i| self.emulated_buttons.remove(i).1)
     }
 
     // ── tool event senders (driven by the input handlers) ──────────────────────
@@ -401,21 +498,29 @@ pub struct GroupDesc {
 /// libinput exposes no dial count; probe `has_dial` over a small range (dials are few).
 const MAX_DIALS: u32 = 8;
 
-/// Live pad: the created resources across clients (ring/strip carry their index so
-/// runtime events route to the right object). Focus/enter-leave is not modelled —
-/// button/ring/strip events broadcast to every bound pad (y5 is single-seat).
+/// Live pad: the created resources across clients (group/ring/strip/dial carry
+/// their index so runtime events route to the right object). Pad events are gated
+/// to `focused` — the keyboard-focused client's pad instance — bracketed by
+/// enter/leave (y5 is single-seat, so at most one client is focused at a time).
 #[derive(Default)]
 struct Pad {
     desc: PadDesc,
     pads: Vec<Weak<ZwpTabletPadV2>>,
+    groups: Vec<(usize, Weak<ZwpTabletPadGroupV2>)>,
     rings: Vec<(u32, Weak<ZwpTabletPadRingV2>)>,
     strips: Vec<(u32, Weak<ZwpTabletPadStripV2>)>,
     dials: Vec<(u32, Weak<ZwpTabletPadDialV2>)>,
+    /// The surface this pad is currently focused on (`enter` sent, `leave` pending).
+    focused: Option<WlSurface>,
+    /// Current mode of each mode group (indexed by group index), for `mode_switch`
+    /// dedup + re-announcing the mode to a newly-focused client.
+    group_modes: Vec<u32>,
 }
 
 /// Per-client resources created for one pad, returned by `create_pad`.
 type PadResources = (
     ZwpTabletPadV2,
+    Vec<(usize, Weak<ZwpTabletPadGroupV2>)>,
     Vec<(u32, Weak<ZwpTabletPadRingV2>)>,
     Vec<(u32, Weak<ZwpTabletPadStripV2>)>,
     Vec<(u32, Weak<ZwpTabletPadDialV2>)>,
@@ -474,12 +579,14 @@ where
         .create_resource::<ZwpTabletPadV2, (), D>(dh, seat.version(), ())
         .ok()?;
     seat.pad_added(&pad);
-    let (mut rings, mut strips, mut dials) = (Vec::new(), Vec::new(), Vec::new());
-    for g in &desc.groups {
+    let (mut groups, mut rings, mut strips, mut dials) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for (gi, g) in desc.groups.iter().enumerate() {
         let group = client
             .create_resource::<ZwpTabletPadGroupV2, (), D>(dh, pad.version(), ())
             .ok()?;
         pad.group(&group);
+        groups.push((gi, group.downgrade()));
         for &r in &g.rings {
             if let Ok(ring) = client.create_resource::<ZwpTabletPadRingV2, (), D>(dh, pad.version(), ()) {
                 group.ring(&ring);
@@ -517,7 +624,7 @@ where
         pad.path(path.clone());
     }
     pad.done();
-    Some((pad, rings, strips, dials))
+    Some((pad, groups, rings, strips, dials))
 }
 
 impl TabletState {
@@ -535,13 +642,15 @@ impl TabletState {
             return;
         }
         let mut pad = Pad {
+            group_modes: vec![0; desc.groups.len()],
             desc,
             ..Default::default()
         };
         for seat in self.seats.iter().filter_map(|s| s.upgrade().ok()) {
             if let Ok(client) = dh.get_client(seat.id()) {
-                if let Some((wl, rings, strips, dials)) = create_pad::<D>(&client, dh, &seat, &pad.desc) {
+                if let Some((wl, groups, rings, strips, dials)) = create_pad::<D>(&client, dh, &seat, &pad.desc) {
                     pad.pads.push(wl.downgrade());
+                    pad.groups.extend(groups);
                     pad.rings.extend(rings);
                     pad.strips.extend(strips);
                     pad.dials.extend(dials);
@@ -555,27 +664,73 @@ impl TabletState {
         self.pads.remove(key);
     }
 
-    /// A pad button changed. Broadcast to every bound instance.
+    /// A tablet resource on the surface's client, if any (single-seat fallback for a
+    /// pad's `enter` `tablet` argument — pads and tablets share a device group, but
+    /// libinput doesn't expose that mapping to us).
+    fn first_tablet_for(&self, surface: &WlSurface) -> Option<ZwpTabletV2> {
+        self.tablets
+            .values()
+            .flatten()
+            .find(|t| t.id().same_client_as(&surface.id()))
+            .and_then(|t| t.upgrade().ok())
+    }
+
+    /// Move tablet-pad focus to the keyboard-focused surface (`None` ⇒ clear). Sends
+    /// `leave` to the previously-focused client's pad and `enter` to the new one, so
+    /// pad button/ring/strip/dial/mode events are gated to the focused client. Driven
+    /// from `SeatHandler::focus_changed`.
+    pub fn set_pad_focus(&mut self, focused: Option<WlSurface>, serial: Serial) {
+        let tablet = focused.as_ref().and_then(|s| self.first_tablet_for(s));
+        for pad in self.pads.values_mut() {
+            pad.set_focus(focused.as_ref(), tablet.as_ref(), serial);
+        }
+    }
+
+    /// The libinput-reported mode of a pad mode group changed → announce it to the
+    /// focused client (deduped: a no-op when the mode is unchanged).
+    pub fn pad_mode_switch(&mut self, key: &str, group: usize, mode: u32, serial: Serial, time: u32) {
+        let Some(pad) = self.pads.get_mut(key) else { return };
+        if group >= pad.group_modes.len() {
+            pad.group_modes.resize(group + 1, 0);
+        }
+        if pad.group_modes[group] == mode {
+            return;
+        }
+        pad.group_modes[group] = mode;
+        let Some(surface) = pad.focused.clone() else { return };
+        for wl in pad
+            .groups
+            .iter()
+            .filter(|(g, _)| *g == group)
+            .filter_map(|(_, w)| w.upgrade().ok())
+            .filter(|wl| wl.id().same_client_as(&surface.id()))
+        {
+            wl.mode_switch(time, serial.into(), mode);
+        }
+    }
+
+    /// A pad button changed. Delivered only to the focused client.
     pub fn pad_button(&self, key: &str, button: u32, pressed: bool, time: u32) {
         let Some(pad) = self.pads.get(key) else { return };
+        let Some(wl) = pad.focused_pad() else { return };
         let state = if pressed {
             zwp_tablet_pad_v2::ButtonState::Pressed
         } else {
             zwp_tablet_pad_v2::ButtonState::Released
         };
-        for wl in pad.pads.iter().filter_map(|p| p.upgrade().ok()) {
-            wl.button(time, button, state);
-        }
+        wl.button(time, button, state);
     }
 
-    /// A pad ring moved (`degrees < 0` ⇒ finger lifted → stop).
+    /// A pad ring moved (`degrees < 0` ⇒ finger lifted → stop). Focused client only.
     pub fn pad_ring(&self, key: &str, ring: u32, degrees: f64, finger: bool, time: u32) {
         let Some(pad) = self.pads.get(key) else { return };
+        let Some(surface) = pad.focused.as_ref() else { return };
         for wl in pad
             .rings
             .iter()
             .filter(|(n, _)| *n == ring)
             .filter_map(|(_, w)| w.upgrade().ok())
+            .filter(|wl| wl.id().same_client_as(&surface.id()))
         {
             if finger {
                 wl.source(zwp_tablet_pad_ring_v2::Source::Finger);
@@ -590,13 +745,16 @@ impl TabletState {
     }
 
     /// A pad strip moved (`position < 0` ⇒ finger lifted → stop). `position` 0..1.
+    /// Focused client only.
     pub fn pad_strip(&self, key: &str, strip: u32, position: f64, finger: bool, time: u32) {
         let Some(pad) = self.pads.get(key) else { return };
+        let Some(surface) = pad.focused.as_ref() else { return };
         for wl in pad
             .strips
             .iter()
             .filter(|(n, _)| *n == strip)
             .filter_map(|(_, w)| w.upgrade().ok())
+            .filter(|wl| wl.id().same_client_as(&surface.id()))
         {
             if finger {
                 wl.source(zwp_tablet_pad_strip_v2::Source::Finger);
@@ -610,14 +768,17 @@ impl TabletState {
         }
     }
 
-    /// A pad dial turned. `v120` is high-res delta (120 units per detent).
+    /// A pad dial turned. `v120` is high-res delta (120 units per detent). Focused
+    /// client only.
     pub fn pad_dial(&self, key: &str, dial: u32, v120: i32, time: u32) {
         let Some(pad) = self.pads.get(key) else { return };
+        let Some(surface) = pad.focused.as_ref() else { return };
         for wl in pad
             .dials
             .iter()
             .filter(|(n, _)| *n == dial)
             .filter_map(|(_, w)| w.upgrade().ok())
+            .filter(|wl| wl.id().same_client_as(&surface.id()))
         {
             wl.delta(v120);
             wl.frame(time);
@@ -627,9 +788,58 @@ impl TabletState {
     pub fn remove_pad_resource(&mut self, id: &ObjectId) {
         for pad in self.pads.values_mut() {
             pad.pads.retain(|p| &p.id() != id);
+            pad.groups.retain(|(_, g)| &g.id() != id);
             pad.rings.retain(|(_, r)| &r.id() != id);
             pad.strips.retain(|(_, s)| &s.id() != id);
             pad.dials.retain(|(_, d)| &d.id() != id);
+        }
+    }
+}
+
+impl Pad {
+    /// The pad resource owned by `surface`'s client.
+    fn instance_for(&self, surface: &WlSurface) -> Option<ZwpTabletPadV2> {
+        self.pads
+            .iter()
+            .find(|p| p.id().same_client_as(&surface.id()))
+            .and_then(|p| p.upgrade().ok())
+    }
+
+    /// The pad resource on the currently-focused client (event-gating target).
+    fn focused_pad(&self) -> Option<ZwpTabletPadV2> {
+        self.instance_for(self.focused.as_ref()?)
+    }
+
+    /// Update this pad's focus: `leave` the old surface, `enter` the new one (which
+    /// needs a `zwp_tablet_v2` on that client — `enter` carries it), then re-announce
+    /// each group's current mode so the newly-focused client isn't stale. `focused`
+    /// is only set once `enter` actually goes out (no tablet resource ⇒ can't enter ⇒
+    /// stays unfocused, so no pad events leak to a client that never got `enter`).
+    fn set_focus(&mut self, focused: Option<&WlSurface>, tablet: Option<&ZwpTabletV2>, serial: Serial) {
+        if self.focused.as_ref() == focused {
+            return;
+        }
+        if let Some(old) = self.focused.take() {
+            if let Some(wl) = self.instance_for(&old) {
+                wl.leave(serial.into(), &old);
+            }
+        }
+        if let (Some(surface), Some(tablet)) = (focused, tablet) {
+            if let Some(wl) = self.instance_for(surface) {
+                wl.enter(serial.into(), tablet, surface);
+                for (g, w) in &self.groups {
+                    let mode = self.group_modes.get(*g).copied().unwrap_or(0);
+                    if mode == 0 {
+                        continue; // 0 is the default; clients assume it on enter.
+                    }
+                    if let Ok(group) = w.upgrade() {
+                        if group.id().same_client_as(&surface.id()) {
+                            group.mode_switch(0, serial.into(), mode);
+                        }
+                    }
+                }
+                self.focused = Some(surface.clone());
+            }
         }
     }
 }

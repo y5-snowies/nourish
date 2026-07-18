@@ -18,6 +18,11 @@ compositor_support_smithay_dispatch_state_base.workspace = true
 compositor_support_smithay_dispatch_wire_tablet.workspace = true
 compositor_orchestration_draw_state_lifecycle.workspace = true
 compositor_orchestration_driver_lid_base.workspace = true
+compositor_orchestration_input_drive_base.workspace = true
+compositor_support_system_input_event_base.workspace = true
+compositor_orchestration_seat_pointer_input.workspace = true
+compositor_developer_environment_preference_base.workspace = true
+compositor_orchestration_driver_settings_base.workspace = true
 
 [lib]
 path = "lib.rs"

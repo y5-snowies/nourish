@@ -37,6 +37,10 @@ pub struct Settings {
     pub protocol_foreign_all_worlds: bool,
     /// Graphics / anti-aliasing config (Graphics tab), persisted + applied live.
     pub graphics: compositor_developer_environment_graphics_base::base::GraphicsAaConfig,
+    /// Pen / tablet overrides (Pen tab), persisted + applied live.
+    pub pen: compositor_developer_environment_preference_base::base::PenConfig,
+    /// A pen click-to-bind capture is in progress (UI feedback: "press a key/button…").
+    pub pen_capturing: bool,
     pub dirty: bool,
     /// Every connected monitor (active + connected-but-inactive), for the picker.
     pub displays: Vec<DisplayInfo>,
@@ -147,7 +151,7 @@ fn default_mode(d: &DisplayInfo) -> Option<ModeInfo> {
 
 impl Settings {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(env: Environment, cursor: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, show_fps: bool, release_hidden: bool, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool) -> Self {
+    pub fn new(env: Environment, cursor: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, show_fps: bool, release_hidden: bool, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool, pen: compositor_developer_environment_preference_base::base::PenConfig) -> Self {
         let active = snap.displays.iter().find(|d| d.active).cloned();
         let active_edid = active.as_ref().map(|d| d.edid_key.clone()).unwrap_or_default();
         let selected_mode = active.as_ref().and_then(default_mode);
@@ -167,6 +171,8 @@ impl Settings {
             protocol_foreign_all_worlds,
             // Seeded from the process-global (mirrors the persisted preference).
             graphics: compositor_developer_environment_graphics_base::base::get(),
+            pen,
+            pen_capturing: false,
             dirty: false,
             displays: snap.displays,
             touch_devices: Vec::new(),
@@ -270,6 +276,13 @@ impl IcedUi for Settings {
                 ApplyResult::Provisional => {}
             },
             SettingsMessage::SetGraphics(g) => self.graphics = g,
+            SettingsMessage::SetPen(p) => self.pen = p,
+            SettingsMessage::SyncPen(p) => {
+                self.pen = p;
+                self.pen_capturing = false;
+            }
+            SettingsMessage::PenCaptureKey(_) | SettingsMessage::PenCapturePad => self.pen_capturing = true,
+            SettingsMessage::PenCaptureCancel => self.pen_capturing = false,
             SettingsMessage::Cursor(v) => self.cursor_sensitivity = v,
             SettingsMessage::NaturalScroll(b) => self.natural_scroll = b,
             SettingsMessage::TouchPanSpeed(v) => self.touch_pan_speed = v,
@@ -524,6 +537,8 @@ impl IcedUi for Settings {
             self.invert_pan_y,
             self.srgb,
             &self.graphics,
+            &self.pen,
+            self.pen_capturing,
         )
     }
 }

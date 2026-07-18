@@ -1,5 +1,19 @@
 use compositor_support_system_storage_token_base::base::{Token, TokenMut};
 use compositor_monitor_compositor_iced_base::HandleId;
+use compositor_developer_environment_preference_base::base::{KeyBind, PenBindTarget};
+
+/// What the settings Pen tab is currently waiting to capture (click-to-bind). Read by
+/// the keyboard handler (Key) and the libinput pad handler (Pad); armed/cleared via
+/// the settings handler; the captured result is drained to the UI by the reconciler.
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum PenCapture {
+    #[default]
+    None,
+    /// Capture the next keyboard combo (bind a key to a pad/stylus button).
+    Key,
+    /// Capture the next pad button press (identify a pad button to bind).
+    Pad,
+}
 
 /// Settings-window driver data: the live screen-space iced surface (opened with
 /// Super+. , closed from its button) plus UI lifecycle flags. `open` is the
@@ -21,6 +35,13 @@ pub struct SettingsState {
     /// panel restores the tab the user left on. Stored as the `Tab::to_index`
     /// value (orchestration can't name the configurator `Tab`); 0 = Display.
     pub tab: u8,
+    /// Pen-tab click-to-bind capture: what we're waiting for (armed by the settings
+    /// handler), the control a captured key binds to, and the raw captured result
+    /// (the reconciler applies it to the live pen config, persists, and syncs the UI).
+    pub pen_capture: PenCapture,
+    pub pen_capture_target: Option<PenBindTarget>,
+    pub pen_captured_key: Option<KeyBind>,
+    pub pen_captured_pad: Option<(String, u32)>,
 }
 
 pub static SETTINGS: Token<SettingsState> = Token::new();

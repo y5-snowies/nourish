@@ -2054,6 +2054,7 @@ dependencies = [
  "compositor_configurator_settings_surface_language",
  "compositor_configurator_settings_surface_message",
  "compositor_configurator_settings_surface_misc",
+ "compositor_configurator_settings_surface_pen",
  "compositor_configurator_settings_surface_style",
  "compositor_configurator_settings_surface_world",
  "compositor_developer_environment_config_base",
@@ -2191,6 +2192,19 @@ dependencies = [
  "compositor_configurator_settings_surface_control",
  "compositor_configurator_settings_surface_message",
  "compositor_configurator_settings_surface_style",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
+]
+
+[[package]]
+name = "compositor_configurator_settings_surface_pen"
+version = "0.0.1"
+dependencies = [
+ "compositor_configurator_settings_surface_control",
+ "compositor_configurator_settings_surface_message",
+ "compositor_configurator_settings_surface_style",
+ "compositor_developer_environment_preference_base",
  "compositor_support_iced_core_engine_base",
  "iced_core",
  "iced_widget",
@@ -4076,6 +4090,7 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
+ "compositor_developer_environment_preference_base",
  "compositor_kernel_input_libinput_config_base",
  "compositor_kernel_input_loop_libinput_base",
  "compositor_kernel_native_context_render_base",
@@ -4083,8 +4098,12 @@ dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_draw_state_lifecycle",
  "compositor_orchestration_driver_lid_base",
+ "compositor_orchestration_driver_settings_base",
+ "compositor_orchestration_input_drive_base",
+ "compositor_orchestration_seat_pointer_input",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_dispatch_wire_tablet",
+ "compositor_support_system_input_event_base",
  "smithay",
 ]
 
@@ -5257,6 +5276,7 @@ dependencies = [
 name = "compositor_orchestration_driver_settings_base"
 version = "0.0.1"
 dependencies = [
+ "compositor_developer_environment_preference_base",
  "compositor_monitor_compositor_iced_base",
  "compositor_support_system_storage_token_base",
 ]
@@ -5375,10 +5395,12 @@ name = "compositor_orchestration_seat_keyboard_input"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
+ "compositor_developer_environment_preference_base",
  "compositor_monitor_compositor_iced_base",
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_driver_lid_base",
  "compositor_orchestration_driver_output_base",
+ "compositor_orchestration_driver_settings_base",
  "compositor_orchestration_input_drive_base",
  "compositor_support_iced_core_engine_base",
  "compositor_support_system_input_event_base",
@@ -5436,6 +5458,7 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_preference_base",
  "compositor_monitor_compositor_iced_base",
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_draw_layer_base",

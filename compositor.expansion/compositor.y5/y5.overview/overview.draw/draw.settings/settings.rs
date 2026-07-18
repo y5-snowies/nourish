@@ -151,6 +151,29 @@ fn sync(state: &mut Loop, id: HandleId, size: Size<i32, Physical>) {
         // SyncSystem dispatch repaints the panel at the new size).
         LAST.with(|l| *l.borrow_mut() = None);
     }
+    // Pen click-to-bind: the input handlers recorded a captured key combo / pad button
+    // into SettingsState. Apply it to the live pen config, persist, and sync the tab.
+    let cap_key = state.inner.kernel.get_mut(&SETTINGS_MUT).pen_captured_key.take();
+    let cap_pad = state.inner.kernel.get_mut(&SETTINGS_MUT).pen_captured_pad.take();
+    let mut pen_changed = false;
+    if let Some(bind) = cap_key {
+        let target = state.inner.kernel.get_mut(&SETTINGS_MUT).pen_capture_target.take();
+        if let Some(target) = target {
+            state.inner.preference.pen.set_key_bind(&target, bind);
+            pen_changed = true;
+        }
+    }
+    if let Some((device, button)) = cap_pad {
+        state.inner.preference.pen.add_pad_button(&device, button);
+        pen_changed = true;
+    }
+    if pen_changed {
+        let _ = compositor_developer_environment_preference_base::base::save(&state.inner.preference);
+        let pen = state.inner.preference.pen.clone();
+        if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
+            let _ = reg.dispatch_message(IcedHandle::<Settings>::from_id(id), SettingsMessage::SyncPen(pen));
+        }
+    }
     // The controller pings this watch (from its PulseAudio thread) when the audio
     // topology changes; we own the re-poll. Ensure we hold a subscription, and on
     // a ping re-query via refresh() — otherwise read the cheap cached state().
@@ -260,7 +283,8 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     let keyboard = state.inner.preference.keyboard.clone();
     let protocol_foreign = state.inner.preference.protocol_foreign.clone();
     let protocol_foreign_all_worlds = state.inner.preference.protocol_foreign_all_worlds;
-    let ui = Settings::new(env, cursor, natural, touch_pan_speed, touch_linear_pan, show_fps, release_hidden, snap, keys, tab, layout, cyclic, ime, keyboard, protocol_foreign, protocol_foreign_all_worlds);
+    let pen = state.inner.preference.pen.clone();
+    let ui = Settings::new(env, cursor, natural, touch_pan_speed, touch_linear_pan, show_fps, release_hidden, snap, keys, tab, layout, cyclic, ime, keyboard, protocol_foreign, protocol_foreign_all_worlds, pen);
     let handle = load(state, renderer, ui, rect, IcedSpace::Screen, Layer::SCENE.bits());
     install_handler(state, handle);
     let untyped = handle.untyped();

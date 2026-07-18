@@ -43,5 +43,8 @@ fn mode_of(m: PaneMode) -> TouchMode {
 /// for the span of a touch sequence. Hand pans via forced glide in the session.
 fn set_mode(state: &mut Loop, mode: TouchMode) {
     state.inner.canvas_mut().select_visual = mode == TouchMode::Select;
+    // Hand tool: let the canvas own wheel/pinch/dial so the tablet dial + mouse wheel
+    // zoom (the camera can't see the touch tracker's tool_mode, so mirror it here).
+    state.inner.canvas_mut().hand_touch = mode == TouchMode::Hand;
     state.inner.touch.tool_mode = mode;
 }

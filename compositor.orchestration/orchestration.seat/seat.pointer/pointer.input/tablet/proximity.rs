@@ -10,7 +10,7 @@ use smithay::wayland::tablet_manager::TabletDescriptor;
 use compositor_orchestration_core_state_base::Loop;
 use compositor_support_smithay_dispatch_state_base::state::Dispatch;
 use compositor_support_smithay_dispatch_wire_tablet::tablet::Stroke;
-use crate::tablet::{client, coords, cursor};
+use crate::tablet::{client, coords, cursor, hand_active};
 
 pub fn proximity<I: InputBackend>(event: &I::TabletToolProximityEvent, _loop: &mut Loop) {
     let tool = event.tool();
@@ -21,12 +21,20 @@ pub fn proximity<I: InputBackend>(event: &I::TabletToolProximityEvent, _loop: &m
     _loop.state.tablet.add_tablet::<Dispatch>(&dh, &tablet);
     _loop.state.tablet.add_tool::<Dispatch>(&dh, &tool);
 
-    let (_, world) = coords::world::<I, _>(event, _loop);
+    let (screen, world) = coords::world::<I, _>(event, _loop);
     match event.state() {
         ProximityState::In => {
             // Position the cursor at the pen, then forward hover to a tablet-aware
-            // surface (brush preview / hover cursor).
-            cursor::follow(_loop, world, time);
+            // surface (brush preview / hover cursor) — unless a navigation tool (Hand
+            // grab or touch Hand/Select) or light-touch mode is on, where the pen only
+            // drives the cursor/canvas and never touches the tablet client.
+            cursor::follow(_loop, screen, world, time);
+            if hand_active(_loop)
+                || crate::tablet::select_active(_loop)
+                || _loop.inner.preference.pen.below_threshold_cursor
+            {
+                return;
+            }
             if let Some(focus) = client::tablet_focus(_loop, world) {
                 let serial = SERIAL_COUNTER.next_serial();
                 _loop
@@ -38,6 +46,15 @@ pub fn proximity<I: InputBackend>(event: &I::TabletToolProximityEvent, _loop: &m
         ProximityState::Out => {
             _loop.state.tablet.tool_proximity_out(&tool, time);
             _loop.state.tablet.stroke = Stroke::None;
+            _loop.state.tablet.phys_tip = false;
+            _loop.state.tablet.last_pen_screen = None;
+            // Revert a client tool cursor so a stale cursor surface isn't left behind
+            // once the pen lifts out of range.
+            if _loop.state.tablet.take_tool_cursor() {
+                _loop.state.seat.pointer_status =
+                    smithay::input::pointer::CursorImageStatus::default_named();
+                _loop.state.schedule_redraw();
+            }
         }
     }
 }

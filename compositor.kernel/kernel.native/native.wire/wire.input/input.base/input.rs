@@ -27,23 +27,104 @@ fn handle_pad(state: &mut Loop, event: &TabletPadEvent) {
     let key = event.device().sysname().to_string();
     match event {
         TabletPadEvent::Button(e) => {
+            pad_mode(state, &key, e);
             let pressed = e.button_state() == PadButtonState::Pressed;
-            state.state.tablet.pad_button(&key, e.button_number(), pressed, e.time());
+            // Pen click-to-bind: capture this pad button for the settings tab instead
+            // of acting on it.
+            if pressed && capture_pad(state, &key, e.button_number()) {
+                return;
+            }
+            // Resolve the user's per-button binding (forwards natively when unbound).
+            compositor_orchestration_seat_pointer_input::tablet::pad::button(
+                state, &key, e.button_number(), pressed, e.time(),
+            );
         }
         TabletPadEvent::Ring(e) => {
+            pad_mode(state, &key, e);
             let finger = e.source() == RingAxisSource::Finger;
             state.state.tablet.pad_ring(&key, e.number(), e.position(), finger, e.time());
         }
         TabletPadEvent::Strip(e) => {
+            pad_mode(state, &key, e);
             let finger = e.source() == StripAxisSource::Finger;
             state.state.tablet.pad_strip(&key, e.number(), e.position(), finger, e.time());
         }
         TabletPadEvent::Dial(e) => {
+            pad_mode(state, &key, e);
             // libinput reports high-res v120 delta (120 units per detent).
-            state.state.tablet.pad_dial(&key, e.number(), e.dial_v120() as i32, e.time());
+            let v120 = e.dial_v120() as i32;
+            match state.inner.preference.pen.dial.clone() {
+                // Remap: inject a modifier + wheel scroll (e.g. Alt+Wheel for brush
+                // size) into the focused client — for apps without tablet-v2.
+                compositor_developer_environment_preference_base::base::PenAction::Wheel { mods } => {
+                    compositor_orchestration_seat_pointer_input::tablet::inject::wheel(
+                        state, &mods, v120, e.time(),
+                    );
+                }
+                // Default: the Hand grab zooms the world; otherwise forward the native
+                // dial event to the focused tablet client.
+                _ => {
+                    if hand_active(state) {
+                        dial_zoom(state, v120);
+                    } else {
+                        state.state.tablet.pad_dial(&key, e.number(), v120, e.time());
+                    }
+                }
+            }
         }
         _ => {}
     }
+}
+
+/// Is the Hand (navigation) tool active? Reuses the pen input layer's check, so the
+/// dial zooms under BOTH the canvas Hand grab and the touch pane's Hand mode.
+fn hand_active(state: &Loop) -> bool {
+    compositor_orchestration_seat_pointer_input::tablet::hand_active(state)
+}
+
+/// If the settings Pen tab is armed to capture a pad button, record this one and
+/// disarm (drained to the UI by the reconciler). Returns `true` when captured.
+fn capture_pad(state: &mut Loop, device: &str, button: u32) -> bool {
+    use compositor_orchestration_driver_settings_base::base::{PenCapture, SETTINGS, SETTINGS_MUT};
+    if state.inner.kernel.get(&SETTINGS).pen_capture != PenCapture::Pad {
+        return false;
+    }
+    let st = state.inner.kernel.get_mut(&SETTINGS_MUT);
+    st.pen_capture = PenCapture::None;
+    st.pen_captured_pad = Some((device.to_string(), button));
+    true
+}
+
+/// Zoom the canvas from a dial detent by synthesizing a cursor-anchored mouse-wheel
+/// scroll on the world input bus (one detent ≈ one wheel step). The camera system
+/// only zooms a non-finger axis while it owns the gesture — which is exactly the
+/// Hand grab — so this is gated on `hand_active` by the caller.
+fn dial_zoom(state: &mut Loop, v120: i32) {
+    use compositor_support_system_input_event_base::base::InputEvent;
+    let Some(pointer) = state.state.seat.seat.get_pointer() else { return };
+    let loc = pointer.current_location();
+    let ev = InputEvent::PointerAxis {
+        horizontal: 0.0,
+        vertical: v120 as f64 / 120.0,
+        x: loc.x,
+        y: loc.y,
+        finger: false,
+        momentum: false,
+        from_touch: false,
+    };
+    let _ = compositor_orchestration_input_drive_base::drive::route(state, ev);
+}
+
+/// Announce a pad event's mode-group mode to the focused client (deduped in the
+/// sender). Sent before the button/ring/strip/dial event so a mode-toggle button's
+/// switch reaches the client ahead of the button that caused it.
+fn pad_mode<E>(state: &mut Loop, key: &str, e: &E)
+where
+    E: smithay::reexports::input::event::tablet_pad::TabletPadEventTrait,
+{
+    let group = e.mode_group().index() as usize;
+    let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+    state.state.tablet.pad_mode_switch(key, group, e.mode(), serial, e.time());
 }
 
 pub fn register(

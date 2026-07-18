@@ -9,7 +9,7 @@ use smithay::reexports::wayland_server::Weak;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::protocol::wl_output::WlOutput;
 use smithay::desktop::Window;
-use smithay::utils::{Logical, Point, Rectangle};
+use smithay::utils::{Logical, Point, Rectangle, SERIAL_COUNTER};
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::wayland::dmabuf::{DmabufGlobal, ImportNotifier};
 use smithay::wayland::drm_syncobj::DrmSyncPointSource;
@@ -258,6 +258,12 @@ impl SeatHandler for Dispatch {
 
         // `set_data_device_focus` needs DataDeviceHandler (downstream) — defer it.
         self.pending_data_focus = Some(client);
+
+        // Follow keyboard focus with tablet-pad focus: `leave` the old client's pad,
+        // `enter` the new one, so pad button/ring/strip/dial/mode events are gated to
+        // the focused client (external zwp_tablet_pad_v2 has no smithay focus model).
+        self.tablet.set_pad_focus(focused.cloned(), SERIAL_COUNTER.next_serial());
+
         self.schedule_redraw();
     }
 
@@ -397,8 +403,18 @@ mod tablet_impls {
         }
     }
     impl WLDispatch<ZwpTabletToolV2, ()> for Dispatch {
-        // tablet-only: we ignore `set_cursor` (no tool-cursor rendering).
-        fn request(_: &mut Self, _: &Client, _: &ZwpTabletToolV2, _: zwp_tablet_tool_v2::Request, _: &(), _: &DisplayHandle, _: &mut DataInit<'_, Self>) {}
+        // Honor `set_cursor`: install the client's tool cursor surface (+ hotspot) as
+        // the pointer image, exactly like `wl_pointer::set_cursor` (the cursor follows
+        // the pen). `force_cursor` (e.g. the canvas Hand grab) still overrides it at
+        // render time; the pen session reverts it on proximity-out.
+        fn request(state: &mut Self, _: &Client, tool: &ZwpTabletToolV2, request: zwp_tablet_tool_v2::Request, _: &(), _: &DisplayHandle, _: &mut DataInit<'_, Self>) {
+            if let zwp_tablet_tool_v2::Request::SetCursor { surface, hotspot_x, hotspot_y, .. } = request {
+                if let Some(status) = state.tablet.set_tool_cursor(tool, surface, (hotspot_x, hotspot_y).into()) {
+                    state.seat.pointer_status = status;
+                    state.schedule_redraw();
+                }
+            }
+        }
         fn destroyed(state: &mut Self, _: ClientId, tool: &ZwpTabletToolV2, _: &()) {
             state.tablet.remove_tool_resource(&tool.id());
         }

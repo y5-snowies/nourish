@@ -26,6 +26,11 @@ pub struct CanvasState {
     /// touch tool-mode. The actual Select grab is armed only for the span of a touch
     /// sequence (see the touch `session`).
     pub select_visual: bool,
+    /// Touch Hand tool-mode is active (set by the touch pane). Makes the canvas own
+    /// wheel/pinch/dial gestures (so the tablet DIAL and the mouse wheel zoom) while
+    /// the touch Hand tool is selected, without arming a global [`Grab`]. Mirrored
+    /// here because the camera reads world storage, not the touch tracker.
+    pub hand_touch: bool,
 }
 
 impl CanvasState {
@@ -36,6 +41,7 @@ impl CanvasState {
             finger_pan: false,
             select_transform: false,
             select_visual: false,
+            hand_touch: false,
         }
     }
 
