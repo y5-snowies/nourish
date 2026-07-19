@@ -16,8 +16,8 @@ fn reset<'a>(msg: SettingsMessage) -> El<'a> {
 
 pub fn build<'a>(sensitivity: f32, natural: bool) -> El<'a> {
     let head = column![
-        text("INPUT").size(16).color(style::ACCENT),
-        text("Pointer, navigation, and movement.").size(11).color(style::MUTED),
+        text("MOUSE & TOUCHPAD").size(16).color(style::ACCENT),
+        text("Pointer speed and touchpad scrolling.").size(11).color(style::MUTED),
     ].spacing(4);
     let speed = column![
         row![

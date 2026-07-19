@@ -1,0 +1,12 @@
+[package]
+name = "compositor_orchestration_seat_pointer_restore"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+smithay = { workspace = true }
+compositor_orchestration_core_state_base = { workspace = true }
+compositor_orchestration_seat_pointer_snapshot = { workspace = true }
+
+[lib]
+path = "lib.rs"

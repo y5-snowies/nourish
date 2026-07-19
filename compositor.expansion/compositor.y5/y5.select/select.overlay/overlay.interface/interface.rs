@@ -43,6 +43,23 @@ use compositor_y5_surface_protocol_base::protocol::{
     SelectionForward, SurfaceMessage, SurfaceMessageType,
 };
 use compositor_remote_message_client_base::bind::selection;
+use compositor_orchestration_seat_gesture_touch::touch::TouchMode;
+
+/// The active toolbar placement. Touch's Select mode pins the bar SCREEN
+/// bottom-centre (reachable by thumb, zoom-independent); every other case keeps
+/// the compile-time default (`WorldAtCursor`). Gated on a DIRECT modality — finger or
+/// stylus — so it follows the device actually in use: reaching a bar pinned near the
+/// cursor is awkward when your hand is on the surface, and that is as true of a pen as
+/// of a finger. A mouse selection, even with the sticky Select mode still set, keeps
+/// the normal world-at-cursor bar. Read fresh each frame so a mode/modality change
+/// re-decides on next create.
+fn placement_mode(state: &Loop) -> Placement {
+    if state.inner.touch.tool_mode == TouchMode::Select && state.inner.touch.modality.is_direct() {
+        Placement::ScreenBottomCenter
+    } else {
+        SELECTION_OVERLAY_PLACEMENT
+    }
+}
 
 /// True only on the CURSOR's output pass. `per_frame` runs once per output with `render_output`
 /// pinned to the output being drawn, and every position path in it (`camera()`, `size_ctx_all()`,
@@ -103,6 +120,7 @@ fn drive_tooltip(state: &mut Loop, size: Size<i32, Physical>) {
         position: Point::from((cam.position.x * scale, cam.position.y * scale)),
     };
     let output = size.to_f64();
+    let placement = placement_mode(state);
 
     let mut new_last_tip = last_tip.clone();
 
@@ -117,7 +135,7 @@ fn drive_tooltip(state: &mut Loop, size: Size<i32, Physical>) {
             Some((text, alt, shift)) => {
                 let tb = reg.location_of(toolbar_id).unwrap_or_default();
                 // Bar's on-screen top-left (project the world-space bar).
-                let (sx, sy) = match SELECTION_OVERLAY_PLACEMENT {
+                let (sx, sy) = match placement {
                     Placement::ScreenBottomCenter => (tb.x as f64, tb.y as f64),
                     Placement::WorldAtCursor => {
                         let s =
@@ -160,7 +178,7 @@ fn drive_tooltip(state: &mut Loop, size: Size<i32, Physical>) {
 /// on-screen size (and stays clearly visible when zoomed out). Re-centers on the
 /// current world center so it scales in place rather than from its top-left.
 fn resize_on_zoom(state: &mut Loop) {
-    if SELECTION_OVERLAY_PLACEMENT != Placement::WorldAtCursor {
+    if placement_mode(state) != Placement::WorldAtCursor {
         return;
     }
     let Some(id) = state.inner.kernel.get(&SELECTION_OVERLAY).handle else {
@@ -192,7 +210,7 @@ fn resize_on_zoom(state: &mut Loop) {
 /// on a selection-change event) and move the world toolbar under the live
 /// cursor. Done here, not in the system, because the cursor comes from the seat.
 fn reanchor_if_pending(state: &mut Loop) {
-    if SELECTION_OVERLAY_PLACEMENT != Placement::WorldAtCursor {
+    if placement_mode(state) != Placement::WorldAtCursor {
         return;
     }
     let target = state.inner.worlds.spawn_target();
@@ -450,7 +468,7 @@ fn placement(
     state: &Loop,
     size: Size<i32, Physical>,
 ) -> (Point<i32, Physical>, Size<i32, Physical>, IcedSpace) {
-    match SELECTION_OVERLAY_PLACEMENT {
+    match placement_mode(state) {
         Placement::ScreenBottomCenter => {
             let x = ((size.w - BAR_W) / 2).max(0);
             let y = (size.h - BAR_H - SCREEN_BOTTOM_MARGIN).max(0);

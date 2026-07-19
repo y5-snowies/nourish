@@ -4,7 +4,7 @@ use compositor_monitor_compositor_iced_base::{HandleId, IcedHandle, IcedSpace};
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_draw_layer_base::base::Layer;
 use compositor_orchestration_driver_audio_base::base::AUDIO;
-use compositor_orchestration_driver_output_base::base::{OutputModeRequest, OutputsSnapshot, OUTPUTS_SNAPSHOT, OUTPUT_MODE_REQUEST_MUT, OUTPUT_MODE_RESULT_MUT};
+use compositor_orchestration_driver_output_base::base::{OutputModeRequest, OutputsSnapshot, OUTPUTS_SNAPSHOT, OUTPUT_MODE_REQUEST_MUT, OUTPUT_MODE_RESULT_MUT, TouchDeviceInfo, TOUCH_DEVICES_SNAPSHOT};
 use compositor_orchestration_driver_settings_base::base::{SETTINGS, SETTINGS_MUT};
 use compositor_configurator_network_backend_base::base::{self as wifi, WifiCmd, WifiSnapshot};
 use compositor_configurator_bluetooth_backend_base::base::{self as bt, BtCmd, BtSnapshot};
@@ -27,6 +27,7 @@ thread_local! {
     static AUDIO_WATCH: RefCell<Option<AudioWatch>> = const { RefCell::new(None) };
     /// Last connected-monitor list pushed — re-dispatch the picker only on hotplug change.
     static LAST_OUTPUTS: RefCell<Option<OutputsSnapshot>> = const { RefCell::new(None) };
+    static LAST_TOUCH: RefCell<Option<Vec<TouchDeviceInfo>>> = const { RefCell::new(None) };
     /// Last (bundles, selection, variables, preview source) pushed to the panel.
     #[allow(clippy::type_complexity)]
     static LAST_SHADERS: RefCell<Option<(Vec<String>, Option<String>, Vec<ShaderProp>, String, Option<String>, bool, bool, bool)>> = const { RefCell::new(None) };
@@ -150,6 +151,29 @@ fn sync(state: &mut Loop, id: HandleId, size: Size<i32, Physical>) {
         // SyncSystem dispatch repaints the panel at the new size).
         LAST.with(|l| *l.borrow_mut() = None);
     }
+    // Pen click-to-bind: the input handlers recorded a captured key combo / pad button
+    // into SettingsState. Apply it to the live pen config, persist, and sync the tab.
+    let cap_key = state.inner.kernel.get_mut(&SETTINGS_MUT).pen_captured_key.take();
+    let cap_pad = state.inner.kernel.get_mut(&SETTINGS_MUT).pen_captured_pad.take();
+    let mut pen_changed = false;
+    if let Some(bind) = cap_key {
+        let target = state.inner.kernel.get_mut(&SETTINGS_MUT).pen_capture_target.take();
+        if let Some(target) = target {
+            state.inner.preference.pen.set_key_bind(&target, bind);
+            pen_changed = true;
+        }
+    }
+    if let Some((device, button)) = cap_pad {
+        state.inner.preference.pen.add_pad_button(&device, button);
+        pen_changed = true;
+    }
+    if pen_changed {
+        let _ = compositor_developer_environment_preference_base::base::save(&state.inner.preference);
+        let pen = state.inner.preference.pen.clone();
+        if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
+            let _ = reg.dispatch_message(IcedHandle::<Settings>::from_id(id), SettingsMessage::SyncPen(pen));
+        }
+    }
     // The controller pings this watch (from its PulseAudio thread) when the audio
     // topology changes; we own the re-poll. Ensure we hold a subscription, and on
     // a ping re-query via refresh() — otherwise read the cheap cached state().
@@ -177,6 +201,25 @@ fn sync(state: &mut Loop, id: HandleId, size: Size<i32, Physical>) {
     if outs_changed {
         if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
             let _ = reg.dispatch_message(IcedHandle::<Settings>::from_id(id), SettingsMessage::SyncDisplays(outs.displays));
+        }
+    }
+    // Live touch-device list + per-monitor claim. Merge the kernel's device snapshot
+    // (id/name) with the live preference (which monitor claimed each), so a hotplug
+    // OR a claim change re-dispatches. Diff on the merged result.
+    let touch: Vec<TouchDeviceInfo> = {
+        let outputs = &state.inner.preference.outputs;
+        state.inner.kernel.get(&TOUCH_DEVICES_SNAPSHOT).devices.iter().map(|d| TouchDeviceInfo {
+            id: d.id.clone(),
+            name: d.name.clone(),
+            assigned_edid: outputs.iter()
+                .find(|p| p.touch_device.as_deref() == Some(d.id.as_str()))
+                .and_then(|p| p.identity.clone()),
+        }).collect()
+    };
+    let touch_changed = LAST_TOUCH.with(|l| { let mut l = l.borrow_mut(); if l.as_ref() != Some(&touch) { *l = Some(touch.clone()); true } else { false } });
+    if touch_changed {
+        if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
+            let _ = reg.dispatch_message(IcedHandle::<Settings>::from_id(id), SettingsMessage::SyncTouchDevices(touch));
         }
     }
     // Available shader bundles + the active world's selection + the selected
@@ -224,6 +267,10 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     state.inner.keybinding = compositor_developer_environment_keybinding_base::base::load();
     let cursor = state.inner.preference.cursor_sensitivity as f32;
     let natural = state.inner.preference.input_natural_scroll;
+    let touch_pan_speed = state.inner.preference.input_touch_pan_speed as f32;
+    let touch_linear_pan = state.inner.preference.input_touch_linear_pan;
+    let osk_size = state.inner.preference.osk_size as f32;
+    let osk_world_position = state.inner.preference.osk_world_position;
     let show_fps = state.inner.preference.show_fps;
     let release_hidden = state.inner.preference.release_hidden_surfaces;
     let snap = state.inner.kernel.get(&OUTPUTS_SNAPSHOT).clone();
@@ -236,7 +283,10 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     let cyclic = state.inner.preference.teleport_cyclic;
     let ime = state.inner.preference.ime.clone().unwrap_or_default();
     let keyboard = state.inner.preference.keyboard.clone();
-    let ui = Settings::new(env, cursor, natural, show_fps, release_hidden, snap, keys, tab, layout, cyclic, ime, keyboard);
+    let protocol_foreign = state.inner.preference.protocol_foreign.clone();
+    let protocol_foreign_all_worlds = state.inner.preference.protocol_foreign_all_worlds;
+    let pen = state.inner.preference.pen.clone();
+    let ui = Settings::new(env, cursor, natural, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, show_fps, release_hidden, snap, keys, tab, layout, cyclic, ime, keyboard, protocol_foreign, protocol_foreign_all_worlds, pen);
     let handle = load(state, renderer, ui, rect, IcedSpace::Screen, Layer::SCENE.bits());
     install_handler(state, handle);
     let untyped = handle.untyped();
@@ -249,6 +299,7 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     bt::command(BtCmd::Scan(true));
     LAST.with(|l| *l.borrow_mut() = None);
     LAST_OUTPUTS.with(|l| *l.borrow_mut() = None);
+    LAST_TOUCH.with(|l| *l.borrow_mut() = None);
     LAST_SHADERS.with(|l| *l.borrow_mut() = None);
 }
 
@@ -275,7 +326,7 @@ fn install_handler(state: &mut Loop, handle: IcedHandle<Settings>) {
                 // activate/deactivate live-provisionally through the handler (arming the
                 // auto-revert gate), so it must reach `interface.handle`. The rest here
                 // are UI-local (sync pushes, tab/selection state) and never forwarded.
-                if matches!(m, SettingsMessage::SyncSystem(..) | SettingsMessage::SyncDisplays(_) | SettingsMessage::SyncShaders(..) | SettingsMessage::SyncShaderProps(..) | SettingsMessage::SyncShaderPreview(..) | SettingsMessage::SyncShaderStatus(..) | SettingsMessage::Tick | SettingsMessage::WifiSelect(_) | SettingsMessage::WifiPassword(_) | SettingsMessage::SelectDisplay(_) | SettingsMessage::SelectMode(_) | SettingsMessage::SelectInactive) { return; }
+                if matches!(m, SettingsMessage::SyncSystem(..) | SettingsMessage::SyncDisplays(_) | SettingsMessage::SyncTouchDevices(_) | SettingsMessage::SyncShaders(..) | SettingsMessage::SyncShaderProps(..) | SettingsMessage::SyncShaderPreview(..) | SettingsMessage::SyncShaderStatus(..) | SettingsMessage::Tick | SettingsMessage::WifiSelect(_) | SettingsMessage::WifiPassword(_) | SettingsMessage::SelectDisplay(_) | SettingsMessage::SelectMode(_) | SettingsMessage::SelectInactive) { return; }
                 let _ = tx.send(SurfaceMessage { message: SurfaceMessageType::Settings(m.clone()) });
             });
         }

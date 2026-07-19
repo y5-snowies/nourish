@@ -7,3 +7,7 @@ edition.workspace = true
 
 [lib]
 path = "lib.rs"
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "Per-distro package enumeration list; inherently a flat list, splitting adds no value."

@@ -1,0 +1,31 @@
+{
+  "$comment": [
+    "Project -> workspace-root mapping used by cover/lib/cover.sh.",
+    "A 'project' is a SET of top-level Cargo workspace roots. Coverage for a",
+    "source file is attributed to exactly the project whose workspace OWNS it",
+    "(cargo metadata --no-deps), so a cross-workspace path dependency stays with",
+    "its owner (e.g. compositor.developer links support.action, but support.action",
+    "belongs to 'compositor', not 'dev').",
+    "",
+    "roots: an explicit list of repo-relative workspace roots, OR the string '*'",
+    "meaning 'every discovered workspace root minus .exclude'. '*' keeps the",
+    "compositor project correct as kernels/expansions/extensions are added.",
+    "Discovery = any dir (depth 1-2 under compositor.*/) whose Cargo.toml has a",
+    "[workspace] table; compositor.website is not a Cargo project so it never appears."
+  ],
+  "projects": {
+    "installer": {
+      "roots": ["compositor.installer/installer.process"]
+    },
+    "dev": {
+      "roots": ["compositor.developer"]
+    },
+    "compositor": {
+      "roots": "*",
+      "exclude": [
+        "compositor.installer/installer.process",
+        "compositor.developer"
+      ]
+    }
+  }
+}

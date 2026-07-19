@@ -253,10 +253,15 @@ pub(crate) fn enter_internal<D: SeatHandler + 'static>(
     // text-input global bound due to clients doing lazy global binding.
     text_input.set_focus(Some(surface.clone()));
 
-    // Only notify on `enter` once we have an actual IME.
-    if input_method.has_instance() {
-        text_input.enter();
-    }
+    // y5: notify `enter` UNCONDITIONALLY (upstream gates this on an IME instance
+    // existing). y5's on-screen keyboard consumes the text-input FOCUS signal
+    // directly — a client enabling text-input on `enter` is how the compositor
+    // learns a text field is focused (the OSK auto-show trigger), whether or not an
+    // external IME is running. This pairs with the relaxed request gate in
+    // `text_input_handle.rs` (which must accept the client's `enable`/`commit` so
+    // `active_text_input_id` is tracked) and the symmetric `leave` below. No-op for
+    // clients that haven't bound the text-input global.
+    text_input.enter();
 }
 
 impl<D: SeatHandler + 'static> KeyboardTarget<D> for WlSurface {
@@ -281,8 +286,11 @@ impl<D: SeatHandler + 'static> KeyboardTarget<D> for WlSurface {
 
         if input_method.has_instance() {
             input_method.deactivate_input_method(state);
-            text_input.leave();
         }
+        // y5: mirror the unconditional `enter` in `enter_internal` — a client that
+        // enabled text-input (even with no IME) must be told the field lost focus so
+        // the OSK's auto-show signal clears.
+        text_input.leave();
 
         text_input.set_focus(None);
     }

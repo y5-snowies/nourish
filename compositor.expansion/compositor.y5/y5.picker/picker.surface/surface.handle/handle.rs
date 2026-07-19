@@ -12,6 +12,7 @@ pub fn delegate(state: &mut Loop, message: PickerSurfaceMessage) {
         PickerSurfaceMessage::DeleteConfirm => {
             compositor_y5_picker_world_delete::delete::delete(state)
         }
+        PickerSurfaceMessage::Close => compositor_y5_picker_interface_base::base::cancel(state),
         PickerSurfaceMessage::SetWorld { .. }
         | PickerSurfaceMessage::DeleteRequest
         | PickerSurfaceMessage::DeleteCancel => {}

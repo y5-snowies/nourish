@@ -9,6 +9,8 @@ compositor_y5_group_protocol_base.workspace = true
 compositor_y5_group_surface_base.workspace = true
 compositor_y5_lock_interface_surface.workspace = true
 compositor_y5_picker_surface_view.workspace = true
+compositor_y5_touch_pane_view.workspace = true
+compositor_y5_osk_board_view.workspace = true
 compositor_y5_overview_state_base.workspace = true
 compositor_configurator_settings_surface_message.workspace = true
 tracing = { workspace = true }

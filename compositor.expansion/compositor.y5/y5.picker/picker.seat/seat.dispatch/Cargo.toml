@@ -8,6 +8,7 @@ compositor_developer_debug_instance_record = { workspace = true }
 compositor_orchestration_core_state_base = { workspace = true }
 compositor_y5_picker_seat_keyboard = { workspace = true }
 compositor_y5_picker_seat_pointer = { workspace = true }
+compositor_y5_picker_seat_touch = { workspace = true }
 smithay = { workspace = true }
 
 [lib]

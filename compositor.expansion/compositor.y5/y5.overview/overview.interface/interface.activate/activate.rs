@@ -44,7 +44,7 @@ pub fn activate_world(state: &mut Loop) {
         let (worlds, kernel) = (&mut state.inner.worlds, &state.inner.kernel);
         worlds.switch(target, kernel);
     }
-    state.inner.worlds.set_spawn_target(target);
+    state.inner.set_spawn_target_world(target);
     if state.inner.space_state().state.outputs().next().is_none() {
         for (output, loc) in &outputs {
             state.inner.space_state_mut().state.map_output(output, *loc);

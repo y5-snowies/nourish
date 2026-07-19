@@ -154,9 +154,17 @@ where
                     },
                 );
                 handle.add_instance(&instance);
-                if input_method_handle.has_instance() {
-                    handle.enter();
-                }
+                // y5: send the catch-up `enter` UNCONDITIONALLY (upstream gates on an
+                // IME instance). A client that creates its text-input object AFTER its
+                // surface already holds keyboard focus (toolkits bind lazily on
+                // field-focus) would otherwise never learn it is focused, so it never
+                // enables and the OSK never sees the field. Pairs with the unconditional
+                // `enter`/`leave` in `seat/keyboard.rs` and the relaxed request gate in
+                // `text_input_handle.rs`. Targets ONLY this new instance (not every
+                // instance the client owns), so an existing focused instance never gets a
+                // second `enter` without an intervening `leave`. No-op when the client's
+                // surface isn't the focused one.
+                handle.enter_instance(&instance);
             }
             zwp_text_input_manager_v3::Request::Destroy => {
                 // Nothing to do

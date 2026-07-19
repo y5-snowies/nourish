@@ -5,7 +5,7 @@
 //! enabled only when relevant. Selecting a different monitor + applying switches
 //! the active output; selecting another mode changes the active monitor's mode.
 use compositor_developer_environment_preference_base::base::LayoutPlacement;
-use compositor_orchestration_driver_output_base::base::{DisplayInfo, ModeInfo};
+use compositor_orchestration_driver_output_base::base::{DisplayInfo, ModeInfo, TouchDeviceInfo};
 use compositor_support_iced_core_engine_base::Renderer;
 use compositor_configurator_settings_surface_message::message::{Applied, SettingsMessage};
 use compositor_configurator_settings_surface_style::style;
@@ -22,6 +22,7 @@ fn mode_label(m: &ModeInfo) -> String {
 
 pub fn build<'a>(
     displays: &'a [DisplayInfo],
+    touch_devices: &'a [TouchDeviceInfo],
     active_edid: &str,
     selected_display: &str,
     selected_mode: Option<ModeInfo>,
@@ -192,6 +193,9 @@ pub fn build<'a>(
             .spacing(8),
         );
     }
+
+    // The touch↔display link moved to Settings → Input → Touch (a self-contained
+    // per-device monitor picker), so the Display tab no longer renders it here.
 
     col.push(Column::with_children(monitors).spacing(6))
         .push(actions)

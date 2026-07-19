@@ -1,6 +1,7 @@
 use crate::native_press;
-use smithay::backend::input::{ButtonState, InputBackend, PointerButtonEvent};
-use smithay::utils::{Physical, Point};
+use smithay::backend::input::{ButtonState, Event, InputBackend, PointerButtonEvent};
+use smithay::input::pointer::ButtonEvent;
+use smithay::utils::{Physical, Point, SERIAL_COUNTER};
 use compositor_orchestration_core_state_base::{Loop, Transform};
 use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_y5_surface_interface_base::hit::surface_under_filtered;
@@ -11,6 +12,31 @@ pub fn button<I: InputBackend>(event: &<I as InputBackend>::PointerButtonEvent, 
     // (menu bar / grid cell / globe); windows never receive it.
     if compositor_y5_overview_input_pointer::pointer::button::<I>(event, _loop) {
         return;
+    }
+
+    // A popup grab (a menu) owns the pointer: forward the raw button so smithay's popup
+    // grab routes it into the menu chain (or dismisses on an outside press), then STOP —
+    // the world bus + native_press must not fight it. Scoped by `in_popup_grab` so the
+    // DnD grab keeps its own path; the flag resets once the seat is no longer grabbed.
+    {
+        let pointer = _loop.state.seat.seat.get_pointer().unwrap();
+        if !pointer.is_grabbed() {
+            _loop.state.in_popup_grab = false;
+        }
+        if _loop.state.in_popup_grab && pointer.is_grabbed() {
+            let serial = SERIAL_COUNTER.next_serial();
+            pointer.button(
+                &mut _loop.state,
+                &ButtonEvent {
+                    button: event.button_code(),
+                    state: event.state(),
+                    serial,
+                    time: event.time_msec(),
+                },
+            );
+            pointer.frame(&mut _loop.state);
+            return;
+        }
     }
 
     // Viewport separator drag: a press on a separator bar starts a resize; the
@@ -73,11 +99,18 @@ pub fn button<I: InputBackend>(event: &<I as InputBackend>::PointerButtonEvent, 
     {
         // World input bus first (phase 3); Pass falls through to legacy routing.
         let location = pointer.current_location();
+        // Read the modality off the tracker rather than taking it as a parameter: the
+        // seat delegate sets it from the real device before dispatching, and the touch
+        // / pen emulation paths (`touch::emulate`, `tablet::tip`) reach this same
+        // function through the `TouchEmu` backend AFTER their own delegate arm has
+        // already recorded Touch / Pen. So it is correct for both the real and the
+        // synthesized press without threading an argument through every call site.
         let ev = compositor_support_system_input_event_base::base::InputEvent::PointerButton {
             button: event.button_code(),
             pressed: event.state() == ButtonState::Pressed,
             x: location.x,
             y: location.y,
+            modality: _loop.inner.touch.modality,
         };
         if compositor_orchestration_input_drive_base::drive::route(_loop, ev)
             == compositor_support_system_input_event_base::base::InputFlow::Consume
@@ -95,12 +128,15 @@ pub fn button<I: InputBackend>(event: &<I as InputBackend>::PointerButtonEvent, 
     // window (the system cleared selection + declined to grab), so the click is
     // routed directly to that window here via `native_press`.
     if ButtonState::Pressed == button_state && !pointer.is_grabbed() {
-        // Overview overlay open → presentational: never deliver a click to a
-        // window (the bus already routes menu-bar iced clicks).
+        // Overview overlay open → presentational: never deliver a click to a window OR a
+        // wlr layer surface (the bus already routes menu-bar iced clicks).
         let overview_open = _loop.inner.overview().visible;
         if let Some(hit) = surface_under_filtered(_loop, pointer.current_location(), &|hit| {
+            if overview_open && (hit.window().is_some() || hit.is_layer()) {
+                return false;
+            }
             if let Some(window) = hit.window() {
-                return !overview_open && window.visible(_loop);
+                return window.visible(_loop);
             };
 
             true

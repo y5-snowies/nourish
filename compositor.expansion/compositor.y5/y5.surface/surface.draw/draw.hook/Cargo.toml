@@ -23,5 +23,7 @@ compositor_y5_placeholder_interface_base.workspace = true
 compositor_y5_launcher_protocol_interface.workspace = true
 compositor_y5_graphic_capture_interface.workspace = true
 compositor_y5_select_overlay_interface.workspace = true
+compositor_y5_touch_pane_handle.workspace = true
+compositor_y5_osk_board_handle.workspace = true
 [lib]
 path = "lib.rs"

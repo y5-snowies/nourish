@@ -19,6 +19,8 @@ use std::time::Instant;
 use compositor_introspection_sampler_window_base::sampler::SampleResult;
 use compositor_y5_camera_state_base::state::Camera;
 use compositor_y5_canvas_state_base::state::CanvasState;
+use compositor_orchestration_seat_pointer_snapshot::snapshot::CursorSnapshot;
+use compositor_orchestration_seat_gesture_scroll::scroll::FingerScrollRamp;
 use compositor_support_smithay_dispatch_wire_base::wire::Wire;
 use compositor_support_smithay_dispatch_wire_trait::wire_trait::WireTrait;
 
@@ -85,6 +87,17 @@ pub struct Orchestrator {
     /// which output's size/scale the input-path contexts use. `None` until the first
     /// crossing resolves it; the resolver falls back to the sole/primary output.
     pub cursor_output: Option<compositor_orchestration_driver_output_base::base::OutputKey>,
+    /// Saved pointer-cursor state while a TOUCH sequence owns the single active
+    /// output. `Some` ⇒ the cursor is "hidden" and touch drives the touched panel;
+    /// the snapshot is restored (position + output) the moment a real pointer/mouse
+    /// event arrives, so the cursor reappears exactly where it was. The behaviour
+    /// lives in `seat.pointer/pointer.restore` (`TouchCursor`); only the value is here.
+    pub saved_cursor: Option<CursorSnapshot>,
+    /// Softens the start of a two-finger touchpad scroll forwarded to a window
+    /// (libinput dumps the accumulated pre-recognition distance in the first
+    /// event, so the gesture lurches at the start). Policy lives in
+    /// `seat.gesture/gesture.scroll`.
+    pub finger_scroll_ramp: FingerScrollRamp,
     pub status: Status,
     /// One-shot request to run the renderer-free lock engage (`lock_logical`) off
     /// the render loop. The lock keybinding sets `Status::Locked` synchronously and
@@ -105,10 +118,21 @@ pub struct Orchestrator {
     /// multiple input dispatches). World-agnostic raw delta; the y5 gesture
     /// handler turns it into a directional-view action at end-of-swipe.
     pub gesture: compositor_orchestration_seat_gesture_state::state::GestureAccumulator,
+    /// Multi-finger touchscreen session: active contacts + the role/mode the
+    /// current touch sequence committed to (client-forward vs pointer-emu vs
+    /// canvas gesture). Feeds the same trackpad gesture handlers as `gesture`.
+    pub touch: compositor_orchestration_seat_gesture_touch::touch::TouchTracker,
     pub loader: Loader,
     /// The world set (phase 3, document/ARCHITECTURE.md). The active world
     /// hosts the kernel systems; grows per-output/lock/selection worlds later.
     pub worlds: compositor_orchestration_world_manager_base::manager::WorldManager,
+    /// Per-world keyboard-focus memory: the window that held keyboard focus when
+    /// each world was last left. Keyboard focus is a single global on the seat, so a
+    /// world switch otherwise strands focus on the outgoing world's window. The
+    /// `WORLD_SWITCHED` rim handler saves the outgoing world's focus here and restores
+    /// the incoming world's (see `Wire::apply_world_switch_focus`). Entries for
+    /// destroyed windows are pruned on restore (stale `Window` handles read `!alive`).
+    pub world_focus_memory: std::collections::HashMap<uuid::Uuid, Window>,
     /// KernelData: smithay wiring handles behind storage tokens (read-only for
     /// systems; populated post-init by the loader via smithay.data populate()).
     pub kernel: compositor_support_system_storage_slot_base::base::Storage,
@@ -189,6 +213,12 @@ pub enum StatusSession {
     Paused,
 }
 
+/// Announced when the spawn-target world changes (i.e. the window Space the foreign
+/// mirror advertises — see `Orchestrator::space_state`). The rim's foreign reconciler
+/// listens for this (registered in the loader) instead of polling a change token.
+pub struct WorldSwitched;
+compositor_support_system_channel_token_base::y5_channel!(pub WORLD_SWITCHED, WORLD_SWITCHED_TX: WorldSwitched);
+
 impl Orchestrator {
     pub fn new(
         environment: Environment,
@@ -244,6 +274,9 @@ impl Orchestrator {
         // Selection-overlay driver: the align/distribute toolbar instance.
         kernel_data.insert(&compositor_orchestration_driver_selection_base::base::SELECTION_OVERLAY, Default::default());
 
+        // On-screen-keyboard driver state (shown/pinned/mods/placement).
+        kernel_data.insert(&compositor_y5_osk_board_state::state::OSK, Default::default());
+
         // Output-mode driver: rim-issued mode request + kernel-written advertised
         // modes snapshot and apply result (settings window ↔ DRM, like the lid).
         kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUT_MODE_REQUEST, None);
@@ -252,6 +285,7 @@ impl Orchestrator {
         // Kernel-written full connector list (the settings Display panel's monitor
         // picker + advertised modes).
         kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUTS_SNAPSHOT, Default::default());
+        kernel_data.insert(&compositor_orchestration_driver_output_base::base::TOUCH_DEVICES_SNAPSHOT, Default::default());
         // Rim→kernel: request a reconcile pass after an activate/deactivate.
         kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUT_RECONCILE_REQUEST, false);
         // Baseline of a provisional activate/deactivate awaiting the "check changes"
@@ -274,17 +308,21 @@ impl Orchestrator {
             render_target: None,
             render_output: None,
             cursor_output: None,
+            saved_cursor: None,
+            finger_scroll_ramp: FingerScrollRamp::default(),
             lock_engage: false,
             control_ping: None,
             __set_picker: None,
             status_session: StatusSession::Active,
             gesture: Default::default(),
+            touch: Default::default(),
             storage: compositor_orchestration_storage_state_base::state::Storage::new(nested),
             status: Status::Running,
             start_time,
             loader,
             kernel: kernel_data,
             worlds,
+            world_focus_memory: std::collections::HashMap::new(),
             bus: compositor_orchestration_bus_legacy_base::legacy::LegacyBus::new(),
             pilot_tick: 0,
             // Seed the live preference object from preferences.json (one disk read
@@ -300,6 +338,63 @@ impl Orchestrator {
     /// "Window tracking"); this is the driver-side accessor. Borrows only
     /// `self` (Orchestrator/`inner`), so it stays disjoint from `Wire.state`.
     /// (WT2 generalizes "main" to the tracked spawn-target.)
+    /// Reassign the spawn-target world and, when it actually changes, announce
+    /// `WORLD_SWITCHED` so the foreign-toplevel mirror re-advertises the now-hosted
+    /// world's windows. Use this instead of `self.worlds.set_spawn_target` directly.
+    pub fn set_spawn_target_world(&mut self, id: uuid::Uuid) {
+        if self.worlds.set_spawn_target(id) {
+            self.bus.send(&WORLD_SWITCHED_TX, WorldSwitched);
+        }
+    }
+
+    /// The world whose Space contains `window`, if any (used by cross-world foreign
+    /// activation to switch to a window that lives on another world).
+    pub fn world_of_window(&self, window: &smithay::desktop::Window) -> Option<uuid::Uuid> {
+        self.worlds.ids().into_iter().find(|&id| {
+            self.worlds
+                .get(id)
+                .storage()
+                .try_get(&compositor_support_world_host_space_base::base::SPACE)
+                .map(|w| w.inner.state.elements().any(|e| e == window))
+                .unwrap_or(false)
+        })
+    }
+
+    /// Make `id` both the active AND the spawn-target world (a full switch), enabling
+    /// the incoming world and disabling the outgoing one, and announcing `WORLD_SWITCHED`.
+    pub fn switch_to_world(&mut self, id: uuid::Uuid) {
+        self.worlds.switch(id, &self.kernel);
+        self.set_spawn_target_world(id);
+    }
+
+    /// Set the `activated` xdg state exclusively on `keep` — true on it, false on every
+    /// other mapped window across ALL worlds — sending each a pending configure. Pass
+    /// `None` to deactivate everything (e.g. switching into a world with no remembered
+    /// focus). `send_pending_configure` is a no-op where nothing changed, so only the
+    /// windows whose flag actually flips emit traffic. Enforces exactly-one-activated:
+    /// leaving a world never deactivates its windows, so without clearing across every
+    /// world a cross-world activation leaves stale `activated=true` flags in other
+    /// worlds. That stale flag makes re-activating the target a no-op diff the foreign
+    /// mirror never forwards, so a dock (sfwbar) never learns the target became focused.
+    pub fn set_activated_exclusive(&self, keep: Option<&smithay::desktop::Window>) {
+        for id in self.worlds.ids() {
+            let Some(world) = self
+                .worlds
+                .get(id)
+                .storage()
+                .try_get(&compositor_support_world_host_space_base::base::SPACE)
+            else {
+                continue;
+            };
+            for w in world.inner.state.elements() {
+                w.set_activated(Some(w) == keep);
+                if let Some(toplevel) = w.toplevel() {
+                    toplevel.send_pending_configure();
+                }
+            }
+        }
+    }
+
     pub fn space_state(&self) -> &compositor_support_smithay_state_space_base::state::SpaceState {
         let target = self.worlds.spawn_target();
         &self
@@ -853,3 +948,4 @@ impl CoordinateTrait for Loop {
     }
 
 }
+

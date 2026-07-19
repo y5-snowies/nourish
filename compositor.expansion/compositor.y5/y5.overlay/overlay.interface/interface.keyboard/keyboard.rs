@@ -251,7 +251,7 @@ fn switch_world(state: &mut Loop, slot: usize) -> bool {
         }).collect();
 
     state.inner.worlds.switch(target, &state.inner.kernel);
-    state.inner.worlds.set_spawn_target(target);
+    state.inner.set_spawn_target_world(target);
     info!("world switch -> slot {slot} (world {target})");
 
     if state.inner.space_state().state.outputs().next().is_none() {

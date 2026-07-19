@@ -3,6 +3,7 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Logical, Point, Rectangle, Size};
 use std::sync::mpsc::Sender;
 use compositor_orchestration_core_state_base::Loop;
+use compositor_monitor_compositor_iced_base::HandleId;
 use compositor_monitor_launcher_ui_base::{Application, LauncherMessage};
 use compositor_y5_surface_protocol_base::launcher;
 use compositor_y5_surface_protocol_base::launcher::message::InternalAction;
@@ -48,10 +49,16 @@ pub fn start(_loop: &mut Loop, renderer: &mut GlesRenderer) {
         compositor_orchestration_draw_layer_base::base::Layer::SCENE.bits(),
     );
 
-    info!("{:?}", listing_xdg_basic::load_applications());
-    // [Application { id: "glmark2", title: "Glmark2", bin: "glmark2", args: [], icon_path: Some("/usr/share/pixmaps/glmark2.png"), usage_count: 0, usage_time: None }, Application { id: "footclient", title: "Foot Client", bin: "footclient", args: [], icon_path: Some("/usr/share/icons/hicolor/scalable/apps/foot.svg"), usage_count: 0, usage_time: None }, Application { id: "glmark2-es2", title: "Glmark2-es2", bin: "glmark2-es2", args: [], icon_path: Some("/usr/share/pixmaps/glmark2-es2.png"), usage_count: 0, usage_time: None }, Application { id: "foot-server", title: "Foot Server", bin: "foot", args: ["--server"], icon_path: Some("/usr/share/icons/hicolor/scalable/apps/foot.svg"), usage_count: 0, usage_time: None }, Application { id: "xterm", title: "XTerm", bin: "xterm", args: [], icon_path: Some("/usr/share/icons/hicolor/scalable/apps/xterm-color.svg"), usage_count: 0, usage_time: None }, Application { id: "google-chrome", title: "Google Chrome", bin: "/usr/bin/google-chrome-stable", args: [], icon_path: Some("/usr/share/icons/hicolor/16x16/apps/google-chrome.png"), usage_count: 0, usage_time: None }, Application { id: "Alacritty", title: "Alacritty", bin: "alacritty", args: [], icon_path: Some("/usr/share/pixmaps/Alacritty.svg"), usage_count: 0, usage_time: None }, Application { id: "glmark2-es2-wayland", title: "Glmark2-es2-wayland", bin: "glmark2-es2-wayland", args: [], icon_path: Some("/usr/share/pixmaps/glmark2-es2-wayland.png"), usage_count: 0, usage_time: None }, Application { id: "foot", title: "Foot", bin: "foot", args: [], icon_path: Some("/usr/share/icons/hicolor/scalable/apps/foot.svg"), usage_count: 0, usage_time: None }, Application { id: "glmark2-wayland", title: "Glmark2-wayland", bin: "glmark2-wayland", args: [], icon_path: Some("/usr/share/pixmaps/glmark2-wayland.png"), usage_count: 0, usage_time: None }]
     _loop.inner.launcher_mut().handle = Some(handle);
-    //
+
+    // Give the launcher iced keyboard focus immediately so typing reaches the search
+    // field from the moment it opens — both physical keys AND the on-screen keyboard's
+    // injected keys (which route to the focused iced surface). Without this, opening the
+    // launcher + OSK together (from the touch menu) would leave OSK taps going nowhere
+    // until a physical key first set focus.
+    if let Some(reg) = _loop.inner.surface_mut().registry.as_mut() {
+        reg.set_keyboard_focus(Some(handle.id));
+    }
     let tx = _loop.inner.surface_mut().surface_message_buffer_channel.0.clone();
     _loop.inner.surface_mut()
         .registry
@@ -109,6 +116,52 @@ fn __dispatch(p1: &LauncherMessage, p2: &Sender<SurfaceMessage>) {
         // LauncherMessage::AppendText(_) => {}
         _ => {}
     }
+}
+
+/// Whether the launcher surface is currently open.
+pub fn is_open(_loop: &Loop) -> bool {
+    _loop.inner.launcher().handle.is_some()
+}
+
+/// Tear down the launcher surface (if open). Mirrors the `Exit` reducer path.
+pub fn close(_loop: &mut Loop) {
+    let Some(handle) = _loop.inner.launcher_mut().handle else {
+        return;
+    };
+    if let Some(reg) = _loop.inner.surface_mut().registry.as_mut() {
+        reg.destroy(handle);
+    }
+    _loop.inner.launcher_mut().handle = None;
+}
+
+/// Close the launcher when a touch/pen tap landed OUTSIDE its surface. `hit` is the
+/// iced handle under the tap (`None` for a window/layer/empty hit). A tap ON the
+/// launcher (`hit == launcher`) is left alone so a cell tap can launch. Returns
+/// whether it closed (so the caller can swallow the dismissing tap). Wired only into
+/// the touch-down / pen-tip paths, so a plain mouse click never dismisses it.
+pub fn dismiss_if_outside(_loop: &mut Loop, hit: Option<HandleId>) -> bool {
+    let Some(handle) = _loop.inner.launcher_mut().handle else {
+        return false;
+    };
+    if hit == Some(handle.id) {
+        return false;
+    }
+    // A tap on a keyboard-transparent companion overlay (the on-screen keyboard) is NOT
+    // "outside": the OSK types INTO the launcher, so tapping its keys must not dismiss
+    // it. Such surfaces never take keyboard focus, so they're never a real focus change.
+    if let Some(h) = hit {
+        if _loop
+            .inner
+            .surface()
+            .registry
+            .as_ref()
+            .is_some_and(|r| r.is_keyboard_transparent(h))
+        {
+            return false;
+        }
+    }
+    close(_loop);
+    true
 }
 
 pub fn start_defered(p0: &mut Loop) {

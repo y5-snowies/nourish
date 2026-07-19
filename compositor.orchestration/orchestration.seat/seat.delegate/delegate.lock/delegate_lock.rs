@@ -34,9 +34,17 @@ pub fn process_input_event<I: InputBackend>(_loop: &mut Loop, event: &InputEvent
         InputEvent::GesturePinchEnd { .. } => {}
         InputEvent::GestureHoldBegin { .. } => {}
         InputEvent::GestureHoldEnd { .. } => {}
-        InputEvent::TouchDown { .. } => {}
-        InputEvent::TouchMotion { .. } => {}
-        InputEvent::TouchUp { .. } => {}
+        // Lock screen: single-finger pointer emulation against the lock handlers —
+        // delegated into the lock crate like every other arm above.
+        InputEvent::TouchDown { event, .. } => {
+            compositor_y5_lock_seat_input::touch::down::<I>(event, _loop);
+        }
+        InputEvent::TouchMotion { event, .. } => {
+            compositor_y5_lock_seat_input::touch::motion::<I>(event, _loop);
+        }
+        InputEvent::TouchUp { event, .. } => {
+            compositor_y5_lock_seat_input::touch::up::<I>(event, _loop);
+        }
         InputEvent::TouchCancel { .. } => {}
         InputEvent::TouchFrame { .. } => {}
         InputEvent::TabletToolAxis { .. } => {}

@@ -22,6 +22,10 @@ compositor_support_smithay_state_shm_base.workspace = true
 compositor_support_smithay_state_output_base.workspace = true
 compositor_support_smithay_state_popup_base.workspace = true
 compositor_support_smithay_state_layershell_base.workspace = true
+# wlr-foreign-toplevel-management: the manager/handle GlobalDispatch+Dispatch
+# orphan impls live here (crate that defines `Dispatch`); state + emit logic is
+# in foreign.base.
+compositor_support_smithay_state_foreign_base.workspace = true
 compositor_support_smithay_state_compositor_base.workspace = true
 compositor_support_smithay_state_presentation_base.workspace = true
 compositor_support_smithay_state_space_base.workspace = true
@@ -34,6 +38,7 @@ compositor_support_smithay_state_text_input_base.workspace = true
 # document/SMITHAY_DECOUPLING.md P2 flip).
 compositor_support_smithay_dispatch_wire_color.workspace = true
 compositor_support_smithay_dispatch_wire_colorsurf.workspace = true
+compositor_support_smithay_dispatch_wire_tablet.workspace = true
 # Handler-impl bodies (orphan-required here) use these leaf helpers (no
 # `*.dispatch` crate, which would cycle — document/SMITHAY_DECOUPLING.md P2).
 compositor_support_smithay_dispatch_wire_redraw.workspace = true

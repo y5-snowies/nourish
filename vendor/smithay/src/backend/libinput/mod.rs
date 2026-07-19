@@ -609,7 +609,12 @@ impl InputBackend for LibinputInputBackend {
 
     type SwitchToggleEvent = event::switch::SwitchToggleEvent;
 
-    type SpecialEvent = backend::UnusedEvent;
+    // y5 patch: surface tablet-pad events (buttons/ring/strip) — smithay models
+    // tablet tools but not pads. Carrying the raw libinput pad event through the
+    // existing `SpecialEvent` channel keeps the `InputBackend` trait (and every
+    // other backend impl) untouched; the compositor consumes it in its libinput
+    // closure. See document/… (external zwp_tablet_pad_v2).
+    type SpecialEvent = event::tablet_pad::TabletPadEvent;
 }
 
 impl From<event::keyboard::KeyState> for backend::KeyState {
@@ -865,6 +870,10 @@ impl EventSource for LibinputInputBackend {
                             trace!("Unknown libinput switch event");
                         }
                     },
+                    // y5 patch: forward tablet-pad events through SpecialEvent.
+                    libinput::Event::TabletPad(pad_event) => {
+                        callback(InputEvent::Special(pad_event), &mut ());
+                    }
                     _ => {} //FIXME: What to do with the rest.
                 }
             }

@@ -53,7 +53,7 @@ use smithay::wayland::xdg_activation::{XdgActivationHandler, XdgActivationState,
 use compositor_support_smithay_dispatch_state_base::state::{Dispatch, DispatchWire};
 use compositor_support_smithay_dispatch_state_bounds::FactoryBounds;
 use compositor_support_smithay_dispatch_wire_color::color::{ImageDescData, ParamsState};
-use compositor_support_smithay_dispatch_wire_trait::wire_trait::WireTrait;
+use compositor_support_smithay_dispatch_wire_trait::wire_trait::{ActivationOrigin, WireTrait};
 use compositor_support_smithay_dispatch_wire_color::color as cm;
 use compositor_support_smithay_dispatch_wire_colorsurf::colorsurf as cs;
 use compositor_support_smithay_dispatch_wire_redraw::redraw as rd;
@@ -75,6 +75,7 @@ impl<A: WireTrait + 'static> Wire<A> {
     ) -> Self {
         let dispatch = new_dispatch(display_handle, drm_device);
         cm::create_global::<Dispatch>(display_handle);
+        compositor_support_smithay_dispatch_wire_tablet::tablet::create_global::<Dispatch>(display_handle);
         Self { state: dispatch, inner, loop_handle }
     }
 }
@@ -100,6 +101,16 @@ pub fn new_dispatch(
         output: compositor_support_smithay_state_output_factory::factory::new::<Dispatch>(display_handle),
         popup: compositor_support_smithay_state_popup_factory::factory::new::<Dispatch>(),
         layershell: compositor_support_smithay_state_layershell_factory::factory::new::<Dispatch>(display_handle),
+        foreign: {
+            // `protocol_foreign` preference (preferences.json) startup snapshot: when
+            // disabled, NEITHER foreign-toplevel global is advertised (clients can't bind
+            // them); when enabled, both are. Read once at boot — no hot-reload; a change
+            // takes effect on the next launch.
+            let prefs = compositor_developer_environment_preference_base::base::load();
+            let enabled = prefs.protocol_foreign == "enabled";
+            let all_worlds = prefs.protocol_foreign_all_worlds;
+            compositor_support_smithay_state_foreign_factory::factory::new::<Dispatch>(display_handle, enabled, all_worlds)
+        },
         compositor: compositor_support_smithay_state_compositor_factory::factory::new::<Dispatch>(display_handle),
         presentation: compositor_support_smithay_state_presentation_factory::factory::new::<Dispatch>(display_handle),
         viewporter: compositor_support_smithay_state_viewporter_factory::factory::new::<Dispatch>(display_handle),
@@ -108,6 +119,7 @@ pub fn new_dispatch(
         text_input: compositor_support_smithay_state_text_input_factory::factory::new::<Dispatch>(display_handle),
         dnd: compositor_support_smithay_state_dnd_factory::factory::new(),
         singlepixel: compositor_support_smithay_state_singlepixel_factory::factory::new::<Dispatch>(display_handle),
+        tablet: Default::default(),
         needs_redraw: true,
         redraw_ping: None,
         render_in_flight: false,
@@ -119,6 +131,9 @@ pub fn new_dispatch(
         destroyed_layers: vec![],
         pending_dmabuf: vec![],
         geometries: std::collections::HashMap::new(),
+        outputs_snapshot: vec![],
+        in_popup_grab: false,
+        pending_constraint_activation: None,
         pending_restoration: vec![],
         pending_blockers: vec![],
         pending_data_focus: None,
@@ -142,6 +157,105 @@ impl<A: WireTrait + 'static> Wire<A> {
     pub fn window_for_toplevel(&self, surface: &ToplevelSurface) -> Option<smithay::desktop::Window> {
         rd::window_for_toplevel(&self.inner.host_space().state, surface.wl_surface())
     }
+    /// Apply a control request a dock sent through wlr-foreign-toplevel-management.
+    /// `close` asks the client to close; `fullscreen` routes through the world; `activate`
+    /// queues a view+activate (see `request_activation`). maximize/minimize have no y5 model
+    /// and are dropped at the protocol layer, so they never reach here.
+    fn apply_foreign_request(
+        &mut self,
+        surface: WlSurface,
+        request: compositor_support_smithay_state_foreign_base::base::ForeignRequest,
+    ) {
+        use compositor_support_smithay_state_foreign_base::base::ForeignRequest;
+        // Search EVERY world, not just the hosted one — with `all_worlds` a dock can send a
+        // request for a window on another world (cross-world activate). `request_activation`
+        // downstream switches to that window's world before framing it.
+        let Some(window) = self
+            .inner
+            .all_world_spaces()
+            .iter()
+            .flat_map(|s| s.state.elements())
+            .find(|w| w.toplevel().map(|t| *t.wl_surface() == surface).unwrap_or(false))
+            .cloned()
+        else {
+            return;
+        };
+
+        match request {
+            ForeignRequest::Close => {
+                if let Some(t) = window.toplevel() {
+                    t.send_close();
+                }
+            }
+            ForeignRequest::Fullscreen(fs) => {
+                self.inner.fullscreen_request(window, fs);
+            }
+            ForeignRequest::Activate => {
+                // Queue a view+activate; the window-lifecycle drainer (higher crate, has the
+                // camera `view`) applies it. `Foreign` records the source for later.
+                self.inner.request_activation(window, ActivationOrigin::Foreign);
+            }
+        }
+    }
+
+    /// Re-advertise foreign-toplevels after a world switch: diff the now-hosted world's
+    /// Space against the mirror (closing the old world's toplevels, announcing the new
+    /// world's). Event-driven — the loader registers this on the `WORLD_SWITCHED` bus
+    /// channel, so it runs once per actual switch, not on a per-iteration poll.
+    pub fn reconcile_foreign_on_world_change(&mut self) {
+        self.foreign_reconcile();
+    }
+
+    /// The rim's full response to a `WORLD_SWITCHED` event, in order: carry keyboard
+    /// focus + `activated` to the incoming world (this sets the new activation), then
+    /// re-advertise the foreign-toplevel mirror against it. Kept together here so the
+    /// composition root only wires an opaque "on world switched" and stays agnostic of
+    /// which concerns (focus, docks) react to a switch.
+    pub fn on_world_switched(&mut self) {
+        self.apply_world_switch_focus();
+        self.foreign_reconcile();
+    }
+
+    /// Reconcile the foreign-toplevel mirror against the space(s) it advertises: just the
+    /// hosted world, or EVERY world when `protocol_foreign_all_worlds` is set. Shared by the
+    /// per-commit drain and the world-switch handler.
+    pub fn foreign_reconcile(&mut self) {
+        if !self.state.foreign.enabled() {
+            return;
+        }
+        if self.state.foreign.all_worlds() {
+            let states = self.inner.all_world_spaces();
+            let spaces: Vec<_> = states.iter().map(|s| &s.state).collect();
+            self.state.foreign.reconcile::<Dispatch>(&spaces);
+        } else {
+            self.state.foreign.reconcile::<Dispatch>(&[&self.inner.host_space().state]);
+        }
+    }
+
+    /// Carry keyboard focus + `activated` across a world switch. Keyboard focus is a
+    /// single global on the seat, so switching worlds otherwise strands focus (and typed
+    /// input) on the outgoing world's window. Runs from the `WORLD_SWITCHED` rim handler
+    /// (post-switch: focus is still the outgoing window, `spawn_target` is the incoming
+    /// world). Saves the outgoing world's focus, then restores the incoming world's
+    /// remembered window (or clears when it has none) — the seat plumbing lives here; the
+    /// world/memory/activation logic is behind `WireTrait`. Restoring the incoming focus
+    /// transitively pulls the global focus off the outgoing window.
+    pub fn apply_world_switch_focus(&mut self) {
+        let Some(keyboard) = self.state.seat.seat.get_keyboard() else {
+            return;
+        };
+        // Save: the surface that still holds global focus belongs to the world we just
+        // left (disable does not move windows), so it is keyed under the outgoing world.
+        if let Some(surface) = keyboard.current_focus() {
+            self.inner.remember_focus_of(&surface);
+        }
+        // Restore: the incoming world's remembered window (activates it too), or `None`
+        // to clear focus when it has no live remembered window.
+        let focus = self.inner.restore_focus_for_current_world();
+        let serial = SERIAL_COUNTER.next_serial();
+        keyboard.set_focus(&mut self.state, focus, serial);
+    }
+
     pub fn apply_constraint_restoration(&mut self, token: (WlSurface, Point<f64, Logical>)) {
         let (hint_surface, hint_surface_local) = token;
         let Some(pointer) = self.state.seat.seat.get_pointer() else { return; };
@@ -166,15 +280,31 @@ impl<A: WireTrait + 'static> Wire<A> {
             self.inner.host_space_mut().state.map_element(window, (0, 0), false);
         }
         // Commits: on_commit, initial configure + placement, resize.
-        for surface in std::mem::take(&mut self.state.committed) {
+        let committed = std::mem::take(&mut self.state.committed);
+        for surface in &committed {
             if let Some((window, geometry)) =
                 compositor_support_smithay_state_compositor_dispatch::wire::apply_commit(
                     &mut self.inner.host_space_mut().state,
-                    &surface,
+                    surface,
                 )
             {
                 self.inner.place_window(window, geometry);
             }
+        }
+        // Live layer-shell reconfiguration: if a committed surface is a mapped layer
+        // surface, re-arrange its output so anchor / size / margin / exclusive-zone
+        // changes take effect (and reserved space updates) without a remap.
+        let mut layer_relayout = false;
+        for surface in &committed {
+            if compositor_support_smithay_state_layershell_dispatch::wire::arrange_on_commit(
+                self.inner.host_space(),
+                surface,
+            ) {
+                layer_relayout = true;
+            }
+        }
+        if layer_relayout {
+            self.state.schedule_redraw();
         }
         // (un)fullscreen.
         for (toplevel, fullscreen) in std::mem::take(&mut self.state.fullscreen_requests) {
@@ -182,10 +312,12 @@ impl<A: WireTrait + 'static> Wire<A> {
                 self.inner.fullscreen_request(w, fullscreen);
             }
         }
-        // Layer shell map / unmap.
+        // Layer shell map / unmap. A NULL-output surface goes to the monitor the
+        // user is on (active_output), not always the first output.
         for (surface, output, layer, namespace) in std::mem::take(&mut self.state.new_layers) {
+            let current_output = self.inner.active_output();
             compositor_support_smithay_state_layershell_dispatch::wire::new_layer_surface(
-                self.inner.host_space(), surface, output, layer, namespace,
+                self.inner.host_space(), surface, output, layer, namespace, current_output,
             );
         }
         for surface in std::mem::take(&mut self.state.destroyed_layers) {
@@ -193,9 +325,43 @@ impl<A: WireTrait + 'static> Wire<A> {
                 self.inner.host_space(), surface,
             );
         }
+        // Mirror the current outputs (+ logical geometry) for the world-free layer
+        // popup constrain (see `Dispatch::outputs_snapshot`). Cheap; a step behind by
+        // one iteration, which is fine since outputs change only on hotplug.
+        let outputs_snapshot = {
+            let space = &self.inner.host_space().state;
+            space
+                .outputs()
+                .filter_map(|o| space.output_geometry(o).map(|g| (o.clone(), g)))
+                .collect()
+        };
+        self.state.outputs_snapshot = outputs_snapshot;
+        // Deferred pointer-constraint activate-on-focus (recorded by `focus_changed`).
+        // Done here — NOT in the callback — because the pointer is unlocked now, so the
+        // `is_pointer_over` → `current_focus()` query can't re-lock a held pointer mutex.
+        if let Some(surface) = self.state.pending_constraint_activation.take() {
+            if let Some(pointer) = self.state.seat.seat.get_pointer() {
+                if self.state.seat.is_pointer_over(&pointer, &surface) {
+                    with_pointer_constraint(&surface, &pointer, |c| {
+                        if let Some(c) = c {
+                            if !c.is_active() {
+                                c.activate();
+                            }
+                        }
+                    });
+                }
+            }
+        }
         // Destroyed toplevels.
         for surface in std::mem::take(&mut self.state.destroyed_toplevels) {
             self.inner.destroy_surface_data(surface);
+        }
+        // wlr foreign-toplevel-management: reconcile the dock-facing mirror against
+        // the now-updated Space(s) (announce new toplevels, close gone ones, push
+        // title/app_id/state deltas), then apply any control requests docks queued.
+        self.foreign_reconcile();
+        for (surface, request) in self.state.foreign.take_requests() {
+            self.apply_foreign_request(surface, request);
         }
         // Dmabuf imports (GPU binding lives in the kernel; resolves the notifier).
         for (global, dmabuf, notifier) in std::mem::take(&mut self.state.pending_dmabuf) {

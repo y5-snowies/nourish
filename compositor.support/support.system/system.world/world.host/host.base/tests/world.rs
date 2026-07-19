@@ -4,7 +4,7 @@
 
 use compositor_support_system_buffer_token_base::y5_buffer;
 use compositor_support_system_channel_token_base::y5_channel;
-use compositor_support_system_input_event_base::base::{InputEvent, InputFlow};
+use compositor_support_system_input_event_base::base::{InputEvent, InputFlow, Modality};
 use compositor_support_system_input_layer_base::base as input_layer;
 use compositor_support_system_storage_token_base::y5_storage;
 use compositor_support_system_trait_system_base::base::{BufferCx, System, SystemCx, WorldBuilder};
@@ -147,7 +147,13 @@ fn world_end_to_end() {
 
     // input: overlay (registered last, higher layer) runs first and passes;
     // counter consumes at WORLD layer; its buffered log applied
-    let event = InputEvent::PointerButton { button: 0x110, pressed: true, x: 1.0, y: 2.0 };
+    let event = InputEvent::PointerButton {
+        button: 0x110,
+        pressed: true,
+        x: 1.0,
+        y: 2.0,
+        modality: Modality::Mouse,
+    };
     assert_eq!(world.input(&kernel, &event, None, None), InputFlow::Consume);
     assert_eq!(
         world.storage().get(&COUNTER).log,

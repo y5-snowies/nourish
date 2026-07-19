@@ -92,4 +92,6 @@ pub enum OverviewSurfaceMessage {
     SetTab(Tab),
     ToggleLogout,
     Logout,
+    /// Close the overlay (the menu-bar ✕ tapped) — flips `visible` off.
+    Close,
 }

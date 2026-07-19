@@ -30,7 +30,7 @@ pub struct Builtin {
 
 /// The extra built-in worlds, in picker order: the three orbital "galaxy" views
 /// first, then the "inside the world" surface scenes (drift / cave / cavern and
-/// the leafy bough close-up), then the standalone underwater descent, then the calm nature/landscape scenes, then the sky /
+/// the leafy bough close-up), then the standalone underwater descent, then the calm nature/landscape/marine scenes, then the sky /
 /// weather scenes (cloud drift, aurora, rain on glass, sunset birds), then the
 /// fully abstract "wallpaper" set (metaballs, aurora blur, contours, voronoi,
 /// ribbons) — smooth low-contrast fields that never compete with the foreground.
@@ -52,6 +52,8 @@ pub fn builtins() -> &'static [Builtin] {
         Builtin { id: "builtin:misty-ridges", wgsl: include_str!("shaders/misty_ridges.wgsl") },
         Builtin { id: "builtin:dusk-dunes", wgsl: include_str!("shaders/dusk_dunes.wgsl") },
         Builtin { id: "builtin:ocean-horizon", wgsl: include_str!("shaders/ocean_horizon.wgsl") },
+        Builtin { id: "builtin:harbor-beacon", wgsl: include_str!("shaders/harbor_beacon.wgsl") },
+        Builtin { id: "builtin:harbor-piers", wgsl: include_str!("shaders/harbor_piers.wgsl") },
         // Sky / weather scenes.
         Builtin { id: "builtin:cloud-drift", wgsl: include_str!("shaders/cloud_drift.wgsl") },
         Builtin { id: "builtin:aurora", wgsl: include_str!("shaders/aurora.wgsl") },

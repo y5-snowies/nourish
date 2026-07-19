@@ -256,6 +256,11 @@ pub struct IcedItem {
     /// without intercepting pointer input or stealing events from what's
     /// behind it. Tooltips set this.
     passthrough: bool,
+    /// When true a pointer press that lands on this surface does NOT move keyboard
+    /// focus (neither clears the client's focus nor takes iced focus). The surface
+    /// still receives the pointer button — it just isn't a keyboard-focus target.
+    /// The on-screen keyboard sets this so tapping a key keeps the text field focused.
+    keyboard_transparent: bool,
     /// Optional owning physical output (an opaque caller-supplied tag, e.g. an
     /// `output_key`). `None` = the surface is not bound to a specific monitor
     /// and follows the compositor's default single-output placement (launcher,
@@ -296,6 +301,7 @@ impl IcedItem {
             layer,
             visible: true,
             passthrough: false,
+            keyboard_transparent: false,
             output: None,
             render_stale: false,
             opaque_occluder: false,
@@ -336,6 +342,15 @@ impl IcedItem {
 
     pub fn set_passthrough(&mut self, passthrough: bool) {
         self.passthrough = passthrough;
+    }
+
+    /// Whether a pointer press on this surface should leave keyboard focus alone.
+    pub fn is_keyboard_transparent(&self) -> bool {
+        self.keyboard_transparent
+    }
+
+    pub fn set_keyboard_transparent(&mut self, v: bool) {
+        self.keyboard_transparent = v;
     }
 
     /// The output this surface is bound to, if any (see the `output` field).

@@ -21,14 +21,36 @@ pub struct PickerPrepared {
     pub surfaces: Vec<compositor_monitor_compositor_iced_base::IcedRenderElement>,
 }
 
+/// Active-monitor-only gate. The picker overlay (sphere + details panel + pointer)
+/// renders ONLY on the active output; other outputs keep just the parallax, so the
+/// sphere/panel aren't stretched/duplicated on differently-sized monitors and their
+/// baked size stays stable. `render_output == None` = winit/single-output pass →
+/// active (that path is unchanged). Mirrors the overview overlay's convention.
+fn on_active_output(s: &Loop) -> bool {
+    s.inner
+        .render_output
+        .as_ref()
+        .is_none_or(|k| *k == s.inner.active_output_key())
+}
+
 /// GLES preparation: render the picker bevy instance (tagged `PICKER_SCENE`).
 pub fn prepare(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physical>) -> PickerPrepared {
     use compositor_y5_picker_system_base::base::PICKER_WORLD;
 
-    // Per-frame pre-step: momentum, transform push, parallax extraction.
+    // Per-frame pre-step: momentum, transform push, parallax extraction. Runs on
+    // every output so the parallax fills each monitor behind the picker.
     let background_two = compositor_y5_picker_scene_tick::tick::tick(state, renderer);
 
+    // Non-active output: parallax only. Skip the (size-baked) bevy sphere and iced
+    // details panel so they render exclusively on the active monitor.
+    if !on_active_output(state) {
+        return PickerPrepared { bevy: vec![], background_two, surfaces: vec![] };
+    }
+
     let gpu = state.inner.environment.GPU.clone();
+    // The sphere is baked at the active output's size in `scene.create` (the only
+    // output it renders on), so `size` here matches and no live resize is needed —
+    // resizing an open picker raced its first render and blanked the bevy.
     let bevy = if let Some(reg) = state
         .inner
         .worlds
@@ -82,16 +104,22 @@ where
     R::TextureId: Texture + Clone + Send + 'static,
 {
     let mut plan: Plan<R> = Plan::new();
-    // Entry fade: a black overlay (above the scene) that clears over FADE_SECS.
-    if let Some(solid) = compositor_y5_picker_scene_fade::fade::overlay(state, size) {
-        plan.push(layer::POINTER, DrawNode::Solid(solid));
+    // Active monitor only: fade overlay, pointer, details panel, and the sphere.
+    // Other outputs draw the parallax alone (below), so the picker UI never lands
+    // on a monitor the user isn't on.
+    if on_active_output(state) {
+        // Entry fade: a black overlay (above the scene) that clears over FADE_SECS.
+        if let Some(solid) = compositor_y5_picker_scene_fade::fade::overlay(state, size) {
+            plan.push(layer::POINTER, DrawNode::Solid(solid));
+        }
+        // Pointer on top, then the sphere.
+        let pointer =
+            compositor_orchestration_seat_pointer_draw::scene::element(state, renderer, size);
+        plan.extend(layer::POINTER, pointer.into_iter().map(DrawNode::Pointer));
+        // Details panel above the sphere (but below the pointer).
+        plan.extend(layer::ICED_SCREEN, prepared.surfaces.into_iter().map(DrawNode::Iced));
+        plan.extend(layer::WORLD_3D, prepared.bevy.into_iter().map(DrawNode::Background3D));
     }
-    // Pointer on top, then the sphere.
-    let pointer = compositor_orchestration_seat_pointer_draw::scene::element(state, renderer, size);
-    plan.extend(layer::POINTER, pointer.into_iter().map(DrawNode::Pointer));
-    // Details panel above the sphere (but below the pointer).
-    plan.extend(layer::ICED_SCREEN, prepared.surfaces.into_iter().map(DrawNode::Iced));
-    plan.extend(layer::WORLD_3D, prepared.bevy.into_iter().map(DrawNode::Background3D));
     if let Some(bg) = prepared.background_two {
         plan.push(layer::BACKGROUND, DrawNode::Background2D(bg));
     }

@@ -29,7 +29,6 @@
 //! at the boundary. Both sides of any single callback invocation are in
 //! the same space.
 
-use crate::position;
 use smithay::desktop::{PopupManager, Window, WindowSurfaceType, layer_map_for_output};
 use smithay::desktop::utils::under_from_surface_tree;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -216,6 +215,12 @@ impl SurfaceHit {
             Self::Window { window, .. } => Some(window),
             _ => None,
         }
+    }
+
+    /// True for a wlr layer-shell surface hit (used to gate layer input, e.g. make layers
+    /// presentational while the overview overlay is open, like windows).
+    pub fn is_layer(&self) -> bool {
+        matches!(self, Self::Layer { .. })
     }
 
     pub fn ice(&self) -> Option<bool> {
@@ -549,65 +554,60 @@ pub fn surface_under_filtered_cx(
         return Some(hit);
     }
 
-    // For layer-shell: screen-logical (camera applied, top-left anchored
-    // per output).
+    // For layer-shell: screen-logical (camera applied, top-left anchored per output).
+    // `cursor_xform` was projected through `pane_context()` — the CURSOR's output — so
+    // this point is in THAT output's LOCAL, 0-based logical pixels, not global multi-
+    // output space. Hit-test the SAME output's layer map with the local point (mirrors
+    // the iced-screen path, whose `screen_point` is likewise output-local).
+    //
+    // The old code re-derived the output by testing this LOCAL point against GLOBAL
+    // `output_geometry`; the two coincide only on the output at the global origin, so a
+    // layer surface on any other monitor got the wrong output's layer map and silently
+    // received no pointer input (the multi-monitor layer-shell input bug).
     let cursor_logical: Point<f64, Logical> = cursor_xform.into();
     let position_screen = cursor_logical;
-
-    // Find which output the cursor is on. output_geometry is logical.
-    let output = hcx.space_state().state.outputs().find(|o| {
-        hcx.space_state()
-            .state
-            .output_geometry(o)
-            .map(|g| g.to_f64().contains(position_screen))
-            .unwrap_or(false)
-    })?;
-
-    let output_loc = hcx.space_state()
-        .state
-        .output_geometry(output)
-        .map(|g| g.loc)?;
-
-    let output_pos = position_screen - output_loc.to_f64();
-
+    let output = hcx.current_output();
+    let output_pos = position_screen;
     let layer_map = layer_map_for_output(output);
-    let check_layer_enabled = hcx.select().Selection.len() > 0;
 
-    // Size of the output the cursor is actually on (found just above), not the
-    // primary — layer-shell positioning on a secondary monitor must use its size.
-    let compositor_output_size_logical = hcx.space_state()
-        .state
-        .output_geometry(output)
-        .unwrap()
-        .size;
-
+    // Hit-test each layer at its natural z-band. Layer ordering (Overlay/Top
+    // above windows, Bottom/Background below — see the caller order) is what
+    // keeps a background/bottom surface from stealing clicks from windows, so no
+    // extra gating is needed: a Top/Overlay dock is interactive, a Background
+    // wallpaper is not reachable while a window covers it. Pointer reachability
+    // is further narrowed by the surface's own input region inside
+    // `surface_under`.
     let check_layer = |layer_band: Layer| -> Option<SurfaceHit> {
-        if !check_layer_enabled {
-            return None;
-        }
         for layer_surface in layer_map.layers_on(layer_band).rev() {
-            let location = position::layer_surface_position_core(
-                position_world,
-                hcx.size_ctx_all(),
-                layer_surface,
-                compositor_output_size_logical,
-            );
-            let surface_size = layer_surface.bbox().size;
-            let geom = Rectangle::from_loc_and_size(location, surface_size);
+            // smithay's arranged geometry (honors anchor/margin/exclusive/size); the
+            // interactive rect includes popups so a menu off the bar is clickable.
+            let Some(geo) = layer_map.layer_geometry(layer_surface) else {
+                continue;
+            };
+            // Containment (broad phase) includes popups so a click on a menu off the bar
+            // counts — `bbox_with_popups.loc` is negative when a popup extends up/left.
+            let popups = layer_surface.bbox_with_popups();
+            let hit_rect = Rectangle::from_loc_and_size(geo.loc + popups.loc, popups.size);
 
-            if !geom.to_f64().contains(output_pos) {
+            if !hit_rect.to_f64().contains(output_pos) {
                 continue;
             }
 
-            let surface_local = output_pos - geom.loc.to_f64();
-            let Some((s, _sub_pos)) =
+            let surface_local = output_pos - geo.loc.to_f64();
+            // `sub_pos` is the HIT surface's top-left relative to the layer surface origin:
+            // (0,0) for the bar itself, non-zero for a popup (a menu/submenu offset from the
+            // bar). The pointer-focus origin below MUST be this surface's origin, not the
+            // layer's — otherwise a popup receives motion/clicks measured from the bar and,
+            // once offset far enough, the local coords land outside it and the client drops
+            // the events (the "some popups get no pointer input" bug).
+            let Some((s, sub_pos)) =
                 layer_surface.surface_under(surface_local, WindowSurfaceType::ALL)
             else {
                 continue;
             };
 
-            let layer_origin_space = geom.loc.to_f64() + output_loc.to_f64();
-            let unscaled = position_screen - layer_origin_space;
+            let surface_origin_space = geo.loc.to_f64() + sub_pos.to_f64();
+            let unscaled = position_screen - surface_origin_space;
 
             let hit = SurfaceHit::Layer {
                 Ice: Some(true),

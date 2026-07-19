@@ -67,6 +67,9 @@ pub fn handle(state: &mut Loop, renderer: &mut GlesRenderer, message: OverviewSu
         OverviewSurfaceMessage::SetTab(tab) => {
             state.inner.overview_mut().tab = tab;
         }
+        OverviewSurfaceMessage::Close => {
+            request_close(state);
+        }
         OverviewSurfaceMessage::ToggleLogout => {
             if state.inner.overview().logout.is_some() {
                 surface::close_logout(state);
