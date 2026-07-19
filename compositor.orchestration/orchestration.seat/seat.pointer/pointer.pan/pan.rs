@@ -45,11 +45,21 @@ pub fn reconcile_finger_pan(state: &mut Loop) {
         t.into()
     };
 
-    let motion = &mut state.inner.pointer_mut().motion;
-    // Already consistent (no glide has pulled them apart) → nothing to do.
-    if (motion.x - phys.x).abs() < 1e-6 && (motion.y - phys.y).abs() < 1e-6 {
-        return;
+    {
+        let motion = &mut state.inner.pointer_mut().motion;
+        // Already consistent (no glide has pulled them apart) → nothing to do.
+        if (motion.x - phys.x).abs() < 1e-6 && (motion.y - phys.y).abs() < 1e-6 {
+            return;
+        }
+        motion.x = phys.x;
+        motion.y = phys.y;
     }
-    motion.x = phys.x;
-    motion.y = phys.y;
+
+    // The canvas-PAN accumulator is the SAME screen point, held separately on the
+    // camera and advanced ONLY by `CamCmd::Pan` (i.e. only on pointer motion). A
+    // glide therefore leaves it stale by exactly the pan, and the first press-drag
+    // afterwards computes `screen - position_previous` and flings the camera by the
+    // whole glide. Re-seat it together with the pointer accumulator — `wire.rs`
+    // pairs the same two writes when it warps the pointer.
+    state.inner.camera_mut().position_previous = Point::from((phys.x, phys.y));
 }
