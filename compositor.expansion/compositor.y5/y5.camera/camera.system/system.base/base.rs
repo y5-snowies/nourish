@@ -445,17 +445,22 @@ fn canvas_owns_gesture(cx: &mut SystemCx, cursor: Point<f64, Logical>) -> bool {
     // owns touchpad pan/pinch AND the mouse wheel (zoom) — the user reserves the
     // mouse CLICK for the Move tool it shares the modifier with, but the wheel is
     // free, so Super+wheel zooms the canvas even over a window.
-    // The persistent hand tool, the momentary Super-held tool, the touch pane's Hand
-    // tool, and any in-progress canvas pan all own every wheel/pinch gesture (so the
-    // tablet dial + mouse wheel zoom under any of them — incl. mid-pan).
+    // The persistent hand tool, the momentary Super-held tool, and any in-progress
+    // canvas pan all own every wheel/pinch gesture (so the tablet dial + mouse wheel
+    // zoom under any of them — incl. mid-pan).
     let hand = matches!(canvas.Grab, CanvasGrab::Active(ActiveOption::Hand));
+    // The touch pane's Hand tool is touch-exclusive state (see `pane.handle`): it owns
+    // gestures only for a DIRECT device (finger glide, pen dial). The mouse re-classifies
+    // the modality right before its wheel routes here, so a plain wheel over a window
+    // keeps scrolling the client even while the pane sits in Hand mode.
+    let hand_touch = canvas.hand_touch && canvas.input_modality.is_direct();
     // `position_updating` is set by ANY press that starts a canvas pan — including a
     // plain mouse press on empty canvas — so it is gated on a DIRECT modality here.
     // Its purpose is to let the pen's tablet DIAL keep zooming mid-pan; without the
     // gate a mouse wheel (or trackpad pinch) during a button-held pan would be claimed
     // by the camera even over a window, where it used to reach the client.
     let direct_pan = canvas.position_updating && canvas.input_modality.is_direct();
-    if hand || canvas.finger_pan || canvas.hand_touch || direct_pan {
+    if hand || canvas.finger_pan || hand_touch || direct_pan {
         return true;
     }
     let over_window = surface_under_filtered_cx(cx.storage, cursor, &|hit| {

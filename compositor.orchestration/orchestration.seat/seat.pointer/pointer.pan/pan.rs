@@ -36,6 +36,18 @@ pub fn reconcile_finger_pan(state: &mut Loop) {
         return;
     }
 
+    // A press-driven pan (mouse drag / emulated touch press on empty canvas) advances
+    // the camera ONLY on pointer motion, and every motion event computes its world
+    // point BEFORE the CAM_BUF pan step flushes — so at frame end the seat's world
+    // location is one pan step stale against the just-panned camera. Reconciling
+    // against that stale projection re-seats both accumulators shifted by the frame's
+    // pan delta, compounding each frame into runaway cursor/camera speed on a plain
+    // mouse pan. The motion path maintains both accumulators itself during a press
+    // pan; the glide paths (no press, no motion events) still reconcile below.
+    if state.inner.canvas().position_updating {
+        return;
+    }
+
     // Where the cursor is actually drawn: its world location projected through the
     // live (possibly panned) camera — the same pane context the cursor renders in.
     let world = state.state.seat.seat.get_pointer().unwrap().current_location();
