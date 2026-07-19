@@ -18,6 +18,12 @@ where
 {
     let mut elements: Vec<PointerRenderElement<R>> = Vec::new();
 
+    // While a touch sequence owns the active output the shared cursor "disappears"
+    // — it reappears where it was once a pointer device is used again.
+    if state.inner.saved_cursor.is_some() {
+        return elements;
+    }
+
     let pointer = state.state.seat.seat.get_pointer().unwrap();
     let cursor_world = pointer.current_location();
     // let hotspot = state.inner.pointer_mut().element.get_current_hotspot();

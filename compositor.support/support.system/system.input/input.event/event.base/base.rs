@@ -7,6 +7,8 @@ pub enum InputFlow {
     Pass,
 }
 
+pub use compositor_support_system_input_modality_base::base::Modality;
+
 /// Kernel-level input event. Platform-free on purpose: the orchestration layer
 /// translates smithay/libinput/winit events into this shape before the bus
 /// traversal, so systems never see backend types.
@@ -40,6 +42,11 @@ pub enum InputEvent {
         pressed: bool,
         x: f64,
         y: f64,
+        /// The device class this press came from. Touch and pen presses are
+        /// SYNTHESIZED pointer events, so this is the only way a receiver can tell
+        /// them from a real click — gate direct-only behaviour on
+        /// [`Modality::is_direct`], never on a shared canvas grab/tool slot.
+        modality: Modality,
     },
     PointerAxis {
         horizontal: f64,
@@ -50,6 +57,15 @@ pub enum InputEvent {
         /// discrete scroll wheel. Lets the canvas treat two-finger touchpad
         /// scroll (pan) differently from mouse-wheel scroll (zoom).
         finger: bool,
+        /// A finger pan that should feed momentum (fling/coast) — true for a real
+        /// touchpad glide and a 1-finger touch glide; false for a 2-finger touch
+        /// pan, which is a strict 1:1 move with no coast.
+        momentum: bool,
+        /// The pan originates from a touchscreen (not the trackpad). Touch deltas
+        /// are true 1:1 pixel motion, so the release velocity already equals the
+        /// finger velocity — the camera skips the trackpad's fling boost for it,
+        /// so the coast never runs faster than the drag.
+        from_touch: bool,
     },
     /// Touchpad pinch gesture, translated from the libinput pinch lifecycle.
     /// Carries the cursor location (the zoom anchor) and, on `Update`, the

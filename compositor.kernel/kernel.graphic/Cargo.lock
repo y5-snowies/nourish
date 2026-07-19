@@ -1746,6 +1746,7 @@ dependencies = [
  "compositor_configurator_bluetooth_backend_base",
  "compositor_configurator_network_backend_base",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "compositor_developer_environment_preference_base",
  "compositor_orchestration_driver_output_base",
  "compositor_y5_audio_controller_interface",
@@ -1793,6 +1794,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_developer_environment_graphics_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "compositor_developer_environment_keybinding_base"
 version = "0.0.1"
 dependencies = [
@@ -1806,6 +1814,7 @@ name = "compositor_developer_environment_preference_base"
 version = "0.0.1"
 dependencies = [
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_graphics_base",
  "serde",
  "serde_json",
 ]
@@ -2849,7 +2858,10 @@ dependencies = [
  "compositor_orchestration_driver_selection_base",
  "compositor_orchestration_driver_settings_base",
  "compositor_orchestration_environment_type_base",
+ "compositor_orchestration_seat_gesture_scroll",
  "compositor_orchestration_seat_gesture_state",
+ "compositor_orchestration_seat_gesture_touch",
+ "compositor_orchestration_seat_pointer_snapshot",
  "compositor_orchestration_seat_pointer_state",
  "compositor_orchestration_seat_pointer_texture",
  "compositor_orchestration_seat_system_pointer",
@@ -2863,6 +2875,7 @@ dependencies = [
  "compositor_support_smithay_state_space_base",
  "compositor_support_smithay_state_xdg_activation_dispatch",
  "compositor_support_system_channel_router_base",
+ "compositor_support_system_channel_token_base",
  "compositor_support_system_storage_slot_base",
  "compositor_support_system_storage_token_base",
  "compositor_support_system_world_frame_base",
@@ -2883,6 +2896,7 @@ dependencies = [
  "compositor_y5_lock_state_base",
  "compositor_y5_lock_system_base",
  "compositor_y5_navigator_state_base",
+ "compositor_y5_osk_board_state",
  "compositor_y5_overview_state_base",
  "compositor_y5_placeholder_state_base",
  "compositor_y5_placeholder_system_base",
@@ -3014,6 +3028,7 @@ dependencies = [
 name = "compositor_orchestration_driver_settings_base"
 version = "0.0.1"
 dependencies = [
+ "compositor_developer_environment_preference_base",
  "compositor_monitor_compositor_iced_base",
  "compositor_support_system_storage_token_base",
 ]
@@ -3039,8 +3054,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_orchestration_seat_gesture_scroll"
+version = "0.0.1"
+
+[[package]]
 name = "compositor_orchestration_seat_gesture_state"
 version = "0.0.1"
+
+[[package]]
+name = "compositor_orchestration_seat_gesture_touch"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_system_input_event_base",
+ "smithay",
+]
 
 [[package]]
 name = "compositor_orchestration_seat_pointer_element"
@@ -3053,6 +3080,14 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "xcursor",
+]
+
+[[package]]
+name = "compositor_orchestration_seat_pointer_snapshot"
+version = "0.0.1"
+dependencies = [
+ "compositor_orchestration_driver_output_base",
+ "smithay",
 ]
 
 [[package]]
@@ -3572,11 +3607,13 @@ dependencies = [
  "compositor_support_smithay_dispatch_wire_color",
  "compositor_support_smithay_dispatch_wire_colorsurf",
  "compositor_support_smithay_dispatch_wire_redraw",
+ "compositor_support_smithay_dispatch_wire_tablet",
  "compositor_support_smithay_state_clipboard_base",
  "compositor_support_smithay_state_compositor_base",
  "compositor_support_smithay_state_cursor_shape_base",
  "compositor_support_smithay_state_dmabuf_base",
  "compositor_support_smithay_state_dnd_base",
+ "compositor_support_smithay_state_foreign_base",
  "compositor_support_smithay_state_fractional_base",
  "compositor_support_smithay_state_layershell_base",
  "compositor_support_smithay_state_output_base",
@@ -3650,6 +3687,7 @@ dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_developer_environment_config_base",
+ "compositor_developer_environment_preference_base",
  "compositor_kernel_graphic_color_surface_base",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_dispatch_state_bounds",
@@ -3657,6 +3695,7 @@ dependencies = [
  "compositor_support_smithay_dispatch_wire_color",
  "compositor_support_smithay_dispatch_wire_colorsurf",
  "compositor_support_smithay_dispatch_wire_redraw",
+ "compositor_support_smithay_dispatch_wire_tablet",
  "compositor_support_smithay_dispatch_wire_trait",
  "compositor_support_smithay_state_buffer_dispatch",
  "compositor_support_smithay_state_clipboard_dispatch",
@@ -3669,6 +3708,8 @@ dependencies = [
  "compositor_support_smithay_state_dmabuf_factory",
  "compositor_support_smithay_state_dnd_dispatch",
  "compositor_support_smithay_state_dnd_factory",
+ "compositor_support_smithay_state_foreign_base",
+ "compositor_support_smithay_state_foreign_factory",
  "compositor_support_smithay_state_fractional_base",
  "compositor_support_smithay_state_fractional_dispatch",
  "compositor_support_smithay_state_fractional_factory",
@@ -3722,6 +3763,13 @@ version = "0.0.1"
 dependencies = [
  "compositor_support_smithay_state_fractional_base",
  "compositor_support_smithay_state_space_base",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_support_smithay_dispatch_wire_tablet"
+version = "0.0.1"
+dependencies = [
  "smithay",
 ]
 
@@ -3921,6 +3969,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_support_smithay_state_foreign_base"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
+ "compositor_developer_debug_instance_record",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_support_smithay_state_foreign_factory"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
+ "compositor_developer_debug_instance_record",
+ "compositor_support_smithay_dispatch_state_base",
+ "compositor_support_smithay_state_foreign_base",
+ "smithay",
+]
+
+[[package]]
 name = "compositor_support_smithay_state_fractional_base"
 version = "0.0.1"
 dependencies = [
@@ -4086,7 +4154,6 @@ version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_support_smithay_dispatch_state_base",
- "compositor_support_smithay_state_layershell_types",
  "compositor_support_smithay_state_space_base",
  "smithay",
 ]
@@ -4237,6 +4304,7 @@ dependencies = [
 name = "compositor_support_smithay_state_seat_xkb"
 version = "0.0.1"
 dependencies = [
+ "compositor_developer_debug_instance_record",
  "compositor_developer_environment_preference_base",
  "smithay",
 ]
@@ -4572,9 +4640,16 @@ dependencies = [
 [[package]]
 name = "compositor_support_system_input_event_base"
 version = "0.0.1"
+dependencies = [
+ "compositor_support_system_input_modality_base",
+]
 
 [[package]]
 name = "compositor_support_system_input_layer_base"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_support_system_input_modality_base"
 version = "0.0.1"
 
 [[package]]
@@ -4897,6 +4972,7 @@ name = "compositor_y5_canvas_state_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
+ "compositor_support_system_input_event_base",
  "compositor_y5_canvas_input_state",
  "compositor_y5_group_state_base",
  "compositor_y5_select_state_base",
@@ -5184,6 +5260,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_y5_osk_board_state"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_system_storage_token_base",
+]
+
+[[package]]
+name = "compositor_y5_osk_board_view"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_selection_font_base",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
+]
+
+[[package]]
 name = "compositor_y5_overview_state_base"
 version = "0.0.1"
 dependencies = [
@@ -5365,9 +5458,11 @@ dependencies = [
  "compositor_y5_group_surface_base",
  "compositor_y5_launcher_protocol_message",
  "compositor_y5_lock_interface_surface",
+ "compositor_y5_osk_board_view",
  "compositor_y5_overview_state_base",
  "compositor_y5_picker_surface_view",
  "compositor_y5_placeholder_protocol_base",
+ "compositor_y5_touch_pane_view",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -5403,6 +5498,16 @@ dependencies = [
  "compositor_support_system_trait_system_base",
  "compositor_y5_surface_state_base",
  "smithay",
+]
+
+[[package]]
+name = "compositor_y5_touch_pane_view"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_selection_font_base",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
 ]
 
 [[package]]
@@ -5453,6 +5558,7 @@ name = "compositor_y5_window_lifecycle_event"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
+ "compositor_support_smithay_dispatch_wire_trait",
  "compositor_support_smithay_state_xdg_activation_dispatch",
  "smithay",
  "tracing",

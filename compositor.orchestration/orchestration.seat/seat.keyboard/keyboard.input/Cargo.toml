@@ -20,6 +20,8 @@ compositor_support_iced_core_engine_base.workspace = true
 compositor_monitor_compositor_iced_base.workspace = true
 compositor_y5_launcher_input_base.workspace = true
 compositor_orchestration_driver_lid_base.workspace = true
+compositor_orchestration_driver_settings_base.workspace = true
+compositor_developer_environment_preference_base.workspace = true
 compositor_orchestration_driver_output_base.workspace = true
 [lib]
 path = "lib.rs"

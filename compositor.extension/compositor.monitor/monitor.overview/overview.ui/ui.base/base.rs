@@ -26,6 +26,8 @@ pub enum OverviewMessage {
     Battery(Option<String>),
     /// Toggle the logout popup (click the username brand). Actioned host-side.
     ToggleUser,
+    /// Close the overview overlay (the touch-reachable ✕). Actioned host-side.
+    Close,
 }
 
 /// The menu-bar UI instance.
@@ -87,6 +89,19 @@ impl OverviewMenu {
             .on_press(OverviewMessage::ToggleUser)
             .into()
     }
+
+    /// The touch-reachable close control (✕): dismisses the whole overlay.
+    fn close(&self) -> Element<'_, OverviewMessage, Theme, Renderer> {
+        button(text("✕").size(15))
+            .padding(Padding::from([6, 12]))
+            .style(|_t: &Theme, _s| button::Style {
+                background: Some(Background::Color(Color::TRANSPARENT)),
+                text_color: MUTED,
+                ..button::Style::default()
+            })
+            .on_press(OverviewMessage::Close)
+            .into()
+    }
 }
 
 impl IcedUi for OverviewMenu {
@@ -116,6 +131,7 @@ impl IcedUi for OverviewMenu {
         }
         items.push(text(self.clock.clone()).size(13).color(MUTED).into());
         items.push(self.tab("SETTINGS", Section::Settings));
+        items.push(self.close());
         let bar = Row::with_children(items)
             .spacing(12)
             .align_y(Alignment::Center)
@@ -140,6 +156,8 @@ impl IcedUi for OverviewMenu {
             OverviewMessage::Battery(b) => self.battery = b,
             // Opening/closing the popup is host-side (a separate surface).
             OverviewMessage::ToggleUser => {}
+            // Closing the overlay is host-side (flips the visible flag).
+            OverviewMessage::Close => {}
         }
     }
 }

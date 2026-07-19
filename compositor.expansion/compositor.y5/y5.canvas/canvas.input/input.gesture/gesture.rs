@@ -62,9 +62,12 @@ pub fn swipe_end(loop_: &mut Loop, cancelled: bool) {
     let angle = ay.atan2(ax).to_degrees().rem_euclid(360.0);
     trace!("3-finger swipe: angle={angle:.1} magnitude={magnitude:.1}");
 
+    // `alternative = true` selects the same placement preset as Super+Left/Right
+    // (view_directional's `set_4`: RAYCAST_STRETCH + ZOOM_GOAL_MIN_CHANGE), so the
+    // swipe fits the target window to the screen with zoom instead of just nudging.
     compositor_y5_navigator_interface_base::interface::move_direction(
         loop_,
         Direction::Diagonal(Angle(angle), SNAP),
-        false,
+        true,
     );
 }

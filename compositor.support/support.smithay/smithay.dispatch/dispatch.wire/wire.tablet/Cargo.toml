@@ -1,0 +1,10 @@
+[package]
+name = "compositor_support_smithay_dispatch_wire_tablet"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+smithay = { workspace = true }
+
+[lib]
+path = "lib.rs"

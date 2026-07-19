@@ -28,6 +28,8 @@ smithay = { workspace = true }
 compositor_orchestration_draw_scene_element.workspace = true
 compositor_orchestration_core_state_base.workspace = true
 compositor_orchestration_seat_pointer_draw.workspace = true
+compositor_orchestration_seat_pointer_input.workspace = true
+compositor_orchestration_seat_pointer_pan.workspace = true
 compositor_y5_viewport_layout_base.workspace = true
 compositor_y5_viewport_state_base.workspace = true
 compositor_y5_canvas_draw_scene.workspace = true
@@ -41,6 +43,8 @@ compositor_y5_surface_draw_hook.workspace = true
 compositor_y5_graphic_capture_interface.workspace = true
 compositor_y5_select_overlay_interface.workspace = true
 compositor_y5_surface_draw_fps.workspace = true
+compositor_y5_touch_pane_create.workspace = true
+compositor_y5_osk_board_create.workspace = true
 compositor_y5_surface_interface_base.workspace = true
 compositor_y5_window_lifecycle_interface.workspace = true
 compositor_y5_camera_transform_translate.workspace = true

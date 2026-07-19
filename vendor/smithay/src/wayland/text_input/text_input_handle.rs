@@ -17,6 +17,18 @@ pub(crate) struct TextInput {
     instances: Vec<Instance>,
     focus: Option<WlSurface>,
     active_text_input_id: Option<ObjectId>,
+    /// y5: latest `set_surrounding_text` (text, cursor, anchor) from the active
+    /// client, so the on-screen keyboard can show a live preview of the field.
+    /// Cleared on leave / disable.
+    surrounding_text: Option<(String, u32, u32)>,
+    /// y5: the active field is a password / PIN / sensitive-data field (from the
+    /// client's `set_content_type`). The OSK preview is suppressed for these so a
+    /// typed secret is never rendered on screen.
+    content_sensitive: bool,
+    /// y5: bumped on every field transition (enable / disable / focus leave), so the OSK
+    /// can detect a switch between two fields that share ONE surface (e.g. two inputs on
+    /// a web page, where the `WlSurface` never changes) and clear its local echo.
+    field_generation: u64,
 }
 
 impl TextInput {
@@ -107,10 +119,82 @@ impl TextInputHandle {
         let mut inner = self.inner.lock().unwrap();
         // Leaving clears the active text input.
         inner.active_text_input_id = None;
+        // y5: the preview is field-scoped — drop it when focus leaves.
+        inner.surrounding_text = None;
+        inner.content_sensitive = false;
+        inner.field_generation = inner.field_generation.wrapping_add(1);
         // NOTE: we implement it in a symmetrical way with `enter`.
         inner.with_focused_client_all_text_inputs(|text_input, focus, _| {
             text_input.leave(focus);
         });
+    }
+
+    /// y5: the latest surrounding text `(text, cursor, anchor)` reported by the
+    /// active text-input client, for the on-screen keyboard's preview line. `None`
+    /// when no field is active, the client never reports surrounding text, or the
+    /// field is sensitive (password/PIN) — a secret is never surfaced for preview.
+    pub fn surrounding_text(&self) -> Option<(String, u32, u32)> {
+        let inner = self.inner.lock().unwrap();
+        if inner.content_sensitive {
+            return None;
+        }
+        inner.surrounding_text.clone()
+    }
+
+    /// y5: store (or clear) the active field's surrounding text.
+    pub(crate) fn set_surrounding_text(&self, value: Option<(String, u32, u32)>) {
+        self.inner.lock().unwrap().surrounding_text = value;
+    }
+
+    /// y5: mark whether the active field is sensitive (suppresses the preview).
+    pub(crate) fn set_content_sensitive(&self, sensitive: bool) {
+        self.inner.lock().unwrap().content_sensitive = sensitive;
+    }
+
+    /// y5: whether the active field is sensitive (password/PIN) — the OSK never
+    /// previews such a field, from either surrounding text OR its own local echo.
+    pub fn is_sensitive_field(&self) -> bool {
+        self.inner.lock().unwrap().content_sensitive
+    }
+
+    /// y5: a counter bumped on each field transition (enable/disable/leave). The OSK
+    /// clears its local echo when this changes, so a switch between two fields on the
+    /// SAME surface (which never changes the focused `WlSurface`) is still detected.
+    pub fn field_generation(&self) -> u64 {
+        self.inner.lock().unwrap().field_generation
+    }
+
+    /// y5: drop the cached preview for a field that is being replaced or torn down and
+    /// mark the transition — in ONE lock acquisition, so a concurrent reader can never
+    /// observe a half-reset field (cleared text but stale sensitivity, or vice versa).
+    ///
+    /// Deliberately does NOT clear `content_sensitive`. A client that re-`enable`s a
+    /// field (Chromium does this on focus) may send its surrounding text BEFORE it
+    /// re-sends `set_content_type`; clearing the flag here would open a window in which
+    /// a password is previewable. The classification is therefore carried over until
+    /// the client states otherwise, and is cleared only on `leave`, where no field is
+    /// left to protect.
+    pub(crate) fn reset_field(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.surrounding_text = None;
+        inner.field_generation = inner.field_generation.wrapping_add(1);
+    }
+
+    /// y5: send the catch-up `enter` to ONE freshly created instance, if it belongs to
+    /// the focused client.
+    ///
+    /// [`Self::enter`] targets *every* instance the focused client owns, so calling it
+    /// from `get_text_input` re-sends `enter` to instances that already received one
+    /// with no intervening `leave` — a protocol violation that repeats each time the
+    /// client creates another text-input object. Upstream only hit this when an IME was
+    /// bound; y5 relaxed that gate, which made it routine.
+    pub fn enter_instance(&self, instance: &ZwpTextInputV3) {
+        let inner = self.inner.lock().unwrap();
+        if let Some(surface) = inner.focus.as_ref().filter(|surface| surface.is_alive()) {
+            if instance.id().same_client_as(&surface.id()) {
+                instance.enter(surface);
+            }
+        }
     }
 
     /// Send `enter` on the text-input instance for the currently focused
@@ -205,11 +289,15 @@ where
             self.handle.increment_serial(resource);
         }
 
-        // Discard requests without any active input method instance.
-        if !self.input_method_handle.has_instance() {
-            debug!("discarding text-input request without IME running");
-            return;
-        }
+        // y5: upstream discards ALL text-input requests when no IME instance is bound.
+        // y5's on-screen keyboard needs the text-input state tracked even without an
+        // external IME: processing `enable`/`commit` here is what sets
+        // `active_text_input_id`, which `with_active_text_input` reports as the OSK's
+        // "a text field is focused" signal. Every input-method forwarding call below
+        // (`with_instance`/`activate_input_method`/`set_text_input_rectangle`) is an
+        // internal no-op when no instance exists, so proceeding is safe; the client
+        // simply receives no preedit/commit and types via the normal keyboard path
+        // (into which the OSK injects). When an IME IS bound this is unchanged.
 
         let focus = match self.handle.focus() {
             Some(focus) if focus.id().same_client_as(&resource.id()) => focus,
@@ -273,12 +361,20 @@ where
                         *active_text_input_id = Some(resource.id());
                         // Drop the guard before calling to other subsystem.
                         drop(guard);
+                        // y5: fresh field — drop any stale preview and bump the generation
+                        // so the OSK clears its echo. Sensitivity is CARRIED OVER rather
+                        // than cleared (see `reset_field`): this client may send its
+                        // surrounding text before re-stating its content type.
+                        self.handle.reset_field();
                         self.input_method_handle.activate_input_method(state, &focus);
                     }
                     Some(false) => {
                         *active_text_input_id = None;
                         // Drop the guard before calling to other subsystem.
                         drop(guard);
+                        // y5: field disabled — clear the OSK preview and bump the
+                        // generation so the echo clears for the next field.
+                        self.handle.reset_field();
                         self.input_method_handle.deactivate_input_method(state);
                         return;
                     }
@@ -294,6 +390,9 @@ where
                 }
 
                 if let Some((text, cursor, anchor)) = new_state.surrounding_text.take() {
+                    // y5: keep a copy for the OSK preview, then forward to the IME (no-op
+                    // without an instance).
+                    self.handle.set_surrounding_text(Some((text.clone(), cursor, anchor)));
                     self.input_method_handle.with_instance(move |input_method| {
                         input_method.object.surrounding_text(text, cursor, anchor)
                     });
@@ -306,6 +405,13 @@ where
                 }
 
                 if let Some((hint, purpose)) = new_state.content_type.take() {
+                    // y5: suppress the OSK preview for password / PIN / sensitive fields.
+                    // HIDDEN_TEXT counts too: toolkits and web engines routinely mark a
+                    // password field with `hidden_text` and leave `purpose` as Normal, so
+                    // checking SENSITIVE_DATA alone would echo the secret to screen.
+                    let sensitive = matches!(purpose, ContentPurpose::Password | ContentPurpose::Pin)
+                        || hint.intersects(ContentHint::SensitiveData | ContentHint::HiddenText);
+                    self.handle.set_content_sensitive(sensitive);
                     self.input_method_handle.with_instance(move |input_method| {
                         input_method.object.content_type(hint, purpose);
                     });

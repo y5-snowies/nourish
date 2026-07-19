@@ -3,6 +3,10 @@ use smithay::input::pointer::{AxisFrame, PointerHandle};
 use compositor_orchestration_core_state_base::Loop;
 use compositor_support_smithay_dispatch_state_base::state::Dispatch;
 
+/// Overall speed of a two-finger touchpad (libinput `Finger`) scroll forwarded to
+/// a window; `<1.0` slows it. Discrete wheels are unaffected. Tuning knob.
+const FINGER_SCROLL_SCALE: f64 = 0.6;
+
 pub fn input_received<I: InputBackend>(
     pointer: PointerHandle<Dispatch>,
     event: &I::PointerAxisEvent,
@@ -36,10 +40,24 @@ pub fn input_received<I: InputBackend>(
     // so flipping the forwarded amounts here does not affect it.
     let invert = matches!(source, AxisSource::Finger) && _loop.inner.preference.input_natural_scroll;
     let sign = if invert { -1.0 } else { 1.0 };
-    let horizontal_amount = horizontal_amount * sign;
-    let vertical_amount = vertical_amount * sign;
+    let mut horizontal_amount = horizontal_amount * sign;
+    let mut vertical_amount = vertical_amount * sign;
     let horizontal_amount_discrete = horizontal_amount_discrete.map(|d| d * sign);
     let vertical_amount_discrete = vertical_amount_discrete.map(|d| d * sign);
+
+    // Two-finger scroll to a window: libinput dumps the accumulated pre-recognition
+    // distance in the first event, so the gesture starts with a lurch. Ramp the
+    // finger-source amount up over the first few events; the stop event resets it.
+    // (Discrete/v120 wheels have no such start burst and are left untouched.)
+    if source == AxisSource::Finger {
+        if event.amount(Axis::Horizontal) == Some(0.0) && event.amount(Axis::Vertical) == Some(0.0) {
+            _loop.inner.finger_scroll_ramp.end();
+        } else {
+            let f = FINGER_SCROLL_SCALE * _loop.inner.finger_scroll_ramp.factor(event.time_msec());
+            horizontal_amount *= f;
+            vertical_amount *= f;
+        }
+    }
 
     let mut frame = AxisFrame::new(event.time_msec()).source(source);
     if horizontal_amount != 0.0 {

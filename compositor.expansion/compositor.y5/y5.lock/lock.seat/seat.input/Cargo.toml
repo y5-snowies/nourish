@@ -17,6 +17,7 @@ compositor_monitor_compositor_iced_base.workspace = true
 compositor_y5_surface_interface_base.workspace = true
 compositor_y5_camera_transform_translate.workspace = true
 compositor_orchestration_core_state_base.workspace = true
+compositor_orchestration_seat_pointer_input.workspace = true
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 bitflags = { workspace = true }

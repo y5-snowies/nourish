@@ -1,0 +1,13 @@
+[package]
+name = "compositor_orchestration_seat_delegate_gesture"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+smithay = { workspace = true }
+compositor_orchestration_core_state_base = { workspace = true }
+compositor_orchestration_seat_pointer_input = { workspace = true }
+compositor_y5_canvas_input_gesture = { workspace = true }
+
+[lib]
+path = "lib.rs"

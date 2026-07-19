@@ -3,9 +3,20 @@
 
 use smithay::backend::input::{InputBackend, InputEvent};
 use compositor_orchestration_core_state_base::Loop;
-
 pub fn process_input_event<I: InputBackend>(state: &mut Loop, event: &InputEvent<I>) {
     match event {
+        // Touch is single-finger pointer emulation against the picker's own handlers
+        // (compositor UI — no wl_touch, no gestures); it lives in `picker.seat/seat.touch`
+        // beside the keyboard and pointer handlers, so this stays a flat routing table.
+        InputEvent::TouchDown { event, .. } => {
+            compositor_y5_picker_seat_touch::touch::down::<I>(event, state);
+        }
+        InputEvent::TouchMotion { event, .. } => {
+            compositor_y5_picker_seat_touch::touch::motion::<I>(event, state);
+        }
+        InputEvent::TouchUp { event, .. } => {
+            compositor_y5_picker_seat_touch::touch::up::<I>(event, state);
+        }
         InputEvent::Keyboard { event, .. } => {
             compositor_y5_picker_seat_keyboard::keyboard::input_received::<I>(event, state);
         }

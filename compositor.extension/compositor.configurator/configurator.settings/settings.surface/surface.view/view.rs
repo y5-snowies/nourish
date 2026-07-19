@@ -5,7 +5,7 @@ use compositor_developer_environment_config_base::base::Environment;
 use compositor_developer_environment_preference_base::base::{Ime, KeyboardLayout};
 use compositor_developer_environment_keybinding_base::base::KeyRow;
 use compositor_developer_environment_preference_base::base::LayoutPlacement;
-use compositor_orchestration_driver_output_base::base::{ApplyResult, DisplayInfo, ModeInfo, OutputsSnapshot};
+use compositor_orchestration_driver_output_base::base::{ApplyResult, DisplayInfo, ModeInfo, OutputsSnapshot, TouchDeviceInfo};
 use compositor_support_iced_core_engine_base::{IcedUi, Renderer};
 use compositor_y5_audio_controller_interface::interface::AudioState;
 use compositor_configurator_network_backend_base::base::WifiSnapshot;
@@ -19,6 +19,14 @@ pub struct Settings {
     pub tab: Tab,
     pub cursor_sensitivity: f32,
     pub natural_scroll: bool,
+    /// Touch pan-speed multiplier (Input → Touch), persisted + read live.
+    pub touch_pan_speed: f32,
+    /// Linear (strict, no-coast) touch pan (Input → Touch), persisted + read live.
+    pub touch_linear_pan: bool,
+    /// On-screen keyboard size multiplier (Input → Touch).
+    pub osk_size: f32,
+    /// Auto-summoned OSK floats in world position (Input → Touch).
+    pub osk_world_position: bool,
     pub show_fps: bool,
     pub release_hidden: bool,
     pub env: Environment,
@@ -33,9 +41,15 @@ pub struct Settings {
     pub protocol_foreign_all_worlds: bool,
     /// Graphics / anti-aliasing config (Graphics tab), persisted + applied live.
     pub graphics: compositor_developer_environment_graphics_base::base::GraphicsAaConfig,
+    /// Pen / tablet overrides (Pen tab), persisted + applied live.
+    pub pen: compositor_developer_environment_preference_base::base::PenConfig,
+    /// A pen click-to-bind capture is in progress (UI feedback: "press a key/button…").
+    pub pen_capturing: bool,
     pub dirty: bool,
     /// Every connected monitor (active + connected-but-inactive), for the picker.
     pub displays: Vec<DisplayInfo>,
+    /// Connected touch input devices, for the Display tab's per-monitor claim list.
+    pub touch_devices: Vec<TouchDeviceInfo>,
     /// EDID key of the monitor currently driving the compositor.
     pub active_edid: String,
     /// EDID key of the monitor selected in the picker (defaults to active).
@@ -140,7 +154,8 @@ fn default_mode(d: &DisplayInfo) -> Option<ModeInfo> {
 }
 
 impl Settings {
-    pub fn new(env: Environment, cursor: f32, natural: bool, show_fps: bool, release_hidden: bool, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(env: Environment, cursor: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool, pen: compositor_developer_environment_preference_base::base::PenConfig) -> Self {
         let active = snap.displays.iter().find(|d| d.active).cloned();
         let active_edid = active.as_ref().map(|d| d.edid_key.clone()).unwrap_or_default();
         let selected_mode = active.as_ref().and_then(default_mode);
@@ -149,6 +164,10 @@ impl Settings {
             tab,
             cursor_sensitivity: cursor,
             natural_scroll: natural,
+            touch_pan_speed,
+            touch_linear_pan,
+            osk_size,
+            osk_world_position,
             show_fps,
             release_hidden,
             env,
@@ -158,8 +177,11 @@ impl Settings {
             protocol_foreign_all_worlds,
             // Seeded from the process-global (mirrors the persisted preference).
             graphics: compositor_developer_environment_graphics_base::base::get(),
+            pen,
+            pen_capturing: false,
             dirty: false,
             displays: snap.displays,
+            touch_devices: Vec::new(),
             active_edid: active_edid.clone(),
             selected_display: active_edid,
             selected_mode,
@@ -260,8 +282,19 @@ impl IcedUi for Settings {
                 ApplyResult::Provisional => {}
             },
             SettingsMessage::SetGraphics(g) => self.graphics = g,
+            SettingsMessage::SetPen(p) => self.pen = p,
+            SettingsMessage::SyncPen(p) => {
+                self.pen = p;
+                self.pen_capturing = false;
+            }
+            SettingsMessage::PenCaptureKey(_) | SettingsMessage::PenCapturePad => self.pen_capturing = true,
+            SettingsMessage::PenCaptureCancel => self.pen_capturing = false,
             SettingsMessage::Cursor(v) => self.cursor_sensitivity = v,
             SettingsMessage::NaturalScroll(b) => self.natural_scroll = b,
+            SettingsMessage::TouchPanSpeed(v) => self.touch_pan_speed = v,
+            SettingsMessage::TouchLinearPan(b) => self.touch_linear_pan = b,
+            SettingsMessage::OskSize(v) => self.osk_size = v,
+            SettingsMessage::OskWorldPosition(b) => self.osk_world_position = b,
             SettingsMessage::SetShowFps(b) => self.show_fps = b,
             SettingsMessage::SetReleaseHidden(b) => self.release_hidden = b,
             SettingsMessage::Env(e) => {
@@ -343,6 +376,12 @@ impl IcedUi for Settings {
                 }
                 self.displays = displays;
             }
+            SettingsMessage::SyncTouchDevices(devices) => {
+                self.touch_devices = devices;
+            }
+            // Forwarded (persist + re-route); no local mirror needed — the pump
+            // re-sends `SyncTouchDevices` with the new assignment next frame.
+            SettingsMessage::ClaimTouch(..) => {}
             SettingsMessage::WifiSelect(ssid) => {
                 self.wifi_selected = Some(ssid);
                 self.wifi_password.clear();
@@ -465,10 +504,15 @@ impl IcedUi for Settings {
             self.dirty,
             self.cursor_sensitivity,
             self.natural_scroll,
+            self.touch_pan_speed,
+            self.touch_linear_pan,
+            self.osk_size,
+            self.osk_world_position,
             self.show_fps,
             self.release_hidden,
             &self.env,
             &self.displays,
+            &self.touch_devices,
             &self.active_edid,
             &self.selected_display,
             self.selected_mode,
@@ -503,6 +547,8 @@ impl IcedUi for Settings {
             self.invert_pan_y,
             self.srgb,
             &self.graphics,
+            &self.pen,
+            self.pen_capturing,
         )
     }
 }

@@ -34,6 +34,11 @@ where
     for e in compositor_y5_select_box_base::select_box::select_box(state, renderer, size, &canvas_context) {
         content.push(ContentItem::Canvas(Element::SolidBox(e)));
     }
+    // The persistent selection frame (bounding rect + resize/move handles) overlays
+    // too, for the armed Select tool / an in-progress select transform.
+    for e in compositor_y5_select_box_base::select_box::select_frame(state, renderer, size, &canvas_context) {
+        content.push(ContentItem::Canvas(Element::SolidBox(e)));
+    }
 
     // Interleave windows + world iced by the DrawOrder authority (topmost-first).
     let order = state.inner.drawable_order();

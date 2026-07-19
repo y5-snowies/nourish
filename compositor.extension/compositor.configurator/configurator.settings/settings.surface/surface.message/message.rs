@@ -1,8 +1,8 @@
 //! The settings-window message type, shared by the view + tab builders + the
 //! surface protocol/handler. iced-free so the protocol crate can name it.
 use compositor_developer_environment_config_base::base::Environment;
-use compositor_developer_environment_preference_base::base::{Ime, KeyboardLayout};
-use compositor_orchestration_driver_output_base::base::{ApplyResult, DisplayInfo, ModeInfo};
+use compositor_developer_environment_preference_base::base::{Ime, KeyboardLayout, PenBindTarget, PenConfig};
+use compositor_orchestration_driver_output_base::base::{ApplyResult, DisplayInfo, ModeInfo, TouchDeviceInfo};
 
 /// A provisional per-monitor mode change the user can Keep/Revert: the target
 /// monitor (by EDID identity key) and the mode to drive it at. Multi-output: every
@@ -16,13 +16,31 @@ use compositor_y5_audio_controller_interface::interface::AudioState;
 use compositor_configurator_network_backend_base::base::WifiSnapshot;
 use compositor_configurator_bluetooth_backend_base::base::BtSnapshot;
 
+/// Sub-sections of the INPUT module, shown as a tab bar inside the Input panel.
+/// Carried INSIDE `Tab::Input` (not a separate field) so the selected sub-tab
+/// round-trips through the session `SettingsState` u8 — restored on the next
+/// settings open exactly like the top-level module.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum InputTab {
+    /// Pointer speed + touchpad natural scroll.
+    #[default]
+    Mouse,
+    /// Touchscreen: pan speed, linear pan, and the touch↔display link.
+    Touch,
+    /// Keyboard shortcut bindings.
+    Keyboard,
+    /// Pen / tablet overrides (stylus buttons, dial, pressure threshold).
+    Pen,
+}
+
 /// The settings modules shown in the sidebar (design: SYSTEM CONFIGURATION).
-/// `Input` merges the former Cursor + Keys; `System` is the Environment editor.
+/// `Input` merges the former Cursor + Keys (now sub-tabbed via [`InputTab`]);
+/// `System` is the Environment editor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
     Display,
     Audio,
-    Input,
+    Input(InputTab),
     Network,
     Bluetooth,
     Performance,
@@ -41,16 +59,22 @@ impl Tab {
     /// (orchestration can't name `Tab`, so the selected module round-trips as a `u8`).
     pub fn to_index(self) -> u8 {
         match self {
-            Tab::Display => 0, Tab::Audio => 1, Tab::Input => 2, Tab::Network => 3,
+            Tab::Display => 0, Tab::Audio => 1, Tab::Input(InputTab::Mouse) => 2, Tab::Network => 3,
             Tab::Bluetooth => 4, Tab::Performance => 5, Tab::System => 6, Tab::Misc => 7,
             Tab::World => 8, Tab::Graphics => 9, Tab::Language => 10,
+            // Extend past the original range so existing persisted indices (Mouse = 2)
+            // stay stable; only the two new Input sub-tabs claim fresh slots.
+            Tab::Input(InputTab::Touch) => 11, Tab::Input(InputTab::Keyboard) => 12,
+            Tab::Input(InputTab::Pen) => 13,
         }
     }
     pub fn from_index(i: u8) -> Self {
         match i {
-            1 => Tab::Audio, 2 => Tab::Input, 3 => Tab::Network, 4 => Tab::Bluetooth,
+            1 => Tab::Audio, 2 => Tab::Input(InputTab::Mouse), 3 => Tab::Network, 4 => Tab::Bluetooth,
             5 => Tab::Performance, 6 => Tab::System, 7 => Tab::Misc, 8 => Tab::World,
             9 => Tab::Graphics, 10 => Tab::Language,
+            11 => Tab::Input(InputTab::Touch), 12 => Tab::Input(InputTab::Keyboard),
+            13 => Tab::Input(InputTab::Pen),
             _ => Tab::Display,
         }
     }
@@ -93,6 +117,15 @@ pub enum SettingsMessage {
     Cursor(f32),
     /// Live touchpad natural-scroll (forwarded).
     NaturalScroll(bool),
+    /// Live touch pan-speed multiplier (forwarded: persisted to preferences.json,
+    /// read live per touch event).
+    TouchPanSpeed(f32),
+    /// Toggle linear (strict, no-coast) touch pan (forwarded; persisted).
+    TouchLinearPan(bool),
+    /// On-screen keyboard size multiplier (forwarded; persisted, read live).
+    OskSize(f32),
+    /// Auto-summoned OSK floats in world position near the caret (forwarded; persisted).
+    OskWorldPosition(bool),
     /// Toggle the per-monitor FPS overlay (forwarded; persisted to preferences).
     SetShowFps(bool),
     /// Toggle releasing hidden iced surfaces' GPU memory (forwarded; persisted).
@@ -132,6 +165,12 @@ pub enum SettingsMessage {
     /// Live connected-monitor list pushed in on hotplug (NOT forwarded): refreshes
     /// the Display picker for the open session.
     SyncDisplays(Vec<DisplayInfo>),
+    /// Live connected touch-device list pushed in on hotplug (NOT forwarded):
+    /// refreshes the Display tab's per-monitor touch-claim control.
+    SyncTouchDevices(Vec<TouchDeviceInfo>),
+    /// Claim (`Some`) or release (`None`) a touch device for a monitor (forwarded):
+    /// `(edid_key, device_id)`. Persists to `preferences.json` and re-routes touch.
+    ClaimTouch(String, Option<String>),
     /// Available background-shader bundles + the active world's current selection,
     /// pushed in by the embed (NOT forwarded): populates the shader picker.
     SyncShaders(Vec<String>, Option<String>),
@@ -229,4 +268,18 @@ pub enum SettingsMessage {
     LangPickerOpen(bool),
     /// UI-LOCAL (Language tab): the layout-picker search query.
     LangSearch(String),
+    /// A full edited pen/tablet config (Pen tab) to persist to preferences.json AND
+    /// apply live (forwarded). Carries the whole `PenConfig` so every control shares
+    /// one variant.
+    SetPen(PenConfig),
+    /// Pen tab: start capturing the next keyboard combo to bind to `target`
+    /// (forwarded: arms the compositor's capture, which applies the result + syncs).
+    PenCaptureKey(PenBindTarget),
+    /// Pen tab: start capturing the next pad button press (forwarded).
+    PenCapturePad,
+    /// Pen tab: cancel an in-progress capture (forwarded).
+    PenCaptureCancel,
+    /// The live pen config, pushed by the reconciler (UI-local) after a capture applies
+    /// it compositor-side, so the tab reflects the new binding.
+    SyncPen(PenConfig),
 }

@@ -36,6 +36,10 @@ const MAX_ZOOM: f64 = 50.0;
 ///   terminating axis event arrives; the real touchpad path launches immediately
 ///   off the libinput 0,0 finger event, so this only backstops odd devices.
 const PAN_LAUNCH_GAIN: f64 = 2.5;
+/// Launch gain for a touchscreen glide: 1.0 = the coast starts at the exact
+/// release velocity and only decays, so it never runs faster than the finger drag
+/// it continues (touch deltas are already 1:1, unlike the trackpad's).
+const TOUCH_PAN_LAUNCH_GAIN: f64 = 1.0;
 const PAN_FRICTION: f64 = 3.6;
 const PAN_DAMPING: f64 = 400.0;
 const PAN_MIN_SPEED: f64 = 8.0;
@@ -79,7 +83,12 @@ enum CamCmd {
     /// by the current zoom and advances the camera position. Unlike `Pan`, there
     /// is no screen-cursor accumulator — the libinput axis delta is already
     /// relative — so this never touches `position_previous`.
-    PanBy(f64, f64),
+    /// The trailing bool is `from_touch` — a touchscreen glide launches its coast
+    /// without the trackpad fling boost (see `Camera::pan_from_touch`).
+    PanBy(f64, f64, bool),
+    /// Strict variant of `PanBy` (2-finger touch pan): advance the camera by the
+    /// zoom-scaled scroll delta with NO momentum — no accumulator, no coast.
+    PanByStrict(f64, f64),
     /// Per-frame momentum step. Converts the frame's accumulated pan into a
     /// velocity while the swipe is live, then coasts the camera along that
     /// velocity with friction once the fingers lift. Carries the frame delta
@@ -159,8 +168,17 @@ impl System for CameraSystem {
         // `Update`s here while canvas-owned.
         if let InputEvent::PointerPinch { phase, scale, x, y } = event {
             let cursor = Point::<f64, Logical>::from((*x, *y));
-            if !canvas_owns_gesture(cx, cursor) {
-                return InputFlow::Pass;
+            // Decide ownership ONCE, at Begin: the seat latches this verdict and
+            // only routes canvas-owned `Update`s here (window-owned ones go straight
+            // to the client). Re-checking on every event broke the 2-finger TOUCH
+            // pinch — its centroid can sit over a window BETWEEN the fingers even
+            // when both fingers are on empty canvas, so each `Update` bailed.
+            if *phase == PinchPhase::Begin {
+                return if canvas_owns_gesture(cx, cursor) {
+                    InputFlow::Consume
+                } else {
+                    InputFlow::Pass
+                };
             }
             if *phase == PinchPhase::Update && *scale != 1.0 {
                 cancel_travel(cx);
@@ -169,7 +187,7 @@ impl System for CameraSystem {
             return InputFlow::Consume;
         }
 
-        let InputEvent::PointerAxis { horizontal, vertical, x, y, finger } = event else {
+        let InputEvent::PointerAxis { horizontal, vertical, x, y, finger, momentum, from_touch } = event else {
             return InputFlow::Pass;
         };
         let cursor = Point::<f64, Logical>::from((*x, *y));
@@ -178,15 +196,25 @@ impl System for CameraSystem {
         // tool, or empty space). Over a window otherwise the canvas does not own it
         // — Pass so the rim's native_axis scrolls the client.
         if *finger {
-            if !canvas_owns_gesture(cx, cursor) {
+            // A strict (2-finger touch) pan is only emitted for a canvas-owned
+            // gesture, so it does NOT re-check ownership — its centroid can sit over
+            // a window between the fingers. A momentum pan (trackpad / 1-finger
+            // touch, anchored at the finger) still gates on being over canvas.
+            if *momentum && !canvas_owns_gesture(cx, cursor) {
                 return InputFlow::Pass;
             }
             if *horizontal != 0.0 || *vertical != 0.0 {
                 // Direct user intent: drop any navigator travel so the easing
                 // doesn't fight the pan.
                 cancel_travel(cx);
-                cx.write(&CAM_BUF, CamCmd::PanBy(*horizontal, *vertical));
-            } else {
+                // `momentum` glides (fling/coast); otherwise a strict 1:1 move (a
+                // 2-finger touch pan) that never feeds the coast.
+                if *momentum {
+                    cx.write(&CAM_BUF, CamCmd::PanBy(*horizontal, *vertical, *from_touch));
+                } else {
+                    cx.write(&CAM_BUF, CamCmd::PanByStrict(*horizontal, *vertical));
+                }
+            } else if *momentum {
                 // libinput `Finger` source terminates the scroll with a 0,0 event:
                 // fingers lifted → launch the coast immediately (snappy release).
                 cx.write(&CAM_BUF, CamCmd::PanEnd);
@@ -308,10 +336,11 @@ impl System for CameraSystem {
                     cx.channels.send(&CAMERA_MOVED_TX, CameraMoved { x: new_x, y: new_y });
                 }
             }
-            CamCmd::PanBy(dx, dy) => {
+            CamCmd::PanBy(dx, dy, from_touch) => {
                 // Touchpad two-finger scroll: advance the camera by the zoom-scaled
                 // scroll delta. Direction is set upstream (natural-scroll inversion
                 // in the rim's axis handler), so no sign flip here.
+                camera.pan_from_touch = from_touch;
                 let zoom = *camera.transform.zoom();
                 let px = camera.transform.position().x;
                 let py = camera.transform.position().y;
@@ -326,6 +355,14 @@ impl System for CameraSystem {
                 camera.pan_accum = Point::from((camera.pan_accum.x + wdx, camera.pan_accum.y + wdy));
                 camera.panning = true;
                 camera.pan_idle_frames = 0;
+            }
+            CamCmd::PanByStrict(dx, dy) => {
+                // 1:1 move with no momentum: advance the camera and stop there.
+                let zoom = *camera.transform.zoom();
+                let nx = camera.transform.position().x + dx / zoom;
+                let ny = camera.transform.position().y + dy / zoom;
+                camera.transform.position = Point::from((nx, ny));
+                cx.channels.send(&CAMERA_MOVED_TX, CameraMoved { x: nx, y: ny });
             }
             CamCmd::PanInertiaTick(dt) => {
                 let moved = camera.pan_accum.x != 0.0 || camera.pan_accum.y != 0.0;
@@ -346,8 +383,12 @@ impl System for CameraSystem {
                 if camera.panning && (camera.pan_ending || camera.pan_idle_frames >= PAN_END_IDLE_FRAMES) {
                     camera.panning = false;
                     camera.pan_ending = false;
-                    camera.pan_velocity =
-                        Point::from((camera.pan_velocity.x * PAN_LAUNCH_GAIN, camera.pan_velocity.y * PAN_LAUNCH_GAIN));
+                    // Touch deltas are 1:1 finger motion, so their release velocity
+                    // already equals the drag — launch at 1.0 (coast never outruns
+                    // the pan). Trackpad deltas under-represent the flick, so they
+                    // keep the punchier boost.
+                    let gain = if camera.pan_from_touch { TOUCH_PAN_LAUNCH_GAIN } else { PAN_LAUNCH_GAIN };
+                    camera.pan_velocity = Point::from((camera.pan_velocity.x * gain, camera.pan_velocity.y * gain));
                 }
                 if !camera.panning && (camera.pan_velocity.x != 0.0 || camera.pan_velocity.y != 0.0) {
                     let px = camera.transform.position().x;
@@ -404,8 +445,17 @@ fn canvas_owns_gesture(cx: &mut SystemCx, cursor: Point<f64, Logical>) -> bool {
     // owns touchpad pan/pinch AND the mouse wheel (zoom) — the user reserves the
     // mouse CLICK for the Move tool it shares the modifier with, but the wheel is
     // free, so Super+wheel zooms the canvas even over a window.
+    // The persistent hand tool, the momentary Super-held tool, the touch pane's Hand
+    // tool, and any in-progress canvas pan all own every wheel/pinch gesture (so the
+    // tablet dial + mouse wheel zoom under any of them — incl. mid-pan).
     let hand = matches!(canvas.Grab, CanvasGrab::Active(ActiveOption::Hand));
-    if hand || canvas.finger_pan {
+    // `position_updating` is set by ANY press that starts a canvas pan — including a
+    // plain mouse press on empty canvas — so it is gated on a DIRECT modality here.
+    // Its purpose is to let the pen's tablet DIAL keep zooming mid-pan; without the
+    // gate a mouse wheel (or trackpad pinch) during a button-held pan would be claimed
+    // by the camera even over a window, where it used to reach the client.
+    let direct_pan = canvas.position_updating && canvas.input_modality.is_direct();
+    if hand || canvas.finger_pan || canvas.hand_touch || direct_pan {
         return true;
     }
     let over_window = surface_under_filtered_cx(cx.storage, cursor, &|hit| {

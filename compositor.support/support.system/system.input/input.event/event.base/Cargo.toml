@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_support_system_input_modality_base = { workspace = true }
 
 [lib]
 path = "lib.rs"

@@ -14,6 +14,10 @@ pub fn hooks(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Phys
     compositor_y5_select_overlay_interface::interface::per_frame(state, renderer, size);
     // Debug FPS overlay (top-right): measures the composited-frame rate.
     compositor_y5_surface_draw_fps::fps::per_frame(state, renderer, size);
+    // Reconcile the sticky touch pane against `inner.touch.pane_world`.
+    compositor_y5_touch_pane_create::create::per_frame(state, renderer, size);
+    // Reconcile the on-screen keyboard against `OSK.open`.
+    compositor_y5_osk_board_create::create::per_frame(state, renderer, size);
     // Per-frame screen context for systems (KernelData). Background systems read
     // physical output size from here (SCREEN) — the former background.shared
     // OUTPUT_SIZE world token is gone.
@@ -56,6 +60,13 @@ pub fn hooks(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Phys
             .active_mut()
             .update(kernel, &tick, Some(&mut platform), Some(seat));
     }
+
+    // A two-finger glide pans the camera without routing through the physical
+    // cursor accumulator, so the first post-glide pointer motion snaps the cursor
+    // across the whole pan. Re-seat the accumulator on the cursor's on-screen
+    // position each frame (world location untouched) so that motion continues
+    // seamlessly. Runs after `update()` so it sees this frame's pan/coast step.
+    compositor_orchestration_seat_pointer_pan::pan::reconcile_finger_pan(state);
 
     // Frame-end persistence commit — PATH 2 (rim catch-all): a mutation outside
     // `buffer()` flags its world via `mark_world`; here we commit the marked worlds

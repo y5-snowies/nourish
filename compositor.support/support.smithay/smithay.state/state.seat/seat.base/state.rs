@@ -27,10 +27,11 @@ pub struct Seat<Handler: SeatHandler> {
     pub previous_focus: Option<WlSurface>,
     pub libseat: Option<LibSeatSession>,
     /// Physical (libinput) keyboard devices, tracked on DeviceAdded/Removed so
-    /// `led_state_changed` can mirror the xkb NumLock/CapsLock/ScrollLock state
-    /// onto their hardware LEDs. Only populated on the udev backend (winit has
-    /// no physical LEDs).
+    /// `led_state_changed` can mirror the xkb NumLock/CapsLock/ScrollLock state onto
+    /// their hardware LEDs. Only populated on the udev backend (winit has no LEDs).
     pub keyboards: Vec<InputDevice>,
+    /// Connected touch devices for the settings Display tab's claim list (udev only).
+    pub touch_devices: Vec<InputDevice>,
 }
 
 impl<I> Seat<I>

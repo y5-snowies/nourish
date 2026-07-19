@@ -1,0 +1,28 @@
+# Standalone Wayland pen/stylus test/visualiser. A real `zwp_tablet_v2` client used
+# to exercise the compositor's tablet path: binds every wl_tablet tool feature
+# (proximity / down / up / motion / pressure / distance / tilt / rotation / slider /
+# wheel / buttons / tool-type incl. ERASER) plus the pad (buttons / ring / strip),
+# and visualises them (pressure-modulated ink, eraser erases). Has a mode to NOT
+# bind the tablet so the compositor's pointer-emulation fallback is exercised.
+# Deliberately OUTSIDE the repo's link.all.sh graph: own [workspace], own lock,
+# crates.io deps only, plain-stderr diagnostics. Pen sibling of
+# developer.tool.touch/touch.stress.
+[package]
+name = "y5-pen-stress"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+# Own workspace root so cargo does not walk up into the compositor workspaces.
+[workspace]
+
+[[bin]]
+name = "pen-stress"
+path = "src/main.rs"
+
+[dependencies]
+smithay-client-toolkit = "0.19"
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+calloop = "0.13"

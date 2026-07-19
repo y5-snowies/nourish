@@ -1,4 +1,40 @@
 {
+  "compositor.support/support.smithay/smithay.state/state.seat/seat.factory": [
+    "size"
+  ],
+  "compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.tablet": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.wire/wire.input/input.base": [
+    "size"
+  ],
+  "compositor.orchestration/orchestration.seat/seat.gesture/gesture.touch": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.touch/touch.pane/pane.view": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.touch/touch.pane/pane.create": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.osk/osk.board/board.view": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.osk/osk.board/board.create": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.osk/osk.board/board.handle": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.overview/overview.state/state.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.picker/picker.surface/surface.view": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.wire/wire.input/input.map": [
+    "size"
+  ],
   "compositor.expansion/compositor.background/background.two/two.shader/shader.property": [
     "size"
   ],
@@ -357,6 +393,9 @@
   "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.graphics": [
     "size"
   ],
+  "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.pen": [
+    "size"
+  ],
   "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.chrome": [
     "size"
   ],
@@ -394,18 +433,6 @@
     "size"
   ],
   "compositor.orchestration/orchestration.draw/draw.dispatch/dispatch.uniforms": [
-    "size"
-  ],
-  "compositor.installer/installer.process/process.packages/packages.enumerate/enumerate.debian": [
-    "size"
-  ],
-  "compositor.installer/installer.process/process.packages/packages.enumerate/enumerate.fedora": [
-    "size"
-  ],
-  "compositor.installer/installer.process/process.packages/packages.enumerate/enumerate.nixos": [
-    "size"
-  ],
-  "compositor.installer/installer.process/process.packages/packages.enumerate/enumerate.platform": [
     "size"
   ]
 }

@@ -6,3 +6,5 @@ pub mod native_axis;
 pub mod native_motion;
 pub mod native_press;
 pub mod pinch;
+pub mod tablet;
+pub mod touch;

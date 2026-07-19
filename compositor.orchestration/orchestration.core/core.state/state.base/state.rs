@@ -19,6 +19,8 @@ use std::time::Instant;
 use compositor_introspection_sampler_window_base::sampler::SampleResult;
 use compositor_y5_camera_state_base::state::Camera;
 use compositor_y5_canvas_state_base::state::CanvasState;
+use compositor_orchestration_seat_pointer_snapshot::snapshot::CursorSnapshot;
+use compositor_orchestration_seat_gesture_scroll::scroll::FingerScrollRamp;
 use compositor_support_smithay_dispatch_wire_base::wire::Wire;
 use compositor_support_smithay_dispatch_wire_trait::wire_trait::WireTrait;
 
@@ -85,6 +87,17 @@ pub struct Orchestrator {
     /// which output's size/scale the input-path contexts use. `None` until the first
     /// crossing resolves it; the resolver falls back to the sole/primary output.
     pub cursor_output: Option<compositor_orchestration_driver_output_base::base::OutputKey>,
+    /// Saved pointer-cursor state while a TOUCH sequence owns the single active
+    /// output. `Some` ⇒ the cursor is "hidden" and touch drives the touched panel;
+    /// the snapshot is restored (position + output) the moment a real pointer/mouse
+    /// event arrives, so the cursor reappears exactly where it was. The behaviour
+    /// lives in `seat.pointer/pointer.restore` (`TouchCursor`); only the value is here.
+    pub saved_cursor: Option<CursorSnapshot>,
+    /// Softens the start of a two-finger touchpad scroll forwarded to a window
+    /// (libinput dumps the accumulated pre-recognition distance in the first
+    /// event, so the gesture lurches at the start). Policy lives in
+    /// `seat.gesture/gesture.scroll`.
+    pub finger_scroll_ramp: FingerScrollRamp,
     pub status: Status,
     /// One-shot request to run the renderer-free lock engage (`lock_logical`) off
     /// the render loop. The lock keybinding sets `Status::Locked` synchronously and
@@ -105,6 +118,10 @@ pub struct Orchestrator {
     /// multiple input dispatches). World-agnostic raw delta; the y5 gesture
     /// handler turns it into a directional-view action at end-of-swipe.
     pub gesture: compositor_orchestration_seat_gesture_state::state::GestureAccumulator,
+    /// Multi-finger touchscreen session: active contacts + the role/mode the
+    /// current touch sequence committed to (client-forward vs pointer-emu vs
+    /// canvas gesture). Feeds the same trackpad gesture handlers as `gesture`.
+    pub touch: compositor_orchestration_seat_gesture_touch::touch::TouchTracker,
     pub loader: Loader,
     /// The world set (phase 3, document/ARCHITECTURE.md). The active world
     /// hosts the kernel systems; grows per-output/lock/selection worlds later.
@@ -257,6 +274,9 @@ impl Orchestrator {
         // Selection-overlay driver: the align/distribute toolbar instance.
         kernel_data.insert(&compositor_orchestration_driver_selection_base::base::SELECTION_OVERLAY, Default::default());
 
+        // On-screen-keyboard driver state (shown/pinned/mods/placement).
+        kernel_data.insert(&compositor_y5_osk_board_state::state::OSK, Default::default());
+
         // Output-mode driver: rim-issued mode request + kernel-written advertised
         // modes snapshot and apply result (settings window ↔ DRM, like the lid).
         kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUT_MODE_REQUEST, None);
@@ -265,6 +285,7 @@ impl Orchestrator {
         // Kernel-written full connector list (the settings Display panel's monitor
         // picker + advertised modes).
         kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUTS_SNAPSHOT, Default::default());
+        kernel_data.insert(&compositor_orchestration_driver_output_base::base::TOUCH_DEVICES_SNAPSHOT, Default::default());
         // Rim→kernel: request a reconcile pass after an activate/deactivate.
         kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUT_RECONCILE_REQUEST, false);
         // Baseline of a provisional activate/deactivate awaiting the "check changes"
@@ -287,11 +308,14 @@ impl Orchestrator {
             render_target: None,
             render_output: None,
             cursor_output: None,
+            saved_cursor: None,
+            finger_scroll_ramp: FingerScrollRamp::default(),
             lock_engage: false,
             control_ping: None,
             __set_picker: None,
             status_session: StatusSession::Active,
             gesture: Default::default(),
+            touch: Default::default(),
             storage: compositor_orchestration_storage_state_base::state::Storage::new(nested),
             status: Status::Running,
             start_time,
@@ -924,3 +948,4 @@ impl CoordinateTrait for Loop {
     }
 
 }
+

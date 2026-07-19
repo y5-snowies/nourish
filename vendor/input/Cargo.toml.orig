@@ -1,0 +1,53 @@
+[package]
+name = "input"
+description = "libinput bindings for rust"
+license = "MIT"
+documentation = "https://docs.rs/input"
+repository = "https://github.com/Drakulix/input.rs"
+version = "0.10.0"
+keywords = ["wayland", "input", "bindings"]
+categories = ["external-ffi-bindings"]
+authors = ["Drakulix (Victoria Brekenfeld)"]
+edition = "2018"
+exclude = [".gitignore", ".rustfmt.toml", ".github"]
+rust-version = "1.63.0"
+
+[dependencies]
+libc = "0.2"
+bitflags = "2.4"
+log = { version = "0.4.20", optional = true }
+
+[dependencies.input-sys]
+version = "1.19.0"
+path = "input-sys"
+default-features = false
+
+[dependencies.udev]
+version = "0.9"
+optional = true
+
+[dev-dependencies]
+rustix = { version = "1", features = ["event"] }
+
+[features]
+default = ["udev", "log", "libinput_1_21"]
+use_bindgen = ["input-sys/use_bindgen"]
+libinput_1_11 = ["input-sys/libinput_1_11"]
+libinput_1_14 = ["input-sys/libinput_1_14", "libinput_1_11"]
+libinput_1_15 = ["input-sys/libinput_1_15", "libinput_1_14"]
+libinput_1_19 = ["input-sys/libinput_1_19", "libinput_1_15"]
+libinput_1_21 = ["input-sys/libinput_1_21", "libinput_1_19"]
+libinput_1_23 = ["input-sys/libinput_1_23", "libinput_1_21"]
+libinput_1_26 = ["input-sys/libinput_1_26", "libinput_1_23"]
+libinput_1_27 = ["input-sys/libinput_1_27", "libinput_1_26"]
+libinput_1_28 = ["input-sys/libinput_1_28", "libinput_1_27"]
+libinput_1_29 = ["input-sys/libinput_1_29", "libinput_1_28"]
+libinput_1_30 = ["input-sys/libinput_1_30", "libinput_1_29"]
+
+[workspace]
+members = [
+  "input-sys"
+]
+
+[package.metadata.docs.rs]
+features = ["libinput_1_30"]
