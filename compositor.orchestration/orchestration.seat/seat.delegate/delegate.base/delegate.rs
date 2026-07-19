@@ -11,16 +11,7 @@ pub fn process_input_event<I: InputBackend>(_loop: &mut Loop, event: &InputEvent
     // The world-selection screen owns input while it's the active world (gated on
     // the active world, not Status — it never sets a Status variant).
     if _loop.inner.worlds.active_id() == compositor_y5_picker_system_base::base::PICKER_WORLD {
-        // Touch on the picker is single-finger pointer emulation against the
-        // picker's own handlers; everything else goes to the picker dispatch.
-        use compositor_orchestration_seat_pointer_input::touch::aux::picker;
-        match event {
-            InputEvent::TouchDown { event, .. } => picker::down::<I>(event, _loop),
-            InputEvent::TouchMotion { event, .. } => picker::motion::<I>(event, _loop),
-            InputEvent::TouchUp { event, .. } => picker::up::<I>(event, _loop),
-            InputEvent::TouchCancel { .. } | InputEvent::TouchFrame { .. } => {}
-            _ => compositor_y5_picker_seat_dispatch::dispatch::process_input_event(_loop, event),
-        }
+        compositor_y5_picker_seat_dispatch::dispatch::process_input_event(_loop, event);
         return;
     }
     match _loop.inner.status {

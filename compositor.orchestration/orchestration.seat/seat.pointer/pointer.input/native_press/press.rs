@@ -1,14 +1,13 @@
-use smithay::backend::input::{Axis, AxisSource, ButtonState, Event, InputBackend, PointerAxisEvent, PointerButtonEvent};
+use smithay::backend::input::{ButtonState, Event, InputBackend, PointerButtonEvent};
 use smithay::desktop::{Window, WindowSurfaceType, layer_map_for_output};
 use smithay::input::keyboard::KeyboardHandle;
-use smithay::input::pointer::{AxisFrame, ButtonEvent, PointerHandle};
+use smithay::input::pointer::{ButtonEvent, PointerHandle};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{SERIAL_COUNTER, Serial};
 use smithay::wayland::shell::wlr_layer::{KeyboardInteractivity, Layer};
 use compositor_orchestration_core_state_base::Loop;
 use compositor_support_smithay_dispatch_state_base::state::Dispatch;
 use compositor_y5_surface_interface_base::hit::SurfaceHit;
-use compositor_y5_window_interface_record::window::LoopWindow;
 
 // This is only called on presses when there was a surface hit.
 // Currently, I cancel wayland focus on a different place. so please provide a snippet on how to invoke the de-activation.

@@ -9,7 +9,7 @@
 //! surface system channels; the wayland focus/button + held-key release via
 //! `cx.seat`; window-deactivate + grab geometry via `cx.platform.space()`.
 
-use compositor_support_system_input_event_base::base::InputFlow;
+use compositor_support_system_input_event_base::base::{InputFlow, Modality};
 use compositor_support_system_storage_slot_base::base::Storage;
 use compositor_support_system_trait_system_base::base::SystemCx;
 use compositor_support_smithay_dispatch_state_base::state::Dispatch;
@@ -43,8 +43,17 @@ enum PressCandidate {
     Window(Window),
 }
 
-pub(crate) fn press(cx: &mut SystemCx, button: u32, x: f64, y: f64) -> InputFlow {
+/// `modality` is the device class behind this press. Touch and pen arrive here as
+/// EMULATED pointer events, so several branches below — which would otherwise key
+/// only off the canvas `Grab` slot — must additionally require a DIRECT modality:
+/// the keyboard can arm the very same Select / Hand grab for a mouse user (see
+/// `canvas.input/input.keyboard`), and the touch affordances those branches
+/// implement (the sticky selection frame's grab handles, placeholder move/scale,
+/// hand-tool passthrough) are not drawn for the mouse and would be invisible.
+pub(crate) fn press(cx: &mut SystemCx, button: u32, x: f64, y: f64, modality: Modality) -> InputFlow {
     let cursor = Point::<f64, Logical>::from((x, y));
+    // A finger or stylus is literally on the surface — touch-only affordances apply.
+    let direct = modality.is_direct();
 
     let mut canvas_grab_targetting = false;
     let mut canvas_grab_selecting = false;
@@ -96,7 +105,10 @@ pub(crate) fn press(cx: &mut SystemCx, button: u32, x: f64, y: f64) -> InputFlow
         over_surface.as_ref().and_then(|h| h.iced_space()),
         Some(IcedSpace::World)
     );
-    if canvas_grab_hand && over_ice && !over_world_iced {
+    // DIRECT only: with a mouse the Hand tool is armed from the keyboard and there is
+    // no tappable touch pane to protect, so a mouse Hand press keeps its pre-touch
+    // behaviour of panning over iced rather than passing the press through.
+    if direct && canvas_grab_hand && over_ice && !over_world_iced {
         return InputFlow::Pass;
     }
 
@@ -106,7 +118,12 @@ pub(crate) fn press(cx: &mut SystemCx, button: u32, x: f64, y: f64) -> InputFlow
     // wins over selecting the window beneath. Skipped over compositor iced UI (the
     // bottom-centre selection toolbar stays tappable). A no-drag interior tap is
     // resolved back to a selection toggle on release (see `base.rs`).
-    if canvas_grab_selecting && !over_ice {
+    // DIRECT only: the persistent selection frame these handles belong to is drawn
+    // solely for touch (`CanvasState::select_visual`), so for a mouse user — who can
+    // reach Select mode from the keyboard — the 30px corner zones and the interior
+    // drag region would be INVISIBLE, silently hijacking clicks on windows that
+    // happen to lie under the selection's bounding box.
+    if direct && canvas_grab_selecting && !over_ice {
         if let Some(grab) = select_rect_grab(cx, cursor) {
             cx.write(&CANVAS_BUF, CanvasCmd::SetSelectTransform(true));
             cx.write(&CANVAS_BUF, CanvasCmd::SetGrab(grab));
@@ -118,7 +135,10 @@ pub(crate) fn press(cx: &mut SystemCx, button: u32, x: f64, y: f64) -> InputFlow
     // placeholder moves it (interior) or scales it (corner) DIRECTLY — the Move/Scale
     // tools' behaviour reachable from Select mode. Placeholders are world-space iced,
     // so `over_ice` is true and the window select-rect above skipped them.
-    if canvas_grab_selecting {
+    // DIRECT only, for the same reason as the select-rect grab above: with a mouse in
+    // Select mode a click on a placeholder keeps its pre-touch meaning (select / pass)
+    // instead of silently becoming a move-or-scale drag.
+    if direct && canvas_grab_selecting {
         if let Some(handle_id) = over_surface.as_ref().and_then(|h| h.iced_handle()) {
             if let Some(grab) = select_placeholder_grab(cx, cursor, handle_id) {
                 cx.write(&CANVAS_BUF, CanvasCmd::SetSelectTransform(true));
@@ -163,7 +183,13 @@ pub(crate) fn press(cx: &mut SystemCx, button: u32, x: f64, y: f64) -> InputFlow
         // be swallowed as a no-op select. This matters for touch's persistent
         // Select mode, where the tool stays armed while the bottom-centre menu is
         // used. Move/Scale keep their iced candidates (group / placeholder tiles).
-        if canvas_grab_selecting && matches!(candidate, Some(PressCandidate::IcedSurface(_))) {
+        // DIRECT only: this exists for touch's PERSISTENT Select mode, where the tool
+        // stays armed while the bottom-centre menu is used. A mouse user's Select mode
+        // is momentary and has no such menu, so it keeps its pre-touch routing.
+        if direct
+            && canvas_grab_selecting
+            && matches!(candidate, Some(PressCandidate::IcedSurface(_)))
+        {
             return InputFlow::Pass;
         }
 

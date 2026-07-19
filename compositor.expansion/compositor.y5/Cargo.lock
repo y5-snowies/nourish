@@ -3331,8 +3331,10 @@ dependencies = [
  "compositor_orchestration_driver_selection_base",
  "compositor_orchestration_driver_settings_base",
  "compositor_orchestration_environment_type_base",
+ "compositor_orchestration_seat_gesture_scroll",
  "compositor_orchestration_seat_gesture_state",
  "compositor_orchestration_seat_gesture_touch",
+ "compositor_orchestration_seat_pointer_snapshot",
  "compositor_orchestration_seat_pointer_state",
  "compositor_orchestration_seat_pointer_texture",
  "compositor_orchestration_seat_system_pointer",
@@ -3474,6 +3476,7 @@ dependencies = [
  "compositor_orchestration_driver_remote_base",
  "compositor_orchestration_seat_pointer_draw",
  "compositor_orchestration_seat_pointer_input",
+ "compositor_orchestration_seat_pointer_pan",
  "compositor_orchestration_smithay_data_base",
  "compositor_remote_client_handle_base",
  "compositor_support_bevy_core_compositor_base",
@@ -3633,6 +3636,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_orchestration_seat_gesture_scroll"
+version = "0.0.1"
+
+[[package]]
 name = "compositor_orchestration_seat_gesture_state"
 version = "0.0.1"
 
@@ -3640,6 +3647,7 @@ version = "0.0.1"
 name = "compositor_orchestration_seat_gesture_touch"
 version = "0.0.1"
 dependencies = [
+ "compositor_support_system_input_event_base",
  "smithay",
 ]
 
@@ -3722,10 +3730,8 @@ dependencies = [
  "compositor_y5_canvas_input_state",
  "compositor_y5_canvas_system_base",
  "compositor_y5_launcher_interface_base",
- "compositor_y5_lock_seat_input",
  "compositor_y5_lock_system_base",
  "compositor_y5_overview_input_pointer",
- "compositor_y5_picker_seat_pointer",
  "compositor_y5_surface_interface_base",
  "compositor_y5_surface_system_base",
  "compositor_y5_viewport_interaction_base",
@@ -3735,6 +3741,23 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "compositor_orchestration_seat_pointer_pan"
+version = "0.0.1"
+dependencies = [
+ "compositor_orchestration_core_state_base",
+ "compositor_y5_camera_transform_translate",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_orchestration_seat_pointer_snapshot"
+version = "0.0.1"
+dependencies = [
+ "compositor_orchestration_driver_output_base",
+ "smithay",
 ]
 
 [[package]]
@@ -5821,9 +5844,16 @@ dependencies = [
 [[package]]
 name = "compositor_support_system_input_event_base"
 version = "0.0.1"
+dependencies = [
+ "compositor_support_system_input_modality_base",
+]
 
 [[package]]
 name = "compositor_support_system_input_layer_base"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_support_system_input_modality_base"
 version = "0.0.1"
 
 [[package]]
@@ -6350,6 +6380,7 @@ name = "compositor_y5_canvas_state_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
+ "compositor_support_system_input_event_base",
  "compositor_y5_canvas_input_state",
  "compositor_y5_group_state_base",
  "compositor_y5_select_state_base",
@@ -6843,6 +6874,7 @@ dependencies = [
  "compositor_monitor_compositor_iced_base",
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_draw_layer_base",
+ "compositor_orchestration_seat_pointer_input",
  "compositor_orchestration_seat_system_pointer",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_y5_camera_transform_state",
@@ -7574,6 +7606,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_orchestration_core_state_base",
+ "compositor_orchestration_seat_pointer_input",
  "compositor_y5_picker_seat_keyboard",
  "compositor_y5_picker_seat_pointer",
  "smithay",

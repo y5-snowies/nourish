@@ -1,4 +1,5 @@
 use compositor_y5_canvas_input_state::state::CanvasGrab;
+use compositor_support_system_input_event_base::base::Modality;
 
 // Selection -> SelectSystem (SELECT); grouping -> GroupSystem (GROUP). Canvas is
 // being decomposed into per-system slots; only the input Grab remains here.
@@ -31,6 +32,12 @@ pub struct CanvasState {
     /// the touch Hand tool is selected, without arming a global [`Grab`]. Mirrored
     /// here because the camera reads world storage, not the touch tracker.
     pub hand_touch: bool,
+    /// Device class of the most recent input event, mirrored from the seat's touch
+    /// tracker (the rim writes it in the seat delegate). Systems that read storage —
+    /// the camera's gesture-ownership test, the canvas press/release paths — gate
+    /// direct-only behaviour on this, because touch and pen arrive as EMULATED
+    /// pointer events and are otherwise indistinguishable from a mouse click.
+    pub input_modality: Modality,
 }
 
 impl CanvasState {
@@ -42,6 +49,7 @@ impl CanvasState {
             select_transform: false,
             select_visual: false,
             hand_touch: false,
+            input_modality: Modality::default(),
         }
     }
 

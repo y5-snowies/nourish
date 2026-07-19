@@ -5,9 +5,6 @@
   "compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.tablet": [
     "size"
   ],
-  "compositor.orchestration/orchestration.seat/seat.delegate/delegate.main": [
-    "size"
-  ],
   "compositor.kernel/kernel.native/native.wire/wire.input/input.base": [
     "size"
   ],
@@ -436,18 +433,6 @@
     "size"
   ],
   "compositor.orchestration/orchestration.draw/draw.dispatch/dispatch.uniforms": [
-    "size"
-  ],
-  "compositor.installer/installer.process/process.packages/packages.enumerate/enumerate.debian": [
-    "size"
-  ],
-  "compositor.installer/installer.process/process.packages/packages.enumerate/enumerate.fedora": [
-    "size"
-  ],
-  "compositor.installer/installer.process/process.packages/packages.enumerate/enumerate.nixos": [
-    "size"
-  ],
-  "compositor.installer/installer.process/process.packages/packages.enumerate/enumerate.platform": [
     "size"
   ]
 }

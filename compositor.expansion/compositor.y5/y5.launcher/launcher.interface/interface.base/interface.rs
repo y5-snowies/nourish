@@ -49,8 +49,6 @@ pub fn start(_loop: &mut Loop, renderer: &mut GlesRenderer) {
         compositor_orchestration_draw_layer_base::base::Layer::SCENE.bits(),
     );
 
-    info!("{:?}", listing_xdg_basic::load_applications());
-    // [Application { id: "glmark2", title: "Glmark2", bin: "glmark2", args: [], icon_path: Some("/usr/share/pixmaps/glmark2.png"), usage_count: 0, usage_time: None }, Application { id: "footclient", title: "Foot Client", bin: "footclient", args: [], icon_path: Some("/usr/share/icons/hicolor/scalable/apps/foot.svg"), usage_count: 0, usage_time: None }, Application { id: "glmark2-es2", title: "Glmark2-es2", bin: "glmark2-es2", args: [], icon_path: Some("/usr/share/pixmaps/glmark2-es2.png"), usage_count: 0, usage_time: None }, Application { id: "foot-server", title: "Foot Server", bin: "foot", args: ["--server"], icon_path: Some("/usr/share/icons/hicolor/scalable/apps/foot.svg"), usage_count: 0, usage_time: None }, Application { id: "xterm", title: "XTerm", bin: "xterm", args: [], icon_path: Some("/usr/share/icons/hicolor/scalable/apps/xterm-color.svg"), usage_count: 0, usage_time: None }, Application { id: "google-chrome", title: "Google Chrome", bin: "/usr/bin/google-chrome-stable", args: [], icon_path: Some("/usr/share/icons/hicolor/16x16/apps/google-chrome.png"), usage_count: 0, usage_time: None }, Application { id: "Alacritty", title: "Alacritty", bin: "alacritty", args: [], icon_path: Some("/usr/share/pixmaps/Alacritty.svg"), usage_count: 0, usage_time: None }, Application { id: "glmark2-es2-wayland", title: "Glmark2-es2-wayland", bin: "glmark2-es2-wayland", args: [], icon_path: Some("/usr/share/pixmaps/glmark2-es2-wayland.png"), usage_count: 0, usage_time: None }, Application { id: "foot", title: "Foot", bin: "foot", args: [], icon_path: Some("/usr/share/icons/hicolor/scalable/apps/foot.svg"), usage_count: 0, usage_time: None }, Application { id: "glmark2-wayland", title: "Glmark2-wayland", bin: "glmark2-wayland", args: [], icon_path: Some("/usr/share/pixmaps/glmark2-wayland.png"), usage_count: 0, usage_time: None }]
     _loop.inner.launcher_mut().handle = Some(handle);
 
     // Give the launcher iced keyboard focus immediately so typing reaches the search
@@ -61,7 +59,6 @@ pub fn start(_loop: &mut Loop, renderer: &mut GlesRenderer) {
     if let Some(reg) = _loop.inner.surface_mut().registry.as_mut() {
         reg.set_keyboard_focus(Some(handle.id));
     }
-    //
     let tx = _loop.inner.surface_mut().surface_message_buffer_channel.0.clone();
     _loop.inner.surface_mut()
         .registry

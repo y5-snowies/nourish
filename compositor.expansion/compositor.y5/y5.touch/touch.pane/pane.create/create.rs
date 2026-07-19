@@ -59,6 +59,14 @@ pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, 
         return;
     }
 
+    // Fast path for the overwhelmingly common case: the pane was never summoned, so
+    // there is nothing to build and nothing keyed to tear down. Checked before the
+    // key is assembled because everything below allocates — two `String`s and a
+    // hashed tuple lookup — once PER OUTPUT PER FRAME otherwise.
+    if state.inner.touch.pane_world.is_none() && PANE.with(|p| p.borrow().is_empty()) {
+        return;
+    }
+
     // The output being drawn (`render_output`), falling back to the active-output key
     // on a non-loop / single-output pass so `out == active` holds there.
     let active = state.inner.active_output_key();

@@ -66,7 +66,7 @@ pub fn hooks(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Phys
     // across the whole pan. Re-seat the accumulator on the cursor's on-screen
     // position each frame (world location untouched) so that motion continues
     // seamlessly. Runs after `update()` so it sees this frame's pan/coast step.
-    compositor_orchestration_seat_pointer_input::pan::reconcile_finger_pan(state);
+    compositor_orchestration_seat_pointer_pan::pan::reconcile_finger_pan(state);
 
     // Frame-end persistence commit — PATH 2 (rim catch-all): a mutation outside
     // `buffer()` flags its world via `mark_world`; here we commit the marked worlds

@@ -7,6 +7,8 @@ pub enum InputFlow {
     Pass,
 }
 
+pub use compositor_support_system_input_modality_base::base::Modality;
+
 /// Kernel-level input event. Platform-free on purpose: the orchestration layer
 /// translates smithay/libinput/winit events into this shape before the bus
 /// traversal, so systems never see backend types.
@@ -40,6 +42,11 @@ pub enum InputEvent {
         pressed: bool,
         x: f64,
         y: f64,
+        /// The device class this press came from. Touch and pen presses are
+        /// SYNTHESIZED pointer events, so this is the only way a receiver can tell
+        /// them from a real click — gate direct-only behaviour on
+        /// [`Modality::is_direct`], never on a shared canvas grab/tool slot.
+        modality: Modality,
     },
     PointerAxis {
         horizontal: f64,

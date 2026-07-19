@@ -8,8 +8,9 @@ smithay = { workspace = true }
 compositor_orchestration_core_state_base = { workspace = true }
 compositor_orchestration_seat_keyboard_input = { workspace = true }
 compositor_orchestration_seat_pointer_input = { workspace = true }
-compositor_y5_canvas_input_gesture = { workspace = true }
 compositor_orchestration_seat_lid_policy = { workspace = true }
+compositor_orchestration_seat_gesture_touch = { workspace = true }
+compositor_orchestration_seat_delegate_gesture = { workspace = true }
 
 [lib]
 path = "lib.rs"

@@ -99,11 +99,18 @@ pub fn button<I: InputBackend>(event: &<I as InputBackend>::PointerButtonEvent, 
     {
         // World input bus first (phase 3); Pass falls through to legacy routing.
         let location = pointer.current_location();
+        // Read the modality off the tracker rather than taking it as a parameter: the
+        // seat delegate sets it from the real device before dispatching, and the touch
+        // / pen emulation paths (`touch::emulate`, `tablet::tip`) reach this same
+        // function through the `TouchEmu` backend AFTER their own delegate arm has
+        // already recorded Touch / Pen. So it is correct for both the real and the
+        // synthesized press without threading an argument through every call site.
         let ev = compositor_support_system_input_event_base::base::InputEvent::PointerButton {
             button: event.button_code(),
             pressed: event.state() == ButtonState::Pressed,
             x: location.x,
             y: location.y,
+            modality: _loop.inner.touch.modality,
         };
         if compositor_orchestration_input_drive_base::drive::route(_loop, ev)
             == compositor_support_system_input_event_base::base::InputFlow::Consume

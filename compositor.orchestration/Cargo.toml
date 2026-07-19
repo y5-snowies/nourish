@@ -472,8 +472,10 @@ compositor_orchestration_input_drive_base = { path = "orchestration.input/input.
 compositor_orchestration_launch_broadcast_base = { path = "orchestration.launch/launch.broadcast/broadcast.base" }
 compositor_orchestration_pump_dark_base = { path = "orchestration.pump/pump.dark/dark.base" }
 compositor_orchestration_seat_delegate_base = { path = "orchestration.seat/seat.delegate/delegate.base" }
+compositor_orchestration_seat_delegate_gesture = { path = "orchestration.seat/seat.delegate/delegate.gesture" }
 compositor_orchestration_seat_delegate_lock = { path = "orchestration.seat/seat.delegate/delegate.lock" }
 compositor_orchestration_seat_delegate_main = { path = "orchestration.seat/seat.delegate/delegate.main" }
+compositor_orchestration_seat_gesture_scroll = { path = "orchestration.seat/seat.gesture/gesture.scroll" }
 compositor_orchestration_seat_gesture_state = { path = "orchestration.seat/seat.gesture/gesture.state" }
 compositor_orchestration_seat_gesture_touch = { path = "orchestration.seat/seat.gesture/gesture.touch" }
 compositor_orchestration_seat_keyboard_input = { path = "orchestration.seat/seat.keyboard/keyboard.input" }
@@ -481,6 +483,9 @@ compositor_orchestration_seat_lid_policy = { path = "orchestration.seat/seat.lid
 compositor_orchestration_seat_pointer_draw = { path = "orchestration.seat/seat.pointer/pointer.draw" }
 compositor_orchestration_seat_pointer_element = { path = "orchestration.seat/seat.pointer/pointer.element" }
 compositor_orchestration_seat_pointer_input = { path = "orchestration.seat/seat.pointer/pointer.input" }
+compositor_orchestration_seat_pointer_pan = { path = "orchestration.seat/seat.pointer/pointer.pan" }
+compositor_orchestration_seat_pointer_restore = { path = "orchestration.seat/seat.pointer/pointer.restore" }
+compositor_orchestration_seat_pointer_snapshot = { path = "orchestration.seat/seat.pointer/pointer.snapshot" }
 compositor_orchestration_seat_pointer_state = { path = "orchestration.seat/seat.pointer/pointer.state" }
 compositor_orchestration_seat_pointer_texture = { path = "orchestration.seat/seat.pointer/pointer.texture" }
 compositor_orchestration_seat_system_pointer = { path = "orchestration.seat/seat.system/system.pointer" }
@@ -689,6 +694,7 @@ compositor_support_system_channel_token_base = { path = "../compositor.support/s
 compositor_support_system_input_bus_base = { path = "../compositor.support/support.system/system.input/input.bus/bus.base" }
 compositor_support_system_input_event_base = { path = "../compositor.support/support.system/system.input/input.event/event.base" }
 compositor_support_system_input_layer_base = { path = "../compositor.support/support.system/system.input/input.layer/layer.base" }
+compositor_support_system_input_modality_base = { path = "../compositor.support/support.system/system.input/input.modality/modality.base" }
 compositor_support_system_persist_boot_base = { path = "../compositor.support/support.system/system.persist/persist.boot/boot.base" }
 compositor_support_system_persist_document_entry = { path = "../compositor.support/support.system/system.persist/persist.document/document.entry" }
 compositor_support_system_persist_document_rehydrate = { path = "../compositor.support/support.system/system.persist/persist.document/document.rehydrate" }

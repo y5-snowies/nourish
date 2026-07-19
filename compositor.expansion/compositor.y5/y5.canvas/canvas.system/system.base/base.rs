@@ -77,9 +77,11 @@ impl System for CanvasSystem {
             return crate::motion::motion(cx, *x, *y, *screen_x, *screen_y);
         }
 
-        let InputEvent::PointerButton { button, pressed, x, y } = event else { return InputFlow::Pass };
+        let InputEvent::PointerButton { button, pressed, x, y, modality } = event else {
+            return InputFlow::Pass;
+        };
         if *pressed {
-            return crate::press::press(cx, *button, *x, *y);
+            return crate::press::press(cx, *button, *x, *y, *modality);
         }
 
         // End the active grab, collecting any windows whose resize must be flushed.

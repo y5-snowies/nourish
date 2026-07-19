@@ -73,7 +73,22 @@ where
     // client, causing them to draw hover states (like highlighting a button).
     seat.add_pointer();
 
-    seat.add_touch(); // wl_touch: native multi-touch for client surfaces.
+    // wl_touch: native multi-touch for client surfaces.
+    //
+    // UNCONDITIONAL, unlike the tablet capability (which `wire.input` adds and removes
+    // per device). `wl_seat` is a LOGICAL seat — capabilities are a per-seat bitmask,
+    // not per-device — so the conditional form would mean advertising on the first
+    // `DeviceCapability::Touch` device and calling `remove_touch()` when the last one
+    // goes. That is deliberately NOT done here yet: this factory is shared by the udev
+    // and winit backends, and only udev sees libinput device events, so gating on them
+    // would silently stop advertising touch under nested winit. Making it conditional
+    // therefore needs a backend-specific hook plus a decision about churning
+    // `wl_seat.capabilities` at runtime, which some toolkits handle poorly.
+    //
+    // Cost of leaving it: a machine with no touchscreen still advertises touch, so some
+    // toolkits enable touch code paths / hide hover affordances. No leak — the
+    // `TouchHandle` is one `Arc` held for the process lifetime.
+    seat.add_touch();
 
     let relative_pointer_manager_state = RelativePointerManagerState::new::<I>(&display_handle);
 

@@ -12,7 +12,8 @@ use smithay::reexports::calloop::EventLoop;
 use smithay::wayland::tablet_manager::TabletDescriptor;
 use std::cell::RefCell;
 use std::rc::Rc;
-use compositor_orchestration_core_state_base::state::{StatusSession, TouchCursor};
+use compositor_orchestration_core_state_base::state::StatusSession;
+use compositor_orchestration_seat_pointer_restore::restore::TouchCursor;
 use compositor_orchestration_core_state_base::Loop;
 use compositor_support_smithay_dispatch_state_base::state::Dispatch;
 use compositor_support_smithay_dispatch_wire_tablet::tablet as tbl;
@@ -166,8 +167,14 @@ pub fn register(
                         if let Some(keyboard) = state.state.seat.seat.get_keyboard() {
                             device.led_update(keyboard.led_state().into());
                         }
-                        state.state.seat.keyboards.push(device);
-                    } else if device.has_capability(DeviceCapability::Touch) {
+                        state.state.seat.keyboards.push(device.clone());
+                    }
+                    // NOT `else if`: a single evdev node can advertise both Keyboard and
+                    // Touch (some touch panels expose keyboard-ish keys for their bezel
+                    // buttons), and chaining would drop such a device from the touch
+                    // claim list — it would then never appear in the settings UI and
+                    // could not be mapped to an output.
+                    if device.has_capability(DeviceCapability::Touch) {
                         state.state.seat.touch_devices.push(device);
                         compositor_kernel_native_wire_input_map::map::write_touch_snapshot(state);
                     }

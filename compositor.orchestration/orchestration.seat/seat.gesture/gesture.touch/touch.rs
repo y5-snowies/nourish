@@ -1,6 +1,7 @@
 //! Multi-finger touch session state (Orchestrator `inner.touch`); contacts held in
 //! physical pixels so gesture deltas match the trackpad's libinput units.
 use smithay::utils::{Physical, Point};
+use compositor_support_system_input_event_base::base::Modality;
 
 #[derive(Clone, Copy)]
 pub struct Contact {
@@ -101,15 +102,16 @@ pub struct TouchTracker {
     pub rtap_candidate: bool,
     pub rtap_ms: u32,
     pub rtap_origin: Point<f64, Physical>,
-    /// The active input modality: `true` after a touch event, `false` after a real
-    /// pointer / pen event. Cross-sequence (NOT cleared by `reset`). Lets UI that
-    /// differs by modality — e.g. the selection toolbar's placement — follow the
-    /// device actually in use rather than the sticky tool-mode or the pane's visibility.
-    pub last_input_touch: bool,
-    /// Last input was the PEN (tablet tool). Distinct from `last_input_touch` (the pen
-    /// is deliberately "non-touch" for the selection toolbar), but touch OR pen is the
-    /// DIRECT modality that auto-summons the on-screen keyboard.
-    pub last_input_pen: bool,
+    /// The device class of the most recent input event. Cross-sequence (NOT cleared
+    /// by `reset`). Lets UI that differs by modality — the selection toolbar's
+    /// placement, the OSK auto-summon — follow the device actually in use rather
+    /// than a sticky tool-mode or the pane's visibility.
+    ///
+    /// One field rather than a pair of bools: the states are mutually exclusive, so
+    /// a pair makes the meaningless "touch AND pen" combination representable.
+    /// Mirrored into world storage as `CanvasState::input_modality` for systems that
+    /// read storage instead of the tracker.
+    pub modality: Modality,
 }
 
 impl TouchTracker {
@@ -164,5 +166,39 @@ impl TouchTracker {
         self.pending_press = false;
         self.rtap_candidate = false;
         self.rtap_ms = 0;
+    }
+}
+
+/// Classify the device class behind a raw backend event, or `None` for events that
+/// say nothing about modality (keyboard, switches, device add/remove).
+///
+/// Lives here beside [`TouchTracker::modality`] rather than in the seat delegate so
+/// the delegate stays a pure router. Pure — the caller applies the result, because
+/// mirroring it into world storage needs the `Loop` this crate deliberately does not
+/// depend on (that would cycle with the state root, which owns a `TouchTracker`).
+pub fn classify<I: smithay::backend::input::InputBackend>(
+    event: &smithay::backend::input::InputEvent<I>,
+) -> Option<Modality> {
+    use smithay::backend::input::{Device, DeviceCapability, Event, InputEvent::*};
+    // A trackpad and a mouse are told apart by the device's GESTURE capability, not by
+    // the event: a trackpad emits its physical button through the same device it emits
+    // swipes and pinches through, so the button code alone cannot classify it.
+    fn pointer<I: smithay::backend::input::InputBackend>(d: I::Device) -> Option<Modality> {
+        Some(if d.has_capability(DeviceCapability::Gesture) {
+            Modality::Trackpad
+        } else {
+            Modality::Mouse
+        })
+    }
+    match event {
+        TouchDown { .. } | TouchMotion { .. } | TouchUp { .. } | TouchCancel { .. }
+        | TouchFrame { .. } => Some(Modality::Touch),
+        TabletToolProximity { .. } | TabletToolAxis { .. } | TabletToolTip { .. }
+        | TabletToolButton { .. } => Some(Modality::Pen),
+        PointerMotion { event, .. } => pointer::<I>(event.device()),
+        PointerMotionAbsolute { event, .. } => pointer::<I>(event.device()),
+        PointerButton { event, .. } => pointer::<I>(event.device()),
+        PointerAxis { event, .. } => pointer::<I>(event.device()),
+        _ => None,
     }
 }

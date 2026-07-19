@@ -186,8 +186,7 @@ pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, 
     // is active lets the next focused field re-summon it.
     if on_active {
         let ti_active = text_input_active(state);
-        let direct =
-            state.inner.touch.last_input_touch || state.inner.touch.last_input_pen;
+        let direct = state.inner.touch.modality.is_direct();
         if !ti_active {
             state.inner.kernel.get_mut(&OSK_MUT).dismissed = false;
         }

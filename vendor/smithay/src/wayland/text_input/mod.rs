@@ -160,9 +160,11 @@ where
                 // field-focus) would otherwise never learn it is focused, so it never
                 // enables and the OSK never sees the field. Pairs with the unconditional
                 // `enter`/`leave` in `seat/keyboard.rs` and the relaxed request gate in
-                // `text_input_handle.rs`. Guarded by `focus` being set, so it is a no-op
-                // when the client's surface isn't the focused one.
-                handle.enter();
+                // `text_input_handle.rs`. Targets ONLY this new instance (not every
+                // instance the client owns), so an existing focused instance never gets a
+                // second `enter` without an intervening `leave`. No-op when the client's
+                // surface isn't the focused one.
+                handle.enter_instance(&instance);
             }
             zwp_text_input_manager_v3::Request::Destroy => {
                 // Nothing to do

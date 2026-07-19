@@ -1,47 +1,29 @@
 use smithay::backend::input::{
-    AbsolutePositionEvent, ButtonState, GestureBeginEvent, GestureEndEvent, GesturePinchUpdateEvent,
-    GestureSwipeUpdateEvent, InputBackend, InputEvent, KeyboardKeyEvent, PointerButtonEvent, Switch,
-    SwitchState, SwitchToggleEvent,
+    AbsolutePositionEvent, ButtonState, InputBackend, InputEvent, KeyboardKeyEvent,
+    PointerButtonEvent, Switch, SwitchState, SwitchToggleEvent,
 };
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_seat_pointer_input::touch;
 
 /// Delegation of input events from the compositor seat loop
 pub fn process_input_event<I: InputBackend>(_loop: &mut Loop, event: &InputEvent<I>) {
-    // Track the active input modality (touch vs real pointer / pen). Touch emulation
-    // drives the pointer handlers directly and never routes through here, so these
-    // arms are genuine device input. Using a real pointer / pen again also
-    // auto-dismisses the sticky touch pane. `last_input_touch` lets modality-sensitive
-    // UI (e.g. the selection-toolbar placement) follow the device actually in use.
-    match event {
-        InputEvent::TouchDown { .. }
-        | InputEvent::TouchMotion { .. }
-        | InputEvent::TouchUp { .. }
-        | InputEvent::TouchCancel { .. }
-        | InputEvent::TouchFrame { .. } => {
-            _loop.inner.touch.last_input_touch = true;
-            _loop.inner.touch.last_input_pen = false;
-        }
-        InputEvent::PointerMotion { .. }
-        | InputEvent::PointerMotionAbsolute { .. }
-        | InputEvent::PointerButton { .. }
-        | InputEvent::PointerAxis { .. } => {
-            _loop.inner.touch.last_input_touch = false;
-            _loop.inner.touch.last_input_pen = false;
+    // Track the active input modality. Touch emulation drives the pointer handlers
+    // directly and never routes back through here, so these are genuine device events.
+    // Mirrored into world storage because the camera / canvas systems read storage,
+    // not the tracker. A real pointer also dismisses the sticky touch pane; the PEN
+    // deliberately does not — it is allowed to operate the pane (touch/pen parity).
+    if let Some(m) = compositor_orchestration_seat_gesture_touch::touch::classify::<I>(event) {
+        _loop.inner.touch.modality = m;
+        _loop.inner.canvas_mut().input_modality = m;
+        if !m.is_direct() {
             _loop.inner.touch.pane_world = None;
         }
-        InputEvent::TabletToolProximity { .. }
-        | InputEvent::TabletToolAxis { .. }
-        | InputEvent::TabletToolTip { .. }
-        | InputEvent::TabletToolButton { .. } => {
-            // The pen is a non-touch modality (so the selection toolbar drops its
-            // sticky touch placement), but unlike the mouse it must NOT dismiss the
-            // touch pane — the pen is allowed to operate it (feature parity). It IS a
-            // DIRECT modality (`last_input_pen`) that auto-summons the OSK like touch.
-            _loop.inner.touch.last_input_touch = false;
-            _loop.inner.touch.last_input_pen = true;
-        }
-        _ => {}
+    }
+    // Touchpad swipe / pinch carry their own policy — delegated whole.
+    if compositor_orchestration_seat_delegate_gesture::delegate_gesture::process_input_event::<I>(
+        _loop, event,
+    ) {
+        return;
     }
     match event {
         InputEvent::Keyboard { event, .. } => {
@@ -63,47 +45,6 @@ pub fn process_input_event<I: InputBackend>(_loop: &mut Loop, event: &InputEvent
 
         InputEvent::DeviceAdded { .. } => {}
         InputEvent::DeviceRemoved { .. } => {}
-        InputEvent::GestureSwipeBegin { event, .. } => {
-            _loop.inner.gesture.begin(event.fingers());
-        }
-        InputEvent::GestureSwipeUpdate { event, .. } => {
-            _loop.inner.gesture.update(event.delta_x(), event.delta_y());
-        }
-        InputEvent::GestureSwipeEnd { event, .. } => {
-            let cancelled = event.cancelled();
-            _loop.inner.gesture.active = false;
-            compositor_y5_canvas_input_gesture::gesture::swipe_end(_loop, cancelled);
-        }
-        // Two/three-finger pinch is a continuous canvas (or forwarded window) zoom;
-        // a FOUR-finger pinch is a discrete window command (fit one / fit all),
-        // accumulated here and dispatched to the y5 handler at end.
-        InputEvent::GesturePinchBegin { event, .. } => {
-            let fingers = event.fingers();
-            _loop.inner.gesture.pinch_fingers = fingers;
-            if fingers >= 4 {
-                _loop.inner.gesture.pinch_scale = 1.0;
-            } else {
-                compositor_orchestration_seat_pointer_input::pinch::begin::<I>(event, _loop);
-            }
-        }
-        InputEvent::GesturePinchUpdate { event, .. } => {
-            if _loop.inner.gesture.pinch_fingers >= 4 {
-                _loop.inner.gesture.pinch_scale = event.scale();
-            } else {
-                compositor_orchestration_seat_pointer_input::pinch::update::<I>(event, _loop);
-            }
-        }
-        InputEvent::GesturePinchEnd { event, .. } => {
-            if _loop.inner.gesture.pinch_fingers >= 4 {
-                let scale = _loop.inner.gesture.pinch_scale;
-                _loop.inner.gesture.pinch_fingers = 0;
-                compositor_y5_canvas_input_gesture::gesture::pinch_four(_loop, scale);
-            } else {
-                compositor_orchestration_seat_pointer_input::pinch::end::<I>(event, _loop);
-            }
-        }
-        InputEvent::GestureHoldBegin { .. } => {}
-        InputEvent::GestureHoldEnd { .. } => {}
         // Touch: the session router forwards to a client's `wl_touch`, emulates the
         // pointer, or runs a canvas gesture — decided per sequence.
         InputEvent::TouchDown { event, .. } => touch::session::down::<I>(event, _loop),
@@ -133,5 +74,7 @@ pub fn process_input_event<I: InputBackend>(_loop: &mut Loop, event: &InputEvent
             }
         }
         InputEvent::Special(_) => {}
+        // Swipe / pinch already returned above via `delegate_gesture`.
+        _ => {}
     }
 }
