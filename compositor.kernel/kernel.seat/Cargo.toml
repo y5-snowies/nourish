@@ -731,6 +731,7 @@ compositor_y5_picker_seat_embed = { path = "../../compositor.expansion/composito
 compositor_y5_picker_seat_iced = { path = "../../compositor.expansion/compositor.y5/y5.picker/picker.seat/seat.iced" }
 compositor_y5_picker_seat_keyboard = { path = "../../compositor.expansion/compositor.y5/y5.picker/picker.seat/seat.keyboard" }
 compositor_y5_picker_seat_pointer = { path = "../../compositor.expansion/compositor.y5/y5.picker/picker.seat/seat.pointer" }
+compositor_y5_picker_seat_touch = { path = "../../compositor.expansion/compositor.y5/y5.picker/picker.seat/seat.touch" }
 compositor_y5_picker_state_base = { path = "../../compositor.expansion/compositor.y5/y5.picker/picker.state/state.base" }
 compositor_y5_picker_surface_create = { path = "../../compositor.expansion/compositor.y5/y5.picker/picker.surface/surface.create" }
 compositor_y5_picker_surface_handle = { path = "../../compositor.expansion/compositor.y5/y5.picker/picker.surface/surface.handle" }

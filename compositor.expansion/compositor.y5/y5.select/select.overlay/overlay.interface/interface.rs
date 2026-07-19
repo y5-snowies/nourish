@@ -47,13 +47,14 @@ use compositor_orchestration_seat_gesture_touch::touch::TouchMode;
 
 /// The active toolbar placement. Touch's Select mode pins the bar SCREEN
 /// bottom-centre (reachable by thumb, zoom-independent); every other case keeps
-/// the compile-time default (`WorldAtCursor`). Gated on the last input being TOUCH
-/// specifically (not the pen, which keeps the world-at-cursor bar) so it follows the
-/// device actually in use: a mouse selection — even with the sticky Select mode still
-/// set — uses the normal bar. Read fresh each frame so a mode/modality change
+/// the compile-time default (`WorldAtCursor`). Gated on a DIRECT modality — finger or
+/// stylus — so it follows the device actually in use: reaching a bar pinned near the
+/// cursor is awkward when your hand is on the surface, and that is as true of a pen as
+/// of a finger. A mouse selection, even with the sticky Select mode still set, keeps
+/// the normal world-at-cursor bar. Read fresh each frame so a mode/modality change
 /// re-decides on next create.
 fn placement_mode(state: &Loop) -> Placement {
-    if state.inner.touch.tool_mode == TouchMode::Select && state.inner.touch.modality.is_touch() {
+    if state.inner.touch.tool_mode == TouchMode::Select && state.inner.touch.modality.is_direct() {
         Placement::ScreenBottomCenter
     } else {
         SELECTION_OVERLAY_PLACEMENT

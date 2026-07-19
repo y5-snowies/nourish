@@ -43,11 +43,4 @@ impl Modality {
     pub fn is_direct(self) -> bool {
         matches!(self, Modality::Touch | Modality::Pen)
     }
-
-    /// A touchscreen specifically. Used where the pen is deliberately treated as
-    /// non-touch — e.g. the selection toolbar keeps its world-at-cursor placement for
-    /// the pen but docks to the screen bottom for a finger.
-    pub fn is_touch(self) -> bool {
-        matches!(self, Modality::Touch)
-    }
 }

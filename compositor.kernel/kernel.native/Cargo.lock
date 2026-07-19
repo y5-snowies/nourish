@@ -9148,9 +9148,9 @@ version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_orchestration_core_state_base",
- "compositor_orchestration_seat_pointer_input",
  "compositor_y5_picker_seat_keyboard",
  "compositor_y5_picker_seat_pointer",
+ "compositor_y5_picker_seat_touch",
  "smithay",
 ]
 
@@ -9211,6 +9211,16 @@ dependencies = [
  "compositor_y5_picker_three_orient",
  "compositor_y5_picker_three_scene",
  "compositor_y5_picker_world_base",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_y5_picker_seat_touch"
+version = "0.0.1"
+dependencies = [
+ "compositor_orchestration_core_state_base",
+ "compositor_orchestration_seat_pointer_input",
+ "compositor_y5_picker_seat_pointer",
  "smithay",
 ]
 

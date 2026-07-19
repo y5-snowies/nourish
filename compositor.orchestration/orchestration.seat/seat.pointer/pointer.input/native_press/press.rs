@@ -8,6 +8,8 @@ use smithay::wayland::shell::wlr_layer::{KeyboardInteractivity, Layer};
 use compositor_orchestration_core_state_base::Loop;
 use compositor_support_smithay_dispatch_state_base::state::Dispatch;
 use compositor_y5_surface_interface_base::hit::SurfaceHit;
+// Trait import: provides `uuid()` / `is_fullscreen()` on `Window` below.
+use compositor_y5_window_interface_record::window::LoopWindow;
 
 // This is only called on presses when there was a surface hit.
 // Currently, I cancel wayland focus on a different place. so please provide a snippet on how to invoke the de-activation.

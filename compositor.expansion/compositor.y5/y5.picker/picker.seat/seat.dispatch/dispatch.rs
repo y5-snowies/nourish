@@ -3,23 +3,19 @@
 
 use smithay::backend::input::{InputBackend, InputEvent};
 use compositor_orchestration_core_state_base::Loop;
-use compositor_orchestration_seat_pointer_input::touch::aux::{self, TouchEmu};
-use compositor_y5_picker_seat_pointer::pointer::{absolute, button};
-
 pub fn process_input_event<I: InputBackend>(state: &mut Loop, event: &InputEvent<I>) {
     match event {
-        // Touch on the picker is single-finger pointer emulation against the picker's
-        // OWN handlers (it is compositor UI, so no wl_touch / gestures). Handled here
-        // rather than in the seat delegate so this crate stays the single place that
-        // knows the picker's event -> handler table.
+        // Touch is single-finger pointer emulation against the picker's own handlers
+        // (compositor UI — no wl_touch, no gestures); it lives in `picker.seat/seat.touch`
+        // beside the keyboard and pointer handlers, so this stays a flat routing table.
         InputEvent::TouchDown { event, .. } => {
-            aux::down::<I>(event, state, absolute::<TouchEmu>, button::<TouchEmu>);
+            compositor_y5_picker_seat_touch::touch::down::<I>(event, state);
         }
         InputEvent::TouchMotion { event, .. } => {
-            aux::motion::<I>(event, state, absolute::<TouchEmu>);
+            compositor_y5_picker_seat_touch::touch::motion::<I>(event, state);
         }
         InputEvent::TouchUp { event, .. } => {
-            aux::release::<I, _>(event, state, button::<TouchEmu>);
+            compositor_y5_picker_seat_touch::touch::up::<I>(event, state);
         }
         InputEvent::Keyboard { event, .. } => {
             compositor_y5_picker_seat_keyboard::keyboard::input_received::<I>(event, state);
