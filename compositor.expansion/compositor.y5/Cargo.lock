@@ -3721,6 +3721,7 @@ dependencies = [
  "compositor_y5_canvas_input_keyboard",
  "compositor_y5_canvas_input_state",
  "compositor_y5_canvas_system_base",
+ "compositor_y5_launcher_interface_base",
  "compositor_y5_lock_seat_input",
  "compositor_y5_lock_system_base",
  "compositor_y5_overview_input_pointer",
@@ -6654,6 +6655,7 @@ dependencies = [
  "bitflags 2.13.0",
  "compositor_developer_debug_instance_record",
  "compositor_introspection_launchplan_plan_base",
+ "compositor_monitor_compositor_iced_base",
  "compositor_monitor_launcher_ui_base",
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_draw_layer_base",
@@ -8320,6 +8322,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_seat_gesture_touch",
+ "compositor_y5_launcher_interface_base",
  "compositor_y5_osk_board_state",
  "compositor_y5_overview_interface_base",
  "compositor_y5_picker_interface_entry",
