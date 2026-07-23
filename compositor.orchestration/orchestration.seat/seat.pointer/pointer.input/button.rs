@@ -128,27 +128,15 @@ pub fn button<I: InputBackend>(event: &<I as InputBackend>::PointerButtonEvent, 
     // window (the system cleared selection + declined to grab), so the click is
     // routed directly to that window here via `native_press`.
     //
-    // A press while the pointer is ALREADY grabbed — smithay's implicit click
-    // grab while another button is held (or a client DnD grab) — skips the
-    // focus/raise/hit-test work (that belongs to the grab owner) but must still
-    // be delivered THROUGH the grab, or chorded input loses every button after
-    // the first: FPS games' right-click-aim held + left-click-fire never
-    // reached the client.
-    if ButtonState::Pressed == button_state && pointer.is_grabbed() {
-        let serial = SERIAL_COUNTER.next_serial();
-        pointer.button(
-            &mut _loop.state,
-            &ButtonEvent {
-                button: event.button_code(),
-                state: button_state,
-                serial,
-                time: event.time_msec(),
-            },
-        );
-        pointer.frame(&mut _loop.state);
-        return;
-    }
-    if ButtonState::Pressed == button_state && !pointer.is_grabbed() {
+    // Grabbed presses take the SAME gate — hit test included — with `grabbed`
+    // passed down so each step in `input_received` decides its own mid-grab
+    // behavior: focus/raise/iced belong to the grab owner and skip, while the
+    // wayland button still delivers THROUGH the grab (smithay's implicit click
+    // grab while another button is held, or a client DnD grab). Without that
+    // delivery, chorded input lost every button after the first: FPS games'
+    // right-click-aim held + left-click-fire never reached the client.
+    if ButtonState::Pressed == button_state {
+        let grabbed = pointer.is_grabbed();
         // Overview overlay open → presentational: never deliver a click to a window OR a
         // wlr layer surface (the bus already routes menu-bar iced clicks).
         let overview_open = _loop.inner.overview().visible;
@@ -164,7 +152,7 @@ pub fn button<I: InputBackend>(event: &<I as InputBackend>::PointerButtonEvent, 
         }) {
             // It is directly over a window.
             native_press::press::input_received::<I>(
-                pointer, event, _loop, hit, keyboard, button_state,
+                pointer, event, _loop, hit, keyboard, button_state, grabbed,
             )
         }
     }
