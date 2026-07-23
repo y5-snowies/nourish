@@ -3390,6 +3390,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_orchestration_draw_artifact_base"
+version = "0.0.1"
+dependencies = [
+ "smithay",
+]
+
+[[package]]
 name = "compositor_orchestration_draw_dispatch_frame"
 version = "0.0.1"
 dependencies = [
@@ -3422,6 +3429,7 @@ dependencies = [
  "compositor_background_two_draw_element",
  "compositor_developer_debug_instance_record",
  "compositor_monitor_compositor_iced_base",
+ "compositor_orchestration_draw_artifact_base",
  "compositor_orchestration_draw_dispatch_frame",
  "compositor_orchestration_draw_scene_element",
  "compositor_orchestration_seat_pointer_element",
@@ -3469,6 +3477,7 @@ dependencies = [
  "compositor_monitor_compositor_iced_base",
  "compositor_orchestration_bus_legacy_base",
  "compositor_orchestration_core_state_base",
+ "compositor_orchestration_draw_artifact_base",
  "compositor_orchestration_draw_dispatch_frame",
  "compositor_orchestration_draw_node_base",
  "compositor_orchestration_draw_platform_base",

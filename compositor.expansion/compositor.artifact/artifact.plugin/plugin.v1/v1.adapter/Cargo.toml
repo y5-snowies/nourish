@@ -1,0 +1,14 @@
+[package]
+name = "compositor_artifact_plugin_v1_adapter"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+abi_stable = { workspace = true }
+libloading = { workspace = true }
+compositor_developer_debug_instance_record = { workspace = true }
+compositor_artifact_plugin_v1_abi = { workspace = true }
+compositor_artifact_plugin_abi_base = { workspace = true }
+
+[lib]
+path = "lib.rs"

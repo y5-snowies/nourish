@@ -1,0 +1,17 @@
+[package]
+name = "compositor_artifact_plugin_pack_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+zip = { workspace = true }
+thiserror = { workspace = true }
+
+[lib]
+path = "lib.rs"
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "The .y5 container format lives in one module: the Manifest schema, ZIP write (y5-pack), manifest read (import-time compat gate), and compat-checked payload extraction. One cohesive format unit (document/EXTENSIONS.md §6)."

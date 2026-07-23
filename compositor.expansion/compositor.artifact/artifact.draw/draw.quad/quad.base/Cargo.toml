@@ -1,0 +1,10 @@
+[package]
+name = "compositor_artifact_draw_quad_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+smithay = { workspace = true }
+
+[lib]
+path = "lib.rs"

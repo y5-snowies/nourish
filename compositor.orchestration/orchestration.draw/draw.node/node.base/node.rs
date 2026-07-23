@@ -47,6 +47,10 @@ pub enum DrawNode<R: Renderer> {
     },
     /// bevy 3D background; imported via dmabuf on native renderers.
     Background3D(Bevy),
+    /// An artifact quad, already projected to physical by the frame driver (world
+    /// quads through the camera; screen quads pass through). Solid lowers to a
+    /// solid element; Dmabuf imports at `lower()` and stretches to the rect.
+    Artifact(compositor_artifact_draw_quad_base::quad::ProjectedArtifact),
     Background2D(compositor_background_two_draw_element::element::ParallaxBackground),
     /// Parallax background clipped to a viewport pane rect (floating panes).
     Background2DCropped(
@@ -109,7 +113,11 @@ where
             // World content is exactly windows + iced-world panels; everything
             // else (bevy, parallax, screen iced, layershell, pointer, solids) is
             // screen-space.
-            let m = if matches!(node, DrawNode::Canvas(_) | DrawNode::IcedCropped { .. }) {
+            // Artifacts carry their own space: world quads count as WORLD content
+            // (e.g. for the Vulkan AA restriction), screen quads as SCREEN.
+            let m = if matches!(node, DrawNode::Canvas(_) | DrawNode::IcedCropped { .. })
+                || matches!(&node, DrawNode::Artifact(a) if !a.screen)
+            {
                 ElementMeta::WORLD
             } else {
                 ElementMeta::SCREEN
@@ -190,6 +198,24 @@ where
                     return vec![SceneElement::Background3D(e)];
                 }
                 import_texture(renderer, &e.dmabuf, e.location, e.size, e.world_zoom, e.id, e.commit_counter).into_iter().collect()
+            }
+            DrawNode::Artifact(a) => {
+                use compositor_artifact_draw_quad_base::quad::{ArtifactContent, ProjectedArtifact};
+                let ProjectedArtifact { content, rect, screen: _, id, commit } = a;
+                match content {
+                    ArtifactContent::Solid(color) => vec![SceneElement::Sentinel(SolidColorRenderElement::new(
+                        id,
+                        rect,
+                        commit,
+                        color,
+                        Kind::Unspecified,
+                    ))],
+                    // The texture stretches to the projected rect (dest size = rect
+                    // size, no zoom factor — stretch is explicit in the rect).
+                    ArtifactContent::Dmabuf(dmabuf) => {
+                        import_texture(renderer, &dmabuf, rect.loc, rect.size, 1.0, id, commit).into_iter().collect()
+                    }
+                }
             }
         }
     }

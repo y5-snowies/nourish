@@ -42,6 +42,12 @@ wayland-backend = "0.3.15"
 
 # --- GENERATED WORKSPACE LINKS START ---
 
+compositor_artifact_draw_quad_base = { path = "../../compositor.expansion/compositor.artifact/artifact.draw/draw.quad/quad.base" }
+compositor_artifact_plugin_abi_base = { path = "../../compositor.expansion/compositor.artifact/artifact.plugin/plugin.abi/abi.base" }
+compositor_artifact_plugin_host_base = { path = "../../compositor.expansion/compositor.artifact/artifact.plugin/plugin.host/host.base" }
+compositor_artifact_plugin_pack_base = { path = "../../compositor.expansion/compositor.artifact/artifact.plugin/plugin.pack/pack.base" }
+compositor_artifact_plugin_v1_abi = { path = "../../compositor.expansion/compositor.artifact/artifact.plugin/plugin.v1/v1.abi" }
+compositor_artifact_plugin_v1_adapter = { path = "../../compositor.expansion/compositor.artifact/artifact.plugin/plugin.v1/v1.adapter" }
 compositor_background_three_draw_element = { path = "../../compositor.expansion/compositor.background/background.three/three.draw/draw.element" }
 compositor_background_three_draw_scene = { path = "../../compositor.expansion/compositor.background/background.three/three.draw/draw.scene" }
 compositor_background_three_lock_anim = { path = "../../compositor.expansion/compositor.background/background.three/three.lock/lock.anim" }

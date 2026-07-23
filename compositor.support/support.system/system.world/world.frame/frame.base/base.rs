@@ -19,6 +19,12 @@ pub const WORLD_3D: Layer = Layer(100);
 pub const ICED_WORLD: Layer = Layer(200);
 pub const CAPTURE_DIM: Layer = Layer(300);
 pub const CANVAS: Layer = Layer(400);
+// 401/402 are RESERVED: scene.frame stacks detached (floating) viewport panes
+// there (FLOATING_BG/FLOATING_CONTENT), directly above the tiled root's content.
+/// Above ALL canvas content — tiled root windows AND floating panes. The band
+/// artifact overlays (plugin quads, host-drawn artifact meshes) use to draw on
+/// top of window content while staying under the compositor's own screen UI.
+pub const CANVAS_ABOVE: Layer = Layer(410);
 // Top/Overlay sit ABOVE windows but below the compositor's own screen iced
 // (ICED_SCREEN) — again mirroring the hit-test priority (Iced Screen > Overlay > Top).
 pub const LAYER_TOP: Layer = Layer(450);

@@ -1,0 +1,34 @@
+# An artifact plugin that PACKAGES ITS OWN ENGINE: it renders the wizard hat with
+# bevy into a dmabuf it allocates itself and hands only the fd across the contract
+# (draw_dmabuf). Heavyweight by design — the lightweight host-drawn path arrives
+# later via the bus (EXTENSIONS.md §10).
+#
+# The contract is engine-agnostic; this example borrows the repo's VENDORED
+# bevy/wgpu fork (path deps — the fork carries the dmabuf import helper), so it
+# builds in-repo. An out-of-tree artifact ships its own engine + import plumbing.
+# The ./abi dir vendors the contract crate under its canonical package name
+# (required by abi_stable's root-module package-identity check).
+[workspace]
+members = ["abi"]
+
+[package]
+name = "y5-artifact-wizard"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+abi_stable = "0.11"
+compositor_artifact_plugin_abi_base = { path = "abi" }
+pollster = "0.3"
+gbm = "0.18.0"
+bevy = { path = "../../../vendor/bevy", default-features = false, features = ["bevy_anti_alias", "bevy_asset", "bevy_camera", "bevy_color", "bevy_core_pipeline", "bevy_image", "bevy_light", "bevy_log", "bevy_mesh", "bevy_pbr", "bevy_render", "bevy_shader", "bevy_state", "multi_threaded", "std", "tonemapping_luts", "zstd_rust"] }
+wgpu = { path = "../../../vendor/wgpu/wgpu", features = ["gles", "vulkan"] }
+
+[lib]
+path = "lib.rs"
+crate-type = ["cdylib"]
+
+[profile.release]
+# The .so carries a whole engine; thin it out.
+lto = "thin"
+strip = "debuginfo"

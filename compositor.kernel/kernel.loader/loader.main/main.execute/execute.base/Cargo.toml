@@ -12,6 +12,8 @@ readme = "../../../../../README.md"
 [dependencies]
 uuid = { workspace = true }
 compositor_support_system_trait_system_base = { workspace = true }
+compositor_artifact_plugin_pack_base = { workspace = true }
+compositor_artifact_plugin_host_base = { workspace = true }
 compositor_background_three_system_prewarm = { workspace = true }
 compositor_orchestration_driver_capture_base = { workspace = true }
 compositor_y5_graphic_capture_registry = { workspace = true }

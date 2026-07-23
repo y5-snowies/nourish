@@ -1,0 +1,12 @@
+[
+  "../../compositor.developer",
+  "../../compositor.expansion/compositor.background",
+  "../../compositor.expansion/compositor.y5",
+  "../../compositor.kernel/kernel.graphic",
+  "../../compositor.orchestration",
+  "../../compositor.support/support.bevy",
+  "../../compositor.support/support.action",
+  "../../compositor.support/support.library",
+  "../../compositor.support/support.system",
+  "../../compositor.support/support.world"
+]

@@ -1,0 +1,14 @@
+# VENDORED copy of the y5 artifact contract crate — SAME package name + version as
+# the in-tree `plugin.abi/abi.base`, because abi_stable's root-module verification
+# checks the defining package's identity, not just type layout. Keep it verbatim;
+# when the contract is published to a registry, replace this dir with a normal dep.
+[package]
+name = "compositor_artifact_plugin_abi_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+abi_stable = "0.11"
+
+[lib]
+path = "lib.rs"

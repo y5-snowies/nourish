@@ -1,0 +1,26 @@
+[package]
+name = "compositor_artifact_plugin_host_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+smithay = { workspace = true }
+abi_stable = { workspace = true }
+compositor_artifact_plugin_abi_base = { workspace = true }
+compositor_artifact_plugin_v1_adapter = { workspace = true }
+compositor_artifact_draw_quad_base = { workspace = true }
+compositor_support_system_trait_system_base = { workspace = true }
+compositor_support_system_world_frame_base = { workspace = true }
+compositor_orchestration_draw_platform_base = { workspace = true }
+compositor_orchestration_smithay_data_base = { workspace = true }
+compositor_background_three_system_base = { workspace = true }
+compositor_kernel_graphic_bridge_negotiate_base = { workspace = true }
+compositor_y5_camera_transform_translate = { workspace = true }
+compositor_developer_debug_instance_record = { workspace = true }
+
+[lib]
+path = "lib.rs"
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "The host-side plugin proxy is one unit: version-routed loading (adapter chain + layout gate), the System impl driving the abi_stable trait object, and the world-rect read handed across the boundary."

@@ -1,0 +1,10 @@
+[package]
+name = "compositor_artifact_plugin_v1_abi"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+abi_stable = { workspace = true }
+
+[lib]
+path = "lib.rs"

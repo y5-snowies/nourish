@@ -185,30 +185,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // main world is SPATIAL (owns the window Space + is the spawn-target);
         // lock/select are OVERLAY worlds (no space). The loader injects the
         // concrete system set; the builder stamps the kind.
+        // Base system set for the main spatial world (update order matters:
+        // navigator eases -> camera applies -> backgrounds react).
+        let mut main_systems: Vec<Box<dyn compositor_support_system_trait_system_base::base::System>> = vec![
+            Box::new(compositor_y5_navigator_system_base::base::NavigatorSystem),
+            Box::new(compositor_y5_camera_system_base::base::CameraSystem::default()),
+            Box::new(compositor_background_two_system_base::base::TwoSystem),
+            Box::new(compositor_background_three_system_base::base::ThreeSystem),
+            Box::new(compositor_y5_window_system_base::base::WindowSystem),
+            Box::new(compositor_y5_surface_system_base::base::SurfaceSystem),
+            Box::new(compositor_y5_canvas_system_base::base::CanvasSystem),
+            Box::new(compositor_orchestration_seat_system_pointer::base::PointerSystem),
+            Box::new(compositor_y5_placeholder_system_base::base::PlaceholderSystem),
+            Box::new(compositor_y5_launcher_system_base::base::LauncherSystem),
+            // Owns the window-selection slot (SELECT) + applies SELECT_REQUEST.
+            Box::new(compositor_y5_select_system_base::base::SelectSystem),
+            // Re-anchors the selection toolbar under the cursor on selection change.
+            Box::new(compositor_y5_select_overlay_system::base::SelectionOverlaySystem),
+            // Owns the window-grouping slot (GROUP).
+            Box::new(compositor_y5_group_system_base::base::GroupSystem),
+            // Seeds the overview-mode slot (Super+Tab overlay).
+            Box::new(compositor_y5_overview_system_base::base::OverviewSystem),
+        ];
+        // Append any dynamically-loaded `.y5` artifact plugins (trusted 1c native
+        // `.so`), opt-in via COMPOSITOR_ARTIFACT_PLUGINS=<dir>. Empty by default, so
+        // the compiled-in wizard above is the only artifact unless plugins are placed.
+        main_systems.extend(load_artifact_plugins());
         let mut worlds = compositor_orchestration_world_manager_base::manager::WorldManager::new(
             compositor_support_world_kind_build_base::base::spatial(
                 compositor_orchestration_world_manager_base::manager::MAIN_WORLD,
                 "main",
-                vec![
-                    Box::new(compositor_y5_navigator_system_base::base::NavigatorSystem),
-                    Box::new(compositor_y5_camera_system_base::base::CameraSystem::default()),
-                    Box::new(compositor_background_two_system_base::base::TwoSystem),
-                    Box::new(compositor_background_three_system_base::base::ThreeSystem),
-                    Box::new(compositor_y5_window_system_base::base::WindowSystem),
-                    Box::new(compositor_y5_surface_system_base::base::SurfaceSystem),
-                    Box::new(compositor_y5_canvas_system_base::base::CanvasSystem),
-                    Box::new(compositor_orchestration_seat_system_pointer::base::PointerSystem),
-                    Box::new(compositor_y5_placeholder_system_base::base::PlaceholderSystem),
-                    Box::new(compositor_y5_launcher_system_base::base::LauncherSystem),
-                    // Owns the window-selection slot (SELECT) + applies SELECT_REQUEST.
-                    Box::new(compositor_y5_select_system_base::base::SelectSystem),
-                    // Re-anchors the selection toolbar under the cursor on selection change.
-                    Box::new(compositor_y5_select_overlay_system::base::SelectionOverlaySystem),
-                    // Owns the window-grouping slot (GROUP).
-                    Box::new(compositor_y5_group_system_base::base::GroupSystem),
-                    // Seeds the overview-mode slot (Super+Tab overlay).
-                    Box::new(compositor_y5_overview_system_base::base::OverviewSystem),
-                ],
+                main_systems,
                 &kernel_data,
             ),
             &kernel_data,
@@ -544,4 +551,61 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
 
     Ok(())
+}
+
+/// Import `.y5` artifact plugins (trusted 1c native `.so`) from the artifact dir,
+/// returning them as ready-to-inject systems. The dir is
+/// `$XDG_DATA_HOME/y5/artifact` (default `~/.local/share/y5/artifact`), overridable
+/// via `COMPOSITOR_ARTIFACT_PLUGINS`. Each `.y5` is validated (kind / y5_api /
+/// abi_stable / arch) at import, extracted, and loaded via `libloading` across the
+/// `abi_stable` boundary. Import/load failures are logged and skipped — never fatal.
+/// See document/EXTENSIONS.md §6.
+fn load_artifact_plugins() -> Vec<Box<dyn compositor_support_system_trait_system_base::base::System>> {
+    let mut out: Vec<Box<dyn compositor_support_system_trait_system_base::base::System>> = Vec::new();
+    let (dir, explicit) = match std::env::var("COMPOSITOR_ARTIFACT_PLUGINS") {
+        Ok(d) => (d, true),
+        Err(_) => {
+            let data = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
+                format!("{}/.local/share", std::env::var("HOME").unwrap_or_default())
+            });
+            (format!("{data}/y5/artifact"), false)
+        }
+    };
+    let cache = std::path::Path::new("/tmp/y5-artifact-plugins");
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(e) => {
+            // A missing DEFAULT dir just means "no artifacts installed"; only an
+            // explicitly-pointed dir being unreadable is worth a warning.
+            if explicit {
+                warn!("artifact plugins dir {dir} unreadable: {e}");
+            }
+            return out;
+        }
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.extension().and_then(|e| e.to_str()) != Some("y5") {
+            continue;
+        }
+        // Gate 1 (import): manifest validation incl. y5_api ∈ supported chain —
+        // refused before any code is mapped. Gate 2 (load): version routing +
+        // abi_stable layout verification inside `PluginSystem::load` — a failure
+        // unloads the library. Both are logged, never fatal.
+        match compositor_artifact_plugin_pack_base::pack::extract_so(&p, cache) {
+            Ok((so, manifest)) => {
+                match unsafe {
+                    compositor_artifact_plugin_host_base::host::PluginSystem::load(&so, &manifest.compat.y5_api)
+                } {
+                    Ok(sys) => {
+                        info!("artifact plugin loaded: {} (y5_api {})", p.display(), manifest.compat.y5_api);
+                        out.push(Box::new(sys));
+                    }
+                    Err(e) => warn!("artifact plugin load failed ({}): {e}", p.display()),
+                }
+            }
+            Err(e) => warn!("artifact plugin import refused ({}): {e}", p.display()),
+        }
+    }
+    out
 }

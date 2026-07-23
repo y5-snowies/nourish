@@ -185,6 +185,35 @@ pub struct PreparedGles {
     pub background_three: Vec<compositor_support_bevy_core_compositor_base::BevyRenderElement>,
     /// The embedded picker globe for the overview's World tab (empty otherwise).
     pub overview_world: Vec<compositor_support_bevy_core_compositor_base::BevyRenderElement>,
+    /// Artifact quads from artifact systems, each with the `Layer` (band) it was
+    /// pushed at, still in their DECLARED space — `scene()` projects them to
+    /// physical (world quads through the camera) when planning.
+    pub artifacts: Vec<(layer::Layer, compositor_artifact_draw_quad_base::quad::ArtifactQuad)>,
+}
+
+/// Demux the active world's type-erased draw nodes into the typed slots the frame
+/// pipeline consumes: the parallax background + artifact quads (each keeping its
+/// declared band). One traversal because there is one source (the world's single
+/// `FramePlan`); the node types share nothing beyond that.
+fn demux_world_nodes(
+    frame: compositor_support_system_world_frame_base::base::FramePlan,
+) -> (
+    Option<compositor_background_two_draw_element::element::ParallaxBackground>,
+    Vec<(layer::Layer, compositor_artifact_draw_quad_base::quad::ArtifactQuad)>,
+) {
+    let mut background = None;
+    let mut artifacts = Vec::new();
+    for (l, node) in frame.sorted() {
+        match node.downcast::<compositor_background_two_draw_element::element::ParallaxBackground>() {
+            Ok(b) => background = Some(*b),
+            Err(node) => {
+                if let Ok(a) = node.downcast::<compositor_artifact_draw_quad_base::quad::ArtifactQuad>() {
+                    artifacts.push((l, *a));
+                }
+            }
+        }
+    }
+    (background, artifacts)
 }
 
 /// Per-pane cameras + sub-rects for the current output, matching how the content
@@ -273,7 +302,12 @@ pub fn prepare(
     // active world's draw pass, then bridge its `Background2D` node back into the
     // GLES prepare slot. The continuous-redraw cadence the parallax needs is a
     // driver concern, applied here while a node is live.
-    let mut background_two = {
+    // Run the active world's draw pass ONCE (all systems push type-erased nodes
+    // into one FramePlan), then demux by node type. This is the single seam where
+    // world-emitted nodes re-enter the typed pipeline — parallax and artifacts are
+    // not coupled in ordering (each keeps the band it was pushed at); they merely
+    // share the traversal because they share the source.
+    let (mut background_two, artifacts) = {
         let mut frame = compositor_support_system_world_frame_base::base::FramePlan::new();
         let mut platform = unsafe {
             compositor_orchestration_draw_platform_base::platform::Platform::new(
@@ -284,11 +318,7 @@ pub fn prepare(
         let kernel = &state.inner.kernel;
         state.inner.worlds.active_mut().draw(kernel, &mut frame, Some(&mut platform));
         drop(platform);
-        frame.sorted().into_iter().find_map(|(_, node)| {
-            node.downcast::<compositor_background_two_draw_element::element::ParallaxBackground>()
-                .ok()
-                .map(|b| *b)
-        })
+        demux_world_nodes(frame)
     };
     // An overlay world (e.g. lock) carries no parallax of its own, so the active
     // world's draw yields none — fall back to the focused session world's
@@ -329,6 +359,7 @@ pub fn prepare(
         background_two,
         background_three,
         overview_world,
+        artifacts,
     }
 }
 
@@ -577,6 +608,37 @@ where
     }
     let _ = prepared.surfaces; // world iced now drawn per-id in the content band
     plan.extend(layer::WORLD_3D, prepared.background_three.into_iter().map(DrawNode::Background3D));
+    // Artifact quads: project each into physical at its declared space (World →
+    // through the active camera, so it pans/zooms; Screen → as-is) and plan it at
+    // its declared band.
+    {
+        use compositor_artifact_draw_quad_base::quad::{ArtifactSpace, ProjectedArtifact};
+        use compositor_y5_camera_transform_translate::transform::Transform as ArtifactTransform;
+        let actx = state.viewport_context();
+        for (l, q) in prepared.artifacts {
+            let rect = match q.space {
+                ArtifactSpace::World => {
+                    let tl_w = Point::<f64, Logical>::from((q.x, q.y));
+                    let br_w = Point::<f64, Logical>::from((q.x + q.w, q.y + q.h));
+                    let tl: Point<f64, Physical> = Into::<ArtifactTransform>::into((tl_w, actx)).into();
+                    let br: Point<f64, Physical> = Into::<ArtifactTransform>::into((br_w, actx)).into();
+                    smithay::utils::Rectangle::<i32, Physical>::from_loc_and_size(
+                        (tl.x.min(br.x) as i32, tl.y.min(br.y) as i32),
+                        ((br.x - tl.x).abs() as i32, (br.y - tl.y).abs() as i32),
+                    )
+                }
+                ArtifactSpace::Screen => smithay::utils::Rectangle::from_loc_and_size(
+                    (q.x as i32, q.y as i32),
+                    (q.w as i32, q.h as i32),
+                ),
+            };
+            let screen = q.space == ArtifactSpace::Screen;
+            plan.push(
+                l,
+                DrawNode::Artifact(ProjectedArtifact { content: q.content, rect, screen, id: q.id, commit: q.commit }),
+            );
+        }
+    }
     // The parallax background is pushed per-pane in the content match above (one
     // per viewport pane, or full-screen for the overview overlay).
 

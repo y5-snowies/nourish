@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "dev.y5.examples.wizard",
+  "name": "Wizard (example artifact)",
+  "version": "0.1.0",
+  "kind": "native-stable",
+  "compat": {
+    "y5_api": "2",
+    "abi_stable": "0.11",
+    "target_triple": "x86_64-unknown-linux-gnu"
+  },
+  "entry": "artifact_plugin_new"
+}

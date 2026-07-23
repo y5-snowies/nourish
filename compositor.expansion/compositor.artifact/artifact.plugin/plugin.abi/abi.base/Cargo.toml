@@ -1,0 +1,14 @@
+[package]
+name = "compositor_artifact_plugin_abi_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+abi_stable = { workspace = true }
+
+[lib]
+path = "lib.rs"
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "The stable-ABI contract is one frozen unit: boundary types (quads, dmabuf quads, frame ctx), the sabi_trait, and the root module must live and version together — splitting them would scatter the single thing whose layout is the contract."

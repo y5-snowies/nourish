@@ -1,6 +1,7 @@
 [
   "../../compositor.introspection",
   "../../compositor.developer",
+  "../../compositor.expansion/compositor.artifact",
   "../../compositor.expansion/compositor.background",
   "../../compositor.expansion/compositor.remote",
   "../../compositor.expansion/compositor.y5",

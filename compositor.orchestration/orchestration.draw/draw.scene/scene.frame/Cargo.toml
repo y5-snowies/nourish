@@ -12,6 +12,7 @@ compositor_y5_window_interface_record = { workspace = true }
 compositor_support_world_order_track_base = { workspace = true }
 compositor_orchestration_draw_platform_base = { workspace = true }
 compositor_orchestration_draw_node_base = { workspace = true }
+compositor_artifact_draw_quad_base = { workspace = true }
 compositor_y5_navigator_state_base = { workspace = true }
 compositor_orchestration_smithay_data_base = { workspace = true }
 compositor_y5_camera_state_base = { workspace = true }

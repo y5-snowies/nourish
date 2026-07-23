@@ -23,6 +23,11 @@ node ../../workspace.link.js
 cd ..
 cd ..
 
+cd compositor.expansion/compositor.artifact
+node ../../workspace.link.js
+cd ..
+cd ..
+
 
 # compositor.graphic dissolved into compositor.kernel/kernel.graphic — picked up
 # by the kernel.* loop below.
