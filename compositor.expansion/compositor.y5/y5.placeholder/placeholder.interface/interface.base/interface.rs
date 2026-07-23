@@ -200,6 +200,7 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
             launch_session: window_plan_0,
             session_time: Instant::now(),
             persistent: true,
+            discard_on_close: false,
         }
     } else {
         // Otherwise, create a placeholder and attach to the window
@@ -211,6 +212,7 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
             launch_session: None,
             session_time: Instant::now(),
             persistent: false,
+            discard_on_close: false,
         };
         placeholder
     };
@@ -258,6 +260,11 @@ pub fn on_window_destroy(state: &mut Loop, uuid: Uuid, renderer: &mut GlesRender
     let ph = state.inner.placeholder_mut().erase(&uuid);
     // Erasing a placeholder is a discrete, important event → persist IMMEDIATELY.
     compositor_support_system_persist_mark_base::base::mark_world(state.inner.worlds.active_id(), true);
+
+    // Shift-closed from the selection toolbar: the user asked for NO placeholder.
+    if ph.discard_on_close {
+        return;
+    }
 
     if !ph.persistent && ph.session_time.elapsed().lt(&Duration::from_secs(10)) {
         // Discard it all completely.

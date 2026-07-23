@@ -38,7 +38,8 @@ pub enum Message {
     /// Pointer entered (`Some`) or left (`None`) a button — drives the tooltip.
     Hover(Option<TipKind>),
     /// Close every selected window at the strength chosen by the modifiers held
-    /// at click time (none = protocol close, Alt = SIGTERM, Alt+Shift = SIGKILL).
+    /// at click time (none = protocol close, Shift = close + no placeholder,
+    /// Alt = SIGTERM, Alt+Shift = SIGKILL).
     CloseSelected(CloseMode),
 }
 

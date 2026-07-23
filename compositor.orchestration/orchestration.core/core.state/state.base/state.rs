@@ -274,6 +274,13 @@ impl Orchestrator {
         // Selection-overlay driver: the align/distribute toolbar instance.
         kernel_data.insert(&compositor_orchestration_driver_selection_base::base::SELECTION_OVERLAY, Default::default());
 
+        // Overview overlay: the session-wide last-active tab (the overview slot
+        // itself is per-world; only the tab preference crosses worlds).
+        kernel_data.insert(
+            &compositor_y5_overview_state_base::base::OVERVIEW_TAB,
+            compositor_y5_overview_state_base::base::Tab::Layout,
+        );
+
         // On-screen-keyboard driver state (shown/pinned/mods/placement).
         kernel_data.insert(&compositor_y5_osk_board_state::state::OSK, Default::default());
 

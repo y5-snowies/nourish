@@ -127,6 +127,27 @@ pub fn button<I: InputBackend>(event: &<I as InputBackend>::PointerButtonEvent, 
     // (route() above). A `Pass` from the bus on PRESS means the cursor is over a
     // window (the system cleared selection + declined to grab), so the click is
     // routed directly to that window here via `native_press`.
+    //
+    // A press while the pointer is ALREADY grabbed — smithay's implicit click
+    // grab while another button is held (or a client DnD grab) — skips the
+    // focus/raise/hit-test work (that belongs to the grab owner) but must still
+    // be delivered THROUGH the grab, or chorded input loses every button after
+    // the first: FPS games' right-click-aim held + left-click-fire never
+    // reached the client.
+    if ButtonState::Pressed == button_state && pointer.is_grabbed() {
+        let serial = SERIAL_COUNTER.next_serial();
+        pointer.button(
+            &mut _loop.state,
+            &ButtonEvent {
+                button: event.button_code(),
+                state: button_state,
+                serial,
+                time: event.time_msec(),
+            },
+        );
+        pointer.frame(&mut _loop.state);
+        return;
+    }
     if ButtonState::Pressed == button_state && !pointer.is_grabbed() {
         // Overview overlay open → presentational: never deliver a click to a window OR a
         // wlr layer surface (the bus already routes menu-bar iced clicks).

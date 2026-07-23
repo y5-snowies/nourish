@@ -29,7 +29,7 @@ use compositor_configurator_settings_surface_pen::pen;
 use compositor_developer_environment_graphics_base::base::GraphicsAaConfig;
 use compositor_developer_environment_preference_base::base::PenConfig;
 use iced_core::{Alignment, Element, Length, Padding, Theme};
-use iced_widget::{button, column, container, row, scrollable, slider, text, toggler, Column, Row};
+use iced_widget::{button, column, container, responsive, row, scrollable, slider, text, toggler, Column, Row};
 
 type El<'a> = Element<'a, SettingsMessage, Theme, Renderer>;
 
@@ -220,30 +220,39 @@ pub fn render<'a>(
     pen: &'a PenConfig,
     pen_capturing: bool,
 ) -> El<'a> {
-    let body: El<'a> = match tab {
-        Tab::Display => display::build(displays, touch_devices, active_edid, selected_display, selected_mode, confirming, pending, staged_active, layout, selected_placement, cyclic, selected_inactive),
-        Tab::Audio => audio_tab::build(audio),
-        Tab::Input(sub) => input_body(sub, cursor_sensitivity, natural, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, keys, touch_devices, displays, pen, pen_capturing),
-        Tab::Network => network_tab::build(wifi, wifi_selected, wifi_password),
-        Tab::Bluetooth => bluetooth_tab::build(bt),
-        Tab::Performance => performance(fps, show_fps, release_hidden),
-        Tab::System => environment::build(env, devices),
-        Tab::Misc => misc::build(protocol_foreign, protocol_foreign_all_worlds),
-        Tab::Language => language::build(keyboard, catalog, lang_picker_open, lang_search, ime),
-        Tab::World => world::build(shaders, shader_current, shader_props, preview_source, shader_status, invert_pan_x, invert_pan_y, srgb),
-        Tab::Graphics => graphics::build(graphics),
-    };
-    // Each section still scrolls its own lists vertically. The content area holds a
-    // MINIMUM width (`MIN_CONTENT`) so panes never squish/overflow on a narrow window;
-    // a horizontal scrollbar appears when the window is narrower than that floor.
-    // (iced has no `min_width`, so a fixed floor + horizontal scroll is the mechanism.)
+    // Each section still scrolls its own lists vertically. The content pane is
+    // RESPONSIVE: it fills the available width up to `MAX_CONTENT` — a readability
+    // cap, since the label-left/control-right (space-between) rows get absurd gaps
+    // on wide monitors — staying anchored to the left (next to the sidebar) when
+    // there's more room than that. It never shrinks below `MIN_CONTENT`: iced has
+    // no `min_width`, so a fixed floor + horizontal scroll is the narrow-window
+    // mechanism.
     const MIN_CONTENT: f32 = 620.0;
-    let content = column![body].spacing(16).height(Length::Fill);
-    let pane = container(content).width(Length::Fixed(MIN_CONTENT)).height(Length::Fill).padding(24);
-    let scroller = scrollable(pane)
-        .direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::default()))
-        .width(Length::Fill)
-        .height(Length::Fill);
-    let main = row![sidebar(tab), scroller].height(Length::Fill);
+    const MAX_CONTENT: f32 = 900.0;
+    let content_area: El<'a> = responsive(move |avail| {
+        let body: El<'a> = match tab {
+            Tab::Display => display::build(displays, touch_devices, active_edid, selected_display, selected_mode, confirming, pending, staged_active, layout, selected_placement, cyclic, selected_inactive),
+            Tab::Audio => audio_tab::build(audio),
+            Tab::Input(sub) => input_body(sub, cursor_sensitivity, natural, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, keys, touch_devices, displays, pen, pen_capturing),
+            Tab::Network => network_tab::build(wifi, wifi_selected, wifi_password),
+            Tab::Bluetooth => bluetooth_tab::build(bt),
+            Tab::Performance => performance(fps, show_fps, release_hidden),
+            Tab::System => environment::build(env, devices),
+            Tab::Misc => misc::build(protocol_foreign, protocol_foreign_all_worlds),
+            Tab::Language => language::build(keyboard, catalog, lang_picker_open, lang_search, ime),
+            Tab::World => world::build(shaders, shader_current, shader_props, preview_source, shader_status, invert_pan_x, invert_pan_y, srgb),
+            Tab::Graphics => graphics::build(graphics),
+        };
+        let content = column![body].spacing(16).height(Length::Fill);
+        let pane_w = avail.width.clamp(MIN_CONTENT, MAX_CONTENT);
+        let pane = container(content).width(fixed(pane_w)).height(Length::Fill).padding(24);
+        scrollable(pane)
+            .direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::default()))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    })
+    .into();
+    let main = row![sidebar(tab), content_area].height(Length::Fill);
     container(column![titlebar(dirty), main]).width(Length::Fill).height(Length::Fill).style(style::backdrop).into()
 }

@@ -88,27 +88,29 @@ pub fn axis<I: InputBackend>(event: &<I as InputBackend>::PointerAxisEvent, stat
     true
 }
 
-pub fn relative<I: InputBackend>(event: &<I as InputBackend>::PointerMotionEvent, state: &mut Loop) -> bool {
+pub fn relative<I: InputBackend>(_event: &<I as InputBackend>::PointerMotionEvent, state: &mut Loop) -> bool {
     if !(state.inner.overview().visible && state.inner.overview().is_world()) {
         return false;
     }
     // Drive globe rotation while over the globe, but NEVER consume motion: the seat
-    // cursor must keep tracking the pointer. Consuming it froze the cursor over the
-    // globe, so it jumped when the pointer reached the header.
+    // cursor must keep tracking the pointer. `embed_motion` syncs the picker
+    // pointer FROM the seat cursor (the picker's own relative handler dead-reckons
+    // from (0,0) and warps the seat cursor — the full-screen picker's model, which
+    // desyncs the embed's globe from the rendered cursor).
     let loc = cursor(state);
     if !over_bar(state, loc) {
-        compositor_y5_picker_seat_pointer::pointer::relative::<I>(event, state);
+        compositor_y5_picker_seat_embed::embed::embed_motion(state);
     }
     false
 }
 
-pub fn absolute<I: InputBackend>(event: &<I as InputBackend>::PointerMotionAbsoluteEvent, state: &mut Loop) -> bool {
+pub fn absolute<I: InputBackend>(_event: &<I as InputBackend>::PointerMotionAbsoluteEvent, state: &mut Loop) -> bool {
     if !(state.inner.overview().visible && state.inner.overview().is_world()) {
         return false;
     }
     let loc = cursor(state);
     if !over_bar(state, loc) {
-        compositor_y5_picker_seat_pointer::pointer::absolute::<I>(event, state);
+        compositor_y5_picker_seat_embed::embed::embed_motion(state);
     }
     false
 }

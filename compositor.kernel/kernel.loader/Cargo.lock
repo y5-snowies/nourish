@@ -9413,8 +9413,12 @@ version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_orchestration_core_state_base",
+ "compositor_y5_camera_transform_translate",
  "compositor_y5_picker_seat_pointer",
+ "compositor_y5_picker_state_base",
  "compositor_y5_picker_system_base",
+ "compositor_y5_picker_three_constant",
+ "compositor_y5_picker_three_orient",
  "smithay",
 ]
 
@@ -9883,6 +9887,7 @@ dependencies = [
  "compositor_support_world_order_track_base",
  "compositor_y5_surface_draw_handle",
  "compositor_y5_surface_protocol_base",
+ "compositor_y5_window_interface_record",
  "smithay",
  "uuid",
 ]
