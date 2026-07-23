@@ -12,9 +12,6 @@ pub struct Placeholder {
     pub uuid: Uuid,
     pub session_time: Instant,
     pub persistent: bool,
-    /// Marked by the selection toolbar's Shift-close: when this window is
-    /// destroyed, do NOT leave a visible placeholder tile behind.
-    pub discard_on_close: bool,
 }
 
 #[derive(Clone, Debug)]

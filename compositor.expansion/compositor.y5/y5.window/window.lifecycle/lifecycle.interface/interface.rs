@@ -89,8 +89,8 @@ pub fn hook(_loop: &mut Loop, renderer: &mut GlesRenderer) {
             WindowLifecycleEvent::Activate(window, _origin) => {
                 activate_window(_loop, window);
             }
-            WindowLifecycleEvent::Destroyed(uuid, activation) => {
-                _destroy(_loop, uuid, renderer);
+            WindowLifecycleEvent::Destroyed(uuid, activation, discard_placeholder) => {
+                _destroy(_loop, uuid, renderer, discard_placeholder);
 
                 // CHECK: Token is cleared on surface deletion. if a splash screen uses this token, it will be removed and no longer valid.
                 if let Some(activation) = activation {
@@ -190,8 +190,8 @@ fn _initial_mapped(state: &mut Loop, window: Window) {
     );
 }
 
-fn _destroy(state: &mut Loop, uuid: Uuid, renderer: &mut GlesRenderer) {
-    compositor_y5_placeholder_interface_base::interface::on_window_destroy(state, uuid, renderer);
+fn _destroy(state: &mut Loop, uuid: Uuid, renderer: &mut GlesRenderer, discard_placeholder: bool) {
+    compositor_y5_placeholder_interface_base::interface::on_window_destroy(state, uuid, renderer, discard_placeholder);
     // invalidate selection.
     compositor_y5_select_interface_base::remove(state, uuid);
     compositor_y5_group_interface_base::interface::window_destroy(state, uuid);

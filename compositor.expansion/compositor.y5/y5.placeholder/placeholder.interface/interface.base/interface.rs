@@ -2,8 +2,6 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::desktop::Window;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::utils::{Logical, Point, Rectangle, Size};
-use smithay::wayland::seat::WaylandFocus;
-use smithay::wayland::{compositor, fractional_scale};
 use std::collections::HashMap;
 
 use std::sync::mpsc::Sender;
@@ -39,23 +37,6 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
             if let Some(sampler) = state.inner.kernel.get(&compositor_orchestration_driver_introspection_base::base::SAMPLER) {
                 if let Some(pid) = data.meta.meta.pid {
                     sampler.register(uuid, pid, data.meta.clone());
-                }
-            }
-        }
-
-        // CHECK: Handling Better-  Displayname = gamescope-wl,
-        if let Some(title) = &data.meta.meta.title {
-            if title.eq("gamescope") {
-                if let Some(wl) = window.wl_surface() {
-                    compositor::with_states(wl.as_ref(), |states| {
-                        states.data_map.insert_if_missing_threadsafe(||{
-                            compositor_support_smithay_state_fractional_base::state::NestedCompositorSurface{}
-                        });
-
-                        fractional_scale::with_fractional_scale(states, |fs| {
-                            fs.set_preferred_scale(1.0);
-                        });
-                    })
                 }
             }
         }
@@ -200,7 +181,6 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
             launch_session: window_plan_0,
             session_time: Instant::now(),
             persistent: true,
-            discard_on_close: false,
         }
     } else {
         // Otherwise, create a placeholder and attach to the window
@@ -212,7 +192,6 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
             launch_session: None,
             session_time: Instant::now(),
             persistent: false,
-            discard_on_close: false,
         };
         placeholder
     };
@@ -234,7 +213,12 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
     // The window is initially mapped, and the placeholder should track the data
 }
 
-pub fn on_window_destroy(state: &mut Loop, uuid: Uuid, renderer: &mut GlesRenderer) {
+pub fn on_window_destroy(
+    state: &mut Loop,
+    uuid: Uuid,
+    renderer: &mut GlesRenderer,
+    discard_placeholder: bool,
+) {
     if let Some(sampler) = state.inner.kernel.get(&compositor_orchestration_driver_introspection_base::base::SAMPLER) {
         sampler.unregister(uuid);
     }
@@ -262,7 +246,8 @@ pub fn on_window_destroy(state: &mut Loop, uuid: Uuid, renderer: &mut GlesRender
     compositor_support_system_persist_mark_base::base::mark_world(state.inner.worlds.active_id(), true);
 
     // Shift-closed from the selection toolbar: the user asked for NO placeholder.
-    if ph.discard_on_close {
+    // (Read off the destroyed surface's data_map by the wire layer.)
+    if discard_placeholder {
         return;
     }
 

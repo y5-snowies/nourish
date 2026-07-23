@@ -13,8 +13,6 @@ compositor_y5_placeholder_system_base = { workspace = true }
 compositor_developer_debug_instance_record = { workspace = true }
 compositor_orchestration_draw_layer_base.workspace = true
 compositor_support_world_order_track_base.workspace = true
-compositor_support_smithay_state_fractional_base.workspace = true
-compositor_support_smithay_state_fractional_dispatch.workspace = true
 compositor_support_smithay_state_compositor_base.workspace = true
 compositor_support_smithay_state_compositor_place.workspace = true
 tracing = { workspace = true }

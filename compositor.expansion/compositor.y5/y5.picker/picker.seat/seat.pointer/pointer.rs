@@ -64,19 +64,19 @@ pub fn absolute<I: InputBackend>(
     state: &mut Loop,
 ) {
     let (w, h) = output_size(state);
-    let size = Size::<i32, Logical>::from((w.round() as i32, h.round() as i32));
-    let p: Point<f64, Logical> = event.position_transformed(size);
+    let p: Point<f64, Logical> = event.position_transformed(Size::<i32, Logical>::from((w.round() as i32, h.round() as i32)));
     motion(state, p.x, p.y);
 }
 
 pub fn relative<I: InputBackend>(event: &<I as InputBackend>::PointerMotionEvent, state: &mut Loop) {
-    let d = event.delta();
-    let pos = active(state).map(|a| a.pointer).unwrap_or((0.0, 0.0));
+    let (d, pos) = (event.delta(), active(state).map(|a| a.pointer).unwrap_or((0.0, 0.0)));
     motion(state, pos.0 + d.x, pos.1 + d.y);
 }
 
 fn motion(state: &mut Loop, x: f64, y: f64) {
-    let (_, h) = output_size(state);
+    let (w, h) = output_size(state);
+    // Relative motion dead-reckons `pointer` — clamp so it can't drift off-screen.
+    let (x, y) = (x.clamp(0.0, (w - 1.0).max(0.0)), y.clamp(0.0, (h - 1.0).max(0.0)));
     let k = ROTATE_SENSITIVITY as f64 / h.max(1.0);
     let inc = active(state).and_then(|a| {
         let prev = a.pointer;

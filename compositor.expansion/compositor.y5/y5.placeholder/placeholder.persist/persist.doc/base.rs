@@ -54,7 +54,6 @@ impl Document for PlaceholderDoc {
             uuid,
             session_time: Instant::now(),
             persistent: rec.persistent,
-            discard_on_close: false,
         });
     }
 }

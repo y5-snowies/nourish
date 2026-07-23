@@ -393,19 +393,22 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, forward: Selection
 /// app are left alone. All killers are spawned and detached (never waited on) so
 /// the render loop is not blocked — the compositor's SIGCHLD reaper collects them.
 fn close_selected(state: &mut Loop, mode: CloseMode) {
+    use compositor_y5_window_interface_record::data::DiscardPlaceholder;
     use compositor_y5_window_interface_record::window::LoopWindow;
     let display_handle = state.inner.loader.display_handle.clone();
     let windows = state.inner.select().Selection.clone();
     for window in &windows {
-        // Shift-close: flag the placeholder record BEFORE the close lands, so the
-        // destroy path skips spawning the tile. Restored-from-placeholder windows
-        // (`persistent`) keep their placeholder — the mark is fresh-windows-only.
+        // Shift-close: mark the toplevel's wl_surface BEFORE the close lands — the
+        // wire layer reads it at destroy and the placeholder path skips the tile.
+        // Restored-from-placeholder windows (`persistent`) keep their placeholder,
+        // so the mark is fresh-windows-only.
         if mode == CloseMode::Discard {
-            if let Some(uuid) = window.uuid() {
-                state.inner.placeholder_mut().modify_present(&uuid, |ph| {
-                    if !ph.persistent {
-                        ph.discard_on_close = true;
-                    }
+            let persistent = window.uuid().is_some_and(|uuid| {
+                state.inner.placeholder().map.get(&uuid).is_some_and(|ph| ph.borrow().persistent)
+            });
+            if !persistent && let Some(surface) = window.wl_surface() {
+                smithay::wayland::compositor::with_states(surface.as_ref(), |states| {
+                    states.data_map.insert_if_missing_threadsafe(|| DiscardPlaceholder);
                 });
             }
         }
