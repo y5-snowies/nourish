@@ -253,36 +253,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ],
             &kernel_data,
         ));
-        // TEMPORARY (sanity test): two extra SPATIAL worlds for the Super+Alt+1/2/3
-        // world-switch shortcuts, so world delegation can be exercised before real
-        // world selection exists. Same system set as main minus ThreeSystem (its
-        // bevy context_rx is one-shot; the 3D scene is a stub anyway). TwoSystem IS
-        // included — it now tolerates an absent BG_THREE (try_get == not locked) —
-        // so the test worlds get a real per-world parallax background, which makes
-        // per-world background delegation visible in the switch test.
-        let test_systems = || -> Vec<Box<dyn compositor_support_system_trait_system_base::base::System>> {
-            vec![
-                Box::new(compositor_y5_navigator_system_base::base::NavigatorSystem),
-                Box::new(compositor_y5_camera_system_base::base::CameraSystem::default()),
-                Box::new(compositor_background_two_system_base::base::TwoSystem),
-                Box::new(compositor_y5_window_system_base::base::WindowSystem),
-                Box::new(compositor_y5_surface_system_base::base::SurfaceSystem),
-                Box::new(compositor_y5_canvas_system_base::base::CanvasSystem),
-                Box::new(compositor_orchestration_seat_system_pointer::base::PointerSystem),
-                Box::new(compositor_y5_placeholder_system_base::base::PlaceholderSystem),
-                Box::new(compositor_y5_launcher_system_base::base::LauncherSystem),
-                Box::new(compositor_y5_select_system_base::base::SelectSystem),
-                Box::new(compositor_y5_select_overlay_system::base::SelectionOverlaySystem),
-                Box::new(compositor_y5_group_system_base::base::GroupSystem),
-                Box::new(compositor_y5_overview_system_base::base::OverviewSystem),
-            ]
-        };
-        let w2 = worlds.add(compositor_support_world_kind_build_base::base::spatial(uuid::Uuid::now_v7(), "test-2", test_systems(), &kernel_data));
-        let w3 = worlds.add(compositor_support_world_kind_build_base::base::spatial(uuid::Uuid::now_v7(), "test-3", test_systems(), &kernel_data));
-        (worlds, [compositor_orchestration_world_manager_base::manager::MAIN_WORLD, w2, w3])
+        // Further spatial worlds are NOT built here: the picker owns world
+        // creation (`compositor_y5_picker_world_base::create_world_with_id`) and
+        // persisted ones are rebuilt by `restore_worlds` below.
+        worlds
     };
-    let (worlds, test_world_ids) = worlds;
-    kernel_data.insert(&compositor_orchestration_core_state_base::state::TEST_WORLDS, test_world_ids);
 
     let inner = State::new(
         environment.clone(),

@@ -6230,8 +6230,6 @@ dependencies = [
  "compositor_orchestration_driver_introspection_base",
  "compositor_support_smithay_state_compositor_base",
  "compositor_support_smithay_state_compositor_place",
- "compositor_support_smithay_state_fractional_base",
- "compositor_support_smithay_state_fractional_dispatch",
  "compositor_support_system_persist_mark_base",
  "compositor_support_world_order_track_base",
  "compositor_y5_camera_transform_translate",

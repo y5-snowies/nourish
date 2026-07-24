@@ -183,13 +183,6 @@ pub static GPU_BINDING: compositor_support_system_storage_token_base::base::Toke
 pub static GPU_BINDING_MUT: compositor_support_system_storage_token_base::base::TokenMut<Option<Rc<RefCell<StateDRMBinding>>>> =
     compositor_support_system_storage_token_base::base::TokenMut::new(&GPU_BINDING);
 
-/// TEMPORARY (sanity test): the world ids behind the Super+Alt+1/2/3 switch
-/// shortcuts — slot 0 is the main world, 1/2 are pre-created spatial test worlds.
-/// Driver data so the overlay shortcut can resolve them. Removed once real world
-/// selection lands.
-pub static TEST_WORLDS: compositor_support_system_storage_token_base::base::Token<[uuid::Uuid; 3]> =
-    compositor_support_system_storage_token_base::base::Token::new();
-
 pub enum Status {
     Running,
 

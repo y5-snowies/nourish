@@ -32,9 +32,13 @@ pub struct Scene<R: Renderer> {
 thread_local! {
     /// Last fractional scale emitted per surface — the dedup so `update_fractional`
     /// only re-sends `wp_fractional_scale` when a window's best-resolution scale
-    /// actually changes, not every frame. Keyed by the surface's protocol id.
+    /// actually changes, not every frame. Keyed by the surface's protocol id;
+    /// `Published` distinguishes a real scale from the idle sentinel explicitly.
     static FRAC_SENT: std::cell::RefCell<
-        std::collections::HashMap<smithay::reexports::wayland_server::backend::ObjectId, f64>,
+        std::collections::HashMap<
+            smithay::reexports::wayland_server::backend::ObjectId,
+            compositor_support_smithay_state_fractional_dispatch::Published,
+        >,
     > = std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
@@ -44,7 +48,9 @@ thread_local! {
 /// per-output view state (`output_views`: each slot's camera zoom + its `visible`
 /// window set), so it's independent of which output is mid-render — and emitted only
 /// on change (via `FRAC_SENT`), which is what stops the per-output flip-flop from
-/// re-sending the scale to clients every frame.
+/// re-sending the scale to clients every frame. `emit_best_per_surface` then
+/// debounces whatever is left pending, so a zoom ease or a drift pan publishes once
+/// it settles rather than at every lattice crossing.
 fn update_fractional(state: &mut Loop) {
     use smithay::reexports::wayland_server::Resource;
     // uuid → surface for currently-mapped windows (the `visible` sets store uuids).
@@ -132,7 +138,7 @@ fn update_fractional(state: &mut Loop) {
     let per: Vec<(f64, WlSurface)> = best.into_values().collect();
     FRAC_SENT.with(|sent| {
         compositor_support_smithay_state_fractional_dispatch::emit_best_per_surface(
-            &state.state.fractional,
+            &mut state.state.fractional,
             &mut sent.borrow_mut(),
             &per,
             &idle,

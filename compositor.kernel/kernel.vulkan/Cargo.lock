@@ -355,6 +355,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_kernel_drm_syncobj_device_base"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
+ "compositor_developer_debug_instance_record",
+ "smithay",
+]
+
+[[package]]
 name = "compositor_kernel_graphic_color_surface_base"
 version = "0.0.1"
 dependencies = [
@@ -595,6 +604,7 @@ dependencies = [
  "compositor_developer_environment_config_base",
  "compositor_developer_environment_graphics_base",
  "compositor_developer_stats_registry_base",
+ "compositor_kernel_drm_syncobj_device_base",
  "compositor_kernel_graphic_color_surface_base",
  "compositor_kernel_vulkan_capture_blit_base",
  "compositor_kernel_vulkan_command_pool_base",

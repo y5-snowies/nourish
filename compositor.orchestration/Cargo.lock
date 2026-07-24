@@ -3510,6 +3510,7 @@ dependencies = [
  "compositor_y5_touch_pane_create",
  "compositor_y5_viewport_layout_base",
  "compositor_y5_viewport_state_base",
+ "compositor_y5_window_interface_draw",
  "compositor_y5_window_interface_record",
  "compositor_y5_window_lifecycle_interface",
  "smithay",

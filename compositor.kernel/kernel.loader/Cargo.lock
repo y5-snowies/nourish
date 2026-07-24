@@ -3713,7 +3713,6 @@ dependencies = [
  "compositor_support_smithay_wayland_connection_record",
  "compositor_support_system_persist_engine_base",
  "compositor_support_system_storage_slot_base",
- "compositor_support_system_trait_system_base",
  "compositor_support_system_world_host_base",
  "compositor_support_world_host_space_base",
  "compositor_support_world_kind_build_base",
@@ -3735,7 +3734,6 @@ dependencies = [
  "compositor_y5_surface_system_base",
  "compositor_y5_window_system_base",
  "smithay",
- "uuid",
 ]
 
 [[package]]
