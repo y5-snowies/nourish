@@ -24,6 +24,8 @@ pub fn cycle_tab(state: &mut Loop, forward: bool) {
     let idx = order.iter().position(|t| *t == state.inner.overview().tab).unwrap_or(1);
     let next = order[if forward { (idx + 1) % 3 } else { (idx + 2) % 3 }];
     state.inner.overview_mut().tab = next;
+    // Session-wide tab memory (survives world switches).
+    *state.inner.kernel.get_mut(&compositor_y5_overview_state_base::base::OVERVIEW_TAB_MUT) = next;
     if let Some(id) = state.inner.overview().menu {
         if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
             let _ = reg.dispatch_message(IcedHandle::<OverviewMenu>::from_id(id), OverviewMessage::Select(section_of(next)));

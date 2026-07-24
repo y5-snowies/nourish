@@ -188,12 +188,51 @@ pub fn fit(state: &mut Loop, zoom_1: bool, fit_1: bool) {
     );
 }
 
-/// Travel the camera to fit a single specific window (e.g. the overview cell the
-/// user clicked). Unlike `fit_window`, the target window is explicit rather than
-/// derived from the selection/focus.
+/// Travel the camera to a single specific window (the overview cell the user
+/// clicked). Unlike `fit_window`, the target window is explicit rather than
+/// derived from the selection/focus — and the placement uses the SAME flag
+/// recipe as Super+Left/Right (`view_directional`'s default set), so clicking a
+/// cell lands with the directional-travel zoom feel (fill ~70% of the viewport,
+/// no crop, padded) instead of an exact fit.
 pub fn fit_to_window(state: &mut Loop, window: &Window) {
-    let result = view(state, vec![window], false);
-    travel(state, result.position, result.zoom);
+    use compositor_support_action_camera_fit_element::element::{
+        CameraPlacementFlags, PlacementResult, compute_placement,
+    };
+    let Some(bbox) = state.inner.space_state().state.element_geometry(window).map(|r| r.to_f64())
+    else {
+        return;
+    };
+    let output = state.inner.current_output();
+    let output_geom = state
+        .inner
+        .space_state()
+        .state
+        .output_geometry(output)
+        .unwrap_or_else(|| abort!("output has geometry"));
+    let screen_size: Size<f64, Logical> = output_geom.size.to_f64();
+    let set = CameraPlacementFlags::PAN_CENTER
+        | CameraPlacementFlags::ZOOM_IN_TO_FIT
+        | CameraPlacementFlags::ZOOM_OUT_TO_FIT
+        | CameraPlacementFlags::ZOOM_GOAL_FILL_VIEWPORT
+        | CameraPlacementFlags::ZOOM_GOAL_NO_CROP
+        | CameraPlacementFlags::PAN_GOAL_MIN_MOVEMENT
+        | CameraPlacementFlags::PAN_GOAL_MAX_VISIBILITY
+        | CameraPlacementFlags::PAN_GOAL_NO_CUTOFF
+        | CameraPlacementFlags::PAN_GOAL_NO_OVERSHOOT
+        | CameraPlacementFlags::PAN_DOMINANCE
+        | CameraPlacementFlags::ZOOM_DOMINANCE
+        | CameraPlacementFlags::PAD_DEFAULT;
+    let placement = compute_placement(
+        set,
+        bbox,
+        PlacementResult {
+            position: *state.inner.camera_mut().transform.position(),
+            zoom: *state.inner.camera_mut().transform.zoom(),
+        },
+        screen_size,
+        Direction::Up, // No-op for PAN_CENTER + non-directional goals (as in `view`).
+    );
+    travel(state, Some((placement.position.x, placement.position.y)), Some(placement.zoom));
 }
 
 /// Four-finger pinch IN: frame the focused window — or, if nothing is focused or

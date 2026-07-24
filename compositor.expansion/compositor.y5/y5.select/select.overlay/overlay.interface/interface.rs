@@ -367,7 +367,7 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, forward: Selection
 
 // --- close selected windows -----------------------------------------------
 
-/// Dismiss every selected window at the chosen [`CloseMode`]. Three strengths:
+/// Dismiss every selected window at the chosen [`CloseMode`]. Four strengths:
 ///
 /// - `Request` (no modifier): ask the window to close via the `xdg_toplevel.close`
 ///   protocol event — the equivalent of clicking its title-bar X. This targets
@@ -376,6 +376,10 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, forward: Selection
 ///   app runs its own teardown (save prompts, session save). Windows with no xdg
 ///   toplevel (XWayland) have no such event, so we fall back to a graceful
 ///   SIGTERM on the owning pid there.
+/// - `Discard` (Shift): the same polite close, but first mark the window's
+///   placeholder record so its destroy leaves NO placeholder tile. Windows that
+///   were themselves restored from a placeholder (`persistent`) are exempt —
+///   their placeholder is kept as before.
 /// - `Terminate` (Alt): SIGTERM the owning process. The apps are launched by the
 ///   compositor and best-effort adopted into a transient systemd user `.scope`
 ///   under `app.slice` (see `introspection.execution.launch`); we prefer
@@ -388,12 +392,28 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, forward: Selection
 /// surface credentials) — never the command line, so other instances of the same
 /// app are left alone. All killers are spawned and detached (never waited on) so
 /// the render loop is not blocked — the compositor's SIGCHLD reaper collects them.
-fn close_selected(state: &Loop, mode: CloseMode) {
+fn close_selected(state: &mut Loop, mode: CloseMode) {
+    use compositor_y5_window_interface_record::data::DiscardPlaceholder;
+    use compositor_y5_window_interface_record::window::LoopWindow;
     let display_handle = state.inner.loader.display_handle.clone();
     let windows = state.inner.select().Selection.clone();
     for window in &windows {
+        // Shift-close: mark the toplevel's wl_surface BEFORE the close lands — the
+        // wire layer reads it at destroy and the placeholder path skips the tile.
+        // Restored-from-placeholder windows (`persistent`) keep their placeholder,
+        // so the mark is fresh-windows-only.
+        if mode == CloseMode::Discard {
+            let persistent = window.uuid().is_some_and(|uuid| {
+                state.inner.placeholder().map.get(&uuid).is_some_and(|ph| ph.borrow().persistent)
+            });
+            if !persistent && let Some(surface) = window.wl_surface() {
+                smithay::wayland::compositor::with_states(surface.as_ref(), |states| {
+                    states.data_map.insert_if_missing_threadsafe(|| DiscardPlaceholder);
+                });
+            }
+        }
         // Polite per-surface close: ask the client to dismiss just this window.
-        if mode == CloseMode::Request {
+        if matches!(mode, CloseMode::Request | CloseMode::Discard) {
             if let Some(toplevel) = window.toplevel() {
                 toplevel.send_close();
                 continue;

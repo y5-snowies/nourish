@@ -5,7 +5,6 @@ use compositor_support_iced_core_engine_base::Renderer;
 use compositor_configurator_settings_surface_message::message::SettingsMessage;
 use compositor_configurator_settings_surface_style::style;
 use compositor_configurator_settings_surface_control::control;
-use iced_core::alignment::Horizontal;
 use iced_core::{Alignment, Element, Length, Padding, Theme};
 use iced_widget::{button, column, container, row, scrollable, text, text_input, toggler, Column};
 
@@ -32,8 +31,7 @@ pub fn build<'a>(keys: &'a [KeyRow]) -> El<'a> {
         let line = row![text(k.label.clone()).width(Length::Fill), right].align_y(Alignment::Center).spacing(8).padding(Padding::from([6, 12]));
         rows.push(container(line).style(style::card).width(Length::Fill).into());
     }
-    // Keep the title + cards as one width-capped column pinned to the right of the
-    // pane, so the "KEYBOARD BINDINGS" title sits above the cards (not to their left).
-    let panel = container(Column::with_children(rows).spacing(8)).max_width(480.0);
-    scrollable(container(panel).width(Length::Fill).align_x(Horizontal::Right)).height(Length::Fill).into()
+    // The bindings list fills the content pane (the chrome caps the pane width,
+    // so rows never overstretch on wide screens).
+    scrollable(Column::with_children(rows).spacing(8).width(Length::Fill)).height(Length::Fill).into()
 }

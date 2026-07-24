@@ -63,12 +63,16 @@ pub struct ScaleToFitOption {
 ///   protocol event. Targets the *surface*, not the process, so windows that
 ///   share a client process (Chrome windows, a terminal's windows) close just
 ///   the chosen one and the app runs its own teardown.
+/// - `Discard` (Shift): the same polite close, but first mark the window so it
+///   leaves NO placeholder tile behind. Only meaningful for windows that were
+///   not themselves restored from a placeholder (those keep their placeholder).
 /// - `Terminate` (Alt): SIGTERM the owning process (systemd scope stop, else
 ///   `kill -TERM`). The former default.
 /// - `Kill` (Alt+Shift): SIGKILL the owning process (`kill -9`). The former Alt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CloseMode {
     Request,
+    Discard,
     Terminate,
     Kill,
 }
@@ -77,7 +81,8 @@ impl CloseMode {
     /// Derive the close strength from the modifier state held at click time.
     pub fn from_modifiers(alt: bool, shift: bool) -> Self {
         match (alt, shift) {
-            (false, _) => CloseMode::Request,
+            (false, false) => CloseMode::Request,
+            (false, true) => CloseMode::Discard,
             (true, false) => CloseMode::Terminate,
             (true, true) => CloseMode::Kill,
         }
@@ -85,8 +90,10 @@ impl CloseMode {
 
     /// Whether this mode kills the owning process (Alt held) rather than asking
     /// the window to close — drives the destructive skull/red affordance.
+    /// `Discard` is a polite close (it only skips the placeholder), so it keeps
+    /// the normal styling.
     pub fn is_destructive(self) -> bool {
-        !matches!(self, CloseMode::Request)
+        matches!(self, CloseMode::Terminate | CloseMode::Kill)
     }
 }
 
@@ -260,6 +267,7 @@ impl Overlay {
         // the modifiers held at render time (baked into the message, since the
         // view re-renders on Shift/AltChanged), each with its own glyph:
         //   none      -> ask the window to close (xdg_toplevel.close protocol)  [door]
+        //   Shift     -> close AND leave no placeholder tile                    [bin]
         //   Alt       -> SIGTERM the owning process                             [power-off]
         //   Alt+Shift -> SIGKILL the owning process                             [skull]
         // Holding Alt (either process-killing variant) deepens the red to
@@ -268,6 +276,7 @@ impl Overlay {
         let destructive = mode.is_destructive();
         let close_glyph = match mode {
             CloseMode::Request => font_map::WindowClosed,
+            CloseMode::Discard => font_map::Delete,
             CloseMode::Terminate => font_map::PowerOff,
             CloseMode::Kill => font_map::Skull,
         };
@@ -637,10 +646,11 @@ fn describe_scale(o: ScaleToFitOption) -> String {
     }
 }
 
-/// Close-button description, escalating with Alt / Alt+Shift.
+/// Close-button description, escalating with Shift / Alt / Alt+Shift.
 fn describe_close(alt: bool, shift: bool) -> &'static str {
     match CloseMode::from_modifiers(alt, shift) {
         CloseMode::Request => "Close window",
+        CloseMode::Discard => "Close window, leave no placeholder",
         CloseMode::Terminate => "Terminate process (SIGTERM)",
         CloseMode::Kill => "Force kill (SIGKILL)",
     }

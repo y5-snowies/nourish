@@ -83,6 +83,13 @@ impl Overview {
 pub static OVERVIEW: Token<Overview> = Token::new();
 pub static OVERVIEW_MUT: TokenMut<Overview> = TokenMut::new(&OVERVIEW);
 
+/// The last active tab, retained ACROSS worlds (kernel store). The overview
+/// slot itself stays per-world, but the tab is a session preference: every tab
+/// change writes it here, and `toggle` seeds the opening world's slot from it —
+/// so after entering a world via the World tab, Super+Tab reopens on World.
+pub static OVERVIEW_TAB: Token<Tab> = Token::new();
+pub static OVERVIEW_TAB_MUT: TokenMut<Tab> = TokenMut::new(&OVERVIEW_TAB);
+
 /// Deferred overview action handled by the surface pump (holds the renderer).
 /// `Reconcile` syncs the menu bar to `visible`; the rest come from iced message
 /// handlers — `SetTab` (tab click), `ToggleLogout` (username), `Logout` (confirm).
