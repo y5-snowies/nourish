@@ -7,11 +7,21 @@ use std::sync::OnceLock;
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Environment {
+    /// Settings-schema version ([`SCHEMA_VERSION`]). Files with an older (or
+    /// absent — treated as 1) version are migrated in memory on every load:
+    /// fields added since get their defaults. The file itself is NOT rewritten
+    /// — it stays in its authored version until an explicit [`save`] (the
+    /// settings editor), which always writes the current schema.
+    pub version: u32,
     /// Renderer backend: `"vulkan"` or `"gles"`.
     pub renderer: String,
     /// Fall back to GLES if Vulkan initialization fails.
     pub renderer_fallback: bool,
-    /// Frame-sync: `""` (off), `"infence"` (KMS IN_FENCE), or `"kms"`.
+    /// Frame-sync: `""` (synchronous, default), `"infence"` (KMS IN_FENCE,
+    /// raw — no fence validation, for observing actual hardware behavior), or
+    /// `"infence_fallback_sync"` (KMS IN_FENCE with a first-frame fence
+    /// self-test, degrading to synchronous if it fails; hand-set only — the
+    /// settings editor never writes it).
     pub renderer_sync: String,
     /// Enable HDR output (Vulkan only).
     pub hdr: bool,
@@ -55,6 +65,14 @@ pub struct Environment {
     /// during the re-encode pass (it can't be done without re-timing frames), so
     /// `false` forces a re-encode even for an otherwise plain save.
     pub capture_variable_frame_rate: bool,
+    /// CPU scheduling boost: `""` (default scheduling), `"auto"` (raise the
+    /// compositor's priority — direct nice first, rtkit over D-Bus second — so
+    /// frame deadlines survive all-core loads like shader-compile storms), or
+    /// `"realtime"` (SCHED_RR, inherited by compositor threads; needs the
+    /// CAP_SYS_NICE the build scripts setcap, degrades to `"auto"` otherwise).
+    /// In both modes children stop inheriting the boost once startup completes
+    /// (SCHED_RESET_ON_FORK is armed after the initial threads exist).
+    pub priority: String,
     /// `false` = compositor-tracked window sizing; `true` = client xdg geometry.
     pub window_client_size_fallback: bool,
     /// `false` = fit only the root toplevel; `true` = fit the whole surface tree.
@@ -63,6 +81,33 @@ pub struct Environment {
     // per-EDID output modes) intentionally do NOT live here. They are not
     // reboot-bound, so they live in `environment.preference` (preferences.json),
     // which is reloaded inline instead of cached once at startup.
+}
+
+/// Current settings-schema version. Bump when adding fields, and teach
+/// [`migrate`] to fill the new fields' defaults for older files.
+pub const SCHEMA_VERSION: u32 = 2;
+
+/// Migrate a parsed settings JSON object in place to [`SCHEMA_VERSION`],
+/// chaining version steps up to the current schema (now just v1 → v2).
+/// Returns `true` if anything changed. In-memory only — callers never persist
+/// the result implicitly; the file keeps its authored version until an
+/// explicit [`save`]. Fields are only ever ADDED with their defaults —
+/// existing values are never touched, so a migration cannot alter configured
+/// behavior.
+pub fn migrate(root: &mut serde_json::Value) -> bool {
+    let Some(obj) = root.as_object_mut() else {
+        return false;
+    };
+    let version = obj.get("version").and_then(|v| v.as_u64()).unwrap_or(1);
+    if version >= SCHEMA_VERSION as u64 {
+        return false;
+    }
+    if version < 2 {
+        // v1 → v2: `priority` (CPU scheduling boost, default off) + `version`.
+        obj.entry("priority").or_insert_with(|| serde_json::Value::String(String::new()));
+    }
+    obj.insert("version".into(), serde_json::Value::from(SCHEMA_VERSION));
+    true
 }
 
 static ENV: OnceLock<Environment> = OnceLock::new();
@@ -113,7 +158,11 @@ pub fn init() {
             path.display()
         )
     });
-    let parsed: Environment = serde_json::from_str(&raw).unwrap_or_else(|e| {
+    let mut value: serde_json::Value = serde_json::from_str(&raw).unwrap_or_else(|e| {
+        panic!("settings file {} is not valid JSON: {e}.", path.display())
+    });
+    migrate(&mut value);
+    let parsed: Environment = serde_json::from_value(value).unwrap_or_else(|e| {
         panic!("settings file {} is invalid: {e}. Every field is required.", path.display())
     });
     if ENV.set(parsed).is_err() {
@@ -131,9 +180,10 @@ pub fn get() -> &'static Environment {
 /// NOT used by the compositor at runtime — [`init`] still requires a fully-populated file
 /// and never falls back to these, so a real config can't be silently half-default. Living
 /// here (with the struct) means the editor and the installer agree on one set of values
-/// across the full 19-field schema, so any seeded file is always complete and valid.
+/// across the full schema, so any seeded file is always complete and valid.
 pub fn default_settings() -> Environment {
     Environment {
+        version: SCHEMA_VERSION,
         renderer: "vulkan".to_string(),
         renderer_fallback: true,
         renderer_sync: String::new(),
@@ -151,6 +201,7 @@ pub fn default_settings() -> Environment {
         capture_background_encoder: "ffmpeg".to_string(),
         capture_nvenc_allow_readback_fallback: false,
         capture_variable_frame_rate: false,
+        priority: String::new(),
         window_client_size_fallback: false,
         window_subsurface_shrinks: false,
     }
@@ -166,7 +217,11 @@ pub fn read_current() -> Environment {
     let path = resolve_path();
     std::fs::read_to_string(&path)
         .ok()
-        .and_then(|raw| serde_json::from_str::<Environment>(&raw).ok())
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|mut value| {
+            migrate(&mut value);
+            serde_json::from_value::<Environment>(value).ok()
+        })
         .or_else(|| ENV.get().cloned())
         .unwrap_or_else(default_settings)
 }
@@ -188,4 +243,35 @@ pub fn save(env: &Environment) -> Result<(), String> {
     std::fs::write(&tmp, json).map_err(|e| format!("write {}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, &path).map_err(|e| format!("rename {}: {e}", path.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    /// A v1 file (no `version`, no `priority`) migrates to a complete v2
+    /// Environment with the new fields at their defaults — and the migration
+    /// is idempotent.
+    #[test]
+    fn migrates_v1_settings() {
+        let mut v = serde_json::to_value(super::default_settings()).unwrap();
+        let obj = v.as_object_mut().unwrap();
+        obj.remove("version");
+        obj.remove("priority");
+        assert!(super::migrate(&mut v));
+        let env: super::Environment = serde_json::from_value(v.clone()).unwrap();
+        assert_eq!(env.version, super::SCHEMA_VERSION);
+        assert_eq!(env.priority, "");
+        assert!(!super::migrate(&mut v));
+    }
+
+    /// Migration never overwrites an existing value.
+    #[test]
+    fn migrate_preserves_existing_values() {
+        let mut v = serde_json::to_value(super::default_settings()).unwrap();
+        let obj = v.as_object_mut().unwrap();
+        obj.remove("version");
+        obj.insert("priority".into(), serde_json::Value::String("auto".into()));
+        assert!(super::migrate(&mut v));
+        let env: super::Environment = serde_json::from_value(v).unwrap();
+        assert_eq!(env.priority, "auto");
+    }
 }

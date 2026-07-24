@@ -99,4 +99,15 @@ echo ">> building y5_compositor [backend=$BACKEND profile=$PROFILE]" >&2
 
 BIN="$TARGET_DIR/$sub/y5_compositor"
 chmod +x "$BIN"
+
+# CAP_SYS_NICE on the binary lets settings.json `priority="auto"` take the
+# direct-nice rung (no rtkit round trip). Best-effort and re-applied every
+# build — cargo rewrites the binary, which clears file capabilities. `sudo -n`
+# never prompts, so an unattended build can't hang; without the cap the
+# compositor simply falls back to rtkit over D-Bus.
+if command -v setcap >/dev/null 2>&1 || [ -x /usr/sbin/setcap ]; then
+    sudo -n setcap cap_sys_nice+ep "$BIN" 2>/dev/null \
+        || echo ">> note: setcap cap_sys_nice skipped (needs passwordless sudo); priority=\"auto\" will use rtkit" >&2
+fi
+
 echo "$BIN"

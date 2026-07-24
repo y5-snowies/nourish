@@ -129,10 +129,13 @@ impl CaptureCache {
 }
 
 /// Copy the just-composed scene `src_image` (left in GENERAL layout by
-/// `record_composition`, GPU work already drained on the synchronous path) into
-/// each capture-target dmabuf via `vkCmdBlitImage`. Failures are logged
-/// (throttled) and non-fatal — a missed capture only blanks the lock-screen
-/// snapshot, never the display.
+/// `record_composition`) into each capture-target dmabuf via `vkCmdBlitImage`.
+/// `wait` is the composite's timeline point when its GPU work has NOT been
+/// drained (the native IN_FENCE path): the blit submission waits it, which
+/// also provides the cross-submission memory dependency on the scene writes.
+/// Pass `None` when the composite is already complete (synchronous path).
+/// Failures are logged (throttled) and non-fatal — a missed capture only
+/// blanks the lock-screen snapshot, never the display.
 pub fn blit_into_targets(
     dev: &VulkanDevice,
     command_pool: vk::CommandPool,
@@ -141,6 +144,7 @@ pub fn blit_into_targets(
     src_image: vk::Image,
     extent: (u32, u32),
     targets: &[CaptureTarget],
+    wait: Option<(vk::Semaphore, u64)>,
 ) {
     if targets.is_empty() {
         return;
@@ -177,7 +181,7 @@ pub fn blit_into_targets(
     if dsts.is_empty() {
         return;
     }
-    if let Err(e) = record_capture_blits(dev, command_pool, queue, src_image, &dsts) {
+    if let Err(e) = record_capture_blits(dev, command_pool, queue, src_image, &dsts, wait) {
         cache.warn(format!("blit: {e}"));
     }
 }
@@ -195,14 +199,16 @@ struct DstBlit {
 
 /// One command buffer: transition fresh targets to GENERAL, blit the scene into
 /// each, then a release barrier for the external (GLES/wgpu) reader. Submitted
-/// synchronously (the capture entry dmabuf is read by bevy next frame, so we
-/// drain before returning).
+/// synchronously — the capture entry dmabuf is read by bevy next frame, so we
+/// CPU-wait the blit's own fence before returning (scoped: a device_wait_idle
+/// would also drain unrelated in-flight work on the native IN_FENCE path).
 fn record_capture_blits(
     dev: &VulkanDevice,
     command_pool: vk::CommandPool,
     queue: vk::Queue,
     src_image: vk::Image,
     dsts: &[DstBlit],
+    wait: Option<(vk::Semaphore, u64)>,
 ) -> Result<(), VulkanError> {
     let device = &dev.device;
     let info = vk::CommandBufferAllocateInfo::default()
@@ -317,12 +323,29 @@ fn record_capture_blits(
 
         device.end_command_buffer(cmd)?;
         let cmd_info = vk::CommandBufferSubmitInfo::default().command_buffer(cmd);
-        let submit = vk::SubmitInfo2::default().command_buffer_infos(std::slice::from_ref(&cmd_info));
-        device
-            .queue_submit2(queue, &[submit], vk::Fence::null())
-            .map_err(|e| VulkanError::Vk(format!("capture submit: {e}")))?;
-        device.device_wait_idle()?;
+        let wait_infos: Vec<vk::SemaphoreSubmitInfo> = wait
+            .map(|(semaphore, point)| {
+                vec![vk::SemaphoreSubmitInfo::default()
+                    .semaphore(semaphore)
+                    .value(point)
+                    .stage_mask(vk::PipelineStageFlags2::ALL_TRANSFER)]
+            })
+            .unwrap_or_default();
+        let submit = vk::SubmitInfo2::default()
+            .command_buffer_infos(std::slice::from_ref(&cmd_info))
+            .wait_semaphore_infos(&wait_infos);
+        let fence = device.create_fence(&vk::FenceCreateInfo::default(), None)?;
+        let result = device
+            .queue_submit2(queue, &[submit], fence)
+            .map_err(|e| VulkanError::Vk(format!("capture submit: {e}")))
+            .and_then(|()| {
+                device
+                    .wait_for_fences(&[fence], true, u64::MAX)
+                    .map_err(|e| VulkanError::Vk(format!("capture fence wait: {e}")))
+            });
+        device.destroy_fence(fence, None);
         device.free_command_buffers(command_pool, &[cmd]);
+        result?;
     }
     Ok(())
 }

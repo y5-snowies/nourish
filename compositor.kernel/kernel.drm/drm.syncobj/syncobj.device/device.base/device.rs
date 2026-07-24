@@ -31,3 +31,30 @@ pub fn import(device: &DrmDeviceFd, fd: BorrowedFd<'_>) -> std::io::Result<synco
 pub fn export(device: &DrmDeviceFd, handle: syncobj::Handle) -> std::io::Result<OwnedFd> {
     device.syncobj_to_fd(handle, false)
 }
+
+/// Whether `sync_file` signals within `timeout` — the native IN_FENCE path's
+/// first-frame self-test (a dud exported render fence would park the queued
+/// atomic commit forever). Polls zero-timeout SYNCOBJ_WAITs rather than one
+/// blocking wait because the ioctl's timeout is an absolute CLOCK_MONOTONIC
+/// deadline. An fd that can't even be imported counts as failed.
+pub fn sync_file_signals_within(
+    device: &DrmDeviceFd,
+    sync_file: BorrowedFd<'_>,
+    timeout: std::time::Duration,
+) -> bool {
+    let Ok(handle) = device.fd_to_syncobj(sync_file, true) else {
+        return false;
+    };
+    let start = std::time::Instant::now();
+    let signaled = loop {
+        match device.syncobj_wait(&[handle], 0, true, false) {
+            Ok(_) => break true,
+            Err(_) if start.elapsed() < timeout => {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(_) => break false,
+        }
+    };
+    let _ = device.destroy_syncobj(handle);
+    signaled
+}

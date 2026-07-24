@@ -82,9 +82,20 @@ pub struct VulkanRenderer {
     /// The display's DRM device fd, set on the native backend (None under
     /// winit). Its presence selects the native KMS IN_FENCE path.
     pub(super) drm_fd: Option<smithay::backend::drm::DrmDeviceFd>,
-    /// Opt in to the native KMS IN_FENCE path via `COMPOSITOR_RENDERER_SYNC=infence`.
-    /// DEFAULT IS OFF (synchronous `device_wait_idle` submit).
+    /// Opt in to the native KMS IN_FENCE path via `COMPOSITOR_RENDERER_SYNC=
+    /// infence` (strict) or `infence_fallback_sync`. DEFAULT IS OFF
+    /// (synchronous `device_wait_idle` submit).
     pub(super) native_fence_optin: bool,
+    /// `infence_fallback_sync`: run the first-frame fence self-test and degrade
+    /// to synchronous mode if the exported fence never signals. Plain `infence`
+    /// performs NO validation — the raw path, so a broken fence stack can be
+    /// observed behaving as it actually does.
+    pub(super) fence_fallback_optin: bool,
+    /// One exported sync_file has been observed to actually signal (first-frame
+    /// self-test, `infence_fallback_sync` only). Until then each export is
+    /// validated; a dud fence flips `native_fence_optin` off permanently
+    /// instead of freezing the commit.
+    pub(super) fence_validated: bool,
     /// Throttle for the per-frame native-fence-export warning (once/min).
     pub(super) last_fence_warn: Option<std::time::Instant>,
     /// Post-scene capture targets for THIS frame: the registry's entry dmabufs to
@@ -103,6 +114,18 @@ pub struct VulkanRenderer {
     pub(super) downscale: TextureFilter,
     pub(super) upscale: TextureFilter,
     pub(super) context_id: ContextId<VulkanTexture>,
+    /// Render-target objects parked by `VulkanFramebuffer::drop` — the GPU may
+    /// still be writing to them (native IN_FENCE path). Destroyed by
+    /// `drain_retired` at points where the using frame is provably complete.
+    pub(super) retired: std::sync::Arc<std::sync::Mutex<Vec<crate::frame::RetiredTarget>>>,
+    /// Arc pins for every texture the frame currently being recorded samples
+    /// (pushed by `render_texture_from_to`), moved to `in_flight_textures` at
+    /// submit — so a client texture whose last other handle drops mid-flight
+    /// (window close) isn't destroyed while the GPU still reads it.
+    pub(super) pinned_textures: Vec<crate::texture::VulkanTexture>,
+    /// The previously submitted frame's texture pins; dropped at the drain
+    /// point once that frame has provably completed.
+    pub(super) in_flight_textures: Vec<crate::texture::VulkanTexture>,
 }
 
 impl std::fmt::Debug for VulkanRenderer {
@@ -119,6 +142,29 @@ impl VulkanRenderer {
         self.context_id.clone()
     }
 
+    /// Destroy retired render-target objects. Call ONLY where the frames that
+    /// used them are provably complete: after the pre-record `frame_fence`
+    /// wait (native path), after a `device_wait_idle`, or at renderer drop.
+    pub(super) fn drain_retired(&self) {
+        let mut retired = match self.retired.lock() {
+            Ok(list) => list,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        for target in retired.drain(..) {
+            unsafe {
+                if target.view != vk::ImageView::null() {
+                    self.dev.device.destroy_image_view(target.view, None);
+                }
+                if target.image != vk::Image::null() {
+                    self.dev.device.destroy_image(target.image, None);
+                }
+                if target.memory != vk::DeviceMemory::null() {
+                    self.dev.device.free_memory(target.memory, None);
+                }
+            }
+        }
+    }
+
     /// Provide the display's DRM device fd (native backend). With the IN_FENCE
     /// opt-in (`COMPOSITOR_RENDERER_SYNC=infence`) its presence switches
     /// `finish()` to the KMS IN_FENCE path; otherwise the default synchronous
@@ -126,7 +172,10 @@ impl VulkanRenderer {
     pub fn set_drm_fd(&mut self, fd: smithay::backend::drm::DrmDeviceFd) {
         self.drm_fd = Some(fd);
         if self.native_fence_optin {
+            info!("sync mode: native KMS IN_FENCE (sync_file export, no per-frame device_wait_idle)");
             stats::set_sync_mode("native KMS IN_FENCE (sync_file)");
+        } else {
+            info!("sync mode: synchronous device_wait_idle (renderer_sync != \"infence\")");
         }
     }
 
@@ -164,6 +213,11 @@ impl Drop for VulkanRenderer {
     fn drop(&mut self) {
         unsafe {
             let _ = self.dev.device.device_wait_idle();
+            self.drain_retired();
+            // Drop texture pins BEFORE destroy_device below — `TextureInner`
+            // destroys through its own device clone on last-handle drop.
+            self.in_flight_textures.clear();
+            self.pinned_textures.clear();
             // Capture-target imports + the reusable SHM staging buffer.
             self.capture_cache.destroy(&self.dev);
             self.shm_staging.destroy(&self.dev);

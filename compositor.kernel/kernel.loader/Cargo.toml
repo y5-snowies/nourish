@@ -9,6 +9,10 @@ tracing = { version = "0.1.37", features = ["max_level_trace", "release_max_leve
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 bitflags = "2.2.1"
 libc = "0.2"
+zbus = { version = "5.15.0", default-features = false, features = [
+    "tokio",
+    "blocking-api",
+] }
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "net", "sync"] }
 pollster = { version = "0.3" }
 bevy={ path="../../vendor/bevy", version = "0.19.0-dev", default-features = false, features = [
@@ -319,6 +323,8 @@ compositor_kernel_input_libinput_config_base = { path = "../kernel.input/input.l
 compositor_kernel_input_libinput_factory_base = { path = "../kernel.input/input.libinput/libinput.factory/factory.base" }
 compositor_kernel_input_loop_libinput_base = { path = "../kernel.input/input.loop/loop.libinput/libinput.base" }
 compositor_kernel_loader_main_execute_base = { path = "loader.main/main.execute/execute.base" }
+compositor_kernel_loader_main_priority_arm = { path = "loader.main/main.priority/priority.arm" }
+compositor_kernel_loader_main_priority_base = { path = "loader.main/main.priority/priority.base" }
 compositor_kernel_native_assemble_display_base = { path = "../kernel.native/native.assemble/assemble.display/display.base" }
 compositor_kernel_native_assemble_renderer_base = { path = "../kernel.native/native.assemble/assemble.renderer/renderer.base" }
 compositor_kernel_native_context_display_apply = { path = "../kernel.native/native.context/context.display/display.apply" }

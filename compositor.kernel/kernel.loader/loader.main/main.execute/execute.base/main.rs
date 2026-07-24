@@ -85,8 +85,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Built from the parsed config (not the environment), keeping the COMPOSITOR_*
     // display names the viewer already shows.
     let e = compositor_developer_environment_config_base::base::get();
+
+    // CPU scheduling boost (settings.json `priority`): applied here — logging
+    // is up (the ladder logs which mechanism succeeded), and no worker threads
+    // that shouldn't inherit the nice value have spawned yet.
+    compositor_kernel_loader_main_priority_base::base::apply(&e.priority);
+
     let env_flags: Vec<(String, String)> = vec![
         ("COMPOSITOR_RENDERER".to_string(), e.renderer.clone()),
+        ("COMPOSITOR_PRIORITY".to_string(), e.priority.clone()),
         ("COMPOSITOR_RENDERER_SYNC".to_string(), e.renderer_sync.clone()),
         ("COMPOSITOR_RENDERER_FALLBACK".to_string(), e.renderer_fallback.to_string()),
         ("COMPOSITOR_HDR".to_string(), e.hdr.to_string()),
@@ -506,6 +513,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // receiver + SIGCHLD reaper). Each completed launch is broadcast by
     // orchestration as the general per-world `Executed` event.
     launch_executor::install(&mut state, &event_loop.handle());
+
+    // All compositor threads exist by now (they inherited the `priority`
+    // boost, as intended) — arm the kernel-level inheritance stop: tasks
+    // created from here on, the IME below and every launched client included,
+    // start at default scheduling.
+    compositor_kernel_loader_main_priority_arm::arm::arm(
+        &compositor_developer_environment_config_base::base::get().priority,
+    );
 
     // Launch the compositor-owned input method configured in `preferences.json`
     // (`ime: { exec, args }`); unset ⇒ none is launched. Must be AFTER WAYLAND_DISPLAY is exported

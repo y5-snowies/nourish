@@ -35,23 +35,6 @@ impl VulkanRenderer {
             }
         }
 
-        // Live graphics config (settings "Graphics" tab, via preferences) +
-        // current world zoom → the effective, zoom-weighted AA knobs. AA applies
-        // to the SDR composite path only (HDR skips it). The pipeline is built
-        // lazily on activation and torn down on deactivation.
-        let gfx = compositor_developer_environment_graphics_base::base::get();
-        let zoom = compositor_developer_stats_registry_base::base::world_zoom() as f32;
-        let eff = gfx.effective(zoom);
-        let aa_active = eff.active && !use_hdr;
-        if aa_active {
-            self.ensure_aa_pipeline(format)?;
-        } else if self.aa_was_active {
-            // Deactivation edge: reclaim the AA pipeline(s) and per-surface mip
-            // images so a disabled AA config costs no resident GPU memory.
-            self.teardown_aa();
-        }
-        self.aa_was_active = aa_active;
-
         // The native-fence path reuses one command buffer + descriptor pool and
         // does NOT device_wait_idle, so before re-recording we must ensure the
         // previous frame's GPU work finished. Pace on the VkFence (created
@@ -65,6 +48,32 @@ impl VulkanRenderer {
                 self.dev.device.reset_fences(&[self.frame_fence])?;
             }
         }
+        // The previous frame is provably complete here (fence wait above on
+        // the native path; the sync path device_wait_idles inside submit), so
+        // the render targets it retired can be destroyed — and its texture
+        // pins dropped. The frame being submitted keeps its own pins (pushed
+        // during record) until the next drain point.
+        self.drain_retired();
+        self.in_flight_textures = std::mem::take(&mut self.pinned_textures);
+
+        // Live graphics config (settings "Graphics" tab, via preferences) +
+        // current world zoom → the effective, zoom-weighted AA knobs. AA applies
+        // to the SDR composite path only (HDR skips it). The pipeline is built
+        // lazily on activation and torn down on deactivation. Placed AFTER the
+        // drain point above: the teardown destroys objects the previous frame
+        // may have had in flight, and needs no drain of its own here.
+        let gfx = compositor_developer_environment_graphics_base::base::get();
+        let zoom = compositor_developer_stats_registry_base::base::world_zoom() as f32;
+        let eff = gfx.effective(zoom);
+        let aa_active = eff.active && !use_hdr;
+        if aa_active {
+            self.ensure_aa_pipeline(format)?;
+        } else if self.aa_was_active {
+            // Deactivation edge: reclaim the AA pipeline(s) and per-surface mip
+            // images so a disabled AA config costs no resident GPU memory.
+            self.teardown_aa();
+        }
+        self.aa_was_active = aa_active;
 
         self.frame_counter += 1;
         let value = self.frame_counter;
@@ -347,10 +356,11 @@ impl VulkanRenderer {
                 dev.device.device_wait_idle()?;
             }
             stats::fence_synchronous();
-            // Post-scene capture (native Vulkan path): copy the now-complete
-            // composed scene into the registry entry dmabufs. No-op unless the
-            // backend set capture targets for this frame. Ends the `dev` borrow
-            // first (it needs `&mut self`'s capture fields).
+            // Post-scene capture: copy the now-complete composed scene into
+            // the registry entry dmabufs. No-op unless the backend set capture
+            // targets for this frame. Ends the `dev` borrow first (it needs
+            // `&mut self`'s capture fields). No wait point — the drain above
+            // already completed the composite.
             let _ = dev;
             let targets = std::mem::take(&mut self.capture_targets);
             compositor_kernel_vulkan_capture_blit_base::blit::blit_into_targets(
@@ -361,6 +371,7 @@ impl VulkanRenderer {
                 image,
                 extent,
                 &targets,
+                None,
             );
             return Ok(SyncPoint::signaled());
         }
@@ -386,13 +397,44 @@ impl VulkanRenderer {
                 .queue_submit2(self.queue.queue, &[submit], self.frame_fence)
                 .map_err(|e| VulkanError::Vk(format!("queue_submit2: {e}")))?;
         }
-        match compositor_kernel_vulkan_sync_export_base::export::export_sync_file(
+        let sync = match compositor_kernel_vulkan_sync_export_base::export::export_sync_file(
             dev,
             self.render_semaphore,
         ) {
+            Ok(fd) if self.fence_fallback_optin && !self.fence_validated => {
+                // First-frame self-test, ONLY under infence_fallback_sync: a
+                // dud exported fence would park the queued atomic commit
+                // forever (the historical infence freeze). Costs one
+                // composite-length CPU wait, once. Plain `infence` runs no
+                // validation at all — raw behavior, so broken fence stacks
+                // can be observed as they actually fail.
+                use std::os::unix::io::AsFd;
+                let drm_fd = self.drm_fd.as_ref().expect("native fence path has drm_fd");
+                if compositor_kernel_drm_syncobj_device_base::device::sync_file_signals_within(
+                    drm_fd,
+                    fd.as_fd(),
+                    std::time::Duration::from_secs(1),
+                ) {
+                    self.fence_validated = true;
+                    info!("native KMS IN_FENCE self-test passed: first exported fence signaled");
+                    stats::fence_kms_infence();
+                    SyncPoint::from(crate::sync_fence::SyncFileFence::new(fd))
+                } else {
+                    warn!(
+                        "native KMS IN_FENCE self-test FAILED: exported sync_file did not \
+                         signal within 1s; falling back to synchronous mode permanently \
+                         (renderer_sync=infence_fallback_sync)"
+                    );
+                    self.native_fence_optin = false;
+                    stats::set_sync_mode("synchronous (device_wait_idle; IN_FENCE self-test failed)");
+                    unsafe { dev.device.device_wait_idle()? };
+                    stats::fence_fallback();
+                    SyncPoint::signaled()
+                }
+            }
             Ok(fd) => {
                 stats::fence_kms_infence();
-                Ok(SyncPoint::from(crate::sync_fence::SyncFileFence::new(fd)))
+                SyncPoint::from(crate::sync_fence::SyncFileFence::new(fd))
             }
             Err(e) => {
                 if self
@@ -404,8 +446,26 @@ impl VulkanRenderer {
                 }
                 unsafe { dev.device.device_wait_idle()? };
                 stats::fence_fallback();
-                Ok(SyncPoint::signaled())
+                SyncPoint::signaled()
             }
-        }
+        };
+        // Post-scene capture on the native path: a second submission on the
+        // same queue, GPU-ordered after the composite by waiting its timeline
+        // point; the CPU wait inside is scoped to the blit's fence, paid only
+        // on frames that capture. Scanout's IN_FENCE above never waits for
+        // this. Ends the `dev` borrow first (capture fields need `&mut self`).
+        let _ = dev;
+        let targets = std::mem::take(&mut self.capture_targets);
+        compositor_kernel_vulkan_capture_blit_base::blit::blit_into_targets(
+            &self.dev,
+            self.command_pool,
+            self.queue.queue,
+            &mut self.capture_cache,
+            image,
+            extent,
+            &targets,
+            Some((self.timeline, value)),
+        );
+        Ok(sync)
     }
 }

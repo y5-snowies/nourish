@@ -14,12 +14,18 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 BIN="$("$HERE/build.sh" udev release)"
 
+# CAP_SYS_NICE on the installed binary: settings.json `priority="auto"` takes
+# the direct-nice rung without the rtkit D-Bus round trip. (cp/mv drop file
+# capabilities, so this must run after the install step.)
 case "$DEST" in
-    dev)    sudo cp "$BIN" /usr/bin/y5.compositor.dev ;;
-    system) sudo mv "$BIN" /usr/bin/y5.compositor ;;
+    dev)    sudo cp "$BIN" /usr/bin/y5.compositor.dev
+            sudo setcap cap_sys_nice+ep /usr/bin/y5.compositor.dev ;;
+    system) sudo mv "$BIN" /usr/bin/y5.compositor
+            sudo setcap cap_sys_nice+ep /usr/bin/y5.compositor ;;
     remote)
         scp "$BIN" y5@yrd.local:/home/y5/compositor
-        ssh y5@yrd.local 'chmod +x /home/y5/compositor'
+        # -t: interactive sudo password prompt on the remote.
+        ssh -t y5@yrd.local 'chmod +x /home/y5/compositor && sudo setcap cap_sys_nice+ep /home/y5/compositor'
         ;;
     *) echo "unknown dest '$DEST' (expected dev|system|remote)" >&2; exit 1 ;;
 esac

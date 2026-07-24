@@ -55,10 +55,17 @@ impl VulkanRenderer {
             dev.cmd_pipeline_barrier2(cmd, &dep);
             dev.end_command_buffer(cmd)?;
             let cmds = [cmd];
+            // Fence-scoped wait: this fires on every NEW dmabuf import, and a
+            // device_wait_idle would also drain the in-flight composite on the
+            // native IN_FENCE path.
+            let fence = dev.create_fence(&vk::FenceCreateInfo::default(), None)?;
             let submit = vk::SubmitInfo::default().command_buffers(&cmds);
-            dev.queue_submit(self.queue.queue, &[submit], vk::Fence::null())?;
-            dev.device_wait_idle()?;
+            let result = dev
+                .queue_submit(self.queue.queue, &[submit], fence)
+                .and_then(|()| dev.wait_for_fences(&[fence], true, u64::MAX));
+            dev.destroy_fence(fence, None);
             dev.free_command_buffers(self.command_pool, &cmds);
+            result?;
         }
         Ok(())
     }

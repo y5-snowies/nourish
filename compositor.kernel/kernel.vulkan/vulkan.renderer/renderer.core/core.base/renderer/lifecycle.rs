@@ -38,14 +38,19 @@ impl VulkanRenderer {
             )?
         };
 
-        // `renderer_sync == "infence"` opts in to the native KMS IN_FENCE path.
-        // DEFAULT is synchronous `device_wait_idle`.
-        let native_fence_optin = compositor_developer_environment_config_base::base::get()
-            .renderer_sync
-            .eq_ignore_ascii_case("infence");
+        // `renderer_sync == "infence"` opts in to the native KMS IN_FENCE path
+        // raw — no validation, so broken fence hardware shows its actual
+        // behavior; `"infence_fallback_sync"` additionally self-tests the
+        // first exported fence and degrades to synchronous mode if it never
+        // signals. DEFAULT is synchronous `device_wait_idle`.
+        let renderer_sync = &compositor_developer_environment_config_base::base::get().renderer_sync;
+        let fence_fallback_optin = renderer_sync.eq_ignore_ascii_case("infence_fallback_sync");
+        let native_fence_optin =
+            renderer_sync.eq_ignore_ascii_case("infence") || fence_fallback_optin;
         info!(
-            "VulkanRenderer initialized (queue family {}, native_fence_optin={})",
-            queue.family_index, native_fence_optin
+            "VulkanRenderer initialized (queue family {}, native_fence_optin={native_fence_optin}, \
+             fence_fallback_optin={fence_fallback_optin})",
+            queue.family_index
         );
         stats::set_renderer("vulkan", true);
         stats::set_sync_mode("synchronous (device_wait_idle)");
@@ -70,11 +75,16 @@ impl VulkanRenderer {
             frame_fence,
             drm_fd: None,
             native_fence_optin,
+            fence_fallback_optin,
+            fence_validated: false,
             last_fence_warn: None,
             capture_targets: Vec::new(),
             capture_cache: CaptureCache::new(),
             shm_staging: StagingBuffer::new(),
             frame_counter: 0,
+            retired: Default::default(),
+            pinned_textures: Vec::new(),
+            in_flight_textures: Vec::new(),
             debug_flags: DebugFlags::empty(),
             downscale: TextureFilter::Linear,
             upscale: TextureFilter::Linear,

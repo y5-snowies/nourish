@@ -3686,6 +3686,8 @@ dependencies = [
  "compositor_introspection_extraction_window_base",
  "compositor_introspection_sampler_window_base",
  "compositor_kernel_execution_driver_executor_install",
+ "compositor_kernel_loader_main_priority_arm",
+ "compositor_kernel_loader_main_priority_base",
  "compositor_kernel_native_wire_entry_base",
  "compositor_kernel_vulkan_renderer_core_base",
  "compositor_kernel_winit_wire_entry_base",
@@ -3733,6 +3735,23 @@ dependencies = [
  "compositor_y5_window_system_base",
  "smithay",
  "uuid",
+]
+
+[[package]]
+name = "compositor_kernel_loader_main_priority_arm"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_debug_instance_record",
+ "libc",
+]
+
+[[package]]
+name = "compositor_kernel_loader_main_priority_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_debug_instance_record",
+ "libc",
+ "zbus",
 ]
 
 [[package]]
@@ -4680,6 +4699,7 @@ dependencies = [
  "compositor_developer_environment_config_base",
  "compositor_developer_environment_graphics_base",
  "compositor_developer_stats_registry_base",
+ "compositor_kernel_drm_syncobj_device_base",
  "compositor_kernel_graphic_color_surface_base",
  "compositor_kernel_vulkan_capture_blit_base",
  "compositor_kernel_vulkan_command_pool_base",

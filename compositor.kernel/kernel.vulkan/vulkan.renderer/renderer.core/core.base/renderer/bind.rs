@@ -144,6 +144,7 @@ impl Bind<Dmabuf> for VulkanRenderer {
             self.import_dmabuf_as_target(target, vk::ImageUsageFlags::COLOR_ATTACHMENT, true)?;
         Ok(VulkanFramebuffer {
             device: self.dev.device.clone(),
+            retire: self.retired.clone(),
             image,
             memory,
             view: view.expect("make_view=true ⇒ Some(view)"),

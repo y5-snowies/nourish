@@ -5,13 +5,16 @@ use crate::prompt::{ask, ask_u8, choose, yes_no};
 use crate::select::{select_list, Item};
 use crate::term::Nav;
 use compositor_configurator_hardware_gpu_base::base::render_devices;
-use compositor_developer_environment_config_base::base::Environment;
+use compositor_developer_environment_config_base::base::{Environment, SCHEMA_VERSION};
 
 /// The settings flow is a straight sequence of required fields — there is no
 /// "back" target mid-flow, so no field (including the GPU list) offers Escape.
 pub fn interactive(base: Environment) -> Environment {
     println!("y5.compositor.settings — every field is required; press Enter to keep the shown value.");
     Environment {
+        // Not prompted: the schema version this editor writes (migrations in
+        // config.base lift older files on load).
+        version: SCHEMA_VERSION,
         renderer: choose(
             "renderer",
             "Renderer backend. NOTE for AMD users: some have reported Vulkan not \
@@ -24,10 +27,50 @@ pub fn interactive(base: Environment) -> Environment {
             "Fall back to GLES if Vulkan initialization fails.",
             base.renderer_fallback,
         ),
-        // Experimental — always disabled, never prompted (renderer_sync, hdr, vk_diag,
-        // and the two window-sizing flags below are forced off regardless of the
+        // Prompted as "composite sync" with friendly labels; the stored
+        // settings.json field stays `renderer_sync` ("" | "infence").
+        renderer_sync: {
+            let options = [
+                "synchronous commit",
+                "asynchronous commit (recommended on supported hardware)",
+            ];
+            let sync = choose(
+                "composite sync (renderer_sync)",
+                "How the composited frame is committed to the display.",
+                &options,
+                if base.renderer_sync.is_empty() { options[0] } else { options[1] },
+            );
+            if sync == options[1] { "infence".to_string() } else { String::new() }
+        },
+        // Prompted with friendly labels; stored as `priority` ("" | "auto" | "realtime").
+        priority: {
+            let options = [
+                "default",
+                "auto — raise compositor CPU priority (recommended)",
+                "realtime — preempt all normal tasks",
+            ];
+            let picked = choose(
+                "priority",
+                "Kernel scheduling priority for the compositor. Minor benefit for \
+                 compositor threads under CPU load.",
+                &options,
+                match base.priority.as_str() {
+                    "auto" => options[1],
+                    "realtime" => options[2],
+                    _ => options[0],
+                },
+            );
+            if picked == options[2] {
+                "realtime".to_string()
+            } else if picked == options[1] {
+                "auto".to_string()
+            } else {
+                String::new()
+            }
+        },
+        // Experimental — always disabled, never prompted (hdr, vk_diag, and the
+        // two window-sizing flags below are forced off regardless of the
         // existing file).
-        renderer_sync: String::new(),
         hdr: false,
         depth: ask_u8(
             "depth",

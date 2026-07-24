@@ -246,8 +246,8 @@ fn run_blocking(
     format: &str,
     render_node: &str,
 ) -> bool {
-    let status = Command::new("ffmpeg")
-        .args(["-y", "-loglevel", "error"])
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-y", "-loglevel", "error"])
         .args(input_decode_args(input, render_node))
         .arg("-i")
         .arg(input)
@@ -257,8 +257,8 @@ fn run_blocking(
         .arg(output)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+        .stderr(Stdio::null());
+    let status = cmd.status();
     matches!(status, Ok(s) if s.success())
         && std::fs::metadata(output).map(|m| m.len() > 0).unwrap_or(false)
 }

@@ -23,6 +23,7 @@ compositor_kernel_vulkan_instance_factory_base.workspace = true
 compositor_kernel_vulkan_instance_physical_base.workspace = true
 compositor_kernel_vulkan_memory_export_base.workspace = true
 compositor_kernel_vulkan_sync_export_base.workspace = true
+compositor_kernel_drm_syncobj_device_base.workspace = true
 compositor_kernel_vulkan_sync_fence_base.workspace = true
 compositor_kernel_vulkan_format_query_base.workspace = true
 compositor_kernel_vulkan_format_modifier_base.workspace = true

@@ -317,6 +317,8 @@ compositor_kernel_input_libinput_config_base = { path = "../../compositor.kernel
 compositor_kernel_input_libinput_factory_base = { path = "../../compositor.kernel/kernel.input/input.libinput/libinput.factory/factory.base" }
 compositor_kernel_input_loop_libinput_base = { path = "../../compositor.kernel/kernel.input/input.loop/loop.libinput/libinput.base" }
 compositor_kernel_loader_main_execute_base = { path = "../../compositor.kernel/kernel.loader/loader.main/main.execute/execute.base" }
+compositor_kernel_loader_main_priority_arm = { path = "../../compositor.kernel/kernel.loader/loader.main/main.priority/priority.arm" }
+compositor_kernel_loader_main_priority_base = { path = "../../compositor.kernel/kernel.loader/loader.main/main.priority/priority.base" }
 compositor_kernel_native_assemble_display_base = { path = "../../compositor.kernel/kernel.native/native.assemble/assemble.display/display.base" }
 compositor_kernel_native_assemble_renderer_base = { path = "../../compositor.kernel/kernel.native/native.assemble/assemble.renderer/renderer.base" }
 compositor_kernel_native_context_display_apply = { path = "../../compositor.kernel/kernel.native/native.context/context.display/display.apply" }

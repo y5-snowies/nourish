@@ -113,11 +113,13 @@ pub fn wire(
     let mut vulkan = if vulkan_mode {
         match compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::new_default() {
             Ok(mut vk) => {
-                // Hand the renderer the display's DRM fd so finish() takes the
-                // KMS IN_FENCE path (render-completion sync_file via DRM syncobj)
-                // instead of synchronous device_wait_idle.
+                // Hand the renderer the display's DRM fd; only with the
+                // `renderer_sync=infence` opt-in does finish() take the KMS
+                // IN_FENCE path (render-completion sync_file via DRM syncobj)
+                // instead of synchronous device_wait_idle. `set_drm_fd` logs
+                // the mode actually chosen.
                 vk.set_drm_fd(display.drm_fd.clone());
-                info!("native: renderer = vulkan (COMPOSITOR_RENDERER); KMS IN_FENCE enabled");
+                info!("native: renderer = vulkan (COMPOSITOR_RENDERER)");
                 Some(vk)
             }
             Err(e) if vulkan_fallback => {

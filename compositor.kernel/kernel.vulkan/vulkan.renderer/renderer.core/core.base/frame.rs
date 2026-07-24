@@ -20,10 +20,22 @@ use crate::error::VulkanError;
 use crate::renderer::VulkanRenderer;
 use crate::texture::VulkanTexture;
 
+/// Render-target objects parked for deferred destruction: the GPU may still be
+/// compositing into the image when the framebuffer drops (the native IN_FENCE
+/// path returns from submit before completion), so destruction waits for a
+/// point where the frame is provably done (`VulkanRenderer::drain_retired`).
+pub(crate) struct RetiredTarget {
+    pub(crate) image: vk::Image,
+    pub(crate) memory: vk::DeviceMemory,
+    pub(crate) view: vk::ImageView,
+}
+
 /// A render target the renderer can draw into. Owns the color-attachment image
-/// imported from the bound dmabuf; destroyed when the framebuffer drops.
+/// imported from the bound dmabuf; retired to the renderer when the
+/// framebuffer drops, destroyed once the frame that used it has completed.
 pub struct VulkanFramebuffer<'buffer> {
     pub(crate) device: ash::Device,
+    pub(crate) retire: std::sync::Arc<std::sync::Mutex<Vec<RetiredTarget>>>,
     pub(crate) image: vk::Image,
     pub(crate) memory: vk::DeviceMemory,
     pub(crate) view: vk::ImageView,
@@ -60,15 +72,26 @@ impl Texture for VulkanFramebuffer<'_> {
 
 impl Drop for VulkanFramebuffer<'_> {
     fn drop(&mut self) {
-        unsafe {
-            if self.view != vk::ImageView::null() {
-                self.device.destroy_image_view(self.view, None);
-            }
-            if self.image != vk::Image::null() {
-                self.device.destroy_image(self.image, None);
-            }
-            if self.memory != vk::DeviceMemory::null() {
-                self.device.free_memory(self.memory, None);
+        let target = RetiredTarget {
+            image: self.image,
+            memory: self.memory,
+            view: self.view,
+        };
+        if let Ok(mut retired) = self.retire.lock() {
+            retired.push(target);
+        } else {
+            // Poisoned retire list (a panic elsewhere): destroy eagerly rather
+            // than leak — the process is going down anyway.
+            unsafe {
+                if target.view != vk::ImageView::null() {
+                    self.device.destroy_image_view(target.view, None);
+                }
+                if target.image != vk::Image::null() {
+                    self.device.destroy_image(target.image, None);
+                }
+                if target.memory != vk::DeviceMemory::null() {
+                    self.device.free_memory(target.memory, None);
+                }
             }
         }
     }
@@ -191,6 +214,10 @@ impl Frame for VulkanFrame<'_, '_> {
             src_uv,
             alpha,
         );
+        // Pin the texture until the frame that samples it provably completes —
+        // the native IN_FENCE path returns from submit while the GPU still
+        // reads it (see `VulkanRenderer::pinned_textures`).
+        self.renderer.pinned_textures.push(texture.clone());
         // AA targets ONLY world content (windows + iced-world), tagged per
         // element by the scene wrapper (`set_element_meta`). Screen-space iced
         // (settings/picker) and the bevy background are never eligible.

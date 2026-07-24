@@ -1,11 +1,21 @@
 #!/usr/bin/env node
 
-// workspace.report.js — dependency complexity report for the multi-workspace tree.
+// workspace.report.js — dependency complexity + build report for the multi-workspace tree.
 //
 // For every internal crate, answers: "if this crate changes, how many other crates
 // recompile?" (transitive reverse-dependency count, the blast radius).
 //
-// Read-only over the repo: reads Cargo.toml files, writes only the report file.
+// When release build artifacts exist (produced by `environment/build.sh udev release`),
+// the report also includes a build section: binary size broken down by ELF section and
+// by crate (nm symbol attribution), per-crate compile times (cargo --timings data), the
+// largest .rlib artifacts, and the compiler flags in effect. The section is skipped —
+// with a hint — when no build/timings are present. To refresh the underlying data:
+//
+//   environment/build.sh udev release        # (add --timings via: cargo build --timings
+//                                            #  in the loader workspace, same features)
+//
+// Read-only over the repo: reads Cargo.toml files and build artifacts, writes only the
+// report file.
 //
 //   node workspace.report.js                 # write workspace.report.html at repo root
 //   node workspace.report.js --out FILE      # write the HTML elsewhere
@@ -14,6 +24,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const REPO_ROOT = __dirname;
 
@@ -158,11 +169,288 @@ function buildModel() {
   return { roots, crates, forward, reverse, rows };
 }
 
+// --------------------------------------------------------------------------
+// Build report (binary size + compile time), sourced from the release target
+// dir of the workspace that owns the y5_compositor [[bin]]. Everything here is
+// best-effort: any missing artifact/tool just drops its table from the report.
+// --------------------------------------------------------------------------
+
+/**
+ * The crate declaring the y5_compositor [[bin]] and its workspace's target dir
+ * (same discovery rule as environment/build.sh; Y5_TARGET_DIR wins if set).
+ * @param {Map<string, {dir: string}>} crates
+ * @returns {{crateDir: string, targetDir: string} | null}
+ */
+function findBuildTarget(crates) {
+  for (const { dir } of crates.values()) {
+    const toml = fs.readFileSync(path.join(dir, 'Cargo.toml'), 'utf-8');
+    if (!/\[\[bin\]\][\s\S]*?name\s*=\s*["']y5_compositor["']/.test(toml)) continue;
+    if (process.env.Y5_TARGET_DIR) return { crateDir: dir, targetDir: process.env.Y5_TARGET_DIR };
+    let ws = dir;
+    while (ws !== path.dirname(ws)) {
+      ws = path.dirname(ws);
+      const t = path.join(ws, 'Cargo.toml');
+      if (fs.existsSync(t) && /\[workspace\]/.test(fs.readFileSync(t, 'utf-8'))) {
+        return { crateDir: dir, targetDir: path.join(ws, 'target') };
+      }
+    }
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Per-crate compile times from the newest cargo --timings HTML report
+ * (cargo embeds the unit list as a `const UNIT_DATA = [...]` JSON literal).
+ * @param {string} targetDir
+ * @returns {{wallSeconds: number, cpuSeconds: number, unitCount: number,
+ *            generatedAt: string, crates: {name: string, cpuSeconds: number, units: number}[]} | null}
+ */
+function parseTimings(targetDir) {
+  const dir = path.join(targetDir, 'cargo-timings');
+  let file = path.join(dir, 'cargo-timing.html'); // cargo's copy of the newest report
+  if (!fs.existsSync(file)) {
+    let newest = null;
+    for (const f of (fs.existsSync(dir) ? fs.readdirSync(dir) : [])) {
+      if (!/^cargo-timing-.*\.html$/.test(f)) continue;
+      const p = path.join(dir, f);
+      if (!newest || fs.statSync(p).mtimeMs > fs.statSync(newest).mtimeMs) newest = p;
+    }
+    if (!newest) return null;
+    file = newest;
+  }
+  const m = fs.readFileSync(file, 'utf-8').match(/const UNIT_DATA = (\[[\s\S]*?\]);/);
+  if (!m) return null;
+  let units;
+  try { units = JSON.parse(m[1]); } catch (_) { return null; }
+
+  const perCrate = new Map();
+  let wall = 0;
+  for (const u of units) {
+    wall = Math.max(wall, u.start + u.duration);
+    const c = perCrate.get(u.name) || { name: u.name, cpuSeconds: 0, units: 0 };
+    c.cpuSeconds += u.duration;
+    c.units += 1;
+    perCrate.set(u.name, c);
+  }
+  const crates = Array.from(perCrate.values()).sort((a, b) => b.cpuSeconds - a.cpuSeconds);
+  return {
+    wallSeconds: wall,
+    cpuSeconds: crates.reduce((s, c) => s + c.cpuSeconds, 0),
+    unitCount: units.length,
+    generatedAt: fs.statSync(file).mtime.toISOString(),
+    crates,
+  };
+}
+
+/**
+ * ELF64 section table of the linked binary (pure-node parser; little-endian only).
+ * @param {string} binPath
+ * @returns {{name: string, size: number}[] | null}
+ */
+function parseElfSections(binPath) {
+  const b = fs.readFileSync(binPath);
+  if (b.length < 64 || b.readUInt32LE(0) !== 0x464c457f || b[4] !== 2 || b[5] !== 1) return null;
+  const shoff = Number(b.readBigUInt64LE(0x28));
+  const shentsize = b.readUInt16LE(0x3a);
+  const shnum = b.readUInt16LE(0x3c);
+  const shstrndx = b.readUInt16LE(0x3e);
+  if (!shoff || !shnum || shstrndx >= shnum) return null;
+  const strOff = Number(b.readBigUInt64LE(shoff + shstrndx * shentsize + 0x18));
+  const sections = [];
+  for (let i = 0; i < shnum; i++) {
+    const off = shoff + i * shentsize;
+    const nameOff = strOff + b.readUInt32LE(off);
+    const end = b.indexOf(0, nameOff);
+    const name = b.toString('ascii', nameOff, end === -1 ? nameOff : end);
+    const size = Number(b.readBigUInt64LE(off + 0x20));
+    if (name) sections.push({ name, size });
+  }
+  return sections.sort((a, b2) => b2.size - a.size);
+}
+
+/**
+ * Attribute the binary's code (.text) bytes to crates via `nm` demangled symbol
+ * names — first path segment of each sized t/T/w/W symbol. Monomorphized
+ * generics land on the crate that DEFINES them (core/alloc/hashbrown read big
+ * because everything instantiates them). Returns null when nm is unavailable.
+ * @param {string} binPath
+ * @returns {{name: string, bytes: number}[] | null}
+ */
+function attributeTextSymbols(binPath) {
+  const nm = spawnSync('nm', ['--print-size', '--radix=d', '--demangle', binPath],
+    { encoding: 'utf-8', maxBuffer: 1 << 30 });
+  if (nm.status !== 0 || !nm.stdout) return null;
+  const byCrate = new Map();
+  for (const line of nm.stdout.split('\n')) {
+    const m = line.match(/^\d+ (\d+) ([tTwW]) (.+)$/);
+    if (!m) continue;
+    const sym = m[3].replace(/^_?</, '');
+    const c = sym.match(/^(?:dyn |&mut |&|\*const |\*mut )*([A-Za-z_][A-Za-z0-9_]*)(?:::|<)/);
+    const crate = c ? c[1] : '(C / unmangled)';
+    byCrate.set(crate, (byCrate.get(crate) || 0) + Number(m[1]));
+  }
+  return Array.from(byCrate, ([name, bytes]) => ({ name, bytes }))
+    .sort((a, b) => b.bytes - a.bytes);
+}
+
+/**
+ * Largest compiled .rlib per crate under target/release/deps. An rlib's size is
+ * a compile-artifact metric (object code + metadata), NOT its share of the final
+ * binary — the linker drops unused code (e.g. ash is huge here, small linked).
+ * @param {string} targetDir
+ * @returns {{name: string, bytes: number}[]}
+ */
+function collectRlibSizes(targetDir) {
+  const deps = path.join(targetDir, 'release', 'deps');
+  const byCrate = new Map();
+  for (const f of (fs.existsSync(deps) ? fs.readdirSync(deps) : [])) {
+    const m = f.match(/^lib(.+)-[0-9a-f]{16}\.rlib$/);
+    if (!m) continue;
+    const size = fs.statSync(path.join(deps, f)).size;
+    if (size > (byCrate.get(m[1]) || 0)) byCrate.set(m[1], size);
+  }
+  return Array.from(byCrate, ([name, bytes]) => ({ name, bytes }))
+    .sort((a, b) => b.bytes - a.bytes);
+}
+
+/** Rustflags from the repo-root .cargo/config.toml (see its RUSTFLAGS warning). */
+function readRustflags() {
+  const p = path.join(REPO_ROOT, '.cargo', 'config.toml');
+  if (!fs.existsSync(p)) return [];
+  const m = fs.readFileSync(p, 'utf-8').replace(/#[^\n]*/g, '').match(/rustflags\s*=\s*\[([\s\S]*?)\]/);
+  return m ? Array.from(m[1].matchAll(/["']([^"']+)["']/g), x => x[1]) : [];
+}
+
+/**
+ * Everything the build section renders; null when there is no release binary.
+ * @param {Map<string, {dir: string}>} crates
+ */
+function buildBuildReport(crates) {
+  const target = findBuildTarget(crates);
+  if (!target) return null;
+  const binPath = path.join(target.targetDir, 'release', 'y5_compositor');
+  if (!fs.existsSync(binPath)) return null;
+  const binStat = fs.statSync(binPath);
+
+  // Does the loader workspace override cargo's release profile anywhere?
+  let wsRoot = path.dirname(target.targetDir);
+  const wsToml = fs.readFileSync(path.join(wsRoot, 'Cargo.toml'), 'utf-8');
+
+  return {
+    binPath,
+    binBytes: binStat.size,
+    binMtime: binStat.mtime.toISOString(),
+    sections: parseElfSections(binPath),
+    textByCrate: attributeTextSymbols(binPath),
+    rlibs: collectRlibSizes(target.targetDir),
+    timings: parseTimings(target.targetDir),
+    rustflags: readRustflags(),
+    profileOverridden: /\[profile[.\]]/.test(wsToml),
+  };
+}
+
 function escapeHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function renderHtml({ roots, rows }) {
+/** 12345678 -> "11.8 MB" */
+function fmtMB(bytes) {
+  return (bytes / 1048576).toFixed(bytes >= 104857600 ? 0 : 1) + ' MB';
+}
+
+/** 166.1 -> "2m 46s" */
+function fmtSecs(s) {
+  return s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${s.toFixed(1)}s`;
+}
+
+/**
+ * Rows of `name | bar(value) | share%`, capped at `top`.
+ * @param {{name: string, value: number}[]} items
+ * @param {(v: number) => string} fmt
+ */
+function barTable(items, fmt, top, totalOverride) {
+  const shown = items.slice(0, top);
+  const max = shown.reduce((m, r) => Math.max(m, r.value), 1);
+  const total = totalOverride || items.reduce((s, r) => s + r.value, 0) || 1;
+  return shown.map((r, i) =>
+    `<tr><td class="num rank">${i + 1}</td>` +
+    `<td class="name">${escapeHtml(r.name)}</td>` +
+    `<td class="bar-cell"><span class="bar" style="width:${(r.value / max * 100).toFixed(2)}%"></span>` +
+    `<span class="bar-label">${escapeHtml(fmt(r.value))}</span></td>` +
+    `<td class="num">${(r.value / total * 100).toFixed(1)}%</td></tr>`).join('\n');
+}
+
+/** @param {ReturnType<typeof buildBuildReport>} build */
+function renderBuildSection(build) {
+  if (!build) {
+    return `<h2>Build report</h2>
+  <p class="subtitle">No release binary found — run <code>environment/build.sh udev release</code>
+  (with <code>cargo build --timings</code> for compile-time data), then regenerate this report.</p>`;
+  }
+
+  const t = build.timings;
+  const text = build.sections?.find(s => s.name === '.text');
+  const tiles = [
+    [fmtMB(build.binBytes), 'binary size (unstripped)'],
+    text ? [fmtMB(text.size), '.text (code)'] : null,
+    t ? [fmtSecs(t.wallSeconds), 'clean-build wall time'] : null,
+    t ? [fmtSecs(t.cpuSeconds), 'total CPU time'] : null,
+    t ? [String(t.unitCount), 'compilation units'] : null,
+  ].filter(Boolean).map(([v, k]) =>
+    `<div class="tile"><div class="v">${escapeHtml(v)}</div><div class="k">${escapeHtml(k)}</div></div>`).join('\n    ');
+
+  const flags = `<p class="subtitle">Flags for <code>build.sh udev release</code>:
+  cargo <b>release</b> profile with no overrides${build.profileOverridden ? ' <b>(warning: a [profile] section now exists — update this line)</b>' : ''}
+  (opt-level=3, thin-local LTO, codegen-units=16, panic=unwind, no debug info, not stripped),
+  features <code>--no-default-features --features backend-native</code>,
+  rustflags from <code>.cargo/config.toml</code>: <code>${escapeHtml(build.rustflags.join(' ') || '(none)')}</code>.</p>`;
+
+  const parts = [`<h2>Build report — release binary</h2>`, flags, `<div class="tiles">\n    ${tiles}\n  </div>`];
+
+  if (t) {
+    parts.push(`<h2>Slowest crates to compile</h2>
+  <p class="subtitle">CPU seconds per crate summed over its units (build script + lib + bin),
+  from the cargo --timings report of ${escapeHtml(t.generatedAt)}. Wall time is lower — units compile in parallel.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th class="num">#</th><th>crate</th><th>compile CPU time</th><th class="num">% of total</th></tr></thead>
+    <tbody>\n${barTable(t.crates.map(c => ({ name: c.name, value: c.cpuSeconds })), v => v.toFixed(1) + 's', 40)}\n</tbody>
+  </table></div>`);
+  }
+
+  if (build.textByCrate) {
+    parts.push(`<h2>Binary code size by crate</h2>
+  <p class="subtitle">.text bytes attributed via nm symbol names. Monomorphized generics count
+  toward the crate that <em>defines</em> them — core/alloc/std/hashbrown are large because every
+  crate instantiates them, not because of their own code.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th class="num">#</th><th>crate</th><th>attributed code size</th><th class="num">% of code</th></tr></thead>
+    <tbody>\n${barTable(build.textByCrate.map(c => ({ name: c.name, value: c.bytes })), fmtMB, 40)}\n</tbody>
+  </table></div>`);
+  }
+
+  if (build.sections) {
+    parts.push(`<h2>Binary anatomy (ELF sections &gt; 1 MB)</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th class="num">#</th><th>section</th><th>size</th><th class="num">% of file</th></tr></thead>
+    <tbody>\n${barTable(build.sections.filter(s => s.size > 1048576).map(s => ({ name: s.name, value: s.size })), fmtMB, 20, build.binBytes)}\n</tbody>
+  </table></div>`);
+  }
+
+  if (build.rlibs.length) {
+    parts.push(`<h2>Largest compiled artifacts (.rlib)</h2>
+  <p class="subtitle">Compile/disk cost per crate, NOT final-binary share — the linker drops
+  unused code (ash is huge here but small in the binary).</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th class="num">#</th><th>crate</th><th>rlib size</th><th class="num">% of deps</th></tr></thead>
+    <tbody>\n${barTable(build.rlibs.map(r => ({ name: r.name, value: r.bytes })), fmtMB, 25)}\n</tbody>
+  </table></div>`);
+  }
+
+  return parts.join('\n\n  ');
+}
+
+function renderHtml({ roots, rows }, build) {
   const total = rows.length;
   const others = Math.max(1, total - 1);
   const maxBlast = rows.reduce((m, r) => Math.max(m, r.transitiveDependents), 0);
@@ -201,7 +489,7 @@ function renderHtml({ roots, rows }) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>y5 dependency complexity report</title>
+<title>y5 workspace report — dependencies &amp; build</title>
 <style>
   :root {
     color-scheme: light;
@@ -270,9 +558,10 @@ function renderHtml({ roots, rows }) {
 </head>
 <body>
 <main>
-  <h1>Dependency complexity report</h1>
-  <p class="subtitle">Blast radius per crate: how many other crates recompile when it changes.
-  Sorted most-blasting first.</p>
+  <h1>Workspace report</h1>
+  <p class="subtitle">Dependency blast radius per crate (how many other crates recompile when it
+  changes, sorted most-blasting first) plus, when a release build is present, binary size and
+  compile-time breakdowns.</p>
 
   <div class="tiles">
     <div class="tile"><div class="v">${total}</div><div class="k">internal crates</div></div>
@@ -281,6 +570,9 @@ function renderHtml({ roots, rows }) {
     <div class="tile"><div class="v">${avgBlast.toFixed(1)}</div><div class="k">avg blast radius</div></div>
   </div>
 
+  ${renderBuildSection(build)}
+
+  <h2>Blast radius per crate</h2>
   <div class="table-wrap">
   <table>
     <thead><tr>
@@ -324,6 +616,7 @@ function main() {
   };
 
   const model = buildModel();
+  const build = buildBuildReport(model.crates);
 
   if (argv.includes('--json')) {
     process.stdout.write(JSON.stringify({
@@ -331,6 +624,14 @@ function main() {
       crateCount: model.rows.length,
       workspaceRoots: model.roots.map(r => path.relative(REPO_ROOT, r)),
       crates: model.rows,
+      build: build && {
+        binary: { path: path.relative(REPO_ROOT, build.binPath), bytes: build.binBytes, mtime: build.binMtime },
+        rustflags: build.rustflags,
+        sections: build.sections,
+        textByCrate: build.textByCrate,
+        rlibs: build.rlibs,
+        timings: build.timings,
+      },
     }, null, 2) + '\n');
     return;
   }
@@ -357,8 +658,11 @@ function main() {
   const out = typeof flag('--out') === 'string'
     ? path.resolve(flag('--out'))
     : path.join(REPO_ROOT, 'workspace.report.html');
-  fs.writeFileSync(out, renderHtml(model), 'utf-8');
+  fs.writeFileSync(out, renderHtml(model, build), 'utf-8');
   console.log(`Analyzed ${model.rows.length} crates across ${model.roots.length} workspace roots.`);
+  console.log(build
+    ? `Build section: ${path.relative(REPO_ROOT, build.binPath)} (${fmtMB(build.binBytes)})`
+    : 'Build section: skipped (no release binary found)');
   console.log(`Report written to: ${out}`);
 }
 
