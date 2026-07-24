@@ -29,6 +29,9 @@ pub struct Settings {
     pub osk_world_position: bool,
     pub show_fps: bool,
     pub release_hidden: bool,
+    /// Fractional-scale strategy for invisible windows (Performance tab):
+    /// "off" / "optimized" / "full". Persisted + read live.
+    pub fractional_invisible: String,
     pub env: Environment,
     /// Input-method launch command (Misc tab), persisted to preferences.json.
     pub ime: Ime,
@@ -155,7 +158,7 @@ fn default_mode(d: &DisplayInfo) -> Option<ModeInfo> {
 
 impl Settings {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(env: Environment, cursor: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool, pen: compositor_developer_environment_preference_base::base::PenConfig) -> Self {
+    pub fn new(env: Environment, cursor: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, fractional_invisible: String, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool, pen: compositor_developer_environment_preference_base::base::PenConfig) -> Self {
         let active = snap.displays.iter().find(|d| d.active).cloned();
         let active_edid = active.as_ref().map(|d| d.edid_key.clone()).unwrap_or_default();
         let selected_mode = active.as_ref().and_then(default_mode);
@@ -170,6 +173,7 @@ impl Settings {
             osk_world_position,
             show_fps,
             release_hidden,
+            fractional_invisible,
             env,
             ime,
             keyboard,
@@ -297,6 +301,7 @@ impl IcedUi for Settings {
             SettingsMessage::OskWorldPosition(b) => self.osk_world_position = b,
             SettingsMessage::SetShowFps(b) => self.show_fps = b,
             SettingsMessage::SetReleaseHidden(b) => self.release_hidden = b,
+            SettingsMessage::SetFractionalInvisible(s) => self.fractional_invisible = s,
             SettingsMessage::Env(e) => {
                 self.env = e;
                 self.dirty = true;
@@ -510,6 +515,7 @@ impl IcedUi for Settings {
             self.osk_world_position,
             self.show_fps,
             self.release_hidden,
+            &self.fractional_invisible,
             &self.env,
             &self.displays,
             &self.touch_devices,

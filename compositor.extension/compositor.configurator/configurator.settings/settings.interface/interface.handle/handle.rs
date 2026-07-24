@@ -163,6 +163,12 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
             state.inner.preference.release_hidden_surfaces = b;
             let _ = pref::save(&state.inner.preference);
         }
+        SettingsMessage::SetFractionalInvisible(v) => {
+            // Invisible-window fractional-scale strategy ("off"/"optimized"/"full").
+            // Read live each frame by `update_fractional`, so no reboot needed.
+            state.inner.preference.fractional_invisible = v;
+            let _ = pref::save(&state.inner.preference);
+        }
         SettingsMessage::Env(e) => {
             let _ = compositor_developer_environment_config_base::base::save(&e);
         }

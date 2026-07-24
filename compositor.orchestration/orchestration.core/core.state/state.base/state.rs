@@ -422,6 +422,26 @@ impl Orchestrator {
             .inner
     }
 
+    /// The space of every world EXCEPT the hosted (spawn-target) one. Those
+    /// worlds' windows are invisible by definition (nothing renders them), so
+    /// the per-window fractional scale can publish scale 1 to them under the
+    /// `fractional_invisible` optimized/full strategies.
+    pub fn other_world_spaces(&self) -> Vec<&compositor_support_smithay_state_space_base::state::SpaceState> {
+        let hosted = self.worlds.spawn_target();
+        self.worlds
+            .ids()
+            .into_iter()
+            .filter(|&id| id != hosted)
+            .filter_map(|id| {
+                self.worlds
+                    .get(id)
+                    .storage()
+                    .try_get(&compositor_support_world_host_space_base::base::SPACE)
+            })
+            .map(|w| &w.inner)
+            .collect()
+    }
+
     /// The [`OutputKey`](compositor_orchestration_driver_output_base::base::OutputKey)
     /// of the output the focus accessors resolve against: the one being rendered
     /// (`render_output`, inside the per-output render loop), else the one under the

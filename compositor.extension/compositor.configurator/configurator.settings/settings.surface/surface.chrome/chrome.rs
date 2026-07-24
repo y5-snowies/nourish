@@ -76,14 +76,28 @@ fn titlebar<'a>(dirty: bool) -> El<'a> {
     container(title).style(style::strip).width(Length::Fill).padding(Padding::from([14, 22])).into()
 }
 
-fn performance<'a>(fps: u32, show_fps: bool, release_hidden: bool) -> El<'a> {
+fn performance<'a>(fps: u32, show_fps: bool, release_hidden: bool, fractional_invisible: &'a str) -> El<'a> {
     let cell = container(row![text("FRAME RATE").color(style::MUTED).width(Length::Fill), text(format!("{fps} FPS")).color(style::ACCENT)].align_y(Alignment::Center).padding(16))
         .style(style::card).width(Length::Fill);
     let overlay = container(row![text("FPS OVERLAY (per monitor)").color(style::MUTED).width(Length::Fill), toggler(show_fps).on_toggle(SettingsMessage::SetShowFps).style(control::toggler)].align_y(Alignment::Center).padding(16))
         .style(style::card).width(Length::Fill);
     let release = container(row![text("RELEASE HIDDEN SURFACE MEMORY").color(style::MUTED).width(Length::Fill), toggler(release_hidden).on_toggle(SettingsMessage::SetReleaseHidden).style(control::toggler)].align_y(Alignment::Center).padding(16))
         .style(style::card).width(Length::Fill);
-    column![text("PERFORMANCE").size(16).color(style::ACCENT), text("Live runtime metrics.").size(11).color(style::MUTED), cell, overlay, release].spacing(12).into()
+    // Invisible-window fractional scale: off (always update, historical) /
+    // optimized (freeze invisible; other worlds render at scale 1) / full
+    // (all invisible windows render at scale 1 to free client memory).
+    let mk = |label: &'a str, value: &'a str| {
+        let b = button(text(label).size(12)).on_press(SettingsMessage::SetFractionalInvisible(value.to_string()));
+        if fractional_invisible == value { b.style(control::accent) } else { b.style(control::action) }
+    };
+    let fractional = container(row![
+        text("INVISIBLE WINDOW SCALE").color(style::MUTED).width(Length::Fill),
+        mk("Off", "off"),
+        mk("Optimized", "optimized"),
+        mk("Full", "full"),
+    ].align_y(Alignment::Center).spacing(10).padding(16))
+        .style(style::card).width(Length::Fill);
+    column![text("PERFORMANCE").size(16).color(style::ACCENT), text("Live runtime metrics.").size(11).color(style::MUTED), cell, overlay, release, fractional].spacing(12).into()
 }
 
 /// The INPUT module: a sub-tab bar (Mouse & Touchpad / Touch / Keyboard) over the
@@ -203,7 +217,7 @@ fn touch_input<'a>(
 
 #[allow(clippy::too_many_arguments)]
 pub fn render<'a>(
-    tab: Tab, dirty: bool, cursor_sensitivity: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, env: &'a Environment,
+    tab: Tab, dirty: bool, cursor_sensitivity: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, fractional_invisible: &'a str, env: &'a Environment,
     displays: &'a [DisplayInfo], touch_devices: &'a [TouchDeviceInfo], active_edid: &'a str, selected_display: &'a str,
     selected_mode: Option<ModeInfo>, pending: Option<&'a Applied>,
     staged_active: Option<&'a (String, Option<ModeInfo>)>, confirming: bool,
@@ -236,7 +250,7 @@ pub fn render<'a>(
             Tab::Input(sub) => input_body(sub, cursor_sensitivity, natural, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, keys, touch_devices, displays, pen, pen_capturing),
             Tab::Network => network_tab::build(wifi, wifi_selected, wifi_password),
             Tab::Bluetooth => bluetooth_tab::build(bt),
-            Tab::Performance => performance(fps, show_fps, release_hidden),
+            Tab::Performance => performance(fps, show_fps, release_hidden, fractional_invisible),
             Tab::System => environment::build(env, devices),
             Tab::Misc => misc::build(protocol_foreign, protocol_foreign_all_worlds),
             Tab::Language => language::build(keyboard, catalog, lang_picker_open, lang_search, ime),

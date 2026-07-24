@@ -507,6 +507,7 @@ compositor_support_bevy_core_shared_base = { path = "../../compositor.support/su
 compositor_support_bevy_core_space_base = { path = "../../compositor.support/support.bevy/bevy.core/core.space/space.base" }
 compositor_support_bevy_core_surface_base = { path = "../../compositor.support/support.bevy/bevy.core/core.surface/surface.base" }
 compositor_support_iced_core_engine_base = { path = "../../compositor.support/support.iced/iced.core/core.engine/engine.base" }
+compositor_support_iced_font_default_base = { path = "../../compositor.support/support.iced/iced.font/font.default/default.base" }
 compositor_support_library_debug_client_base = { path = "../../compositor.support/support.library/library.debug/debug.client/client.base" }
 compositor_support_library_ease_velocity_base = { path = "../../compositor.support/support.library/library.ease/ease.velocity/velocity.base" }
 compositor_support_library_ease_velocity_ease = { path = "../../compositor.support/support.library/library.ease/ease.velocity/velocity.ease" }

@@ -130,6 +130,8 @@ pub enum SettingsMessage {
     SetShowFps(bool),
     /// Toggle releasing hidden iced surfaces' GPU memory (forwarded; persisted).
     SetReleaseHidden(bool),
+    /// Fractional-scale strategy for invisible windows: "off" | "optimized" | "full".
+    SetFractionalInvisible(String),
     /// A full edited Environment to write back to settings.json (forwarded;
     /// sets the reboot-dirty banner). Carrying the whole struct keeps one
     /// message variant instead of 19 field-specific ones.

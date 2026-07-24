@@ -3704,6 +3704,7 @@ dependencies = [
  "compositor_orchestration_world_manager_base",
  "compositor_remote_transport_server_base",
  "compositor_support_bevy_core_runtime_base",
+ "compositor_support_iced_font_default_base",
  "compositor_support_library_debug_client_base",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_dispatch_wire_trait",
@@ -5159,6 +5160,7 @@ dependencies = [
  "compositor_orchestration_draw_node_base",
  "compositor_orchestration_draw_platform_base",
  "compositor_orchestration_draw_scene_element",
+ "compositor_orchestration_driver_capture_base",
  "compositor_orchestration_driver_remote_base",
  "compositor_orchestration_seat_pointer_draw",
  "compositor_orchestration_seat_pointer_input",
@@ -5195,6 +5197,7 @@ dependencies = [
  "compositor_y5_touch_pane_create",
  "compositor_y5_viewport_layout_base",
  "compositor_y5_viewport_state_base",
+ "compositor_y5_window_interface_draw",
  "compositor_y5_window_interface_record",
  "compositor_y5_window_lifecycle_interface",
  "smithay",
@@ -6524,6 +6527,14 @@ dependencies = [
  "iced_widget",
  "thiserror 2.0.18",
  "wgpu",
+]
+
+[[package]]
+name = "compositor_support_iced_font_default_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_developer_debug_instance_record",
+ "iced_graphics",
 ]
 
 [[package]]

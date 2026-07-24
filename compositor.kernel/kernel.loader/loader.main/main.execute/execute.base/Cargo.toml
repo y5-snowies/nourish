@@ -70,6 +70,9 @@ compositor_developer_log_process_main = { workspace = true }
 compositor_developer_debug_instance_record = { workspace = true }
 # Central environment config — read once at the very top of main() (before logging).
 compositor_developer_environment_config_base = { workspace = true }
+# Embedded default UI font (Inter) — installed in main() before any iced
+# surface exists, so text renders on systems with no fonts installed.
+compositor_support_iced_font_default_base = { workspace = true }
 compositor_kernel_loader_main_priority_base = { workspace = true }
 compositor_kernel_loader_main_priority_arm = { workspace = true }
 # Opt-in experimental gpu_* flags — read once right after config (before logging).

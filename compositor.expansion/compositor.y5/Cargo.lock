@@ -3473,6 +3473,7 @@ dependencies = [
  "compositor_orchestration_draw_node_base",
  "compositor_orchestration_draw_platform_base",
  "compositor_orchestration_draw_scene_element",
+ "compositor_orchestration_driver_capture_base",
  "compositor_orchestration_driver_remote_base",
  "compositor_orchestration_seat_pointer_draw",
  "compositor_orchestration_seat_pointer_input",
@@ -3509,6 +3510,7 @@ dependencies = [
  "compositor_y5_touch_pane_create",
  "compositor_y5_viewport_layout_base",
  "compositor_y5_viewport_state_base",
+ "compositor_y5_window_interface_draw",
  "compositor_y5_window_interface_record",
  "compositor_y5_window_lifecycle_interface",
  "smithay",
@@ -7618,8 +7620,12 @@ version = "0.0.1"
 dependencies = [
  "compositor_developer_debug_instance_record",
  "compositor_orchestration_core_state_base",
+ "compositor_y5_camera_transform_translate",
  "compositor_y5_picker_seat_pointer",
+ "compositor_y5_picker_state_base",
  "compositor_y5_picker_system_base",
+ "compositor_y5_picker_three_constant",
+ "compositor_y5_picker_three_orient",
  "smithay",
 ]
 
@@ -7912,8 +7918,6 @@ dependencies = [
  "compositor_orchestration_driver_introspection_base",
  "compositor_support_smithay_state_compositor_base",
  "compositor_support_smithay_state_compositor_place",
- "compositor_support_smithay_state_fractional_base",
- "compositor_support_smithay_state_fractional_dispatch",
  "compositor_support_system_persist_mark_base",
  "compositor_support_world_order_track_base",
  "compositor_y5_camera_transform_translate",
@@ -8099,6 +8103,7 @@ dependencies = [
  "compositor_support_world_order_track_base",
  "compositor_y5_surface_draw_handle",
  "compositor_y5_surface_protocol_base",
+ "compositor_y5_window_interface_record",
  "smithay",
  "uuid",
 ]

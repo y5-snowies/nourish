@@ -68,6 +68,37 @@ fn project_rect(ctx: XformCtx, x: f64, y: f64, w: f64, h: f64) -> Rectangle<i32,
     Rectangle::new(tl, Size::from((br.x - tl.x, br.y - tl.y)))
 }
 
+/// True when the window's slot rect, projected through the current camera,
+/// overlaps the pane being drawn (`render_target`; full output when unset) —
+/// i.e. the window is actually on screen here, not merely mapped somewhere in
+/// the pannable world. Mirrors `crop_slot`'s projection below.
+fn on_pane(state: &mut Loop, window: &Window, size: Size<i32, Physical>) -> bool {
+    let Some(loc) = state.inner.space_state().state.element_location(window) else {
+        return false;
+    };
+    let sz = slot::expected_size(window).unwrap_or_else(|| window.geometry().size);
+    if sz.w <= 0 || sz.h <= 0 {
+        // Degenerate size (nothing committed yet): draw normally.
+        return true;
+    }
+    let ctx = state.viewport_context();
+    let rect = project_rect(ctx, loc.x as f64, loc.y as f64, sz.w as f64, sz.h as f64);
+    let pane = state
+        .inner
+        .render_target
+        .map(|rt| {
+            Rectangle::new(
+                Point::from((
+                    (rt.origin_logical.0 * ctx.scale).round() as i32,
+                    (rt.origin_logical.1 * ctx.scale).round() as i32,
+                )),
+                Size::from((rt.size_physical.0.round() as i32, rt.size_physical.1.round() as i32)),
+            )
+        })
+        .unwrap_or(Rectangle::new(Point::from((0, 0)), size));
+    rect.overlaps(pane)
+}
+
 /// Apply the fit transform to a native surface element: force a fixed geometry (so the result
 /// is independent of the scale the render path queries with), rescale about origin, relocate,
 /// crop. The native element must have been created at scale `force_scale`. `rescale` folds in
@@ -113,6 +144,14 @@ where
 
     // Skip drawing windows with their groups collapsed.
     if !force_capture && !window.visible(state) {
+        return (vec![], false);
+    }
+    // Geometric cull: a window whose slot projects outside the pane being drawn
+    // contributes nothing — skip its whole scene (surface-tree walk, decorations,
+    // fit), and `false` keeps it out of the presented set (no frame callbacks
+    // off-screen). Capture targets are exempt, same as the hidden-group override
+    // above: a recorded window keeps compositing wherever it is.
+    if !force_capture && !on_pane(state, window, size) {
         return (vec![], false);
     }
     let bound = compositor_y5_window_interface_draw::bound::calculate(

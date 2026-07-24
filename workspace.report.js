@@ -333,9 +333,12 @@ function buildBuildReport(crates) {
   if (!fs.existsSync(binPath)) return null;
   const binStat = fs.statSync(binPath);
 
-  // Does the loader workspace override cargo's release profile anywhere?
-  let wsRoot = path.dirname(target.targetDir);
-  const wsToml = fs.readFileSync(path.join(wsRoot, 'Cargo.toml'), 'utf-8');
+  // [profile.release] overrides in the bin-owning workspace root, as "k = v" strings.
+  const wsToml = fs.readFileSync(path.join(path.dirname(target.targetDir), 'Cargo.toml'), 'utf-8');
+  const prof = wsToml.replace(/#[^\n]*/g, '').match(/\[profile\.release\]([\s\S]*?)(?=\n\[|$)/);
+  const profileOverrides = prof
+    ? prof[1].split('\n').map(l => l.trim()).filter(l => /^[\w-]+\s*=/.test(l))
+    : [];
 
   return {
     binPath,
@@ -346,7 +349,7 @@ function buildBuildReport(crates) {
     rlibs: collectRlibSizes(target.targetDir),
     timings: parseTimings(target.targetDir),
     rustflags: readRustflags(),
-    profileOverridden: /\[profile[.\]]/.test(wsToml),
+    profileOverrides,
   };
 }
 
@@ -401,8 +404,10 @@ function renderBuildSection(build) {
     `<div class="tile"><div class="v">${escapeHtml(v)}</div><div class="k">${escapeHtml(k)}</div></div>`).join('\n    ');
 
   const flags = `<p class="subtitle">Flags for <code>build.sh udev release</code>:
-  cargo <b>release</b> profile with no overrides${build.profileOverridden ? ' <b>(warning: a [profile] section now exists — update this line)</b>' : ''}
-  (opt-level=3, thin-local LTO, codegen-units=16, panic=unwind, no debug info, not stripped),
+  cargo <b>release</b> profile ${build.profileOverrides.length
+    ? `overridden in the bin workspace root: <code>${escapeHtml(build.profileOverrides.join(', '))}</code>; defaults otherwise`
+    : 'with no overrides'}
+  (defaults: opt-level=3, thin-local LTO, codegen-units=16, panic=unwind, no debug info, not stripped),
   features <code>--no-default-features --features backend-native</code>,
   rustflags from <code>.cargo/config.toml</code>: <code>${escapeHtml(build.rustflags.join(' ') || '(none)')}</code>.</p>`;
 
@@ -627,6 +632,7 @@ function main() {
       build: build && {
         binary: { path: path.relative(REPO_ROOT, build.binPath), bytes: build.binBytes, mtime: build.binMtime },
         rustflags: build.rustflags,
+        profileOverrides: build.profileOverrides,
         sections: build.sections,
         textByCrate: build.textByCrate,
         rlibs: build.rlibs,

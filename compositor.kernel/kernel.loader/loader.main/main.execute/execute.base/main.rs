@@ -72,6 +72,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Install the embedded default UI font (Inter) into iced's lazy global font
+    // system while it is still untouched — before any engine/surface exists —
+    // so the sans-serif default resolves even on systems with no fonts.
+    compositor_support_iced_font_default_base::base::install();
+
     // Arm the persistence engine (spawn its writer thread) before any world flushes.
     compositor_support_system_persist_engine_base::base::init();
     info!(

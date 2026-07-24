@@ -32,6 +32,14 @@ fn default_release_hidden() -> bool {
     true
 }
 
+/// Default for `fractional_invisible`: `"full"` — invisible windows are frozen
+/// and published scale 1 (with the grace band pre-publishing real scales near
+/// pane edges), so both fresh installs and older `preferences.json` files get
+/// the resource-saving behavior unless explicitly set back to "optimized"/"off".
+fn default_fractional_invisible() -> String {
+    "full".to_string()
+}
+
 /// Per-monitor output preference. `identity = None` applies to any output
 /// (single-output-era default).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,6 +143,17 @@ pub struct Preference {
     /// On by default (Settings → Performance); off keeps every surface resident.
     #[serde(default = "default_release_hidden")]
     pub release_hidden_surfaces: bool,
+    /// Fractional-scale strategy for INVISIBLE windows — off-screen in every
+    /// viewport pane or parked in a non-hosted world (Settings → Performance;
+    /// read live per frame). `"off"` = invisible windows keep receiving
+    /// zoom-driven scale updates (the historical behavior). `"optimized"` =
+    /// invisible windows get no publishes until visible again; other worlds'
+    /// windows are published scale 1 so their clients drop hi-res buffers.
+    /// `"full"` = the hosted world's invisible windows are published scale 1
+    /// too. The real scale re-publishes on reveal. Capture targets always
+    /// count as visible and keep updating.
+    #[serde(default = "default_fractional_invisible")]
+    pub fractional_invisible: String,
     /// Per-output mode preferences, priority-ordered: the FIRST entry is the
     /// default/preferred output (see `display.base`'s `profiles.first()`).
     pub outputs: Vec<OutputProfile>,
@@ -485,6 +504,7 @@ impl Default for Preference {
             osk_world_position: false,
             show_fps: false,
             release_hidden_surfaces: true,
+            fractional_invisible: default_fractional_invisible(),
             outputs: Vec::new(),
             outputs_default_mode: None,
             outputs_layout: Vec::new(),
