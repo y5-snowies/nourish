@@ -107,7 +107,7 @@ pub fn wire(
     // vulkan — compose via VulkanRenderer and scan out through the same
     // DrmOutput. The GLES multigpu is still used for the per-frame
     // iced/bevy/parallax prepare(). Failure aborts unless fallback is opted in.
-    let env = compositor_developer_environment_config_base::base::get();
+    let env = compositor_model_environment_config_base::base::get();
     let mut vulkan_mode = !env.renderer.eq_ignore_ascii_case("gles");
     let vulkan_fallback = env.renderer_fallback;
     let mut vulkan = if vulkan_mode {
@@ -139,7 +139,7 @@ pub fn wire(
 
     // Record the active renderer once (after any GLES fallback). Producers skip
     // GLES-path-only resources (per-surface GlesTexture) when this is true.
-    compositor_developer_stats_registry_base::base::set_compositor_prefers_dmabuf(vulkan_mode);
+    compositor_model_stats_registry_base::base::set_compositor_prefers_dmabuf(vulkan_mode);
 
     // HDR (M5): opt-in via COMPOSITOR_HDR, Vulkan-only, and only on a
     // PQ-capable display. Until the full pipeline lands the path is incomplete;
@@ -172,7 +172,7 @@ pub fn wire(
     if let Some(vk) = vulkan.as_mut() {
         vk.set_hdr_enabled(hdr_active);
     }
-    compositor_developer_stats_registry_base::base::set_hdr_info(
+    compositor_model_stats_registry_base::base::set_hdr_info(
         hdr_active,
         hdr_caps.hdr_capable(),
         hdr_transfer,
@@ -198,6 +198,10 @@ pub fn wire(
             mode_revert: None,
             global: None,
             in_flight: false,
+            last_vblank: None,
+            render_start: None,
+            last_tear: false,
+            cap_wake: None,
         }],
         drm_output_manager: renderer.drm_output_manager,
         gpu_binding: renderer.gpu_binding.clone(),

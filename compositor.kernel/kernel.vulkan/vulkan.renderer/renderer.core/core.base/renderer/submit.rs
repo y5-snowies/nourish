@@ -3,7 +3,7 @@
 
 use ash::vk;
 use smithay::backend::renderer::sync::SyncPoint;
-use compositor_developer_stats_registry_base::base as stats;
+use compositor_model_stats_registry_base::base as stats;
 
 use crate::error::VulkanError;
 use crate::frame::DrawOp;
@@ -62,8 +62,8 @@ impl VulkanRenderer {
         // lazily on activation and torn down on deactivation. Placed AFTER the
         // drain point above: the teardown destroys objects the previous frame
         // may have had in flight, and needs no drain of its own here.
-        let gfx = compositor_developer_environment_graphics_base::base::get();
-        let zoom = compositor_developer_stats_registry_base::base::world_zoom() as f32;
+        let gfx = compositor_model_environment_graphics_base::base::get();
+        let zoom = compositor_model_stats_registry_base::base::world_zoom() as f32;
         let eff = gfx.effective(zoom);
         let aa_active = eff.active && !use_hdr;
         if aa_active {
@@ -94,7 +94,7 @@ impl VulkanRenderer {
                 .hdr_pipelines
                 .get(&format)
                 .expect("hdr pipeline ensured above");
-            let t = compositor_developer_stats_registry_base::base::hdr_tuning();
+            let t = compositor_model_stats_registry_base::base::hdr_tuning();
             hdr.update_tuning(&crate::hdr_composite::HdrTuningUbo {
                 enabled: t.enabled,
                 sdr_white_nits: t.sdr_white_nits,
@@ -168,7 +168,7 @@ impl VulkanRenderer {
             let fsr = aa_easu || aa_rcas;
             // Which pre-built sampler the composite draws bind for this method.
             use compositor_kernel_vulkan_pipeline_composite_base::composite::SamplerSel;
-            use compositor_developer_environment_graphics_base::base::AaMethod;
+            use compositor_model_environment_graphics_base::base::AaMethod;
             let comp_sel = if fsr {
                 // EASU/RCAS fetch integer texels (textureLoad) and only bilinear-
                 // sample for alpha; the mip samplers don't apply.

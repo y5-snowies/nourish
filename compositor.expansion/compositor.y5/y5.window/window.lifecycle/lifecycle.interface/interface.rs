@@ -113,8 +113,10 @@ pub fn hook(_loop: &mut Loop, renderer: &mut GlesRenderer) {
     _loop.schedule_redraw();
 }
 
-// Temp, should be an immediate invokation rather than through hook
 fn _initial_mapped(state: &mut Loop, window: Window) {
+    // Resolve the tearing target tag here and nowhere else: this is the one
+    // moment the window's process can be introspected off the commit path.
+    compositor_y5_window_lifecycle_pacer::pacer::tag(state, &window);
     // Windows must be registetred at sampler
     // topleevel only
     let restore_mapped =

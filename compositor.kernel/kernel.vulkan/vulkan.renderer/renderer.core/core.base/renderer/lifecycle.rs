@@ -11,7 +11,7 @@ use smithay::backend::renderer::{Bind, Color32F, ContextId, DebugFlags, Frame, R
 use smithay::backend::vulkan::PhysicalDevice;
 use smithay::utils::{Rectangle, Size, Transform};
 use std::collections::HashMap;
-use compositor_developer_stats_registry_base::base as stats;
+use compositor_model_stats_registry_base::base as stats;
 
 use crate::error::VulkanError;
 use super::VulkanRenderer;
@@ -43,7 +43,7 @@ impl VulkanRenderer {
         // behavior; `"infence_fallback_sync"` additionally self-tests the
         // first exported fence and degrades to synchronous mode if it never
         // signals. DEFAULT is synchronous `device_wait_idle`.
-        let renderer_sync = &compositor_developer_environment_config_base::base::get().renderer_sync;
+        let renderer_sync = &compositor_model_environment_config_base::base::get().renderer_sync;
         let fence_fallback_optin = renderer_sync.eq_ignore_ascii_case("infence_fallback_sync");
         let native_fence_optin =
             renderer_sync.eq_ignore_ascii_case("infence") || fence_fallback_optin;

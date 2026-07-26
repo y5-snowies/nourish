@@ -30,7 +30,7 @@ use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::renderer::{ContextId, DebugFlags, TextureFilter};
 use smithay::backend::vulkan::PhysicalDevice;
 use std::collections::HashMap;
-use compositor_developer_stats_registry_base::base as stats;
+use compositor_model_stats_registry_base::base as stats;
 
 use crate::texture::VulkanTexture;
 

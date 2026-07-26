@@ -74,6 +74,37 @@ pub struct OutputPipe {
     /// session resume. Single-output behaviour is unchanged (one pipe, its own
     /// vblank clears it every frame).
     pub in_flight: bool,
+    /// Tearing pacing state (`environment.tearing` policy). All of these use
+    /// `Instant`, NOT the kernel's vblank timestamp: that is CLOCK_MONOTONIC
+    /// (uptime) while the loop's own clock is `start_time.elapsed()`
+    /// (since-compositor-start), and mixing the two yields garbage deltas.
+    ///
+    /// The `Instant` of this pipe's last RETRACE — the phase reference for "how
+    /// long until the next one". Not the moment its event was observed: an async
+    /// flip completes mid-scanout, so `vblank::anchor` backs the dispatch delay
+    /// out using the kernel's own CLOCK_MONOTONIC stamp. Every retrace is
+    /// congruent modulo the refresh interval, so this stays exact as it ages —
+    /// only clock drift, not staleness, costs accuracy.
+    pub last_vblank: Option<std::time::Instant>,
+    /// When this pipe's last render began — the rate cap's start-to-start
+    /// reference. Measuring from the END of the previous frame would enforce
+    /// `min_interval + composite` rather than `min_interval`.
+    pub render_start: Option<std::time::Instant>,
+    /// Deadline of the currently-armed rate-cap wake-up timer, if any.
+    ///
+    /// The cap must DEFER a frame, never drop it: the ping handler consumes the
+    /// `needs_redraw` latch before calling the executor, and its lost-wakeup
+    /// guard only re-arms for pipes that are `in_flight`. A capped pipe is idle,
+    /// so a bare skip loses the latch and the loop freezes until unrelated input
+    /// schedules another redraw — the parallax's non-pinging
+    /// `schedule_redraw_post_vblank` cannot restart an idle cycle on its own.
+    /// Holding the deadline (rather than a token) keeps re-arming idempotent
+    /// without any timer bookkeeping: a stale one has simply already fired.
+    pub cap_wake: Option<std::time::Instant>,
+    /// Whether the in-flight frame was armed to tear. Read when its completion
+    /// event arrives so presentation feedback reports the truthful `Vsync` flag
+    /// and refresh kind for the frame that actually reached the screen.
+    pub last_tear: bool,
 }
 
 pub struct NativeRenderContext {

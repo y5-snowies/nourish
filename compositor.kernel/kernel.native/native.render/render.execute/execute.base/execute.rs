@@ -169,6 +169,12 @@ pub enum RenderScope {
     Crtc(smithay::reexports::drm::control::crtc::Handle),
 }
 
+/// Shortest rate-cap wait worth deferring for. A deferral costs a timerfd
+/// wake-up plus a ping round-trip back through the event loop; under roughly a
+/// millisecond that overhead exceeds the interval being enforced, so the cap
+/// would cost more rate than it saves.
+const CAP_DEFER_FLOOR: std::time::Duration = std::time::Duration::from_micros(1_000);
+
 pub fn execute(
     ctx_rc: Rc<RefCell<NativeRenderContext>>,
     loop_handle: LoopHandle<'static, Loop>,
@@ -202,7 +208,14 @@ pub fn execute(
     if ctx_ref.outputs.iter().all(|p| p.drm_output.is_none()) {
         return FrameOutcome::Idle;
     }
-    let frame_flags = compositor_kernel_scanout_plane_direct_base::direct::flags();
+    // Plane assignment is decided BEFORE this frame's scene exists, so it follows
+    // the policy resolved LAST frame. Deliberately not the config's potential:
+    // that would strip hardware planes (and the hardware cursor with them) the
+    // moment any selector is armed, including on a desktop that is merely waiting
+    // for a target and never tears.
+    let frame_flags = compositor_kernel_scanout_plane_direct_base::direct::flags(
+        compositor_support_smithay_state_tearing_gate::gate::tearing(),
+    );
 
     let gpu_binding = ctx_ref.gpu_binding.clone();
     let mut binding = gpu_binding.borrow_mut();
@@ -300,6 +313,82 @@ pub fn execute(
         if ctx_ref.outputs[output_idx].in_flight {
             continue;
         }
+        // Rate cap / pacing gate: with async flips the completion event arrives
+        // almost immediately, so nothing throttles the loop to the panel any
+        // more. `min_interval` is the policy's ceiling (a multiple of refresh,
+        // or the fixed target interval under `Paced`); holding the composite
+        // back here is the whole point — an unpaced loop renders frames the beam
+        // never reaches.
+        //
+        // This DEFERS, it does not drop. The caller already consumed the
+        // `needs_redraw` latch and its lost-wakeup guard only covers `in_flight`
+        // pipes, so a bare `continue` would leave nothing to wake the loop and
+        // freeze the compositor until unrelated input scheduled a redraw. Arm a
+        // one-shot timer for the remainder instead.
+        {
+            let pipe = &ctx_ref.outputs[output_idx];
+            let refresh = compositor_kernel_scanout_timing_vblank_base::vblank::interval(&pipe.mode);
+            // The cap belongs to whichever section is in force. Resolved from the
+            // PREVIOUS frame's engagement (`pacer::engaged`) rather than a fresh
+            // scene: the visible set is not known until the scene is built, which
+            // happens after this gate. A one-frame lag on a rate ceiling is
+            // immaterial; deferring the gate until after the render is not, since
+            // the whole point is to skip the composite.
+            let cfg = compositor_model_environment_tearing_config::config::get();
+            let scene_hint = compositor_model_environment_tearing_select::select::Scene {
+                target_visible: compositor_support_smithay_state_tearing_gate::gate::engaged(),
+                target_focused: compositor_support_smithay_state_tearing_gate::gate::engaged(),
+                any_focused: true,
+                any_visible: true,
+            };
+            let cap = compositor_y5_graphic_tearing_resolve::resolve::active(&cfg, scene_hint)
+                .min_interval(refresh);
+            // Measured START-to-START. Gating on the *end* of the previous frame
+            // would enforce `min + composite`, not `min` — the cap and the render
+            // would serialize instead of overlap, so even a cap far above the
+            // achievable rate would slow the loop down.
+            let held = match (cap, pipe.render_start) {
+                (Some(min), Some(started)) => min.checked_sub(started.elapsed()),
+                _ => None,
+            }
+            // Deferring costs a timerfd wake-up plus a ping round-trip through
+            // the event loop. Below that cost the deferral is more expensive than
+            // the interval it enforces — which is how a 20x cap (a 0.83ms
+            // interval on 60Hz, i.e. nominally no cap at all) ended up throttling
+            // harder than no cap. Round down to "render now" instead.
+            .filter(|remaining| *remaining > CAP_DEFER_FLOOR);
+            if let Some(remaining) = held {
+                let now = std::time::Instant::now();
+                // Re-arm only when no live timer covers this window; a deadline in
+                // the past belongs to a timer that has already fired.
+                if pipe.cap_wake.is_none_or(|deadline| deadline <= now) {
+                    let token = loop_handle
+                        .insert_source(
+                            smithay::reexports::calloop::timer::Timer::from_duration(remaining),
+                            move |_, _, state: &mut Loop| {
+                                // force_redraw (not schedule_redraw): the latch may
+                                // already read `true`, and only the unconditional
+                                // ping restarts an otherwise idle cycle.
+                                state.force_redraw();
+                                smithay::reexports::calloop::timer::TimeoutAction::Drop
+                            },
+                        )
+                        .ok();
+                    if token.is_some() {
+                        ctx_ref.outputs[output_idx].cap_wake = Some(now + remaining);
+                    } else {
+                        // Without a wake-up the loop would stall; rendering one
+                        // frame early is strictly better than freezing.
+                        warn!("rate-cap timer registration failed; compositing uncapped this frame");
+                        ctx_ref.outputs[output_idx].cap_wake = None;
+                    }
+                }
+                if ctx_ref.outputs[output_idx].cap_wake.is_some() {
+                    continue;
+                }
+            }
+        }
+        ctx_ref.outputs[output_idx].render_start = Some(std::time::Instant::now());
         // Multi-output: force a FULL redraw of this output this frame by resetting
         // the swapchain buffer ages (age 0 ⇒ the OutputDamageTracker clears the whole
         // target and submits ALL elements, instead of the partial/aged-buffer path).
@@ -372,7 +461,7 @@ pub fn execute(
                 ctx_ref.outputs[output_idx].hdr_active = false;
                 ctx_ref.outputs[output_idx].hdr_signalled = true; // don't retry every frame
                 let c = &ctx_ref.outputs[output_idx].hdr_caps;
-                compositor_developer_stats_registry_base::base::set_hdr_info(
+                compositor_model_stats_registry_base::base::set_hdr_info(
                     false,
                     c.hdr_capable(),
                     "SDR",
@@ -1049,16 +1138,132 @@ fn present(
 ) -> bool {
     use compositor_kernel_scanout_flip_queue_base::queue::{queue, QueueOutcome};
 
+    // Resolve which policy section governs this frame, from what is actually on
+    // screen. Recomputed every frame off the drawn set, so panning away from a
+    // target — even a frozen one — restores normal scheduling by itself; there
+    // is no latched state to get stuck in.
+    let active = {
+        use compositor_support_smithay_state_tearing_gate::gate;
+        use compositor_support_smithay_state_tearing_pacer::pacer;
+        use compositor_model_environment_tearing_select::select::{Exclusivity, Scene};
+        use smithay::wayland::seat::WaylandFocus;
+
+        // The tag lives on the SURFACE — both `wp_tearing_control_v1` and the
+        // exec heuristic write it there — so it is the single source of truth.
+        let tagged = |w: &smithay::desktop::Window| {
+            w.wl_surface().is_some_and(|s| {
+                smithay::wayland::compositor::with_states(s.as_ref(), |states| {
+                    states
+                        .data_map
+                        .get::<pacer::PacerSurface>()
+                        .is_some_and(|tag| tag.get())
+                })
+            })
+        };
+        let focus = state.state.seat.seat.get_keyboard().and_then(|kb| kb.current_focus());
+        let scene = Scene {
+            target_visible: window_visible.iter().any(tagged),
+            target_focused: focus.as_ref().is_some_and(|f| {
+                window_visible
+                    .iter()
+                    .filter(|w| tagged(w))
+                    .any(|w| w.wl_surface().is_some_and(|s| s.as_ref() == f))
+            }),
+            any_focused: focus.is_some(),
+            any_visible: !window_visible.is_empty(),
+        };
+
+        let cfg = compositor_model_environment_tearing_config::config::get();
+        let active = compositor_y5_graphic_tearing_resolve::resolve::active(&cfg, scene);
+
+        // Stamp what the scene actually drew, for the `Visible` gate. A stamp
+        // rather than a flag: the scene knows what it drew, never what it didn't,
+        // so there is no moment at which every other surface could be cleared.
+        let frame = gate::advance_frame();
+        for w in &window_visible {
+            if let Some(s) = w.wl_surface() {
+                smithay::wayland::compositor::with_states(s.as_ref(), |states| {
+                    states.data_map.insert_if_missing(gate::VisibleSurface::default);
+                    if let Some(v) = states.data_map.get::<gate::VisibleSurface>() {
+                        v.stamp(frame);
+                    }
+                });
+            }
+        }
+
+        // Translate the user-facing exclusivity into the gate the Wayland
+        // dispatch enforces per commit. `Off` when the rule is not in force, so
+        // the dispatch never has to know about policy, scenes or windows.
+        let excl = active.exclusivity();
+        let g = if excl.engaged(scene) {
+            match excl {
+                Exclusivity::None => gate::Gate::Off,
+                Exclusivity::Exclusive => gate::Gate::Tagged,
+                Exclusivity::ExclusiveFocused => gate::Gate::TaggedFocused,
+                Exclusivity::Focused => gate::Gate::Focused,
+                Exclusivity::Visible => gate::Gate::Visible,
+            }
+        } else {
+            gate::Gate::Off
+        };
+        if gate::set(g) {
+            info!("tearing: redraw gate = {g:?} ({excl:?}, scene={scene:?})");
+        }
+        // Publish for the NEXT frame's plane assignment.
+        let refresh = compositor_kernel_scanout_timing_vblank_base::vblank::interval(
+            &ctx_ref.outputs[output_idx].mode,
+        );
+        if gate::set_tearing(active.may_tear(refresh)) {
+            info!(
+                "tearing: planes {} for the next frame",
+                if active.may_tear(refresh) { "OFF (composited)" } else { "ON (direct scanout)" }
+            );
+        }
+        pacer::note_composite();
+        active
+    };
+
     let current_output = ctx_ref.outputs[output_idx].output.clone();
     let feedback = compositor_kernel_graphic_draw_present_callbacks::callbacks::collect_feedback(
         &current_output,
         &window_visible,
     );
 
+    // Per-frame tearing decision. The FrameFlags half (plane assignment on/off)
+    // is a mode-level property owned by `plane.direct`; this is the flip half.
+    // The two MUST agree: a promoted overlay or cursor plane combined with the
+    // async flag is an illegal commit that the kernel rejects outright.
+    let tear = {
+        let now = std::time::Instant::now();
+        let pipe = &mut ctx_ref.outputs[output_idx];
+        let refresh = compositor_kernel_scanout_timing_vblank_base::vblank::interval(&pipe.mode);
+        // Time left in the current refresh interval, extrapolated from the last
+        // anchored retrace. `None` until this pipe has flipped once, which
+        // `tear_now` reads as "unknown timing → prefer the clean frame".
+        let until_vblank = pipe.last_vblank.map(|anchor| {
+            compositor_kernel_scanout_timing_vblank_base::vblank::until_next(anchor, now, refresh)
+        });
+        // This frame is going out, so any armed cap wake-up is spent.
+        pipe.cap_wake = None;
+        // Gated on the SAME value that chose this frame's plane flags. They must
+        // agree: an async flip on a frame that still has planes armed carries two
+        // planes and the kernel rejects it. On the frame a target first appears
+        // the flags are still from the previous resolution, so this yields one
+        // ordinary vsync'd frame rather than a rejected commit.
+        let tear = active.tear_now(until_vblank, refresh)
+            && compositor_support_smithay_state_tearing_gate::gate::tearing();
+        pipe.last_tear = tear;
+        tear
+    };
+
     let resuming = !(*state.inner.kernel.get(&compositor_orchestration_driver_resume_base::base::VBLANK_SEEN));
     // Scope the drm_output borrow so the `Failed` arm can tear the pipe down.
     let outcome = {
         let Some(drm_output) = ctx_ref.outputs[output_idx].drm_output.as_mut() else { return false };
+        // Arm the flip mode for THIS commit. `queue_frame` submits synchronously
+        // (y5's per-pipe `in_flight` guard keeps `pending_frame` empty), so the
+        // set-then-queue ordering is race-free.
+        drm_output.with_compositor(|c| c.set_tearing(tear));
         queue(drm_output, Some(feedback), resuming)
     };
     match outcome {

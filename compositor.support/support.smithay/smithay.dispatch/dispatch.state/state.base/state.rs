@@ -138,10 +138,57 @@ pub struct Dispatch {
 
 // ── Redraw scheduling (inlined; handlers call these on Dispatch) ──────────────
 impl Dispatch {
+    /// Animation continuation: keep an already-running cycle going for the next
+    /// frame. Called from inside the scene build by perpetual sources — the
+    /// parallax background re-arms this on EVERY composited frame, which is what
+    /// makes the compositor free-run without any client involvement.
+    ///
+    /// That is exactly what exclusive pacing must stop. Gating only client
+    /// commits is not enough: the background alone sustains the loop, so the
+    /// pacer's cadence could never reach the flip rate. Under exclusive pacing
+    /// the tagged client is the sole continuation source, and the floor watchdog
+    /// (`pacer::FLOOR`) is what keeps animation alive at 30fps regardless.
+    ///
+    /// Event-driven redraws (`schedule_redraw`) and the in-flight re-arm
+    /// (`rearm_redraw`) are deliberately NOT gated here — those are what let you
+    /// pan away from a pacer that has stopped committing.
     #[inline]
-    pub fn schedule_redraw_post_vblank(&mut self) { self.needs_redraw = true; }
+    pub fn schedule_redraw_post_vblank(&mut self) {
+        if compositor_support_smithay_state_tearing_gate::gate::engaged() {
+            return;
+        }
+        self.needs_redraw = true;
+    }
+
+    /// Ungated re-arm for the lost-wakeup guard: a ping consumed the latch while
+    /// a flip was in flight, so that pipe's pending vblank still needs to find
+    /// `needs_redraw` set. Bounded by definition (it only fires with a flip
+    /// actually in flight), so exclusive pacing leaves it alone.
+    #[inline]
+    pub fn rearm_redraw(&mut self) { self.needs_redraw = true; }
+    /// Event-driven redraw (input, window lifecycle, popups, OSK, capture …).
+    ///
+    /// Under exclusive pacing this is silenced: the tagged client is the ONLY
+    /// thing permitted to start a frame, so the flip cadence is exactly its
+    /// commit cadence. State changes still land — a camera pan updates the
+    /// camera, it simply does not schedule a frame of its own — and the next
+    /// pacer-driven (or floor-watchdog) composite renders them.
+    ///
+    /// This makes `pacer::FLOOR` load-bearing: it is now the only thing keeping
+    /// the desktop responsive while paced, and the only reason panning away from
+    /// a stalled pacer can release engagement at all (engagement is recomputed
+    /// per frame from the visible set, so it needs frames to be produced).
     #[inline]
     pub fn schedule_redraw(&mut self) {
+        if compositor_support_smithay_state_tearing_gate::gate::engaged() { return; }
+        self.schedule_redraw_unchecked();
+    }
+
+    /// The scheduling body, bypassing the exclusive-pacing gate. Used for the
+    /// pacer's own commits, which by definition must always be able to drive a
+    /// frame — they are the cadence.
+    #[inline]
+    pub fn schedule_redraw_unchecked(&mut self) {
         if self.needs_redraw { return; }
         self.needs_redraw = true;
         if !self.render_in_flight {
@@ -305,6 +352,28 @@ mod color_impls {
     use compositor_support_smithay_dispatch_wire_color::color as cm;
     use compositor_support_smithay_dispatch_wire_colorsurf::colorsurf as cs;
     use super::Dispatch;
+
+    use smithay::reexports::wayland_protocols::wp::tearing_control::v1::server::{
+        wp_tearing_control_manager_v1::{self, WpTearingControlManagerV1},
+        wp_tearing_control_v1::{self, WpTearingControlV1},
+    };
+    use compositor_support_smithay_dispatch_wire_tearing::tearing as tc;
+
+    impl GlobalDispatch<WpTearingControlManagerV1, ()> for Dispatch {
+        fn bind(_: &mut Self, _: &DisplayHandle, _: &Client, resource: New<WpTearingControlManagerV1>, _: &(), di: &mut DataInit<'_, Self>) {
+            di.init(resource, ());
+        }
+    }
+    impl WLDispatch<WpTearingControlManagerV1, ()> for Dispatch {
+        fn request(_: &mut Self, _: &Client, _: &WpTearingControlManagerV1, request: wp_tearing_control_manager_v1::Request, _: &(), _: &DisplayHandle, di: &mut DataInit<'_, Self>) {
+            tc::dispatch_manager(request, di);
+        }
+    }
+    impl WLDispatch<WpTearingControlV1, WlSurface> for Dispatch {
+        fn request(_: &mut Self, _: &Client, _: &WpTearingControlV1, request: wp_tearing_control_v1::Request, surface: &WlSurface, _: &DisplayHandle, _: &mut DataInit<'_, Self>) {
+            tc::dispatch_control(request, surface);
+        }
+    }
 
     impl GlobalDispatch<WpColorManagerV1, ()> for Dispatch {
         fn bind(_: &mut Self, _: &DisplayHandle, _: &Client, resource: New<WpColorManagerV1>, _: &(), di: &mut DataInit<'_, Self>) {
@@ -780,7 +849,54 @@ mod handler_impls {
                 }
             }
             self.committed.push(surface.clone());
-            self.schedule_redraw();
+            // Exclusive pacing: while a tagged client is visible, only tagged
+            // clients' commits may drive the flip cadence — that is what makes
+            // every flip carry exactly one of their frames. The commit itself is
+            // still fully processed above; only the redraw trigger is withheld,
+            // so a neighbour's content is simply picked up by the next composite
+            // a pacer causes.
+            //
+            // Scoped to CLIENT commits on purpose. Input, camera and animation
+            // redraws all reach `schedule_redraw` by other paths and stay live,
+            // which is what lets you pan away from a pacer that has stopped
+            // committing instead of being stuck looking at it.
+            {
+                use compositor_support_smithay_state_tearing_gate::gate;
+                use compositor_support_smithay_state_tearing_pacer::pacer;
+                let g = gate::get();
+                if g == gate::Gate::Off {
+                    self.schedule_redraw();
+                } else {
+                    // Each gate asks a different question of the surface, so all
+                    // three properties are resolved here rather than assuming the
+                    // tag: `Focused` admits the focused window whether or not it
+                    // is tagged, and `Visible` admits anything the scene drew.
+                    let focus = self
+                        .seat
+                        .seat
+                        .get_keyboard()
+                        .and_then(|kb| kb.current_focus());
+                    let focused = focus.is_some_and(|f| &f == surface);
+                    let frame = gate::frame();
+                    let (tagged, visible) = compositor::with_states(surface, |states| {
+                        (
+                            states
+                                .data_map
+                                .get::<pacer::PacerSurface>()
+                                .is_some_and(|t| t.get()),
+                            states
+                                .data_map
+                                .get::<gate::VisibleSurface>()
+                                .is_some_and(|v| v.fresh(frame)),
+                        )
+                    });
+                    // `_unchecked` because `schedule_redraw` is itself gated while
+                    // engaged — this IS the cadence, so it must bypass the gate.
+                    if g.admits(tagged, focused, visible) {
+                        self.schedule_redraw_unchecked();
+                    }
+                }
+            }
         }
     }
     impl DmabufHandler for Dispatch {
