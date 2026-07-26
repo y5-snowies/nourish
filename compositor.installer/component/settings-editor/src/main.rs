@@ -22,7 +22,7 @@ mod select;
 mod template;
 mod term;
 
-use compositor_developer_environment_config_base::base::{resolve_path, Environment};
+use compositor_model_environment_config_base::base::{resolve_path, Environment};
 use std::path::Path;
 
 fn main() {

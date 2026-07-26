@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use bevy::asset::Handle;
 use bevy::image::Image;
 use bevy::prelude::Resource;
-use compositor_developer_debug_instance_record::trace;
+use compositor_model_debug_instance_record::trace;
 
 #[derive(Clone)]
 pub struct BridgeEntry {

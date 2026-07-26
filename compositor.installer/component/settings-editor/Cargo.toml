@@ -22,7 +22,7 @@ path = "src/main.rs"
 [dependencies]
 # The single source of truth for the settings schema + path resolution. Same
 # crate the compositor uses; sharing it by path makes drift impossible.
-compositor_developer_environment_config_base = { path = "../../../compositor.developer/developer.environment/environment.config/config.base" }
+compositor_model_environment_config_base = { path = "../../../compositor.model/model.environment/environment.config/config.base" }
 # GPU render-node enumeration + estimated card names (pure std::fs, zero deps).
 # The SAME method the in-compositor settings window uses, shared by path so the
 # names shown here match what the compositor reports.
@@ -30,7 +30,7 @@ compositor_configurator_hardware_gpu_base = { path = "../../../compositor.extens
 # The live preferences schema + atomic load/save (preferences.json). Same crate
 # the compositor reads, so per-monitor mode preferences this tool writes are
 # byte-identical to what the compositor expects.
-compositor_developer_environment_preference_base = { path = "../../../compositor.developer/developer.environment/environment.preference/preference.base" }
+compositor_model_environment_preference_base = { path = "../../../compositor.model/model.environment/environment.preference/preference.base" }
 serde_json = "1"
 # Direct DRM connector/mode/EDID probing so the per-monitor preferences editor
 # works standalone (during install, before any compositor session). Same crate

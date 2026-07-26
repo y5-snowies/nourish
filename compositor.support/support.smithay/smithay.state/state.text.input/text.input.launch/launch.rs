@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 
 use smithay::reexports::wayland_server::{Client, DisplayHandle};
 
-use compositor_developer_environment_preference_base::base::Ime;
+use compositor_model_environment_preference_base::base::Ime;
 
 /// pid (== process-group id) of the launched IME; `0` before launch / if none started.
 static IME_PGID: AtomicI32 = AtomicI32::new(0);

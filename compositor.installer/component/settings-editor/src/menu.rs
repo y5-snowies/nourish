@@ -6,7 +6,7 @@
 use crate::select::{select_list, Item};
 use crate::term::Nav;
 use crate::{edit, preferences, persist};
-use compositor_developer_environment_config_base::base::Environment;
+use compositor_model_environment_config_base::base::Environment;
 use std::path::Path;
 
 /// Loop the menu until the user escapes. `base` is the starting settings (existing

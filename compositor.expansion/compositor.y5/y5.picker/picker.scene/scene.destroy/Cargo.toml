@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 # Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 compositor_orchestration_core_state_base = { workspace = true }
 compositor_y5_picker_system_base = { workspace = true }
 compositor_y5_picker_state_base = { workspace = true }

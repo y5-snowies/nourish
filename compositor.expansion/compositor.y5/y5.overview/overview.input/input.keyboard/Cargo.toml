@@ -13,7 +13,7 @@ compositor_y5_overview_interface_activate = { workspace = true }
 compositor_y5_picker_interface_embed = { workspace = true }
 compositor_monitor_compositor_iced_base = { workspace = true }
 # Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 
 [lib]
 path = "lib.rs"

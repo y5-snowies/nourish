@@ -14,7 +14,7 @@ compositor_introspection_execution_launch_types = { workspace = true }
 compositor_orchestration_core_state_base = { workspace = true }
 compositor_orchestration_launch_broadcast_base = { workspace = true }
 compositor_orchestration_environment_type_base = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 
 [package.metadata.lint]
 allow = ["size"]

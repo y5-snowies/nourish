@@ -13,7 +13,7 @@ use compositor_support_bevy_core_scene_base::BevyScene;
 use compositor_support_bevy_core_shared_base::SharedContext;
 use compositor_support_bevy_core_space_base::BevySpace;
 use compositor_support_bevy_core_surface_base::BevySurface;
-use compositor_developer_debug_instance_record::trace;
+use compositor_model_debug_instance_record::trace;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Physical, Point, Size};
 

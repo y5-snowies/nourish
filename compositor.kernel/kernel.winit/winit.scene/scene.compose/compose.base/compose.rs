@@ -59,7 +59,7 @@ pub fn draw(state: &mut Loop, context: &mut WinitRenderContext) {
     present(context, state, visible);
 
     // One presented frame on this output (winit vsyncs to the host compositor).
-    compositor_developer_stats_registry_base::base::present(&output_key);
+    compositor_model_stats_registry_base::base::present(&output_key);
 }
 
 fn compose(
@@ -153,7 +153,7 @@ fn compose(
                             warn!("winit: vulkan target realloc failed ({e}); falling back to GLES (COMPOSITOR_RENDERER_FALLBACK)");
                             context.vulkan_mode = false;
                             // Runtime fallback to GLES: re-enable GLES-path resources.
-                            compositor_developer_stats_registry_base::base::set_compositor_prefers_dmabuf(false);
+                            compositor_model_stats_registry_base::base::set_compositor_prefers_dmabuf(false);
                         }
                         Err(e) => abort!(
                             "vulkan target realloc failed on resize: {e} \
@@ -192,7 +192,7 @@ fn compose(
             //            Vulkan texture. If green shows, the GLES blit/present
             //            itself is fine (so a black "vk"/normal run means the
             //            Vulkan-rendered dmabuf samples black = interop broken).
-            let diag = compositor_developer_environment_config_base::base::get()
+            let diag = compositor_model_environment_config_base::base::get()
                 .vk_diag
                 .as_str();
             if !diag.is_empty() {

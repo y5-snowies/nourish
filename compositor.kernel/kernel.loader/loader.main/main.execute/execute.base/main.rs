@@ -4,7 +4,7 @@ mod event_loop;
 mod wayland;
 pub mod wgpu;
 
-use compositor_developer_debug_instance_record::{info, trace, warn};
+use compositor_model_debug_instance_record::{info, trace, warn};
 
 use crate::wgpu::initialize_wgpu_context;
 use smithay::reexports::calloop::channel as cl_channel;
@@ -35,12 +35,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // config. This must run before anything else — including logging, which reads
     // `log_level` from it — and panics immediately if the var is unset or any
     // required field is missing/malformed. It is the ONLY place env config is read.
-    compositor_developer_environment_config_base::base::init();
+    compositor_model_environment_config_base::base::init();
 
     // Aggregate the opt-in experimental `gpu_*` flags (experimental.json). Lenient:
     // a missing/invalid file leaves the flag set empty, so defaults are unchanged.
     // Read here, right after config; unrecognized flags are warned once below.
-    compositor_developer_environment_experimental_base::base::init();
+    compositor_model_environment_experimental_base::base::init();
 
     // Block SIGCHLD before any thread spawns, so the launch reaper's signalfd is
     // the sole consumer (no-op under the Direct backend).
@@ -51,13 +51,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Start the developer logging process (fan-in buffer + drain/print + gRPC stream).
     // Levels come from COMPOSITOR_LOG_LEVEL.
-    compositor_developer_log_process_main::spawn();
+    compositor_model_log_process_main::spawn();
     info!("y5_compositor {VERSION}");
 
     // Now that logging is up, surface the experimental flag state (the crate itself
     // has no logging dep, so it can't warn at parse time).
     {
-        use compositor_developer_environment_experimental_base::base as experimental;
+        use compositor_model_environment_experimental_base::base as experimental;
         let gpu_flags = experimental::get();
         if !gpu_flags.is_empty() {
             info!("experimental gpu flags active: {gpu_flags:?}");
@@ -89,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Record the renderer/sync-relevant config for the developer Statistics tab.
     // Built from the parsed config (not the environment), keeping the COMPOSITOR_*
     // display names the viewer already shows.
-    let e = compositor_developer_environment_config_base::base::get();
+    let e = compositor_model_environment_config_base::base::get();
 
     // CPU scheduling boost (settings.json `priority`): applied here — logging
     // is up (the ladder logs which mechanism succeeded), and no worker threads
@@ -108,10 +108,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("COMPOSITOR_LOG_LEVEL".to_string(), e.log_level.clone()),
         (
             "EXPERIMENTAL_GPU_FLAGS".to_string(),
-            format!("{:?}", compositor_developer_environment_experimental_base::base::get()),
+            format!("{:?}", compositor_model_environment_experimental_base::base::get()),
         ),
     ];
-    compositor_developer_stats_registry_base::base::set_env_flags(env_flags);
+    compositor_model_stats_registry_base::base::set_env_flags(env_flags);
 
     info!("Create an event loop");
     // Creates Smithay event loop
@@ -388,11 +388,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         const WGPU_INIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
         let iced_ctx = iced_context_rx
             .recv_timeout(WGPU_INIT_TIMEOUT)
-            .unwrap_or_else(|e| compositor_developer_debug_instance_record::abort!("iced wgpu context never arrived: {e:?}"));
+            .unwrap_or_else(|e| compositor_model_debug_instance_record::abort!("iced wgpu context never arrived: {e:?}"));
         let bevy_ctx = std::sync::Arc::new(
             bevy_context_rx
                 .recv_timeout(WGPU_INIT_TIMEOUT)
-                .unwrap_or_else(|e| compositor_developer_debug_instance_record::abort!("bevy wgpu context never arrived: {e:?}")),
+                .unwrap_or_else(|e| compositor_model_debug_instance_record::abort!("bevy wgpu context never arrived: {e:?}")),
         );
         info!("wgpu contexts received — pre-creating driver registries");
 
@@ -427,14 +427,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .and_then(|s| s.registry.as_ref())
             .is_none()
         {
-            compositor_developer_debug_instance_record::abort!("main world iced registry missing after prewarm");
+            compositor_model_debug_instance_record::abort!("main world iced registry missing after prewarm");
         }
         if main
             .try_get_mut(&compositor_background_three_system_base::base::BG_THREE_MUT)
             .and_then(|t| t.registry.as_ref())
             .is_none()
         {
-            compositor_developer_debug_instance_record::abort!("main world bevy registry missing after prewarm");
+            compositor_model_debug_instance_record::abort!("main world bevy registry missing after prewarm");
         }
         info!("driver registries pre-created and asserted present");
     }
@@ -449,7 +449,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::validate() {
             Ok(proof) => info!("vulkan-validate: OK — {proof}"),
             Err(e) => {
-                use compositor_developer_debug_instance_record::error;
+                use compositor_model_debug_instance_record::error;
                 error!("vulkan-validate: FAILED — {e}");
             }
         }
@@ -486,7 +486,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             compositor_orchestration_draw_state_lifecycle::lifecycle::sampler_result(state, result);
         })
-        .unwrap_or_else(|e| compositor_developer_debug_instance_record::abort!("register sampler results source: {e:?}"));
+        .unwrap_or_else(|e| compositor_model_debug_instance_record::abort!("register sampler results source: {e:?}"));
 
     // App-launch executor (kernel.execution): builds the Executor driver, stores
     // it as driver data, and wires its calloop sources (off-thread worker outcome
@@ -499,7 +499,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // created from here on, the IME below and every launched client included,
     // start at default scheduling.
     compositor_kernel_loader_main_priority_arm::arm::arm(
-        &compositor_developer_environment_config_base::base::get().priority,
+        &compositor_model_environment_config_base::base::get().priority,
     );
 
     // Launch the compositor-owned input method configured in `preferences.json`

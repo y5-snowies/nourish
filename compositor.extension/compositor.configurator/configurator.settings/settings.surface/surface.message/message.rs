@@ -1,7 +1,7 @@
 //! The settings-window message type, shared by the view + tab builders + the
 //! surface protocol/handler. iced-free so the protocol crate can name it.
-use compositor_developer_environment_config_base::base::Environment;
-use compositor_developer_environment_preference_base::base::{Ime, KeyboardLayout, PenBindTarget, PenConfig};
+use compositor_model_environment_config_base::base::Environment;
+use compositor_model_environment_preference_base::base::{Ime, KeyboardLayout, PenBindTarget, PenConfig};
 use compositor_orchestration_driver_output_base::base::{ApplyResult, DisplayInfo, ModeInfo, TouchDeviceInfo};
 
 /// A provisional per-monitor mode change the user can Keep/Revert: the target
@@ -33,6 +33,20 @@ pub enum InputTab {
     Pen,
 }
 
+/// Sub-sections of the GRAPHICS module. Carried inside `Tab::Graphics` for the
+/// same reason as [`InputTab`] — the selection round-trips through the session
+/// `SettingsState` u8 and is restored on the next open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum GraphicsTab {
+    /// Anti-aliasing: the minification method and its per-zoom knobs.
+    #[default]
+    Aa,
+    /// FSR: the EASU / RCAS magnification filters.
+    Fsr,
+    /// Page-flip policy — tearing, its pacing fallback, and target tagging.
+    Pacing,
+}
+
 /// The settings modules shown in the sidebar (design: SYSTEM CONFIGURATION).
 /// `Input` merges the former Cursor + Keys (now sub-tabbed via [`InputTab`]);
 /// `System` is the Environment editor.
@@ -50,8 +64,8 @@ pub enum Tab {
     Language,
     /// Per-world settings for the active world (background shader, …).
     World,
-    /// Graphics / anti-aliasing tuning for the pannable world.
-    Graphics,
+    /// Graphics tuning for the pannable world: AA, FSR, and the flip policy.
+    Graphics(GraphicsTab),
 }
 
 impl Tab {
@@ -61,20 +75,22 @@ impl Tab {
         match self {
             Tab::Display => 0, Tab::Audio => 1, Tab::Input(InputTab::Mouse) => 2, Tab::Network => 3,
             Tab::Bluetooth => 4, Tab::Performance => 5, Tab::System => 6, Tab::Misc => 7,
-            Tab::World => 8, Tab::Graphics => 9, Tab::Language => 10,
-            // Extend past the original range so existing persisted indices (Mouse = 2)
-            // stay stable; only the two new Input sub-tabs claim fresh slots.
+            Tab::World => 8, Tab::Graphics(GraphicsTab::Aa) => 9, Tab::Language => 10,
+            // Extend past the original range so existing persisted indices (Mouse = 2,
+            // Graphics = 9) stay stable; only new sub-tabs claim fresh slots.
             Tab::Input(InputTab::Touch) => 11, Tab::Input(InputTab::Keyboard) => 12,
             Tab::Input(InputTab::Pen) => 13,
+            Tab::Graphics(GraphicsTab::Fsr) => 14, Tab::Graphics(GraphicsTab::Pacing) => 15,
         }
     }
     pub fn from_index(i: u8) -> Self {
         match i {
             1 => Tab::Audio, 2 => Tab::Input(InputTab::Mouse), 3 => Tab::Network, 4 => Tab::Bluetooth,
             5 => Tab::Performance, 6 => Tab::System, 7 => Tab::Misc, 8 => Tab::World,
-            9 => Tab::Graphics, 10 => Tab::Language,
+            9 => Tab::Graphics(GraphicsTab::Aa), 10 => Tab::Language,
             11 => Tab::Input(InputTab::Touch), 12 => Tab::Input(InputTab::Keyboard),
             13 => Tab::Input(InputTab::Pen),
+            14 => Tab::Graphics(GraphicsTab::Fsr), 15 => Tab::Graphics(GraphicsTab::Pacing),
             _ => Tab::Display,
         }
     }
@@ -132,6 +148,11 @@ pub enum SettingsMessage {
     SetReleaseHidden(bool),
     /// Fractional-scale strategy for invisible windows: "off" | "optimized" | "full".
     SetFractionalInvisible(String),
+    /// Page-flip policy — tearing plus its pacing fallback (forwarded; persisted
+    /// to preferences.json and mirrored live into the scanout global, no reboot).
+    /// Carries the whole struct like `Env`/`Ime`, so all eight fields across both
+    /// sections share one variant instead of eight.
+    SetFlip(compositor_model_environment_tearing_config::config::Config),
     /// A full edited Environment to write back to settings.json (forwarded;
     /// sets the reboot-dirty banner). Carrying the whole struct keeps one
     /// message variant instead of 19 field-specific ones.
@@ -237,7 +258,7 @@ pub enum SettingsMessage {
     LayoutRemove(u64),
     /// Commit the whole arrangement (forwarded on drag-end): persisted to
     /// `preferences.json` and rebuilt into the live teleport layout.
-    LayoutCommit(Vec<compositor_developer_environment_preference_base::base::LayoutPlacement>),
+    LayoutCommit(Vec<compositor_model_environment_preference_base::base::LayoutPlacement>),
     /// UI-LOCAL: select the "Inactive" row for the selected monitor (a pending
     /// deactivate that CHECK CHANGES then applies), like `SelectMode` for a mode.
     SelectInactive,
@@ -257,7 +278,7 @@ pub enum SettingsMessage {
     /// A full edited graphics/anti-aliasing config (Graphics tab) to persist to
     /// preferences.json AND apply live (forwarded). Carries the whole struct so
     /// the method dropdown + every knob share one variant.
-    SetGraphics(compositor_developer_environment_graphics_base::base::GraphicsAaConfig),
+    SetGraphics(compositor_model_environment_graphics_base::base::GraphicsAaConfig),
     /// Forwarded (Misc tab): the `protocol_foreign` preference — `"enabled"` or
     /// `"disabled"` — gating the wlr + ext foreign-toplevel (dock) protocols.
     /// Persisted to preferences.json; takes effect on the next start.

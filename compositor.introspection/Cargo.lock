@@ -280,29 +280,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "compositor_developer_debug_instance_channel"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_debug_instance_level",
- "crossbeam-channel",
-]
-
-[[package]]
-name = "compositor_developer_debug_instance_level"
-version = "0.0.1"
-dependencies = [
- "crossbeam-channel",
-]
-
-[[package]]
-name = "compositor_developer_debug_instance_record"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_debug_instance_channel",
- "compositor_developer_debug_instance_level",
-]
-
-[[package]]
 name = "compositor_introspection_execution_launch_build"
 version = "0.0.1"
 dependencies = [
@@ -317,9 +294,9 @@ dependencies = [
 name = "compositor_introspection_execution_launch_dispatch"
 version = "0.0.1"
 dependencies = [
- "compositor_developer_debug_instance_record",
  "compositor_introspection_execution_launch_execute",
  "compositor_introspection_execution_launch_types",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -327,9 +304,9 @@ dependencies = [
 name = "compositor_introspection_execution_launch_execute"
 version = "0.0.1"
 dependencies = [
- "compositor_developer_debug_instance_record",
  "compositor_introspection_execution_launch_scope",
  "compositor_introspection_execution_launch_types",
+ "compositor_model_debug_instance_record",
  "libc",
 ]
 
@@ -415,13 +392,13 @@ dependencies = [
 name = "compositor_introspection_extraction_window_handler_registry"
 version = "0.0.1"
 dependencies = [
- "compositor_developer_debug_instance_record",
  "compositor_introspection_extraction_window_handler_hints",
  "compositor_introspection_extraction_window_handler_traits",
  "compositor_introspection_extraction_window_hints_id",
  "compositor_introspection_extraction_window_hints_inferred",
  "compositor_introspection_extraction_window_hints_source",
  "compositor_introspection_extraction_window_meta_types",
+ "compositor_model_debug_instance_record",
 ]
 
 [[package]]
@@ -1075,11 +1052,11 @@ dependencies = [
 name = "compositor_introspection_sampler_window_core"
 version = "0.0.1"
 dependencies = [
- "compositor_developer_debug_instance_record",
  "compositor_introspection_extraction_window_base",
  "compositor_introspection_sampler_window_batch",
  "compositor_introspection_sampler_window_engine",
  "compositor_introspection_sampler_window_schedule",
+ "compositor_model_debug_instance_record",
  "smithay",
  "uuid",
 ]
@@ -1101,6 +1078,29 @@ version = "0.0.1"
 dependencies = [
  "compositor_introspection_extraction_window_base",
  "uuid",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_channel"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_level",
+ "crossbeam-channel",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_level"
+version = "0.0.1"
+dependencies = [
+ "crossbeam-channel",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_record"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_channel",
+ "compositor_model_debug_instance_level",
 ]
 
 [[package]]

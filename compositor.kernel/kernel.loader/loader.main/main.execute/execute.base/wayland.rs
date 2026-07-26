@@ -66,5 +66,5 @@ pub fn register(
                 .insert_client(client_stream, Arc::new(client))
                 .unwrap();
         })
-        .unwrap_or_else(|e| compositor_developer_debug_instance_record::abort!("failed to init the wayland event source: {e:?}"));
+        .unwrap_or_else(|e| compositor_model_debug_instance_record::abort!("failed to init the wayland event source: {e:?}"));
 }

@@ -3,13 +3,16 @@
 //! magnification filters, each an independent toggle). Every knob carries a
 //! per-zoom weight (`base` + `per_zoom`).
 //!
+//! One builder per Graphics sub-tab ([`build_aa`], [`build_fsr`]) — they edit the
+//! same `GraphicsAaConfig` and share the live status line, which reports the
+//! current zoom and what is actually running.
+//!
 //! Only the knobs that apply to the SELECTED AA method are shown; the FSR
-//! toggles are always available. A live status line reports the current zoom and
-//! what is running. Every knob has a numeric entry (clamped) and a reset (↺); a
-//! "Restore all defaults" button resets the whole config. Edits emit the full
-//! `GraphicsAaConfig`; the handler persists it to `preferences.json` and pushes
-//! it live to the renderer.
-use compositor_developer_environment_graphics_base::base::{AaMethod, GraphicsAaConfig, ZoomKnob};
+//! toggles are always available. Every knob has a numeric entry (clamped) and a
+//! reset (↺); a "Restore all defaults" button resets the whole config. Edits emit
+//! the full `GraphicsAaConfig`; the handler persists it to `preferences.json` and
+//! pushes it live to the renderer.
+use compositor_model_environment_graphics_base::base::{AaMethod, GraphicsAaConfig, ZoomKnob};
 use compositor_support_iced_core_engine_base::Renderer;
 use compositor_configurator_settings_surface_message::message::SettingsMessage;
 use compositor_configurator_settings_surface_style::style;
@@ -144,7 +147,7 @@ fn method_row<'a>(cfg: &GraphicsAaConfig) -> El<'a> {
 /// Live status: current zoom + whether AA runs right now (and, if so, the
 /// effective per-zoom values). Answers "when is it on, and with what".
 fn status<'a>(cfg: &GraphicsAaConfig) -> El<'a> {
-    let zoom = compositor_developer_stats_registry_base::base::world_zoom() as f32;
+    let zoom = compositor_model_stats_registry_base::base::world_zoom() as f32;
     let eff = cfg.effective(zoom);
     let line1 = format!("Current zoom {zoom:.2}×");
     // Anti-aliasing method line.
@@ -228,16 +231,22 @@ fn toggle_row<'a>(
     .into()
 }
 
-pub fn build<'a>(cfg: &GraphicsAaConfig) -> El<'a> {
+/// The section title shared by every Graphics sub-tab, so the module reads the
+/// same whichever tab restores.
+fn title<'a>(sub: &'a str) -> El<'a> {
+    column![
+        text("GRAPHICS").size(16).color(style::ACCENT),
+        text(sub).size(11).color(style::MUTED),
+    ]
+    .spacing(4)
+    .into()
+}
+
+/// The ANTI-ALIASING sub-tab: the minification method, when it runs, and the
+/// knobs belonging to whichever method is selected.
+pub fn build_aa<'a>(cfg: &GraphicsAaConfig) -> El<'a> {
     let mut rows: Vec<El<'a>> = vec![
-        column![
-            text("GRAPHICS").size(16).color(style::ACCENT),
-            text("Anti-aliasing (minification) + FSR (magnification) for the pannable world — applied live.")
-                .size(11)
-                .color(style::MUTED),
-        ]
-        .spacing(4)
-        .into(),
+        title("Anti-aliasing (minification) for the pannable world — applied live."),
         status(cfg),
         heading("ANTI-ALIASING", "Minification filter — keeps content clean as you zoom OUT."),
         method_row(cfg),
@@ -295,9 +304,19 @@ pub fn build<'a>(cfg: &GraphicsAaConfig) -> El<'a> {
         }
     }
 
-    // FSR (FidelityFX Super Resolution) — magnification filters, independent of
-    // the AA method above. EASU and RCAS are separate toggles and compose (the
-    // canonical FSR1 EASU→RCAS chain) when both are on.
+    scrollable(Column::with_children(rows).spacing(12))
+        .height(Length::Fill)
+        .into()
+}
+
+/// The FSR sub-tab. FSR (FidelityFX Super Resolution) magnifies, so it is
+/// independent of the AA method — EASU and RCAS are separate toggles and compose
+/// (the canonical FSR1 EASU→RCAS chain) when both are on.
+pub fn build_fsr<'a>(cfg: &GraphicsAaConfig) -> El<'a> {
+    let mut rows: Vec<El<'a>> = vec![
+        title("FSR (magnification) for the pannable world — applied live."),
+        status(cfg),
+    ];
     rows.push(heading(
         "FSR (FIDELITYFX SUPER RESOLUTION)",
         "Magnification filters — sharpen content drawn LARGER than its buffer (zoomed in, \

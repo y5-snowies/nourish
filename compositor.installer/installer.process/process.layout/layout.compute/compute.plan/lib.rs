@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use compositor_developer_environment_config_base::base as config;
+use compositor_model_environment_config_base::base as config;
 use compositor_installer_process_config_parse_base::Preset;
 use compositor_installer_process_layout_compute_policy as policy;
 use compositor_installer_process_layout_compute_session as session;

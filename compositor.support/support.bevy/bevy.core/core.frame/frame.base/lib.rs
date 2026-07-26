@@ -7,7 +7,7 @@ use compositor_support_bevy_core_error_base::ResizeError;
 use compositor_support_bevy_core_handle_base::HandleId;
 use compositor_support_bevy_core_item_base::BevyItem;
 use compositor_support_bevy_core_space_base::{BevySpace, Transform};
-use compositor_developer_debug_instance_record::warn;
+use compositor_model_debug_instance_record::warn;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Physical, Point, Size};
 

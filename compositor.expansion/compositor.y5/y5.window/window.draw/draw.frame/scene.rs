@@ -161,7 +161,7 @@ where
     let ctx = state.viewport_context();
     let output_scale = ctx.scale * state.inner.camera_mut().transform.zoom();
     let zoom = ctx.camera_zoom;
-    let cfg = compositor_developer_environment_config_base::base::get();
+    let cfg = compositor_model_environment_config_base::base::get();
 
     let elem_loc = state
         .inner.space_state()

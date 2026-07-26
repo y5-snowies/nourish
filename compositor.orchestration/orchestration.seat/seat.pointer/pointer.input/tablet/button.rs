@@ -9,7 +9,7 @@
 
 use smithay::backend::input::{ButtonState, Event, InputBackend, TabletToolButtonEvent, TabletToolEvent};
 use smithay::utils::SERIAL_COUNTER;
-use compositor_developer_environment_preference_base::base::PenAction;
+use compositor_model_environment_preference_base::base::PenAction;
 use compositor_orchestration_core_state_base::Loop;
 use crate::tablet::action;
 use crate::touch::backend::{BTN_LEFT, BTN_MIDDLE, BTN_RIGHT};

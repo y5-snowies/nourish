@@ -89,7 +89,7 @@ fn bring_up(ctx: &mut NativeRenderContext, target: &connector::Info, requested: 
         target,
         requested,
     )?;
-    let env = compositor_developer_environment_config_base::base::get();
+    let env = compositor_model_environment_config_base::base::get();
     let new_hdr_active = env.hdr && built.hdr.hdr_capable() && ctx.vulkan_mode;
     let new_mode = Mode::from(built.drm_mode);
     ctx.pipe_mut().drm_output = Some(built.drm_output);
@@ -233,7 +233,7 @@ fn add_output(
     );
     state.inner.space_state_mut().state.map_output(&output, (x, 0));
     let damage_tracker = smithay::backend::renderer::damage::OutputDamageTracker::from_output(&output);
-    let env = compositor_developer_environment_config_base::base::get();
+    let env = compositor_model_environment_config_base::base::get();
     let hdr_active = env.hdr && built.hdr.hdr_capable() && ctx.vulkan_mode;
     info!(
         "add_output: connector={:?} crtc={:?} mode={}x{} pos=({}, 0) → {} outputs total",
@@ -259,6 +259,10 @@ fn add_output(
         mode_revert: None,
         global: Some(global),
         in_flight: false,
+        last_vblank: None,
+        render_start: None,
+        last_tear: false,
+        cap_wake: None,
     });
     Ok(())
 }

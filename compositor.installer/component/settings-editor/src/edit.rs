@@ -5,7 +5,7 @@ use crate::prompt::{ask, ask_u8, choose, yes_no};
 use crate::select::{select_list, Item};
 use crate::term::Nav;
 use compositor_configurator_hardware_gpu_base::base::render_devices;
-use compositor_developer_environment_config_base::base::{Environment, SCHEMA_VERSION};
+use compositor_model_environment_config_base::base::{Environment, SCHEMA_VERSION};
 
 /// The settings flow is a straight sequence of required fields — there is no
 /// "back" target mid-flow, so no field (including the GPU list) offers Escape.

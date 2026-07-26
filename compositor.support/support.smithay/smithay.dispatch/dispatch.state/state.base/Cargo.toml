@@ -5,6 +5,9 @@ edition = "2024"
 
 
 [dependencies]
+compositor_support_smithay_state_tearing_gate.workspace = true
+compositor_support_smithay_dispatch_wire_tearing.workspace = true
+compositor_support_smithay_state_tearing_pacer.workspace = true
 compositor_support_smithay_state_singlepixel_base.workspace = true
 compositor_support_smithay_state_dnd_base.workspace = true
 tracing = { workspace = true }
@@ -44,10 +47,11 @@ compositor_support_smithay_dispatch_wire_tablet.workspace = true
 compositor_support_smithay_dispatch_wire_redraw.workspace = true
 compositor_support_smithay_state_xdg_activation_request.workspace = true
 compositor_support_smithay_wayland_connection_record.workspace = true
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 [lib]
 path = "lib.rs"
 
 [package.metadata.lint]
 allow = ["size"]
 reason = "Dispatch is the concrete wayland protocol-state aggregate plus its required SeatHandler impl (document/SMITHAY_DECOUPLING.md P2 flip); intentionally large."
+

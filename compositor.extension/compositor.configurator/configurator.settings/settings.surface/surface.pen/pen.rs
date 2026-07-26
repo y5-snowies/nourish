@@ -6,7 +6,7 @@
 //! threshold turns light contact into a plain cursor with bindable in-pen clicks.
 //! Edits emit the full [`PenConfig`]; the handler persists it to `preferences.json`.
 
-use compositor_developer_environment_preference_base::base::{PenAction, PenBindTarget, PenButton, PenConfig};
+use compositor_model_environment_preference_base::base::{PenAction, PenBindTarget, PenButton, PenConfig};
 use compositor_support_iced_core_engine_base::Renderer;
 use compositor_configurator_settings_surface_message::message::SettingsMessage;
 use compositor_configurator_settings_surface_style::style;

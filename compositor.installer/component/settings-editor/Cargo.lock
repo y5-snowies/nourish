@@ -33,7 +33,7 @@ name = "compositor_configurator_hardware_gpu_base"
 version = "0.0.1"
 
 [[package]]
-name = "compositor_developer_environment_config_base"
+name = "compositor_model_environment_config_base"
 version = "0.0.1"
 dependencies = [
  "serde",
@@ -41,20 +41,44 @@ dependencies = [
 ]
 
 [[package]]
-name = "compositor_developer_environment_graphics_base"
+name = "compositor_model_environment_graphics_base"
 version = "0.0.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
-name = "compositor_developer_environment_preference_base"
+name = "compositor_model_environment_preference_base"
 version = "0.0.1"
 dependencies = [
- "compositor_developer_environment_config_base",
- "compositor_developer_environment_graphics_base",
+ "compositor_model_environment_config_base",
+ "compositor_model_environment_graphics_base",
+ "compositor_model_environment_tearing_config",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "compositor_model_environment_tearing_config"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_tearing_rate",
+ "compositor_model_environment_tearing_select",
+ "serde",
+]
+
+[[package]]
+name = "compositor_model_environment_tearing_rate"
+version = "0.0.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "compositor_model_environment_tearing_select"
+version = "0.0.1"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -340,8 +364,8 @@ name = "y5-compositor-settings"
 version = "0.1.0"
 dependencies = [
  "compositor_configurator_hardware_gpu_base",
- "compositor_developer_environment_config_base",
- "compositor_developer_environment_preference_base",
+ "compositor_model_environment_config_base",
+ "compositor_model_environment_preference_base",
  "drm",
  "rustix 1.1.4",
  "serde_json",

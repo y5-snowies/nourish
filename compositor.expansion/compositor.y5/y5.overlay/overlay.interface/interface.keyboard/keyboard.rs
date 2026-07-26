@@ -6,7 +6,7 @@ use compositor_support_library_input_keyboard_base::keyboard::handler::ShortcutH
 use compositor_support_library_input_keyboard_base::keyboard::key::Key;
 use compositor_support_library_input_keyboard_base::shortcut;
 use compositor_support_library_input_keyboard_format::format;
-use compositor_developer_environment_keybinding_base::base::{KeyBindings, KeyRow};
+use compositor_model_environment_keybinding_base::base::{KeyBindings, KeyRow};
 
 use compositor_orchestration_core_state_base::Loop;
 

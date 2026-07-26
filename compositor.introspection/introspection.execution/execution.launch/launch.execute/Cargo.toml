@@ -7,7 +7,7 @@ edition = "2024"
 libc = { workspace = true }
 compositor_introspection_execution_launch_types = { workspace = true }
 compositor_introspection_execution_launch_scope = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 
 [lib]
 path = "lib.rs"

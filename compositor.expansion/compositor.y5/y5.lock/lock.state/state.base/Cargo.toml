@@ -5,7 +5,7 @@ edition = "2024"
 
 
 [dependencies]
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 compositor_support_library_pam_worker_base.workspace = true
 compositor_y5_graphic_capture_registry.workspace = true
 compositor_background_three_lock_scene.workspace = true

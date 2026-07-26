@@ -373,7 +373,7 @@ fn hit_window(
     position_world: Point<f64, Logical>,
     filter: HitFilter,
 ) -> Option<SurfaceHit> {
-    let cfg = compositor_developer_environment_config_base::base::get();
+    let cfg = compositor_model_environment_config_base::base::get();
     let elem_loc = hcx.space_state().state.element_location(window).unwrap_or_default();
     let geom = window.geometry();
     let gloc = geom.loc;

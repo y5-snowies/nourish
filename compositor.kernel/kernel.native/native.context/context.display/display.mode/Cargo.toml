@@ -12,7 +12,7 @@ compositor_orchestration_core_state_base = { workspace = true }
 compositor_orchestration_draw_scene_element = { workspace = true }
 compositor_orchestration_driver_output_base = { workspace = true }
 # Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 
 [lib]
 path = "lib.rs"

@@ -117,7 +117,7 @@ pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, 
 
     // The true per-output present rate — computed kernel-side at page-flip
     // completion / winit present, so dropped frames show as a lower number.
-    let fps = compositor_developer_stats_registry_base::base::present_rate(&out);
+    let fps = compositor_model_stats_registry_base::base::present_rate(&out);
 
     let rect = fps_rect(size);
     // Reuse only if this world's registry still holds the overlay's handle.

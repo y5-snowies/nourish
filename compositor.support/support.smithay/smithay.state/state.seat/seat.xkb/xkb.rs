@@ -14,7 +14,7 @@
 //! `set_xkb_config` — goes through [`checked_config`], which compiles the config in a
 //! throwaway context first and falls back to the us default on failure, so a bad
 //! (possibly persisted) layout can never panic the compositor.
-use compositor_developer_environment_preference_base::base::{self as pref, KeyboardLayout, LayoutSource};
+use compositor_model_environment_preference_base::base::{self as pref, KeyboardLayout, LayoutSource};
 use smithay::input::SeatHandler;
 use smithay::input::keyboard::{KeyboardHandle, XkbConfig, xkb};
 

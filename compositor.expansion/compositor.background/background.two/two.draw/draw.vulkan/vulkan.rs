@@ -87,7 +87,7 @@ impl ParallaxPass {
         // velocity-reactive shaders, packed as two f16 halves (unpack2x16float).
         let lock_alpha = [u.lock_amount, u.alpha, u.srgb, velocity_lane(u.velocity)];
         let params = params_vec4(params);
-        let t = compositor_developer_stats_registry_base::base::hdr_tuning();
+        let t = compositor_model_stats_registry_base::base::hdr_tuning();
         Self {
             sdr: SdrPush {
                 res_zoom_time,

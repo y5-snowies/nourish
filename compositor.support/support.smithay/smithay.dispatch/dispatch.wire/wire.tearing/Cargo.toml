@@ -1,0 +1,12 @@
+[package]
+name = "compositor_support_smithay_dispatch_wire_tearing"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_model_debug_instance_record = { workspace = true }
+compositor_support_smithay_state_tearing_pacer = { workspace = true }
+smithay = { workspace = true }
+
+[lib]
+path = "lib.rs"

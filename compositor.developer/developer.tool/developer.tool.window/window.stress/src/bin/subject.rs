@@ -51,6 +51,10 @@ use wayland_protocols::{
             wp_fractional_scale_v1::{self, WpFractionalScaleV1},
         },
         single_pixel_buffer::v1::client::wp_single_pixel_buffer_manager_v1::WpSinglePixelBufferManagerV1,
+        tearing_control::v1::client::{
+            wp_tearing_control_manager_v1::WpTearingControlManagerV1,
+            wp_tearing_control_v1::{PresentationHint, WpTearingControlV1},
+        },
         viewporter::client::{wp_viewport::WpViewport, wp_viewporter::WpViewporter},
     },
     xdg::{
@@ -224,6 +228,18 @@ struct Subject {
     anim_phase: i32,
     mapcycle: bool,
     mapcycle_tick: u32,
+    /// `wp_tearing_control_v1` for the main surface (None if the compositor does
+    /// not advertise the global).
+    tearing_ctl: Option<WpTearingControlV1>,
+    /// Self-driven commit rate in Hz; 0 = default animation-only tick.
+    commit_hz: u32,
+    /// Draw the live FRAME/COMMIT counter into the overlay.
+    show_counter: bool,
+    /// Commits issued since the last report — the client-side half of the
+    /// pacing measurement, so it can be compared against the compositor's
+    /// presented-frame counter without trusting either alone.
+    commits: u32,
+    commits_since_report: std::time::Instant,
 
     // controller-mirrored popup positioner params
     pop_anchor: Anchor,
@@ -306,6 +322,8 @@ fn main() {
         if use_fs { bind_opt(&globals, &qh, "wp_fractional_scale_manager_v1") } else { None };
     let sp_mgr: Option<WpSinglePixelBufferManagerV1> =
         if use_sp { bind_opt(&globals, &qh, "wp_single_pixel_buffer_manager_v1") } else { None };
+    let tearing_mgr: Option<WpTearingControlManagerV1> =
+        bind_opt(&globals, &qh, "wp_tearing_control_manager_v1");
 
     info!(
         "globals: xdg_wm_base + decoration={} viewporter={} fractional={} single_pixel={}",
@@ -325,6 +343,10 @@ fn main() {
         decoration_mgr.as_ref().map(|m| m.get_toplevel_decoration(&toplevel, &qh, ()));
     let viewport = viewporter.as_ref().map(|v| v.get_viewport(&main_surface, &qh, ()));
     let frac = frac_mgr.as_ref().map(|m| m.get_fractional_scale(&main_surface, &qh, ()));
+    // Created up front but left at the protocol default (vsync) until asked —
+    // binding must not itself change behaviour.
+    let tearing_ctl = tearing_mgr.as_ref().map(|m| m.get_tearing_control(&main_surface, &qh, ()));
+    info!("tearing_control global: {}", tearing_mgr.is_some());
 
     main_surface.commit();
 
@@ -372,6 +394,11 @@ fn main() {
         anim_phase: 0,
         mapcycle: false,
         mapcycle_tick: 0,
+        tearing_ctl,
+        commit_hz: 0,
+        show_counter: true,
+        commits: 0,
+        commits_since_report: std::time::Instant::now(),
         pop_anchor: Anchor::BottomLeft,
         pop_gravity: Anchor::BottomRight,
         pop_off: (0, 0),
@@ -413,9 +440,9 @@ fn main() {
         .handle()
         .insert_source(
             Timer::from_duration(std::time::Duration::from_millis(16)),
-            |_, _, state| {
+            |_, _, state: &mut Subject| {
                 state.tick();
-                TimeoutAction::ToDuration(std::time::Duration::from_millis(16))
+                TimeoutAction::ToDuration(state.tick_interval())
             },
         )
         .expect("insert timer");
@@ -584,6 +611,33 @@ impl Subject {
             Command::Map => self.set_mapped(true),
             Command::Unmap => self.set_mapped(false),
             Command::MapCycle(on) => self.mapcycle = on,
+            Command::Tearing(on) => match &self.tearing_ctl {
+                Some(ctl) => {
+                    ctl.set_presentation_hint(if on {
+                        PresentationHint::Async
+                    } else {
+                        PresentationHint::Vsync
+                    });
+                    // The hint is double-buffered surface state: it takes effect
+                    // on the next commit, not on the request.
+                    self.main_surface.commit();
+                    info!("tearing hint = {}", if on { "async" } else { "vsync" });
+                }
+                None => warn!("tearing: compositor does not advertise wp_tearing_control_manager_v1"),
+            },
+            Command::ShowCounter(on) => {
+                self.show_counter = on;
+                info!("live counter overlay = {on}");
+                if self.configured && self.mapped {
+                    self.draw_main();
+                }
+            }
+            Command::CommitRate(hz) => {
+                self.commit_hz = hz;
+                self.commits = 0;
+                self.commits_since_report = std::time::Instant::now();
+                info!("commit rate = {hz} Hz (0 = animation tick only)");
+            }
             Command::Size(w, h) => {
                 self.pending_size = (w as i32, h as i32);
                 self.cur_size = (w as i32, h as i32);
@@ -612,7 +666,45 @@ impl Subject {
         }
     }
 
+    /// The tick period: the self-driven commit rate when set, else the default
+    /// ~60Hz animation cadence.
+    fn tick_interval(&self) -> std::time::Duration {
+        match self.commit_hz {
+            0 => std::time::Duration::from_millis(16),
+            hz => std::time::Duration::from_micros(1_000_000 / hz.max(1) as u64),
+        }
+    }
+
+    /// Commit on our OWN clock, never on a frame callback. That independence is
+    /// what makes the compositor's flip rate a measurement rather than an echo
+    /// of whatever cadence it already chose to hand us.
+    fn drive_commit(&mut self) {
+        if self.commit_hz == 0 || !self.configured || !self.mapped {
+            return;
+        }
+        // MUST go through draw_main: it attaches a FRESH buffer. Damaging and
+        // committing the existing one leaves the surface content identical, and
+        // the compositor's damage tracker then elides the frame entirely — no
+        // composite, no flip, and the commit rate has no observable effect at
+        // any value. The drawn overlay carries `commits`, so every frame really
+        // does differ and the tearing is visible rather than merely counted.
+        // (`commits` is incremented inside `draw_main`, so it counts EVERY
+        // main-surface commit rather than only the paced ones.)
+        self.draw_main();
+        let elapsed = self.commits_since_report.elapsed();
+        if elapsed >= std::time::Duration::from_secs(1) {
+            info!(
+                "commits: {:.1}/s (requested {} Hz)",
+                self.commits as f32 / elapsed.as_secs_f32(),
+                self.commit_hz
+            );
+            self.commits = 0;
+            self.commits_since_report = std::time::Instant::now();
+        }
+    }
+
     fn tick(&mut self) {
+        self.drive_commit();
         if self.vp_animate && self.configured && self.mapped {
             self.anim_phase = (self.anim_phase + 4) % 400;
             self.draw_main();
@@ -942,6 +1034,13 @@ impl Subject {
         self.main_surface.damage_buffer(0, 0, bw, bh);
         buffer.attach_to(&self.main_surface).expect("attach");
         self.main_surface.commit();
+        // Counted HERE, not at the paced tick: `draw_main` is also reached from
+        // vp-animate, pointer/click events and configure, each of which attaches
+        // and commits too. Counting ticks would undercount those and make the
+        // overlay disagree with the compositor's frame rate for reasons that
+        // have nothing to do with the compositor — VP ANIMATE alone would look
+        // like a 2x compositor bug.
+        self.commits += 1;
         if preack {
             self.ack_now();
             warn!("buf-preack: committed buffer before ack_configure");
@@ -957,7 +1056,13 @@ impl Subject {
         render: &Render,
         dest: Option<(i32, i32)>,
     ) -> Vec<String> {
-        vec![
+        // The counter line is what makes each frame's pixels DIFFER, so it is
+        // also what makes a tear visible (you see the number split across the
+        // seam). With it off, successive frames can be pixel-identical: the
+        // compositor still composites and flips — draw_main attaches a fresh
+        // buffer with explicit full damage either way — but the tear has nothing
+        // to reveal, so it is the control case for "is that seam real".
+        let mut lines = vec![
             format!("CONFIGURE {lw}x{lh}"),
             format!("BUFFER {bw}x{bh}  SCALE {}", render.buffer_scale),
             format!("VP DEST {}", dest.map(|(w, h)| format!("{w}x{h}")).unwrap_or("NONE".into())),
@@ -976,7 +1081,11 @@ impl Subject {
                 self.buf_delta
             ),
             format!("SUBS {}  POPUPS {}", self.subs.len(), self.popups.len()),
-        ]
+        ];
+        if self.show_counter {
+            lines.insert(0, format!("FRAME {}  COMMIT {} Hz", self.commits, self.commit_hz));
+        }
+        lines
     }
 
     fn ack_now(&mut self) {
@@ -1392,6 +1501,13 @@ impl Dispatch<WpFractionalScaleV1, ()> for Subject {
             }
         }
     }
+}
+
+impl Dispatch<WpTearingControlManagerV1, ()> for Subject {
+    fn event(_: &mut Self, _: &WpTearingControlManagerV1, _: <WpTearingControlManagerV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+impl Dispatch<WpTearingControlV1, ()> for Subject {
+    fn event(_: &mut Self, _: &WpTearingControlV1, _: <WpTearingControlV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
 }
 
 impl Dispatch<WpSinglePixelBufferManagerV1, ()> for Subject {

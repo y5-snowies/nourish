@@ -1,6 +1,6 @@
 //! Keyboard-bindings column (right side of INPUT): each shortcut's label + combo.
 //! Editable rows take a combo string ("Super+K"); built-ins show a static chip.
-use compositor_developer_environment_keybinding_base::base::KeyRow;
+use compositor_model_environment_keybinding_base::base::KeyRow;
 use compositor_support_iced_core_engine_base::Renderer;
 use compositor_configurator_settings_surface_message::message::SettingsMessage;
 use compositor_configurator_settings_surface_style::style;

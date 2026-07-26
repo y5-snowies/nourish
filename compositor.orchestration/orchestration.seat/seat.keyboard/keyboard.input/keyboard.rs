@@ -77,7 +77,7 @@ fn capture_pen_key(
         if raw == KEY_ESCAPE {
             _loop.inner.kernel.get_mut(&SETTINGS_MUT).pen_capture = PenCapture::None;
         } else if !is_modifier_keysym(raw) {
-            let bind = compositor_developer_environment_preference_base::base::KeyBind {
+            let bind = compositor_model_environment_preference_base::base::KeyBind {
                 mods: modifier_keycodes(modifiers),
                 key: key_code.raw(),
                 hold: false,

@@ -8,7 +8,7 @@ edition = "2024"
 build = false
 
 [dependencies]
-compositor_developer_debug_instance_record.workspace = true
+compositor_model_debug_instance_record.workspace = true
 bitflags.workspace = true
 smithay.workspace = true
 

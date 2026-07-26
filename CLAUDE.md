@@ -44,15 +44,30 @@ plus `compositor.remote`, `compositor.background`), `compositor.extension/` (add
 `y5_compositor` `[[bin]]`). Don't rely on this list being exhaustive — `ls -d
 compositor*/` is the source of truth.
 
+`compositor.model/` is the **bottom** of that graph and belongs to no layer: the
+shared shapes the compositor, the installer and the external developer tool all
+read — `model.debug` (the logging macros), `model.environment` (every persisted
+setting, i.e. what `preferences.json` holds), `model.log` (the gRPC log process)
+and `model.stats`. It depends on no compositor crate, and nothing that is
+compositor behaviour belongs in it — runtime state and policy go in the layer
+that owns them, not here. `compositor.developer/` is the separate developer
+project (the log viewer and the stress harnesses under `developer.tool/`); it is
+outside the link graph entirely and **no compositor crate may depend on it**.
+
 These workspaces depend on each other's crates via **generated** `[path]` dependencies, not by
 being members of one workspace. The wiring is mechanical:
 
-- Each workspace dir has a `link.json` listing the other workspaces it consumes.
-- `workspace.link.js` reads a workspace's `link.json`, discovers every crate in those input
-  workspaces (manual `Cargo.toml` parsing), and rewrites a
-  `# --- GENERATED WORKSPACE LINKS START/END ---` block in that workspace's root `Cargo.toml`
-  with `crate = { path = "..." }` entries.
-- `./link.all.sh` runs `workspace.link.js` in every top-level workspace.
+- `workspace.link.js` discovers **every** workspace root in the repo (any `compositor.*/`
+  or `compositor.*/*/` dir whose `Cargo.toml` has a `[workspace]` members array, minus the
+  standalone trees: the installer and `developer.tool`), and rewrites a
+  `# --- GENERATED WORKSPACE LINKS START/END ---` block in the root `Cargo.toml` of the
+  workspace it is invoked from, with a `crate = { path = "..." }` entry for every internal
+  crate. Generation is GLOBAL — the per-dir `link.json` files are documentation of intent
+  and are not read by the script.
+- An optional `link.features.json` in a root overrides feature attributes for a generated
+  entry (feature selection lives at the root, never in a crate).
+- `./link.all.sh` runs `workspace.link.js` in each top-level workspace — a hand-maintained
+  list, so a NEW workspace root must be added to it.
 
 **Consequence:** after adding, removing, or renaming any crate or workspace, you MUST run
 `./link.all.sh` from the repo root, or the cross-workspace path links go stale and downstream
@@ -132,7 +147,7 @@ extraction mode (`into_storage_*()` vs `.into()`) silently produces wrong-space 
 ## Logging
 
 y5 has its **own** tracing-free structured logging system. **All logging uses the macros from
-`compositor_developer_debug_instance_record` (`error!`/`warn!`/`info!`/`trace!`/`abort!`) — do
+`compositor_model_debug_instance_record` (`error!`/`warn!`/`info!`/`trace!`/`abort!`) — do
 NOT use `tracing` or `log` in new/changed code.** Each crate declares its instance once in
 `lib.rs` (the `add-crate` template does this automatically). **Read `document/LOGGING.md`** and
 use the **`logging`** skill before adding or migrating log statements. Records stream to the

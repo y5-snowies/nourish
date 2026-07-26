@@ -8,7 +8,7 @@ use compositor_background_three_lock_shader::MorphScenePlugin;
 use compositor_background_three_lock_state::{
     MorphAnim, MorphCommand, MorphConfig, MorphPhase, SNAPSHOT_LABEL,
 };
-use compositor_developer_debug_instance_record::warn;
+use compositor_model_debug_instance_record::warn;
 use bevy::pbr::MaterialPlugin;
 use std::sync::{Arc, Mutex};
 

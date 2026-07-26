@@ -6,7 +6,7 @@ use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::backend::renderer::{ImportDma, Texture};
 
 use compositor_support_bevy_core_fault_base::GlesImportError;
-use compositor_developer_debug_instance_record::info;
+use compositor_model_debug_instance_record::info;
 
 pub fn import_dmabuf_to_gles(
     renderer: &mut GlesRenderer,

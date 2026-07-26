@@ -2,7 +2,7 @@
 //! rename, so a reader never sees a partial file). Shared by the installer flow and
 //! the menu's Settings entry. Errors are reported but non-fatal to the menu loop.
 
-use compositor_developer_environment_config_base::base::Environment;
+use compositor_model_environment_config_base::base::Environment;
 use std::io::Write;
 use std::path::Path;
 

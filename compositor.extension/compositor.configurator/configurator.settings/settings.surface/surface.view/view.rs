@@ -1,10 +1,10 @@
 //! The settings window `IcedUi`: owns the live UI state; rendering lives in
 //! `surface.chrome`. All edit messages forward to the surface handler; `Tab`, the
 //! display selection, and the optimistic confirm state are handled locally.
-use compositor_developer_environment_config_base::base::Environment;
-use compositor_developer_environment_preference_base::base::{Ime, KeyboardLayout};
-use compositor_developer_environment_keybinding_base::base::KeyRow;
-use compositor_developer_environment_preference_base::base::LayoutPlacement;
+use compositor_model_environment_config_base::base::Environment;
+use compositor_model_environment_preference_base::base::{Ime, KeyboardLayout};
+use compositor_model_environment_keybinding_base::base::KeyRow;
+use compositor_model_environment_preference_base::base::LayoutPlacement;
 use compositor_orchestration_driver_output_base::base::{ApplyResult, DisplayInfo, ModeInfo, OutputsSnapshot, TouchDeviceInfo};
 use compositor_support_iced_core_engine_base::{IcedUi, Renderer};
 use compositor_y5_audio_controller_interface::interface::AudioState;
@@ -32,6 +32,8 @@ pub struct Settings {
     /// Fractional-scale strategy for invisible windows (Performance tab):
     /// "off" / "optimized" / "full". Persisted + read live.
     pub fractional_invisible: String,
+    /// Page-flip policy: tearing + pacing fallback (Performance tab). Live.
+    pub flip: compositor_model_environment_tearing_config::config::Config,
     pub env: Environment,
     /// Input-method launch command (Misc tab), persisted to preferences.json.
     pub ime: Ime,
@@ -43,9 +45,9 @@ pub struct Settings {
     /// Foreign-toplevel: advertise windows from ALL worlds (Misc tab). Persisted; applied live.
     pub protocol_foreign_all_worlds: bool,
     /// Graphics / anti-aliasing config (Graphics tab), persisted + applied live.
-    pub graphics: compositor_developer_environment_graphics_base::base::GraphicsAaConfig,
+    pub graphics: compositor_model_environment_graphics_base::base::GraphicsAaConfig,
     /// Pen / tablet overrides (Pen tab), persisted + applied live.
-    pub pen: compositor_developer_environment_preference_base::base::PenConfig,
+    pub pen: compositor_model_environment_preference_base::base::PenConfig,
     /// A pen click-to-bind capture is in progress (UI feedback: "press a key/button…").
     pub pen_capturing: bool,
     pub dirty: bool,
@@ -158,7 +160,7 @@ fn default_mode(d: &DisplayInfo) -> Option<ModeInfo> {
 
 impl Settings {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(env: Environment, cursor: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, fractional_invisible: String, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool, pen: compositor_developer_environment_preference_base::base::PenConfig) -> Self {
+    pub fn new(env: Environment, cursor: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, fractional_invisible: String, flip: compositor_model_environment_tearing_config::config::Config, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool, pen: compositor_model_environment_preference_base::base::PenConfig) -> Self {
         let active = snap.displays.iter().find(|d| d.active).cloned();
         let active_edid = active.as_ref().map(|d| d.edid_key.clone()).unwrap_or_default();
         let selected_mode = active.as_ref().and_then(default_mode);
@@ -174,13 +176,14 @@ impl Settings {
             show_fps,
             release_hidden,
             fractional_invisible,
+            flip,
             env,
             ime,
             keyboard,
             protocol_foreign,
             protocol_foreign_all_worlds,
             // Seeded from the process-global (mirrors the persisted preference).
-            graphics: compositor_developer_environment_graphics_base::base::get(),
+            graphics: compositor_model_environment_graphics_base::base::get(),
             pen,
             pen_capturing: false,
             dirty: false,
@@ -302,6 +305,7 @@ impl IcedUi for Settings {
             SettingsMessage::SetShowFps(b) => self.show_fps = b,
             SettingsMessage::SetReleaseHidden(b) => self.release_hidden = b,
             SettingsMessage::SetFractionalInvisible(s) => self.fractional_invisible = s,
+            SettingsMessage::SetFlip(c) => self.flip = c,
             SettingsMessage::Env(e) => {
                 self.env = e;
                 self.dirty = true;
@@ -516,6 +520,7 @@ impl IcedUi for Settings {
             self.show_fps,
             self.release_hidden,
             &self.fractional_invisible,
+            self.flip,
             &self.env,
             &self.displays,
             &self.touch_devices,

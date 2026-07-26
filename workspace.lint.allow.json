@@ -372,13 +372,13 @@
   "compositor.introspection/introspection.restoration/restoration.state/state.match": [
     "size"
   ],
-  "compositor.developer/developer.environment/environment.config/config.base": [
+  "compositor.model/model.environment/environment.config/config.base": [
     "size"
   ],
-  "compositor.developer/developer.environment/environment.graphics/graphics.base": [
+  "compositor.model/model.environment/environment.graphics/graphics.base": [
     "size"
   ],
-  "compositor.developer/developer.environment/environment.preference/preference.base": [
+  "compositor.model/model.environment/environment.preference/preference.base": [
     "size"
   ],
   "compositor.extension/compositor.configurator/configurator.network/network.backend/backend.base": [
@@ -429,7 +429,7 @@
   "compositor.expansion/compositor.y5/y5.surface/surface.draw/draw.fps": [
     "size"
   ],
-  "compositor.developer/developer.stats/stats.registry/registry.counter": [
+  "compositor.model/model.stats/stats.registry/registry.counter": [
     "size"
   ],
   "compositor.orchestration/orchestration.draw/draw.dispatch/dispatch.uniforms": [

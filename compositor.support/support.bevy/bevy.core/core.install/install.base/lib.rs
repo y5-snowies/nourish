@@ -7,7 +7,7 @@ use bevy::render::{
     texture::GpuImage,
 };
 use compositor_support_bevy_core_bridge_base::{BridgeDirection, BridgeRegistry};
-use compositor_developer_debug_instance_record::info;
+use compositor_model_debug_instance_record::info;
 
 pub struct BridgeRegistryPlugin;
 
@@ -49,7 +49,7 @@ fn install_bridges(
             // Placeholder GpuImage not prepared yet — retry next frame. If this
             // persists, the captured texture never appears (the bridge can't
             // swap it in). Diagnostic for the lock/picker capture-not-visible.
-            compositor_developer_debug_instance_record::warn!(
+            compositor_model_debug_instance_record::warn!(
                 "bridge: GpuImage not prepared for {} ({:?}); deferring",
                 entry.label,
                 entry.direction

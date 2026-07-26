@@ -36,7 +36,7 @@ compositor_orchestration_seat_gesture_state = { workspace = true }
 compositor_orchestration_seat_gesture_touch = { workspace = true }
 compositor_support_system_world_host_base = { workspace = true }
 compositor_support_system_world_frame_base = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 compositor_orchestration_environment_type_base.workspace = true
 compositor_y5_audio_controller_interface.workspace = true
 compositor_y5_lock_state_base.workspace = true
@@ -60,9 +60,9 @@ compositor_orchestration_driver_output_base.workspace = true
 compositor_orchestration_seat_pointer_snapshot.workspace = true
 compositor_orchestration_seat_gesture_scroll.workspace = true
 compositor_orchestration_driver_settings_base.workspace = true
-compositor_developer_environment_preference_base.workspace = true
-compositor_developer_stats_registry_base.workspace = true
-compositor_developer_environment_keybinding_base.workspace = true
+compositor_model_environment_preference_base.workspace = true
+compositor_model_stats_registry_base.workspace = true
+compositor_model_environment_keybinding_base.workspace = true
 compositor_orchestration_seat_pointer_texture.workspace = true
 compositor_orchestration_seat_pointer_state.workspace = true
 compositor_remote_message_state_base.workspace = true

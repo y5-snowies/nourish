@@ -172,6 +172,11 @@ pub struct AtomicDrmSurface {
     prop_mapping: Arc<RwLock<PropMapping>>,
     state: RwLock<State>,
     pending: RwLock<State>,
+    /// y5 patch: issue the next `page_flip` as an async (tearing) commit.
+    /// Deliberately NOT part of `State` — `State`'s `PartialEq` drives
+    /// `commit_pending()`, so a per-frame toggle there would force a full
+    /// modeset on every change. Tearing is a commit FLAG, not a KMS property.
+    tearing: AtomicBool,
     pub(super) span: tracing::Span,
 }
 
@@ -219,6 +224,7 @@ impl AtomicDrmSurface {
             prop_mapping,
             state: RwLock::new(state),
             pending: RwLock::new(pending),
+            tearing: AtomicBool::new(false),
             span,
         };
 
@@ -619,6 +625,17 @@ impl AtomicDrmSurface {
         self.pending.read().unwrap().vrr
     }
 
+    /// y5 patch: arm/disarm async (tearing) page flips for subsequent
+    /// `page_flip` calls. Unlike `use_vrr` this touches no KMS property and can
+    /// never trigger a modeset — it only selects a commit flag.
+    pub fn set_tearing(&self, value: bool) {
+        self.tearing.store(value, Ordering::SeqCst);
+    }
+
+    pub fn tearing(&self) -> bool {
+        self.tearing.load(Ordering::SeqCst)
+    }
+
     pub fn use_vrr(&self, value: bool) -> Result<(), Error> {
         let mut current = self.state.write().unwrap();
         let mut pending = self.pending.write().unwrap();
@@ -893,23 +910,58 @@ impl AtomicDrmSurface {
         // If we would set anything here, that would require a modeset, this would fail,
         // indicating a problem in our assumptions.
         trace!(?planes, "Queueing page flip: {:?}", req);
-        let res = self
-            .fd
-            .atomic_commit(
-                if event {
-                    AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK
-                } else {
-                    AtomicCommitFlags::NONBLOCK
-                },
-                req.build()?,
-            )
-            .map_err(|source| {
-                Error::Access(AccessError {
-                    errmsg: "Page flip commit failed",
-                    dev: self.fd.dev_path(),
-                    source,
-                })
-            });
+
+        // y5 patch: per-frame tearing — flip immediately instead of at vblank
+        // when the caller set `set_tearing(true)` for this frame. The kernel only
+        // accepts PAGE_FLIP_ASYNC for a single-plane, pure-FB-swap commit, and
+        // the exact restrictions vary by driver and kernel version, so a
+        // rejection is an EXPECTED outcome, not an error: retry the identical
+        // request synchronously. y5's side of the contract
+        // (`kernel.scanout/scanout.plane/plane.direct`) disables plane assignment
+        // whenever the policy may tear, so the commit only carries the primary.
+        let flags = if event {
+            AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK
+        } else {
+            AtomicCommitFlags::NONBLOCK
+        };
+        let built = req.build()?;
+        let res = if self.tearing() {
+            match self
+                .fd
+                .atomic_commit(flags | AtomicCommitFlags::PAGE_FLIP_ASYNC, built.clone())
+            {
+                Ok(()) => {
+                    static ACCEPTED: std::sync::Once = std::sync::Once::new();
+                    ACCEPTED.call_once(|| {
+                        tracing::info!("tearing: async page flip ACCEPTED by the kernel");
+                    });
+                    Ok(())
+                }
+                Err(err) => {
+                    // Logged once, at warn: a rejection means tearing is silently
+                    // not happening at all, which is the single thing worth being
+                    // loud about. Per-frame it would be pure spam.
+                    static REJECTED: std::sync::Once = std::sync::Once::new();
+                    REJECTED.call_once(|| {
+                        tracing::warn!(
+                            "tearing: async page flip REJECTED ({err}); \
+                             this frame and any future rejection fall back to a \
+                             synchronous flip"
+                        );
+                    });
+                    self.fd.atomic_commit(flags, built)
+                }
+            }
+        } else {
+            self.fd.atomic_commit(flags, built)
+        }
+        .map_err(|source| {
+            Error::Access(AccessError {
+                errmsg: "Page flip commit failed",
+                dev: self.fd.dev_path(),
+                source,
+            })
+        });
 
         if res.is_ok() {
             for plane in planes.iter() {

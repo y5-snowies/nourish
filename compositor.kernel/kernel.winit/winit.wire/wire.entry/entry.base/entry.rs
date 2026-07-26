@@ -116,7 +116,7 @@ pub fn wire(_loop: &mut Loop, _wayland_socket_name: OsString, event_loop: &mut E
     // Renderer selection: `renderer` = "gles" | "vulkan". Default is VULKAN
     // (drives the scene through VulkanRenderer → dmabuf → blitted to winit's GLES
     // window); set renderer="gles" for the pure-GLES path.
-    let env = compositor_developer_environment_config_base::base::get();
+    let env = compositor_model_environment_config_base::base::get();
     let vulkan_mode = !env.renderer.eq_ignore_ascii_case("gles"); // default + "vulkan" → vulkan
     // Fall back to GLES on Vulkan failure only when explicitly opted in; by
     // default a failed Vulkan init aborts (so a broken Vulkan path is loud, not
@@ -177,7 +177,7 @@ pub fn wire(_loop: &mut Loop, _wayland_socket_name: OsString, event_loop: &mut E
 
     // Record the active renderer once (after any GLES fallback). Producers skip
     // GLES-path-only resources (per-surface GlesTexture) when this is true.
-    compositor_developer_stats_registry_base::base::set_compositor_prefers_dmabuf(
+    compositor_model_stats_registry_base::base::set_compositor_prefers_dmabuf(
         context.vulkan_mode,
     );
 

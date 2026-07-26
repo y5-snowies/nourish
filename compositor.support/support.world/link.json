@@ -1,5 +1,5 @@
 [
-  "../../compositor.developer",
+  "../../compositor.model",
   "../../compositor.support/support.smithay",
   "../../compositor.support/support.system"
 ]

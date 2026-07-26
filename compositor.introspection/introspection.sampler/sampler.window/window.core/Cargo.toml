@@ -8,7 +8,7 @@ compositor_introspection_extraction_window_base.workspace = true
 compositor_introspection_sampler_window_batch = { workspace = true }
 compositor_introspection_sampler_window_engine = { workspace = true }
 compositor_introspection_sampler_window_schedule = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 smithay.workspace = true
 uuid.workspace = true
 

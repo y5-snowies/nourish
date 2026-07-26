@@ -276,90 +276,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "compositor_developer_debug_instance_channel"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_debug_instance_level",
- "crossbeam-channel",
-]
-
-[[package]]
-name = "compositor_developer_debug_instance_level"
-version = "0.0.1"
-dependencies = [
- "crossbeam-channel",
-]
-
-[[package]]
-name = "compositor_developer_debug_instance_record"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_debug_instance_channel",
- "compositor_developer_debug_instance_level",
-]
-
-[[package]]
-name = "compositor_developer_environment_config_base"
-version = "0.0.1"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "compositor_developer_environment_graphics_base"
-version = "0.0.1"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "compositor_developer_stats_registry_base"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_stats_registry_counter",
- "compositor_developer_stats_registry_gpu",
- "compositor_developer_stats_registry_hdr",
- "compositor_developer_stats_registry_meta",
- "compositor_developer_stats_registry_shader",
- "compositor_developer_stats_registry_snapshot",
-]
-
-[[package]]
-name = "compositor_developer_stats_registry_counter"
-version = "0.0.1"
-
-[[package]]
-name = "compositor_developer_stats_registry_gpu"
-version = "0.0.1"
-
-[[package]]
-name = "compositor_developer_stats_registry_hdr"
-version = "0.0.1"
-
-[[package]]
-name = "compositor_developer_stats_registry_meta"
-version = "0.0.1"
-
-[[package]]
-name = "compositor_developer_stats_registry_shader"
-version = "0.0.1"
-
-[[package]]
-name = "compositor_developer_stats_registry_snapshot"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_stats_registry_counter",
- "compositor_developer_stats_registry_gpu",
- "compositor_developer_stats_registry_meta",
-]
-
-[[package]]
 name = "compositor_kernel_drm_syncobj_device_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -375,10 +296,10 @@ name = "compositor_kernel_vulkan_capture_blit_base"
 version = "0.0.1"
 dependencies = [
  "ash",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
  "compositor_kernel_vulkan_memory_target_base",
  "compositor_kernel_vulkan_renderer_error_base",
+ "compositor_model_debug_instance_record",
  "libc",
  "smithay",
 ]
@@ -389,8 +310,8 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
+ "compositor_model_debug_instance_record",
  "smithay",
  "thiserror 2.0.18",
 ]
@@ -401,9 +322,9 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
  "compositor_kernel_vulkan_pipeline_composite_base",
+ "compositor_model_debug_instance_record",
  "smithay",
  "thiserror 2.0.18",
 ]
@@ -414,7 +335,7 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
  "thiserror 2.0.18",
 ]
@@ -425,8 +346,8 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -436,9 +357,9 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
  "compositor_kernel_vulkan_pipeline_composite_base",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -448,9 +369,9 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
  "compositor_kernel_vulkan_pipeline_composite_base",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -460,8 +381,8 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_format_query_base",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -471,7 +392,7 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -480,7 +401,7 @@ name = "compositor_kernel_vulkan_instance_factory_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -489,7 +410,7 @@ name = "compositor_kernel_vulkan_instance_physical_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -498,7 +419,7 @@ name = "compositor_kernel_vulkan_memory_alloc_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -508,9 +429,9 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
  "compositor_kernel_vulkan_format_query_base",
+ "compositor_model_debug_instance_record",
  "smithay",
  "thiserror 2.0.18",
 ]
@@ -521,9 +442,9 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
  "compositor_kernel_vulkan_format_query_base",
+ "compositor_model_debug_instance_record",
  "libc",
  "smithay",
  "thiserror 2.0.18",
@@ -557,8 +478,8 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
+ "compositor_model_debug_instance_record",
  "smithay",
  "thiserror 2.0.18",
 ]
@@ -569,8 +490,8 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
+ "compositor_model_debug_instance_record",
  "naga",
  "smithay",
  "thiserror 2.0.18",
@@ -600,10 +521,6 @@ name = "compositor_kernel_vulkan_renderer_core_base"
 version = "0.0.1"
 dependencies = [
  "ash",
- "compositor_developer_debug_instance_record",
- "compositor_developer_environment_config_base",
- "compositor_developer_environment_graphics_base",
- "compositor_developer_stats_registry_base",
  "compositor_kernel_drm_syncobj_device_base",
  "compositor_kernel_graphic_color_surface_base",
  "compositor_kernel_vulkan_capture_blit_base",
@@ -630,6 +547,10 @@ dependencies = [
  "compositor_kernel_vulkan_sync_fence_base",
  "compositor_kernel_vulkan_texture_cache_base",
  "compositor_kernel_vulkan_texture_image_base",
+ "compositor_model_debug_instance_record",
+ "compositor_model_environment_config_base",
+ "compositor_model_environment_graphics_base",
+ "compositor_model_stats_registry_base",
  "compositor_orchestration_draw_dispatch_frame",
  "smithay",
 ]
@@ -649,8 +570,8 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
+ "compositor_model_debug_instance_record",
  "smithay",
  "thiserror 2.0.18",
 ]
@@ -660,8 +581,8 @@ name = "compositor_kernel_vulkan_sync_fence_base"
 version = "0.0.1"
 dependencies = [
  "ash",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_sync_fence_syncfile",
+ "compositor_model_debug_instance_record",
  "libc",
  "smithay",
 ]
@@ -670,7 +591,7 @@ dependencies = [
 name = "compositor_kernel_vulkan_sync_fence_syncfile"
 version = "0.0.1"
 dependencies = [
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "libc",
  "smithay",
 ]
@@ -681,8 +602,8 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
+ "compositor_model_debug_instance_record",
  "smithay",
  "thiserror 2.0.18",
 ]
@@ -693,8 +614,8 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_vulkan_device_factory_base",
+ "compositor_model_debug_instance_record",
  "smithay",
  "thiserror 2.0.18",
 ]
@@ -725,10 +646,89 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_model_debug_instance_channel"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_level",
+ "crossbeam-channel",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_level"
+version = "0.0.1"
+dependencies = [
+ "crossbeam-channel",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_record"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_channel",
+ "compositor_model_debug_instance_level",
+]
+
+[[package]]
+name = "compositor_model_environment_config_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "compositor_model_environment_graphics_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "compositor_model_stats_registry_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_stats_registry_counter",
+ "compositor_model_stats_registry_gpu",
+ "compositor_model_stats_registry_hdr",
+ "compositor_model_stats_registry_meta",
+ "compositor_model_stats_registry_shader",
+ "compositor_model_stats_registry_snapshot",
+]
+
+[[package]]
+name = "compositor_model_stats_registry_counter"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_model_stats_registry_gpu"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_model_stats_registry_hdr"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_model_stats_registry_meta"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_model_stats_registry_shader"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_model_stats_registry_snapshot"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_stats_registry_counter",
+ "compositor_model_stats_registry_gpu",
+ "compositor_model_stats_registry_meta",
+]
+
+[[package]]
 name = "compositor_orchestration_draw_dispatch_frame"
 version = "0.0.1"
 dependencies = [
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "compositor_orchestration_draw_dispatch_uniforms",
  "smithay",
 ]

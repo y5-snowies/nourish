@@ -4,7 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
-compositor_developer_debug_instance_record.workspace = true
+compositor_model_debug_instance_record.workspace = true
 bitflags.workspace = true
 smithay.workspace = true
 
@@ -22,7 +22,7 @@ compositor_orchestration_driver_lid_base.workspace = true
 compositor_orchestration_input_drive_base.workspace = true
 compositor_support_system_input_event_base.workspace = true
 compositor_orchestration_seat_pointer_input.workspace = true
-compositor_developer_environment_preference_base.workspace = true
+compositor_model_environment_preference_base.workspace = true
 compositor_orchestration_driver_settings_base.workspace = true
 
 [lib]

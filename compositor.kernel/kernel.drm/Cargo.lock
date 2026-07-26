@@ -246,59 +246,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "compositor_developer_debug_instance_channel"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_debug_instance_level",
- "crossbeam-channel",
-]
-
-[[package]]
-name = "compositor_developer_debug_instance_level"
-version = "0.0.1"
-dependencies = [
- "crossbeam-channel",
-]
-
-[[package]]
-name = "compositor_developer_debug_instance_record"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_debug_instance_channel",
- "compositor_developer_debug_instance_level",
-]
-
-[[package]]
-name = "compositor_developer_environment_config_base"
-version = "0.0.1"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "compositor_developer_environment_graphics_base"
-version = "0.0.1"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "compositor_developer_environment_preference_base"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_environment_config_base",
- "compositor_developer_environment_graphics_base",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "compositor_kernel_drm_connector_diff_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -307,7 +259,7 @@ name = "compositor_kernel_drm_connector_kind_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -316,7 +268,7 @@ name = "compositor_kernel_drm_connector_scan_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -325,10 +277,10 @@ name = "compositor_kernel_drm_connector_select_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_drm_edid_identity_base",
  "compositor_kernel_drm_edid_parse_base",
  "compositor_kernel_graphic_preference_output_profile",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -337,7 +289,7 @@ name = "compositor_kernel_drm_device_node_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -346,7 +298,7 @@ name = "compositor_kernel_drm_device_open_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -355,8 +307,8 @@ name = "compositor_kernel_drm_edid_identity_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_drm_edid_parse_base",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -365,7 +317,7 @@ name = "compositor_kernel_drm_edid_parse_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -374,7 +326,7 @@ name = "compositor_kernel_drm_gbm_alloc_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -383,7 +335,7 @@ name = "compositor_kernel_drm_gbm_device_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -392,7 +344,7 @@ name = "compositor_kernel_drm_loop_notifier_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -401,7 +353,7 @@ name = "compositor_kernel_drm_mode_enumerate_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -410,8 +362,8 @@ name = "compositor_kernel_drm_mode_select_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_graphic_preference_output_profile",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -420,7 +372,7 @@ name = "compositor_kernel_drm_mode_synthesize_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "drm-ffi",
  "smithay",
 ]
@@ -430,8 +382,8 @@ name = "compositor_kernel_drm_output_physical_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_drm_edid_identity_base",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -440,7 +392,7 @@ name = "compositor_kernel_drm_syncobj_device_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -449,7 +401,7 @@ name = "compositor_kernel_drm_syncobj_timeline_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -458,9 +410,81 @@ name = "compositor_kernel_graphic_preference_output_profile"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
- "compositor_developer_environment_preference_base",
+ "compositor_model_debug_instance_record",
+ "compositor_model_environment_preference_base",
  "smithay",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_channel"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_level",
+ "crossbeam-channel",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_level"
+version = "0.0.1"
+dependencies = [
+ "crossbeam-channel",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_record"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_channel",
+ "compositor_model_debug_instance_level",
+]
+
+[[package]]
+name = "compositor_model_environment_config_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "compositor_model_environment_graphics_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "compositor_model_environment_preference_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_config_base",
+ "compositor_model_environment_graphics_base",
+ "compositor_model_environment_tearing_config",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "compositor_model_environment_tearing_config"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_tearing_rate",
+ "compositor_model_environment_tearing_select",
+ "serde",
+]
+
+[[package]]
+name = "compositor_model_environment_tearing_rate"
+version = "0.0.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "compositor_model_environment_tearing_select"
+version = "0.0.1"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

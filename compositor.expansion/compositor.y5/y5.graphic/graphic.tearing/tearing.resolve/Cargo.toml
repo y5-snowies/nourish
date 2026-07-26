@@ -1,0 +1,12 @@
+[package]
+name = "compositor_y5_graphic_tearing_resolve"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_model_environment_tearing_config = { workspace = true }
+compositor_model_environment_tearing_select = { workspace = true }
+compositor_model_environment_tearing_rate = { workspace = true }
+
+[lib]
+path = "lib.rs"

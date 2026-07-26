@@ -246,35 +246,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "compositor_developer_debug_instance_channel"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_debug_instance_level",
- "crossbeam-channel",
-]
-
-[[package]]
-name = "compositor_developer_debug_instance_level"
-version = "0.0.1"
-dependencies = [
- "crossbeam-channel",
-]
-
-[[package]]
-name = "compositor_developer_debug_instance_record"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_debug_instance_channel",
- "compositor_developer_debug_instance_level",
-]
-
-[[package]]
 name = "compositor_kernel_gpu_preference_select_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_graphic_preference_gpu_rank",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -283,7 +260,7 @@ name = "compositor_kernel_gpu_registry_node_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -292,7 +269,7 @@ name = "compositor_kernel_gpu_topology_role_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -301,7 +278,7 @@ name = "compositor_kernel_gpu_topology_route_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -310,8 +287,31 @@ name = "compositor_kernel_graphic_preference_gpu_rank"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_channel"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_level",
+ "crossbeam-channel",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_level"
+version = "0.0.1"
+dependencies = [
+ "crossbeam-channel",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_record"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_channel",
+ "compositor_model_debug_instance_level",
 ]
 
 [[package]]

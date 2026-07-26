@@ -11,8 +11,8 @@ use crate::drm_probe::{self, ProbedMonitor};
 use crate::prompt::ask;
 use crate::select::{select_list, Item};
 use crate::term::Nav;
-use compositor_developer_environment_preference_base::base as pref;
-use compositor_developer_environment_preference_base::base::{ModeRequest, Preference};
+use compositor_model_environment_preference_base::base as pref;
+use compositor_model_environment_preference_base::base::{ModeRequest, Preference};
 
 /// Run the preferences editor until the user backs out of the monitor list. The
 /// monitor marked `*` is the **default output**: the compositor uses the first entry

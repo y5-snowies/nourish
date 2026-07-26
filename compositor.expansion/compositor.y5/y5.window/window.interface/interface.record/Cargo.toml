@@ -6,7 +6,7 @@ edition = "2024"
 
 [dependencies]
 compositor_y5_window_interface_data = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 bitflags = { workspace = true }

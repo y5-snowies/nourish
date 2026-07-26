@@ -6,7 +6,7 @@
 use smithay::input::pointer::CursorIcon;
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_core_state_base::export::{ActiveOption, CanvasGrab};
-use compositor_developer_environment_preference_base::base::PenAction;
+use compositor_model_environment_preference_base::base::PenAction;
 use crate::tablet::inject;
 
 /// Toggle the canvas Hand grab (navigation mode) — the same state + forced grab

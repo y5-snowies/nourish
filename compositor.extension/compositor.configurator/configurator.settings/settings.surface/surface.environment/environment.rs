@@ -2,7 +2,7 @@
 //! are dropdowns, booleans are pill toggles, free strings use a field — and each
 //! row has a restore-to-default (↺). Edits emit the full edited struct; the
 //! handler writes settings.json + the reboot banner.
-use compositor_developer_environment_config_base::base::{default_settings, Environment};
+use compositor_model_environment_config_base::base::{default_settings, Environment};
 use compositor_configurator_hardware_gpu_base::base::RenderDevice;
 use compositor_support_iced_core_engine_base::Renderer;
 use compositor_configurator_settings_surface_message::message::SettingsMessage;

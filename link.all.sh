@@ -1,4 +1,11 @@
 set -e
+# The shared model: settings shapes, logging and stats, read by the compositor and
+# by the external trees (installer, developer tool) alike. Nothing in it depends on
+# a compositor crate — the generated block is what keeps that visible.
+cd compositor.model
+node ../workspace.link.js
+cd ..
+
 cd compositor.orchestration
 node ../workspace.link.js
 cd ..

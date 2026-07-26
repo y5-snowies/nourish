@@ -4,4 +4,4 @@
 //! field). Re-exported here so the rest of the tool keeps calling
 //! `template::default_settings()`.
 
-pub use compositor_developer_environment_config_base::base::default_settings;
+pub use compositor_model_environment_config_base::base::default_settings;

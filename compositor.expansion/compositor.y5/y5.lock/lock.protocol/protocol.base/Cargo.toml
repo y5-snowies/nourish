@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 compositor_y5_lock_system_base = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 compositor_support_library_pam_worker_base.workspace = true
 compositor_y5_lock_interface_surface.workspace = true
 compositor_orchestration_core_state_base.workspace = true

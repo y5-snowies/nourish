@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 compositor_support_system_persist_mark_base = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 compositor_orchestration_core_state_base = { workspace = true }
 compositor_support_system_trait_system_base = { workspace = true }
 compositor_support_world_kind_build_base = { workspace = true }

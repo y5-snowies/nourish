@@ -47,14 +47,14 @@ cover/
 
 | project      | workspace root(s)                                             |
 |--------------|---------------------------------------------------------------|
-| `compositor` | every Cargo workspace root **except** installer & developer (dynamic — includes orchestration, support.\*, expansion.\*, extension.\*, kernel.\*, introspection) |
+| `compositor` | every Cargo workspace root **except** installer & model (dynamic — includes orchestration, support.\*, expansion.\*, extension.\*, kernel.\*, introspection) |
 | `installer`  | `compositor.installer/installer.process`                      |
-| `dev`        | `compositor.developer`                                        |
+| `model`      | `compositor.model`                                            |
 
 A source file is attributed to the project whose workspace **owns** it
 (`cargo metadata --no-deps`). Cross-workspace path deps stay with their owner — e.g.
-`compositor.developer` links `support.action`, but `support.action` counts under
-`compositor`, not `dev`.
+every compositor root links `compositor.model`, but the model crates count under
+`model`, not `compositor`.
 
 ## Usage
 
@@ -77,8 +77,8 @@ cover/<project>/test/<fully_qualified_crate_name>/<any_name>.rs
 ```
 
 ```rust
-// cover/dev/test/compositor_developer_stats_registry_hdr/smoke.rs
-use compositor_developer_stats_registry_hdr::hdr_tuning;
+// cover/dev/test/compositor_model_stats_registry_hdr/smoke.rs
+use compositor_model_stats_registry_hdr::hdr_tuning;
 
 #[test]
 fn calls_hdr_tuning() { let _ = hdr_tuning(); }

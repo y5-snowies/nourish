@@ -18,7 +18,7 @@ pub fn build(
     params_override: &[(String, f32)],
 ) -> (Option<GlesPixelProgram>, Option<Arc<VulkanModule>>, [f32; 16], Option<String>) {
     let prefers_dmabuf =
-        compositor_developer_stats_registry_base::base::compositor_prefers_dmabuf();
+        compositor_model_stats_registry_base::base::compositor_prefers_dmabuf();
     let (loaded, error) = match selection {
         Some(s) => compositor_background_two_shader_load::load(renderer, prefers_dmabuf, s),
         None => (None, None),

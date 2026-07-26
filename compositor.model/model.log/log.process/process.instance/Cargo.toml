@@ -1,0 +1,16 @@
+[package]
+name = "compositor_model_log_process_instance"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_model_debug_instance_record = { workspace = true }
+compositor_model_log_process_instance_bind = { workspace = true }
+compositor_model_log_process_instance_drain = { workspace = true }
+compositor_model_log_process_instance_serve = { workspace = true }
+compositor_model_log_process_instance_shared = { workspace = true }
+crossbeam-channel = { workspace = true }
+tokio = { workspace = true }
+
+[lib]
+path = "lib.rs"

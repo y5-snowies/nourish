@@ -1,6 +1,6 @@
 use compositor_support_system_storage_token_base::base::{Token, TokenMut};
 use compositor_monitor_compositor_iced_base::HandleId;
-use compositor_developer_environment_preference_base::base::{KeyBind, PenBindTarget};
+use compositor_model_environment_preference_base::base::{KeyBind, PenBindTarget};
 
 /// What the settings Pen tab is currently waiting to capture (click-to-bind). Read by
 /// the keyboard handler (Key) and the libinput pad handler (Pad); armed/cleared via

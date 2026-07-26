@@ -51,7 +51,7 @@ const INPUT_WORKSPACES = discoverWorkspaceRoots();
 // Optional per-root feature overrides: a `link.features.json` in the target root maps
 // a generated crate name to feature attributes the root controls (feature selection
 // lives at root, never in a crate). Example:
-//   { "compositor_developer_debug_instance_record":
+//   { "compositor_model_debug_instance_record":
 //       { "default-features": false, "features": ["error","warn","info","trace"] } }
 function loadFeatureOverrides() {
   const p = path.join(TARGET_WORKSPACE, 'link.features.json');

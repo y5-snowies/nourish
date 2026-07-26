@@ -20,7 +20,7 @@ compositor_y5_surface_protocol_base = { workspace = true }
 compositor_remote_message_client_base = { workspace = true }
 compositor_remote_client_handle_selection = { workspace = true }
 compositor_remote_client_handle_aspect = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 
 [lib]
 path = "lib.rs"

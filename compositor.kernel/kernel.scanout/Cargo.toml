@@ -11,6 +11,9 @@ pam-sys = { path = "../../vendor/pam-sys" }
 [workspace.dependencies]
 bitflags = "2"
 thiserror = "2"
+# clock_gettime(CLOCK_MONOTONIC) — the only way to relate `Instant` to the
+# CLOCK_MONOTONIC timestamps DRM stamps its vblank events with.
+libc = "0.2"
 # ash is NOT re-exported by smithay (it is an optional internal dep there);
 # the backend.vulkan crates that need raw Vulkan types take it directly.
 # Version matches the vendored smithay's ash requirement.
@@ -103,28 +106,6 @@ compositor_configurator_settings_surface_preview = { path = "../../compositor.ex
 compositor_configurator_settings_surface_style = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.style" }
 compositor_configurator_settings_surface_view = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.view" }
 compositor_configurator_settings_surface_world = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.world" }
-compositor_developer_debug_instance_channel = { path = "../../compositor.developer/developer.debug/debug.instance/instance.channel" }
-compositor_developer_debug_instance_level = { path = "../../compositor.developer/developer.debug/debug.instance/instance.level" }
-compositor_developer_debug_instance_record = { path = "../../compositor.developer/developer.debug/debug.instance/instance.record" }
-compositor_developer_environment_config_base = { path = "../../compositor.developer/developer.environment/environment.config/config.base" }
-compositor_developer_environment_experimental_base = { path = "../../compositor.developer/developer.environment/environment.experimental/experimental.base" }
-compositor_developer_environment_graphics_base = { path = "../../compositor.developer/developer.environment/environment.graphics/graphics.base" }
-compositor_developer_environment_keybinding_base = { path = "../../compositor.developer/developer.environment/environment.keybinding/keybinding.base" }
-compositor_developer_environment_preference_base = { path = "../../compositor.developer/developer.environment/environment.preference/preference.base" }
-compositor_developer_log_process_instance = { path = "../../compositor.developer/developer.log/log.process/process.instance" }
-compositor_developer_log_process_instance_bind = { path = "../../compositor.developer/developer.log/log.process/process.instance.bind" }
-compositor_developer_log_process_instance_drain = { path = "../../compositor.developer/developer.log/log.process/process.instance.drain" }
-compositor_developer_log_process_instance_example = { path = "../../compositor.developer/developer.log/log.process/process.instance.example" }
-compositor_developer_log_process_instance_serve = { path = "../../compositor.developer/developer.log/log.process/process.instance.serve" }
-compositor_developer_log_process_instance_shared = { path = "../../compositor.developer/developer.log/log.process/process.instance.shared" }
-compositor_developer_log_process_main = { path = "../../compositor.developer/developer.log/log.process/process.main" }
-compositor_developer_stats_registry_base = { path = "../../compositor.developer/developer.stats/stats.registry/registry.base" }
-compositor_developer_stats_registry_counter = { path = "../../compositor.developer/developer.stats/stats.registry/registry.counter" }
-compositor_developer_stats_registry_gpu = { path = "../../compositor.developer/developer.stats/stats.registry/registry.gpu" }
-compositor_developer_stats_registry_hdr = { path = "../../compositor.developer/developer.stats/stats.registry/registry.hdr" }
-compositor_developer_stats_registry_meta = { path = "../../compositor.developer/developer.stats/stats.registry/registry.meta" }
-compositor_developer_stats_registry_shader = { path = "../../compositor.developer/developer.stats/stats.registry/registry.shader" }
-compositor_developer_stats_registry_snapshot = { path = "../../compositor.developer/developer.stats/stats.registry/registry.snapshot" }
 compositor_introspection_execution_launch_build = { path = "../../compositor.introspection/introspection.execution/execution.launch/launch.build" }
 compositor_introspection_execution_launch_dispatch = { path = "../../compositor.introspection/introspection.execution/execution.launch/launch.dispatch" }
 compositor_introspection_execution_launch_execute = { path = "../../compositor.introspection/introspection.execution/execution.launch/launch.execute" }
@@ -347,6 +328,31 @@ compositor_kernel_winit_input_route_base = { path = "../kernel.winit/winit.input
 compositor_kernel_winit_scene_compose_base = { path = "../kernel.winit/winit.scene/scene.compose/compose.base" }
 compositor_kernel_winit_window_factory_base = { path = "../kernel.winit/winit.window/window.factory/factory.base" }
 compositor_kernel_winit_wire_entry_base = { path = "../kernel.winit/winit.wire/wire.entry/entry.base" }
+compositor_model_debug_instance_channel = { path = "../../compositor.model/model.debug/debug.instance/instance.channel" }
+compositor_model_debug_instance_level = { path = "../../compositor.model/model.debug/debug.instance/instance.level" }
+compositor_model_debug_instance_record = { path = "../../compositor.model/model.debug/debug.instance/instance.record" }
+compositor_model_environment_config_base = { path = "../../compositor.model/model.environment/environment.config/config.base" }
+compositor_model_environment_experimental_base = { path = "../../compositor.model/model.environment/environment.experimental/experimental.base" }
+compositor_model_environment_graphics_base = { path = "../../compositor.model/model.environment/environment.graphics/graphics.base" }
+compositor_model_environment_keybinding_base = { path = "../../compositor.model/model.environment/environment.keybinding/keybinding.base" }
+compositor_model_environment_preference_base = { path = "../../compositor.model/model.environment/environment.preference/preference.base" }
+compositor_model_environment_tearing_config = { path = "../../compositor.model/model.environment/environment.tearing/tearing.config" }
+compositor_model_environment_tearing_rate = { path = "../../compositor.model/model.environment/environment.tearing/tearing.rate" }
+compositor_model_environment_tearing_select = { path = "../../compositor.model/model.environment/environment.tearing/tearing.select" }
+compositor_model_log_process_instance = { path = "../../compositor.model/model.log/log.process/process.instance" }
+compositor_model_log_process_instance_bind = { path = "../../compositor.model/model.log/log.process/process.instance.bind" }
+compositor_model_log_process_instance_drain = { path = "../../compositor.model/model.log/log.process/process.instance.drain" }
+compositor_model_log_process_instance_example = { path = "../../compositor.model/model.log/log.process/process.instance.example" }
+compositor_model_log_process_instance_serve = { path = "../../compositor.model/model.log/log.process/process.instance.serve" }
+compositor_model_log_process_instance_shared = { path = "../../compositor.model/model.log/log.process/process.instance.shared" }
+compositor_model_log_process_main = { path = "../../compositor.model/model.log/log.process/process.main" }
+compositor_model_stats_registry_base = { path = "../../compositor.model/model.stats/stats.registry/registry.base" }
+compositor_model_stats_registry_counter = { path = "../../compositor.model/model.stats/stats.registry/registry.counter" }
+compositor_model_stats_registry_gpu = { path = "../../compositor.model/model.stats/stats.registry/registry.gpu" }
+compositor_model_stats_registry_hdr = { path = "../../compositor.model/model.stats/stats.registry/registry.hdr" }
+compositor_model_stats_registry_meta = { path = "../../compositor.model/model.stats/stats.registry/registry.meta" }
+compositor_model_stats_registry_shader = { path = "../../compositor.model/model.stats/stats.registry/registry.shader" }
+compositor_model_stats_registry_snapshot = { path = "../../compositor.model/model.stats/stats.registry/registry.snapshot" }
 compositor_monitor_compositor_iced_base = { path = "../../compositor.extension/compositor.monitor/monitor.compositor/compositor.iced/iced.base" }
 compositor_monitor_launcher_ui_base = { path = "../../compositor.extension/compositor.monitor/monitor.launcher/launcher.ui/ui.base" }
 compositor_monitor_overview_ui_base = { path = "../../compositor.extension/compositor.monitor/monitor.overview/overview.ui/ui.base" }
@@ -513,6 +519,7 @@ compositor_support_smithay_dispatch_wire_color = { path = "../../compositor.supp
 compositor_support_smithay_dispatch_wire_colorsurf = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.colorsurf" }
 compositor_support_smithay_dispatch_wire_redraw = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.redraw" }
 compositor_support_smithay_dispatch_wire_tablet = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.tablet" }
+compositor_support_smithay_dispatch_wire_tearing = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.tearing" }
 compositor_support_smithay_dispatch_wire_trait = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.trait" }
 compositor_support_smithay_state_buffer_dispatch = { path = "../../compositor.support/support.smithay/smithay.state/state.buffer/buffer.dispatch" }
 compositor_support_smithay_state_clipboard_base = { path = "../../compositor.support/support.smithay/smithay.state/state.clipboard/clipboard.base" }
@@ -576,6 +583,8 @@ compositor_support_smithay_state_singlepixel_dispatch = { path = "../../composit
 compositor_support_smithay_state_singlepixel_factory = { path = "../../compositor.support/support.smithay/smithay.state/state.singlepixel/singlepixel.factory" }
 compositor_support_smithay_state_space_base = { path = "../../compositor.support/support.smithay/smithay.state/state.space/space.base" }
 compositor_support_smithay_state_space_factory = { path = "../../compositor.support/support.smithay/smithay.state/state.space/space.factory" }
+compositor_support_smithay_state_tearing_gate = { path = "../../compositor.support/support.smithay/smithay.state/state.tearing/tearing.gate" }
+compositor_support_smithay_state_tearing_pacer = { path = "../../compositor.support/support.smithay/smithay.state/state.tearing/tearing.pacer" }
 compositor_support_smithay_state_text_input_base = { path = "../../compositor.support/support.smithay/smithay.state/state.text.input/text.input.base" }
 compositor_support_smithay_state_text_input_factory = { path = "../../compositor.support/support.smithay/smithay.state/state.text.input/text.input.factory" }
 compositor_support_smithay_state_text_input_launch = { path = "../../compositor.support/support.smithay/smithay.state/state.text.input/text.input.launch" }
@@ -660,6 +669,9 @@ compositor_y5_graphic_capture_vaapi = { path = "../../compositor.expansion/compo
 compositor_y5_graphic_card_constant = { path = "../../compositor.expansion/compositor.y5/y5.graphic/graphic.card/card.constant" }
 compositor_y5_graphic_display_backend = { path = "../../compositor.expansion/compositor.y5/y5.graphic/graphic.display/display.backend" }
 compositor_y5_graphic_display_output = { path = "../../compositor.expansion/compositor.y5/y5.graphic/graphic.display/display.output" }
+compositor_y5_graphic_tearing_describe = { path = "../../compositor.expansion/compositor.y5/y5.graphic/graphic.tearing/tearing.describe" }
+compositor_y5_graphic_tearing_resolve = { path = "../../compositor.expansion/compositor.y5/y5.graphic/graphic.tearing/tearing.resolve" }
+compositor_y5_graphic_tearing_text = { path = "../../compositor.expansion/compositor.y5/y5.graphic/graphic.tearing/tearing.text" }
 compositor_y5_group_draw_base = { path = "../../compositor.expansion/compositor.y5/y5.group/group.draw/draw.base" }
 compositor_y5_group_interface_base = { path = "../../compositor.expansion/compositor.y5/y5.group/group.interface/interface.base" }
 compositor_y5_group_protocol_base = { path = "../../compositor.expansion/compositor.y5/y5.group/group.protocol/protocol.base" }
@@ -793,6 +805,8 @@ compositor_y5_window_interface_draw = { path = "../../compositor.expansion/compo
 compositor_y5_window_interface_record = { path = "../../compositor.expansion/compositor.y5/y5.window/window.interface/interface.record" }
 compositor_y5_window_lifecycle_event = { path = "../../compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.event" }
 compositor_y5_window_lifecycle_interface = { path = "../../compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.interface" }
+compositor_y5_window_lifecycle_pacer = { path = "../../compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.pacer" }
 compositor_y5_window_lifecycle_state = { path = "../../compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.state" }
+compositor_y5_window_lifecycle_tag = { path = "../../compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.tag" }
 compositor_y5_window_system_base = { path = "../../compositor.expansion/compositor.y5/y5.window/window.system/system.base" }
 # --- GENERATED WORKSPACE LINKS END ---

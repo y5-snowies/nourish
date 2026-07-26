@@ -1,5 +1,5 @@
 use std::sync::{Arc, mpsc};
-use compositor_developer_debug_instance_record::{error, info};
+use compositor_model_debug_instance_record::{error, info};
 
 /// Spawn the wgpu init thread; returns (bevy ctx receiver, iced ctx receiver).
 /// The bevy receiver is handed to ThreeSystem at construction (system-private
