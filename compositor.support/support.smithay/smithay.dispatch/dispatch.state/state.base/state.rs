@@ -867,16 +867,22 @@ mod handler_impls {
                 if g == gate::Gate::Off {
                     self.schedule_redraw();
                 } else {
-                    // Each gate asks a different question of the surface, so all
-                    // three properties are resolved here rather than assuming the
-                    // tag: `Focused` admits the focused window whether or not it
-                    // is tagged, and `Visible` admits anything the scene drew.
-                    let focus = self
-                        .seat
-                        .seat
-                        .get_keyboard()
-                        .and_then(|kb| kb.current_focus());
-                    let focused = focus.is_some_and(|f| &f == surface);
+                    // Each gate asks a different question of the surface, so the
+                    // properties are resolved here rather than assuming the tag:
+                    // `Focused` admits the focused window whether or not it is
+                    // tagged, and `Visible` admits anything the scene drew.
+                    //
+                    // Focus is resolved ONLY for the gates that read it. It costs
+                    // a seat lookup plus a focus-target clone, and this runs on
+                    // every client commit — thousands a second under tearing —
+                    // while `Tagged` and `Visible` never look at it.
+                    let focused = matches!(g, gate::Gate::TaggedFocused | gate::Gate::Focused)
+                        && self
+                            .seat
+                            .seat
+                            .get_keyboard()
+                            .and_then(|kb| kb.current_focus())
+                            .is_some_and(|f| &f == surface);
                     let frame = gate::frame();
                     let (tagged, visible) = compositor::with_states(surface, |states| {
                         (

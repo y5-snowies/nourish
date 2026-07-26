@@ -1,5 +1,5 @@
 [package]
-name = "compositor_y5_graphic_tearing_text"
+name = "compositor_configurator_settings_surface_tearlabel"
 version = "0.0.1"
 edition = "2024"
 

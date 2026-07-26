@@ -84,6 +84,8 @@ compositor_configurator_settings_surface_misc = { path = "../../compositor.exten
 compositor_configurator_settings_surface_pen = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.pen" }
 compositor_configurator_settings_surface_preview = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.preview" }
 compositor_configurator_settings_surface_style = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.style" }
+compositor_configurator_settings_surface_tearhint = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.tearhint" }
+compositor_configurator_settings_surface_tearlabel = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.tearlabel" }
 compositor_configurator_settings_surface_view = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.view" }
 compositor_configurator_settings_surface_world = { path = "../../compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.world" }
 compositor_introspection_execution_launch_build = { path = "../../compositor.introspection/introspection.execution/execution.launch/launch.build" }
@@ -240,6 +242,7 @@ compositor_kernel_native_wire_input_base = { path = "../../compositor.kernel/ker
 compositor_kernel_native_wire_input_map = { path = "../../compositor.kernel/kernel.native/native.wire/wire.input/input.map" }
 compositor_kernel_native_wire_plugin_base = { path = "../../compositor.kernel/kernel.native/native.wire/wire.plugin/plugin.base" }
 compositor_kernel_native_wire_session_base = { path = "../../compositor.kernel/kernel.native/native.wire/wire.session/session.base" }
+compositor_kernel_native_wire_watchdog_base = { path = "../../compositor.kernel/kernel.native/native.wire/wire.watchdog/watchdog.base" }
 compositor_kernel_scanout_commit_build_base = { path = "../../compositor.kernel/kernel.scanout/scanout.commit/commit.build/build.base" }
 compositor_kernel_scanout_commit_submit_base = { path = "../../compositor.kernel/kernel.scanout/scanout.commit/commit.submit/submit.base" }
 compositor_kernel_scanout_commit_test_base = { path = "../../compositor.kernel/kernel.scanout/scanout.commit/commit.test/test.base" }
@@ -563,7 +566,9 @@ compositor_support_smithay_state_singlepixel_dispatch = { path = "../support.smi
 compositor_support_smithay_state_singlepixel_factory = { path = "../support.smithay/smithay.state/state.singlepixel/singlepixel.factory" }
 compositor_support_smithay_state_space_base = { path = "../support.smithay/smithay.state/state.space/space.base" }
 compositor_support_smithay_state_space_factory = { path = "../support.smithay/smithay.state/state.space/space.factory" }
+compositor_support_smithay_state_tearing_floor = { path = "../support.smithay/smithay.state/state.tearing/tearing.floor" }
 compositor_support_smithay_state_tearing_gate = { path = "../support.smithay/smithay.state/state.tearing/tearing.gate" }
+compositor_support_smithay_state_tearing_liveness = { path = "../support.smithay/smithay.state/state.tearing/tearing.liveness" }
 compositor_support_smithay_state_tearing_pacer = { path = "../support.smithay/smithay.state/state.tearing/tearing.pacer" }
 compositor_support_smithay_state_text_input_base = { path = "../support.smithay/smithay.state/state.text.input/text.input.base" }
 compositor_support_smithay_state_text_input_factory = { path = "../support.smithay/smithay.state/state.text.input/text.input.factory" }
@@ -649,9 +654,9 @@ compositor_y5_graphic_capture_vaapi = { path = "../../compositor.expansion/compo
 compositor_y5_graphic_card_constant = { path = "../../compositor.expansion/compositor.y5/y5.graphic/graphic.card/card.constant" }
 compositor_y5_graphic_display_backend = { path = "../../compositor.expansion/compositor.y5/y5.graphic/graphic.display/display.backend" }
 compositor_y5_graphic_display_output = { path = "../../compositor.expansion/compositor.y5/y5.graphic/graphic.display/display.output" }
-compositor_y5_graphic_tearing_describe = { path = "../../compositor.expansion/compositor.y5/y5.graphic/graphic.tearing/tearing.describe" }
+compositor_y5_graphic_tearing_heuristic = { path = "../../compositor.expansion/compositor.y5/y5.graphic/graphic.tearing/tearing.heuristic" }
 compositor_y5_graphic_tearing_resolve = { path = "../../compositor.expansion/compositor.y5/y5.graphic/graphic.tearing/tearing.resolve" }
-compositor_y5_graphic_tearing_text = { path = "../../compositor.expansion/compositor.y5/y5.graphic/graphic.tearing/tearing.text" }
+compositor_y5_graphic_tearing_tag = { path = "../../compositor.expansion/compositor.y5/y5.graphic/graphic.tearing/tearing.tag" }
 compositor_y5_group_draw_base = { path = "../../compositor.expansion/compositor.y5/y5.group/group.draw/draw.base" }
 compositor_y5_group_interface_base = { path = "../../compositor.expansion/compositor.y5/y5.group/group.interface/interface.base" }
 compositor_y5_group_protocol_base = { path = "../../compositor.expansion/compositor.y5/y5.group/group.protocol/protocol.base" }
@@ -782,11 +787,10 @@ compositor_y5_window_draw_element = { path = "../../compositor.expansion/composi
 compositor_y5_window_draw_frame = { path = "../../compositor.expansion/compositor.y5/y5.window/window.draw/draw.frame" }
 compositor_y5_window_interface_data = { path = "../../compositor.expansion/compositor.y5/y5.window/window.interface/interface.data" }
 compositor_y5_window_interface_draw = { path = "../../compositor.expansion/compositor.y5/y5.window/window.interface/interface.draw" }
+compositor_y5_window_interface_dump = { path = "../../compositor.expansion/compositor.y5/y5.window/window.interface/interface.dump" }
 compositor_y5_window_interface_record = { path = "../../compositor.expansion/compositor.y5/y5.window/window.interface/interface.record" }
 compositor_y5_window_lifecycle_event = { path = "../../compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.event" }
 compositor_y5_window_lifecycle_interface = { path = "../../compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.interface" }
-compositor_y5_window_lifecycle_pacer = { path = "../../compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.pacer" }
 compositor_y5_window_lifecycle_state = { path = "../../compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.state" }
-compositor_y5_window_lifecycle_tag = { path = "../../compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.tag" }
 compositor_y5_window_system_base = { path = "../../compositor.expansion/compositor.y5/y5.window/window.system/system.base" }
 # --- GENERATED WORKSPACE LINKS END ---

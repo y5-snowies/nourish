@@ -1,29 +1,30 @@
 //! Deciding, from process metadata alone, that a client wants to tear.
 //!
 //! Games mostly do not speak `wp_tearing_control_v1`, so the protocol tag covers
-//! almost none of the windows it was meant for. These heuristics fill that gap
-//! from what introspection already captured.
+//! almost none of the windows it was meant for. Two sources fill the gap, both
+//! resolved against the window's process AND its ancestors: `Y5_TEARING=1` (the
+//! user saying so, always honoured) and Steam attribution (`steam_app_*`, the
+//! `SteamAppId`/compat-tool environment, or an executable inside a library).
 //!
-//! Two sources, both resolved against the window's process AND its ancestors —
-//! `Y5_TEARING=1` (the user saying so, e.g. as a Steam launch command; always
-//! honoured), and Steam attribution (`steam_app_*`, the `SteamAppId`/compat-tool
-//! environment, or an executable inside a library).
-//!
-//! Mind the asymmetry the X11 proxy creates: xwayland-satellite is a single
-//! process for every X11 title, so such a window's `/proc` data is the
-//! SATELLITE's and only its `app_id` says anything — `Y5_TEARING` on that game's
-//! launch command is invisible here. Native (`PROTON_ENABLE_WAYLAND`) clients are
-//! their own process and match on every rule.
+//! Mind the asymmetry the X11 proxy creates: xwayland-satellite is one process
+//! for every X11 title, so such a window's `/proc` data is the SATELLITE's.
+//! `tearing.tag` dumps the whole ancestor chain at trace level precisely so that
+//! shape can be checked against a live window rather than assumed.
 
 use compositor_introspection_extraction_window_meta_types::types::{Meta, MetaNode};
 use std::path::Path;
 
 pub const TEARING_ENV: &str = "Y5_TEARING";
 
-/// Path components that exist only inside a Steam library — `steamapps` for
-/// installed titles, `compatdata` for a Proton prefix. Matched anywhere in the
-/// path so libraries on other drives are covered, not just the default root.
-const LIBRARY: [&str; 2] = ["steamapps", "compatdata"];
+/// Exact path components that exist only inside a Steam library. Matched anywhere
+/// in the path, so libraries on other drives are covered too.
+const LIBRARY: [&str; 1] = ["steamapps"];
+
+/// Prefix matches for the same: the compatibility tools live in several
+/// differently-named siblings — `compatdata` for a per-title Proton prefix,
+/// `compatibilitytools.d` for user-installed Proton/Wine builds — and a title
+/// running under either is executing out of that directory.
+const LIBRARY_PREFIX: [&str; 1] = ["compat"];
 
 /// Subdirectories of the Steam install root holding Steam's OWN binaries. The
 /// client lives under the same root as the games it installs, so the root alone
@@ -43,12 +44,16 @@ fn root(part: &str) -> bool {
     matches!(part, "steam" | ".steam" | "com.valvesoftware.steam")
 }
 
+fn in_library(part: &str) -> bool {
+    LIBRARY.contains(&part) || LIBRARY_PREFIX.iter().any(|pre| part.starts_with(pre))
+}
+
 fn library(exe: &Path) -> bool {
     let parts: Vec<String> = exe
         .components()
         .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
         .collect();
-    if parts.iter().any(|p| LIBRARY.contains(&p.as_str())) {
+    if parts.iter().any(|p| in_library(p)) {
         return true;
     }
     // Under a Steam root but outside a library — a non-Steam shortcut, or the

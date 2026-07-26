@@ -5,7 +5,7 @@
 //! window tears and that one doesn't" is not expressible; the only meaningful
 //! question is which policy governs the output this frame.
 //!
-//! UI strings live in `y5.graphic/graphic.tearing/tearing.text`.
+//! UI strings live in `configurator.settings/settings.surface/surface.tearlabel`.
 
 use serde::{Deserialize, Serialize};
 

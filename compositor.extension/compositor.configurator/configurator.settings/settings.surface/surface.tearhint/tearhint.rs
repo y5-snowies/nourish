@@ -61,6 +61,27 @@ pub fn pace_mode_describe(m: PaceMode) -> &'static str {
     }
 }
 
+/// The floor is the mirror image of a rate cap: a cap is the fastest the
+/// compositor may run, this is the slowest it may run while a gate is engaged.
+pub fn floor_describe(r: Rate) -> &'static str {
+    match r {
+        Rate::Uncapped => {
+            "OFF — no rescue frames. A target that stops drawing (loading screen, \
+             shader hitch) takes the cursor and the whole desktop with it until it \
+             resumes. Only sensible while measuring."
+        }
+        Rate::Multiplier(_) => {
+            "Rescue rate follows this monitor's refresh. 1x is full refresh — a stalled \
+             target drops the desktop to exactly its unpoliced rate."
+        }
+        Rate::Fps(_) => {
+            "The desktop keeps running at least this fast even while a target owns \
+             the cadence. A target slower than this is treated as slow, not stalled, \
+             so rescue frames do not compete with it."
+        }
+    }
+}
+
 pub fn rate_describe(r: Rate) -> &'static str {
     match r {
         Rate::Uncapped => {

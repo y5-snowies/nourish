@@ -14,8 +14,16 @@ use compositor_orchestration_core_state_base::Loop;
 /// it MUST be dropped for a frame that was async-flipped — clients (Mesa's WSI,
 /// engine frame pacers) read this flag to detect tearing and adapt their own
 /// pacing, and reporting it on a torn frame feeds them a false signal.
-/// `HwClock`/`HwCompletion` stay true either way: the timestamp still comes from
-/// the hardware and still marks real completion.
+///
+/// `HwClock` and `HwCompletion` stay set for BOTH, and deliberately. Neither
+/// makes a claim about retrace: they say the timestamp came from the display
+/// hardware and that the hardware signalled the presentation, and an async flip
+/// satisfies both — the kernel's page-flip event IS the hardware saying the new
+/// buffer began scanning out. Dropping them on a torn frame would replace one
+/// true statement with a vaguer one; `Vsync` is the only flag that was ever
+/// wrong here, and the truthful per-frame mix is what the protocol asks for.
+/// The other half of the same honesty is `Refresh::Unknown` at `wire.frame`:
+/// a torn frame genuinely has no predictable next presentation.
 pub fn hw_flip_kind(tearing: bool) -> wp_presentation_feedback::Kind {
     let hw = wp_presentation_feedback::Kind::HwClock | wp_presentation_feedback::Kind::HwCompletion;
     if tearing { hw } else { wp_presentation_feedback::Kind::Vsync | hw }

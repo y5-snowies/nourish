@@ -1954,6 +1954,8 @@ dependencies = [
  "compositor_configurator_settings_surface_misc",
  "compositor_configurator_settings_surface_pen",
  "compositor_configurator_settings_surface_style",
+ "compositor_configurator_settings_surface_tearhint",
+ "compositor_configurator_settings_surface_tearlabel",
  "compositor_configurator_settings_surface_world",
  "compositor_model_environment_config_base",
  "compositor_model_environment_graphics_base",
@@ -1965,8 +1967,6 @@ dependencies = [
  "compositor_orchestration_driver_output_base",
  "compositor_support_iced_core_engine_base",
  "compositor_y5_audio_controller_interface",
- "compositor_y5_graphic_tearing_describe",
- "compositor_y5_graphic_tearing_text",
  "iced_core",
  "iced_widget",
 ]
@@ -2081,6 +2081,8 @@ version = "0.0.1"
 dependencies = [
  "compositor_configurator_bluetooth_backend_base",
  "compositor_configurator_network_backend_base",
+ "compositor_configurator_settings_surface_tearhint",
+ "compositor_configurator_settings_surface_tearlabel",
  "compositor_model_environment_config_base",
  "compositor_model_environment_graphics_base",
  "compositor_model_environment_preference_base",
@@ -2089,8 +2091,6 @@ dependencies = [
  "compositor_model_environment_tearing_select",
  "compositor_orchestration_driver_output_base",
  "compositor_y5_audio_controller_interface",
- "compositor_y5_graphic_tearing_describe",
- "compositor_y5_graphic_tearing_text",
 ]
 
 [[package]]
@@ -2139,6 +2139,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_configurator_settings_surface_tearhint"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_tearing_rate",
+ "compositor_model_environment_tearing_select",
+]
+
+[[package]]
+name = "compositor_configurator_settings_surface_tearlabel"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_tearing_rate",
+ "compositor_model_environment_tearing_select",
+]
+
+[[package]]
 name = "compositor_configurator_settings_surface_view"
 version = "0.0.1"
 dependencies = [
@@ -2148,6 +2164,8 @@ dependencies = [
  "compositor_configurator_settings_surface_catalog",
  "compositor_configurator_settings_surface_chrome",
  "compositor_configurator_settings_surface_message",
+ "compositor_configurator_settings_surface_tearhint",
+ "compositor_configurator_settings_surface_tearlabel",
  "compositor_model_environment_config_base",
  "compositor_model_environment_graphics_base",
  "compositor_model_environment_keybinding_base",
@@ -2158,8 +2176,6 @@ dependencies = [
  "compositor_orchestration_driver_output_base",
  "compositor_support_iced_core_engine_base",
  "compositor_y5_audio_controller_interface",
- "compositor_y5_graphic_tearing_describe",
- "compositor_y5_graphic_tearing_text",
  "iced_core",
 ]
 
@@ -5452,22 +5468,6 @@ dependencies = [
  "smithay",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "compositor_y5_graphic_tearing_describe"
-version = "0.0.1"
-dependencies = [
- "compositor_model_environment_tearing_rate",
- "compositor_model_environment_tearing_select",
-]
-
-[[package]]
-name = "compositor_y5_graphic_tearing_text"
-version = "0.0.1"
-dependencies = [
- "compositor_model_environment_tearing_rate",
- "compositor_model_environment_tearing_select",
 ]
 
 [[package]]

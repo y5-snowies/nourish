@@ -327,22 +327,14 @@ pub fn execute(
         // one-shot timer for the remainder instead.
         {
             let pipe = &ctx_ref.outputs[output_idx];
-            let refresh = compositor_kernel_scanout_timing_vblank_base::vblank::interval(&pipe.mode);
-            // The cap belongs to whichever section is in force. Resolved from the
-            // PREVIOUS frame's engagement (`pacer::engaged`) rather than a fresh
-            // scene: the visible set is not known until the scene is built, which
-            // happens after this gate. A one-frame lag on a rate ceiling is
-            // immaterial; deferring the gate until after the render is not, since
-            // the whole point is to skip the composite.
-            let cfg = compositor_model_environment_tearing_config::config::get();
-            let scene_hint = compositor_model_environment_tearing_select::select::Scene {
-                target_visible: compositor_support_smithay_state_tearing_gate::gate::engaged(),
-                target_focused: compositor_support_smithay_state_tearing_gate::gate::engaged(),
-                any_focused: true,
-                any_visible: true,
-            };
-            let cap = compositor_y5_graphic_tearing_resolve::resolve::active(&cfg, scene_hint)
-                .min_interval(refresh);
+            // The cap belongs to whichever section is in force, but the visible
+            // set is not known until the scene is built — which happens after
+            // this gate. So take the ceiling the PREVIOUS frame resolved from a
+            // real scene, rather than resolving a fresh one from an approximate
+            // `Scene` here (which got `TargetFocused` wrong). A one-frame lag on
+            // a rate ceiling is immaterial; deferring the gate until after the
+            // render is not, since the whole point is to skip the composite.
+            let cap = pipe.cap_interval;
             // Measured START-to-START. Gating on the *end* of the previous frame
             // would enforce `min + composite`, not `min` — the cap and the render
             // would serialize instead of overlap, so even a cap far above the
@@ -1144,6 +1136,7 @@ fn present(
     // is no latched state to get stuck in.
     let active = {
         use compositor_support_smithay_state_tearing_gate::gate;
+        use compositor_support_smithay_state_tearing_liveness::liveness;
         use compositor_support_smithay_state_tearing_pacer::pacer;
         use compositor_model_environment_tearing_select::select::{Exclusivity, Scene};
         use smithay::wayland::seat::WaylandFocus;
@@ -1176,25 +1169,37 @@ fn present(
         let cfg = compositor_model_environment_tearing_config::config::get();
         let active = compositor_y5_graphic_tearing_resolve::resolve::active(&cfg, scene);
 
-        // Stamp what the scene actually drew, for the `Visible` gate. A stamp
-        // rather than a flag: the scene knows what it drew, never what it didn't,
-        // so there is no moment at which every other surface could be cleared.
+        // Stamp what the scene actually drew, for the gates that ask about
+        // visibility. A stamp rather than a flag: the scene knows what it drew,
+        // never what it didn't, so there is no moment at which every other
+        // surface could be cleared.
+        //
+        // Skipped entirely for the gates that never read it — an ordinary
+        // desktop (`None`) and `Focused` — since this is a `with_states` per
+        // visible window per frame, and it would run for a stamp nothing looks
+        // at. Resolved from THIS frame's exclusivity, which is known before the
+        // gate is published, so the frame that first engages is already stamped.
         let frame = gate::advance_frame();
-        for w in &window_visible {
-            if let Some(s) = w.wl_surface() {
-                smithay::wayland::compositor::with_states(s.as_ref(), |states| {
-                    states.data_map.insert_if_missing(gate::VisibleSurface::default);
-                    if let Some(v) = states.data_map.get::<gate::VisibleSurface>() {
-                        v.stamp(frame);
-                    }
-                });
+        let excl = active.exclusivity();
+        if matches!(
+            excl,
+            Exclusivity::Exclusive | Exclusivity::ExclusiveFocused | Exclusivity::Visible
+        ) {
+            for w in &window_visible {
+                if let Some(s) = w.wl_surface() {
+                    smithay::wayland::compositor::with_states(s.as_ref(), |states| {
+                        states.data_map.insert_if_missing(gate::VisibleSurface::default);
+                        if let Some(v) = states.data_map.get::<gate::VisibleSurface>() {
+                            v.stamp(frame);
+                        }
+                    });
+                }
             }
         }
 
         // Translate the user-facing exclusivity into the gate the Wayland
         // dispatch enforces per commit. `Off` when the rule is not in force, so
         // the dispatch never has to know about policy, scenes or windows.
-        let excl = active.exclusivity();
         let g = if excl.engaged(scene) {
             match excl {
                 Exclusivity::None => gate::Gate::Off,
@@ -1208,18 +1213,39 @@ fn present(
         };
         if gate::set(g) {
             info!("tearing: redraw gate = {g:?} ({excl:?}, scene={scene:?})");
+            // The floor watchdog exists only to rescue a gated loop, so it lives
+            // exactly as long as the gate does.
+            if g == gate::Gate::Off {
+                compositor_kernel_native_wire_watchdog_base::watchdog::disarm(
+                    &state.loop_handle,
+                    &mut ctx_ref.watchdog,
+                );
+            } else {
+                compositor_kernel_native_wire_watchdog_base::watchdog::arm(
+                    &state.loop_handle,
+                    &mut ctx_ref.watchdog,
+                );
+            }
         }
-        // Publish for the NEXT frame's plane assignment.
+        // Publish for the NEXT frame's plane assignment, and carry this frame's
+        // rate ceiling forward for the next frame's cap gate.
         let refresh = compositor_kernel_scanout_timing_vblank_base::vblank::interval(
             &ctx_ref.outputs[output_idx].mode,
         );
+        ctx_ref.outputs[output_idx].cap_interval = active.min_interval(refresh);
+        // The watchdog floor is a rate like any other, so it is resolved against
+        // this output's refresh here — the layer that owns the timer knows
+        // nothing about modes.
+        compositor_support_smithay_state_tearing_floor::floor::set(cfg.floor.min_interval(refresh));
         if gate::set_tearing(active.may_tear(refresh)) {
             info!(
                 "tearing: planes {} for the next frame",
                 if active.may_tear(refresh) { "OFF (composited)" } else { "ON (direct scanout)" }
             );
         }
-        pacer::note_composite();
+        liveness::note_composite(&compositor_orchestration_core_state_base::state::output_key(
+            &ctx_ref.outputs[output_idx].output,
+        ));
         active
     };
 

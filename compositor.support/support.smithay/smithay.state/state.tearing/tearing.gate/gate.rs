@@ -43,11 +43,17 @@ impl Gate {
 
     /// Does a surface with these properties pass? `Off` is handled by the caller
     /// (it takes the unrestricted path), so it is permissive here.
+    ///
+    /// The tagged gates require `visible` too, and that is what scopes them to
+    /// the world you are actually looking at. The dispatch layer cannot know what
+    /// a world is, but the scene stamps only what it drew, and it only ever draws
+    /// the active one — so a tagged window parked in a background world stops
+    /// driving the cadence without anyone here having to reason about worlds.
     pub fn admits(self, tagged: bool, focused: bool, visible: bool) -> bool {
         match self {
             Self::Off => true,
-            Self::Tagged => tagged,
-            Self::TaggedFocused => tagged && focused,
+            Self::Tagged => tagged && visible,
+            Self::TaggedFocused => tagged && focused && visible,
             Self::Focused => focused,
             Self::Visible => visible,
         }

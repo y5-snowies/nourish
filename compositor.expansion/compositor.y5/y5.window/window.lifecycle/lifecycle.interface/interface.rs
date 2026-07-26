@@ -116,7 +116,7 @@ pub fn hook(_loop: &mut Loop, renderer: &mut GlesRenderer) {
 fn _initial_mapped(state: &mut Loop, window: Window) {
     // Resolve the tearing target tag here and nowhere else: this is the one
     // moment the window's process can be introspected off the commit path.
-    compositor_y5_window_lifecycle_pacer::pacer::tag(state, &window);
+    compositor_y5_graphic_tearing_tag::tag::tag(state, &window);
     // Windows must be registetred at sampler
     // topleevel only
     let restore_mapped =

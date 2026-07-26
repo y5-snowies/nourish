@@ -1,5 +1,5 @@
 [package]
-name = "compositor_y5_window_lifecycle_tag"
+name = "compositor_y5_graphic_tearing_heuristic"
 version = "0.0.1"
 edition = "2024"
 

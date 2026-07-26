@@ -1,11 +1,10 @@
 //! The two policy sections and the live global.
 //!
 //! This crate, `tearing.select` and `tearing.rate` are the persisted SHAPE of the
-//! setting — what `preferences.json` holds — which is why they sit in
-//! `compositor.developer` with the rest of the settings the installer and the
-//! developer tool also read. Nothing else of the domain belongs here: resolution
-//! lives in `y5.graphic/graphic.tearing/tearing.resolve` and the UI strings
-//! beside it, the runtime state in `support.smithay/smithay.state/state.tearing`.
+//! setting — what `preferences.json` holds — hence their home in `compositor.model`
+//! with the rest of what the installer and developer tool also read. Resolution
+//! lives in `y5.graphic/graphic.tearing/tearing.resolve`, UI strings in the
+//! settings surface, runtime state in `support.smithay/smithay.state/state.tearing`.
 //!
 //! Tearing outranks pacing, and they are mutually exclusive in TIME rather than
 //! per-window: at any instant exactly one section governs the output, or neither
@@ -46,7 +45,7 @@ impl Default for Tagging {
     fn default() -> Self { Self { steam: true } }
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct Config {
     pub tearing: Tearing,
     pub pacing: Pacing,
@@ -56,7 +55,22 @@ pub struct Config {
     /// unrelated preference.
     #[serde(default)]
     pub tag: Tagging,
+    /// Floor for the exclusivity watchdog: the SLOWEST the compositor may run
+    /// while a gate is engaged. Not a cap — a rescue rate. `Uncapped` removes the
+    /// watchdog entirely, which lets a stalled target freeze the desktop.
+    #[serde(default = "floor_default")]
+    pub floor: Rate,
 }
+
+/// One times refresh: a stalled target drops the desktop back to exactly the rate
+/// it would run at with no policy engaged at all, on whatever panel it is on —
+/// rather than to a fixed number that is generous on 60Hz and punitive on 240.
+///
+/// It does not compete with a healthy target either: the grace threshold is
+/// `2 x measured cadence` clamped up to this, so anything drawing at or above
+/// refresh never reaches it.
+pub const FLOOR_DEFAULT: Rate = Rate::Multiplier(1.0);
+fn floor_default() -> Rate { FLOOR_DEFAULT }
 
 /// Tearing is armed for a tagged client that is BOTH visible and focused, and
 /// takes exclusive control of the cadence while it is. Scoping to focus is what
@@ -82,17 +96,26 @@ impl Default for Tearing {
 impl Default for Pacing {
     fn default() -> Self { PACING_DEFAULT }
 }
+impl Default for Config {
+    fn default() -> Self {
+        Self { tearing: TEARING_DEFAULT, pacing: PACING_DEFAULT, tag: Tagging { steam: true }, floor: FLOOR_DEFAULT }
+    }
+}
 
 impl Config {
     pub fn normalized(mut self) -> Self {
         self.tearing.rate = self.tearing.rate.normalized();
         self.pacing.rate = self.pacing.rate.normalized();
+        self.floor = self.floor.normalized();
         self
     }
 }
 
 static CONFIG: std::sync::RwLock<Config> =
-    std::sync::RwLock::new(Config { tearing: TEARING_DEFAULT, pacing: PACING_DEFAULT, tag: Tagging { steam: true } });
+    std::sync::RwLock::new(Config {
+        tearing: TEARING_DEFAULT, pacing: PACING_DEFAULT,
+        tag: Tagging { steam: true }, floor: FLOOR_DEFAULT,
+    });
 
 pub fn get() -> Config { CONFIG.read().map(|c| *c).unwrap_or_default() }
 pub fn set(c: Config) { if let Ok(mut w) = CONFIG.write() { *w = c.normalized(); } }

@@ -75,7 +75,13 @@ impl Active {
         let adaptive = until_vblank.is_some_and(|l| l > refresh.mul_f32(SYNC_WINDOW));
         match self {
             Self::Default => false,
-            Self::Tear(t) => matches!(t.mode, TearMode::Always) || adaptive,
+            // Exhaustive on the mode, not `Always || adaptive`: that form makes
+            // adaptive the FALLTHROUGH, so a third `TearMode` would silently
+            // inherit adaptive's behaviour instead of failing to compile.
+            Self::Tear(t) => match t.mode {
+                TearMode::Always => true,
+                TearMode::Adaptive => adaptive,
+            },
             Self::Pace(p) => match p.mode {
                 PaceMode::Fixed => p.rate.exceeds_refresh(refresh),
                 PaceMode::Adaptive => adaptive,

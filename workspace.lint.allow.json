@@ -381,6 +381,9 @@
   "compositor.model/model.environment/environment.preference/preference.base": [
     "size"
   ],
+  "compositor.model/model.environment/environment.tearing/tearing.config": [
+    "size"
+  ],
   "compositor.extension/compositor.configurator/configurator.network/network.backend/backend.base": [
     "size"
   ],

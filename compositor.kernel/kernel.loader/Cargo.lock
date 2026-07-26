@@ -2056,6 +2056,8 @@ dependencies = [
  "compositor_configurator_settings_surface_misc",
  "compositor_configurator_settings_surface_pen",
  "compositor_configurator_settings_surface_style",
+ "compositor_configurator_settings_surface_tearhint",
+ "compositor_configurator_settings_surface_tearlabel",
  "compositor_configurator_settings_surface_world",
  "compositor_model_environment_config_base",
  "compositor_model_environment_graphics_base",
@@ -2067,8 +2069,6 @@ dependencies = [
  "compositor_orchestration_driver_output_base",
  "compositor_support_iced_core_engine_base",
  "compositor_y5_audio_controller_interface",
- "compositor_y5_graphic_tearing_describe",
- "compositor_y5_graphic_tearing_text",
  "iced_core",
  "iced_widget",
 ]
@@ -2183,6 +2183,8 @@ version = "0.0.1"
 dependencies = [
  "compositor_configurator_bluetooth_backend_base",
  "compositor_configurator_network_backend_base",
+ "compositor_configurator_settings_surface_tearhint",
+ "compositor_configurator_settings_surface_tearlabel",
  "compositor_model_environment_config_base",
  "compositor_model_environment_graphics_base",
  "compositor_model_environment_preference_base",
@@ -2191,8 +2193,6 @@ dependencies = [
  "compositor_model_environment_tearing_select",
  "compositor_orchestration_driver_output_base",
  "compositor_y5_audio_controller_interface",
- "compositor_y5_graphic_tearing_describe",
- "compositor_y5_graphic_tearing_text",
 ]
 
 [[package]]
@@ -2241,6 +2241,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_configurator_settings_surface_tearhint"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_tearing_rate",
+ "compositor_model_environment_tearing_select",
+]
+
+[[package]]
+name = "compositor_configurator_settings_surface_tearlabel"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_tearing_rate",
+ "compositor_model_environment_tearing_select",
+]
+
+[[package]]
 name = "compositor_configurator_settings_surface_view"
 version = "0.0.1"
 dependencies = [
@@ -2250,6 +2266,8 @@ dependencies = [
  "compositor_configurator_settings_surface_catalog",
  "compositor_configurator_settings_surface_chrome",
  "compositor_configurator_settings_surface_message",
+ "compositor_configurator_settings_surface_tearhint",
+ "compositor_configurator_settings_surface_tearlabel",
  "compositor_model_environment_config_base",
  "compositor_model_environment_graphics_base",
  "compositor_model_environment_keybinding_base",
@@ -2260,8 +2278,6 @@ dependencies = [
  "compositor_orchestration_driver_output_base",
  "compositor_support_iced_core_engine_base",
  "compositor_y5_audio_controller_interface",
- "compositor_y5_graphic_tearing_describe",
- "compositor_y5_graphic_tearing_text",
  "iced_core",
 ]
 
@@ -3860,6 +3876,7 @@ dependencies = [
  "compositor_kernel_native_context_display_mode",
  "compositor_kernel_native_context_display_reconcile",
  "compositor_kernel_native_context_render_base",
+ "compositor_kernel_native_wire_watchdog_base",
  "compositor_kernel_scanout_flip_queue_base",
  "compositor_kernel_scanout_plane_direct_base",
  "compositor_kernel_scanout_timing_vblank_base",
@@ -3875,7 +3892,9 @@ dependencies = [
  "compositor_orchestration_driver_capture_base",
  "compositor_orchestration_driver_lid_base",
  "compositor_orchestration_driver_resume_base",
+ "compositor_support_smithay_state_tearing_floor",
  "compositor_support_smithay_state_tearing_gate",
+ "compositor_support_smithay_state_tearing_liveness",
  "compositor_support_smithay_state_tearing_pacer",
  "compositor_y5_graphic_capture_interface",
  "compositor_y5_graphic_capture_registry",
@@ -4025,6 +4044,18 @@ dependencies = [
  "compositor_orchestration_driver_remote_base",
  "compositor_orchestration_driver_resume_base",
  "compositor_y5_graphic_capture_interface",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_native_wire_watchdog_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_record",
+ "compositor_orchestration_core_state_base",
+ "compositor_support_smithay_state_tearing_floor",
+ "compositor_support_smithay_state_tearing_gate",
+ "compositor_support_smithay_state_tearing_liveness",
  "smithay",
 ]
 
@@ -7486,8 +7517,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_support_smithay_state_tearing_floor"
+version = "0.0.1"
+
+[[package]]
 name = "compositor_support_smithay_state_tearing_gate"
 version = "0.0.1"
+
+[[package]]
+name = "compositor_support_smithay_state_tearing_liveness"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_smithay_state_tearing_floor",
+]
 
 [[package]]
 name = "compositor_support_smithay_state_tearing_pacer"
@@ -8437,11 +8479,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "compositor_y5_graphic_tearing_describe"
+name = "compositor_y5_graphic_tearing_heuristic"
 version = "0.0.1"
 dependencies = [
- "compositor_model_environment_tearing_rate",
- "compositor_model_environment_tearing_select",
+ "compositor_introspection_extraction_window_meta_types",
 ]
 
 [[package]]
@@ -8454,11 +8495,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "compositor_y5_graphic_tearing_text"
+name = "compositor_y5_graphic_tearing_tag"
 version = "0.0.1"
 dependencies = [
- "compositor_model_environment_tearing_rate",
- "compositor_model_environment_tearing_select",
+ "compositor_model_debug_instance_record",
+ "compositor_model_environment_tearing_config",
+ "compositor_orchestration_core_state_base",
+ "compositor_support_smithay_state_tearing_pacer",
+ "compositor_y5_graphic_tearing_heuristic",
+ "compositor_y5_window_interface_record",
+ "smithay",
 ]
 
 [[package]]
@@ -9061,6 +9107,7 @@ dependencies = [
  "compositor_y5_picker_interface_base",
  "compositor_y5_picker_interface_entry",
  "compositor_y5_picker_system_base",
+ "compositor_y5_window_interface_dump",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -10426,6 +10473,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_y5_window_interface_dump"
+version = "0.0.1"
+dependencies = [
+ "compositor_introspection_extraction_window_meta_types",
+ "compositor_model_debug_instance_record",
+ "compositor_orchestration_core_state_base",
+ "compositor_y5_window_interface_record",
+ "smithay",
+]
+
+[[package]]
 name = "compositor_y5_window_interface_record"
 version = "0.0.1"
 dependencies = [
@@ -10467,6 +10525,7 @@ dependencies = [
  "compositor_y5_camera_system_base",
  "compositor_y5_camera_transform_translate",
  "compositor_y5_graphic_capture_interface",
+ "compositor_y5_graphic_tearing_tag",
  "compositor_y5_group_interface_base",
  "compositor_y5_lock_system_base",
  "compositor_y5_navigator_state_base",
@@ -10477,25 +10536,11 @@ dependencies = [
  "compositor_y5_window_interface_draw",
  "compositor_y5_window_interface_record",
  "compositor_y5_window_lifecycle_event",
- "compositor_y5_window_lifecycle_pacer",
  "compositor_y5_window_system_base",
  "smithay",
  "tracing",
  "tracing-subscriber",
  "uuid",
-]
-
-[[package]]
-name = "compositor_y5_window_lifecycle_pacer"
-version = "0.0.1"
-dependencies = [
- "compositor_model_debug_instance_record",
- "compositor_model_environment_tearing_config",
- "compositor_orchestration_core_state_base",
- "compositor_support_smithay_state_tearing_pacer",
- "compositor_y5_window_interface_record",
- "compositor_y5_window_lifecycle_tag",
- "smithay",
 ]
 
 [[package]]
@@ -10507,13 +10552,6 @@ dependencies = [
  "smithay",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "compositor_y5_window_lifecycle_tag"
-version = "0.0.1"
-dependencies = [
- "compositor_introspection_extraction_window_meta_types",
 ]
 
 [[package]]

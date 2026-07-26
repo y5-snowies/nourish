@@ -105,6 +105,14 @@ pub struct OutputPipe {
     /// event arrives so presentation feedback reports the truthful `Vsync` flag
     /// and refresh kind for the frame that actually reached the screen.
     pub last_tear: bool,
+    /// The rate ceiling the policy resolved for this pipe LAST frame, or `None`
+    /// for uncapped.
+    ///
+    /// Carried forward rather than re-derived, because the cap gate runs before
+    /// the scene exists and so cannot resolve a real [`Scene`]. Reconstructing an
+    /// approximate one there resolved `TargetFocused` differently than the true
+    /// resolution does; a one-frame-old ceiling is both cheaper and honest.
+    pub cap_interval: Option<std::time::Duration>,
 }
 
 pub struct NativeRenderContext {
@@ -139,6 +147,10 @@ pub struct NativeRenderContext {
     /// progress with no rendering. `Some` only while dark — armed on the `WentDark`
     /// transition, removed on `Recovered`. See `wire.plugin` + `pump.dark`.
     pub dark_tick: Option<RegistrationToken>,
+    /// The exclusive-pacing floor watchdog (`wire.watchdog`). `Some` only while
+    /// the redraw gate is engaged — armed on the transition in, dropped on the
+    /// way out, so an ordinary desktop runs no timer for it at all.
+    pub watchdog: Option<RegistrationToken>,
 }
 
 impl NativeRenderContext {

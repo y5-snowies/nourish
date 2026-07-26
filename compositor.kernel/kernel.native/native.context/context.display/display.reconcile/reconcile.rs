@@ -262,6 +262,7 @@ fn add_output(
         last_vblank: None,
         render_start: None,
         last_tear: false,
+        cap_interval: None,
         cap_wake: None,
     });
     Ok(())

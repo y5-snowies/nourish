@@ -1,5 +1,5 @@
 //! Composite-rate ceiling and the per-section flip modes. UI strings live in
-//! `y5.graphic/graphic.tearing/tearing.text`.
+//! `configurator.settings/settings.surface/surface.tearlabel`.
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;

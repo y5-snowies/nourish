@@ -159,8 +159,8 @@ fn pick<'a, T: PartialEq + Copy + 'a>(
 /// two are mutually exclusive in TIME: at any instant one section governs, or
 /// neither and the compositor default applies.
 fn flip_section<'a>(f: Config) -> El<'a> {
-    use compositor_y5_graphic_tearing_describe::describe as d;
-    use compositor_y5_graphic_tearing_text::text as t;
+    use compositor_configurator_settings_surface_tearhint::tearhint as d;
+    use compositor_configurator_settings_surface_tearlabel::tearlabel as t;
 
     let t_sel = pick(&Selector::ALL, f.tearing.selector, t::selector_label,
         move |v| SettingsMessage::SetFlip(Config { tearing: Tearing { selector: v, ..f.tearing }, ..f }));
@@ -193,6 +193,11 @@ fn flip_section<'a>(f: Config) -> El<'a> {
         field("MODE", p_mode, d::pace_mode_describe(f.pacing.mode)),
         rate_field(f, false),
         field("EXCLUSIVITY", p_excl, d::exclusivity_describe(f.pacing.exclusivity)),
+        text("EXCLUSIVITY FLOOR").size(14).color(style::ACCENT),
+        text("Shared by both sections: whichever one is in force, this is how slow \
+              the rest of the desktop may get while a target owns the cadence.")
+            .size(10).color(style::MUTED),
+        floor_field(f),
     ].spacing(10).into()
 }
 
@@ -236,8 +241,8 @@ fn tag_section<'a>(f: Config) -> El<'a> {
 /// the value. Kept as one control because the three are alternatives, not an
 /// enable plus a number.
 fn rate_field<'a>(f: Config, tearing_section: bool) -> El<'a> {
-    use compositor_y5_graphic_tearing_describe::describe as d;
-    use compositor_y5_graphic_tearing_text::text as t;
+    use compositor_configurator_settings_surface_tearhint::tearhint as d;
+    use compositor_configurator_settings_surface_tearlabel::tearlabel as t;
     let cur = if tearing_section { f.tearing.rate } else { f.pacing.rate };
     let put = move |r: Rate| {
         if tearing_section {
@@ -266,6 +271,37 @@ fn rate_field<'a>(f: Config, tearing_section: bool) -> El<'a> {
         choices.push(button(text("+").size(11)).on_press(put(step(1.0))).style(control::action).into());
     }
     field("RATE", choices, d::rate_describe(cur))
+}
+
+/// The watchdog floor. Same control shape as [`rate_field`] because it is the
+/// same kind of quantity — a rate against this monitor's refresh — but it bounds
+/// the loop from BELOW: how slow the desktop may get while a target owns the
+/// cadence. One setting for both sections; there is one redraw loop to rescue.
+fn floor_field<'a>(f: Config) -> El<'a> {
+    use compositor_configurator_settings_surface_tearhint::tearhint as d;
+    use compositor_configurator_settings_surface_tearlabel::tearlabel as t;
+    let cur = f.floor;
+    let put = move |r: Rate| SettingsMessage::SetFlip(Config { floor: r, ..f });
+    let kind = |lbl: &'a str, r: Rate, on: bool| -> El<'a> {
+        let b = button(text(lbl).size(11)).on_press(put(r));
+        if on { b.style(control::accent) } else { b.style(control::action) }.into()
+    };
+    let mut choices: Vec<El<'a>> = vec![
+        kind("Off", Rate::Uncapped, matches!(cur, Rate::Uncapped)),
+        kind("x refresh", Rate::Multiplier(1.0), matches!(cur, Rate::Multiplier(_))),
+        kind("FPS", Rate::Fps(30.0), matches!(cur, Rate::Fps(_))),
+    ];
+    let step = |delta: f32| match cur {
+        Rate::Multiplier(m) => Rate::Multiplier(m + delta * 0.25),
+        Rate::Fps(v) => Rate::Fps(v + delta * 5.0),
+        Rate::Uncapped => Rate::Uncapped,
+    };
+    if !matches!(cur, Rate::Uncapped) {
+        choices.push(button(text("-").size(11)).on_press(put(step(-1.0))).style(control::action).into());
+        choices.push(text(t::rate_label(cur)).size(11).color(style::ACCENT).into());
+        choices.push(button(text("+").size(11)).on_press(put(step(1.0))).style(control::action).into());
+    }
+    field("FLOOR", choices, d::floor_describe(cur))
 }
 
 /// The INPUT module: a sub-tab bar (Mouse & Touchpad / Touch / Keyboard) over the

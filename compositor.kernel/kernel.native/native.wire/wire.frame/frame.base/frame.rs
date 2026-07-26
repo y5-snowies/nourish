@@ -197,30 +197,9 @@ pub fn register(
 
     // ---- Kickstart the very first frame to initiate the cycle.
     let context_init = ctx_rc;
-    // ---- Exclusive-pacing floor watchdog.
-    //
-    // In `TearingMode::Exclusive` the flip cadence belongs to the tagged client,
-    // so a client that stops committing would otherwise stop the compositor with
-    // it — a loading screen or shader hitch freezing the whole desktop, cursor
-    // and UI included. This guarantees a frame at least every `pacer::FLOOR`
-    // (30fps) whenever pacing is engaged and nothing has composited since.
-    //
-    // A repeating source rather than a per-frame timer: at 300fps the latter
-    // would churn 300 registrations a second to answer a question that only
-    // needs asking 30 times.
-    {
-        use compositor_support_smithay_state_tearing_pacer::pacer;
-        use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
-        event_loop
-            .handle()
-            .insert_source(Timer::from_duration(pacer::FLOOR), move |_, _, state: &mut Loop| {
-                if compositor_support_smithay_state_tearing_gate::gate::engaged() && pacer::stalled() {
-                    state.force_redraw();
-                }
-                TimeoutAction::ToDuration(pacer::FLOOR)
-            })
-            .unwrap_or_else(|e| abort!("pacing floor watchdog registration failed: {e}"));
-    }
+    // The exclusive-pacing floor watchdog is NOT registered here: it is armed on
+    // the transition into gate engagement and dropped on the way out, by
+    // `wire.watchdog`. See that crate for why.
 
     let loop_handle_init = event_loop.handle();
     #[cfg(feature = "flip-estimate")]

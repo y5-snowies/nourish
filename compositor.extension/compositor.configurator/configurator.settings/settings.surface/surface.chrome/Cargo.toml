@@ -20,8 +20,8 @@ compositor_model_environment_preference_base = { workspace = true }
 compositor_model_environment_tearing_config = { workspace = true }
 compositor_model_environment_tearing_rate = { workspace = true }
 compositor_model_environment_tearing_select = { workspace = true }
-compositor_y5_graphic_tearing_text = { workspace = true }
-compositor_y5_graphic_tearing_describe = { workspace = true }
+compositor_configurator_settings_surface_tearlabel = { workspace = true }
+compositor_configurator_settings_surface_tearhint = { workspace = true }
 compositor_configurator_hardware_gpu_base = { workspace = true }
 compositor_configurator_settings_surface_keys = { workspace = true }
 compositor_configurator_audio_tab_base = { workspace = true }

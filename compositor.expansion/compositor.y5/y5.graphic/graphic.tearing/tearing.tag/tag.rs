@@ -21,7 +21,7 @@ pub fn tag(state: &Loop, window: &Window) {
     let space = &state.inner.space_state().state;
     let dh = &state.inner.loader.display_handle;
     let Some(node) = window.meta(space, dh) else { return };
-    if !compositor_y5_window_lifecycle_tag::tag::is_target(&node, cfg.tag.steam) {
+    if !compositor_y5_graphic_tearing_heuristic::heuristic::is_target(&node, cfg.tag.steam) {
         trace!(
             "tearing: not a target (app_id={:?} exe={:?} steam_rule={})",
             node.meta.app_id, node.meta.exe, cfg.tag.steam

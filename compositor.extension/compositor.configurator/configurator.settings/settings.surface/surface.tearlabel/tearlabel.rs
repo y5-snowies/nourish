@@ -1,5 +1,5 @@
 //! Short control labels for the tearing/pacing settings. The balloon text that
-//! goes under each control lives in `tearing.describe`.
+//! goes under each control lives in `surface.tearhint`.
 
 use compositor_model_environment_tearing_rate::rate::{PaceMode, Rate, TearMode};
 use compositor_model_environment_tearing_select::select::{Exclusivity, Selector};

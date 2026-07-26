@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_y5_window_interface_dump = { workspace = true }
 compositor_model_environment_keybinding_base.workspace = true
 compositor_support_library_input_keyboard_format.workspace = true
 compositor_orchestration_world_manager_base = { workspace = true }

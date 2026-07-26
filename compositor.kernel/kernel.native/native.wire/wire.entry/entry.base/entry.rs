@@ -201,6 +201,7 @@ pub fn wire(
             last_vblank: None,
             render_start: None,
             last_tear: false,
+            cap_interval: None,
             cap_wake: None,
         }],
         drm_output_manager: renderer.drm_output_manager,
@@ -212,6 +213,7 @@ pub fn wire(
         vulkan,
         drm_fd: display.drm_fd.clone(),
         dark_tick: None,
+        watchdog: None,
     }));
 
     // ---- Advertised-mode snapshot for the settings Display panel (kernel → rim).
