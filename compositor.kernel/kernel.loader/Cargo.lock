@@ -10404,6 +10404,7 @@ dependencies = [
  "compositor_y5_select_system_base",
  "compositor_y5_window_draw_element",
  "compositor_y5_window_interface_draw",
+ "compositor_y5_window_interface_record",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -10482,6 +10483,7 @@ dependencies = [
  "smithay",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

@@ -19,5 +19,6 @@ compositor_y5_window_draw_element.workspace = true
 compositor_orchestration_core_state_base.workspace = true
 compositor_y5_canvas_draw_context.workspace = true
 compositor_y5_camera_transform_translate.workspace = true
+compositor_y5_window_interface_record.workspace = true
 [lib]
 path = "lib.rs"
