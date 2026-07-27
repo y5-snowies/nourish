@@ -829,6 +829,7 @@ compositor_y5_overview_interface_base = { path = "y5.overview/overview.interface
 compositor_y5_overview_interface_surface = { path = "y5.overview/overview.interface/interface.surface" }
 compositor_y5_overview_state_base = { path = "y5.overview/overview.state/state.base" }
 compositor_y5_overview_system_base = { path = "y5.overview/overview.system/system.base" }
+compositor_y5_picker_command_advance = { path = "y5.picker/picker.command/command.advance" }
 compositor_y5_picker_command_base = { path = "y5.picker/picker.command/command.base" }
 compositor_y5_picker_interface_base = { path = "y5.picker/picker.interface/interface.base" }
 compositor_y5_picker_interface_capture = { path = "y5.picker/picker.interface/interface.capture" }

@@ -75,10 +75,19 @@ pub fn embed_button<I: InputBackend>(
         }
         None => (None, false),
     };
+    // Hit-test the release EXPLICITLY. Comparing `selected` before/after the
+    // routed release is not enough: a click that misses the sphere leaves
+    // `selected` untouched, so "unchanged" read as "re-clicked the focused cell"
+    // and dropped the user into that world. Entering requires landing ON it.
+    let hit = if was_click { picked(state) } else { None };
     compositor_y5_picker_seat_pointer::pointer::button::<I>(event, state);
-    if !was_click {
-        return false;
-    }
-    let now = active(state).and_then(|a| a.selected);
-    now.is_some() && now == prev
+    hit.is_some() && hit == prev
+}
+
+/// The cell under the picker pointer right now — `None` when the ray misses the
+/// sphere's silhouette (the pointer is outside the globe).
+fn picked(state: &mut Loop) -> Option<usize> {
+    let (pointer, orientation) = active(state).map(|a| (a.pointer, a.orientation))?;
+    let output = state.size_ctx_all().screen_size_physical;
+    compositor_y5_picker_pick_base::base::pick_cell(pointer, output, orientation)
 }

@@ -26,21 +26,9 @@ pub fn tick(state: &mut Loop, renderer: &mut GlesRenderer) -> Option<ParallaxBac
         }
     }
 
-    // Not dragging: play out trackball release momentum, else glide to the target.
-    use compositor_y5_picker_three_constant as c;
-    use compositor_y5_picker_three_orient::orient;
-    if let Some(a) =
-        state.inner.worlds.get_mut(PICKER_WORLD).storage_mut().get_mut(&PICKER_MUT).active.as_mut()
-        && a.drag.is_none()
-    {
-        if orient::spinning(a.spin) {
-            let (o, s) = orient::momentum(a.orientation, a.spin, c::SPIN_DECAY);
-            (a.orientation, a.spin, a.target) = (o, s, o);
-        } else {
-            a.orientation = orient::approach(a.orientation, a.target, c::APPROACH_RATE);
-        }
-    }
-    compositor_y5_picker_command_base::base::push_transform(state);
+    // Momentum / re-face glide + transform push (shared with the overview's
+    // embedded globe, so both advance in wall time).
+    compositor_y5_picker_command_advance::advance::advance(state);
     ensure_distant_parallax(state, renderer);
 
     // Extract the picker world's parallax node (mirrors the orchestration scene).
@@ -82,8 +70,11 @@ fn ensure_distant_parallax(state: &mut Loop, renderer: &mut GlesRenderer) {
             .get_or_insert_with(|| {
                 ParallaxBackground::new(renderer, (w as f32, h as f32), sel.as_deref(), &[])
             });
+        // Snap, don't ramp: the picker owns its own entry transition, and the
+        // 1s `lock_amount` fade in `Motion::tick` ran as a second, competing
+        // background animation on top of it.
         if inst.lock_time.is_none() {
-            inst.lock_time = Some(std::time::Instant::now());
+            inst.snap_locked();
         }
         inst.update(); // advance the parallax animation (the buffer Tick won't run)
         inst.pan = (0.0, 0.0);

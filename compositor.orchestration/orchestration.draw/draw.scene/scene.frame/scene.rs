@@ -505,6 +505,13 @@ where
         Some(tag) => render_key.as_deref().map_or(true, |k| k == tag.as_str()),
     };
     if draw_screen {
+        // Picker entry, FIRST half: the world being left ramps to black before the
+        // switch (the picker's scene clears the same overlay on the far side).
+        // Pushed ahead of the pointer, so — like the picker's own — it covers the
+        // cursor too; nothing should survive the fade.
+        if let Some(solid) = compositor_y5_picker_scene_fade::fade::leaving(state, size) {
+            plan.push(layer::POINTER, DrawNode::Solid(solid));
+        }
         let pointer = compositor_orchestration_seat_pointer_draw::scene::element(state, renderer, size);
         plan.extend(layer::POINTER, pointer.into_iter().map(DrawNode::Pointer));
     }

@@ -1,18 +1,14 @@
 [package]
-name = "compositor_y5_picker_seat_embed"
+name = "compositor_y5_picker_command_advance"
 version = "0.0.1"
 edition = "2024"
 
 [dependencies]
-smithay = { workspace = true }
 compositor_orchestration_core_state_base = { workspace = true }
 compositor_y5_picker_system_base = { workspace = true }
-compositor_y5_picker_state_base = { workspace = true }
-compositor_y5_picker_seat_pointer = { workspace = true }
-compositor_y5_picker_pick_base = { workspace = true }
+compositor_y5_picker_command_base = { workspace = true }
 compositor_y5_picker_three_constant = { workspace = true }
 compositor_y5_picker_three_orient = { workspace = true }
-compositor_y5_camera_transform_translate = { workspace = true }
 # Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
 compositor_model_debug_instance_record = { workspace = true }
 

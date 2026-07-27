@@ -3555,6 +3555,7 @@ dependencies = [
  "compositor_y5_osk_board_create",
  "compositor_y5_overview_draw_frame",
  "compositor_y5_picker_interface_capture",
+ "compositor_y5_picker_scene_fade",
  "compositor_y5_placeholder_interface_base",
  "compositor_y5_select_overlay_interface",
  "compositor_y5_surface_draw_fps",
@@ -7436,12 +7437,11 @@ dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_draw_layer_base",
  "compositor_support_bevy_core_compositor_base",
- "compositor_y5_picker_command_base",
+ "compositor_y5_picker_command_advance",
  "compositor_y5_picker_interface_embed",
  "compositor_y5_picker_scene_create",
+ "compositor_y5_picker_state_base",
  "compositor_y5_picker_system_base",
- "compositor_y5_picker_three_constant",
- "compositor_y5_picker_three_orient",
  "smithay",
 ]
 
@@ -7542,6 +7542,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_y5_picker_command_advance"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_record",
+ "compositor_orchestration_core_state_base",
+ "compositor_y5_picker_command_base",
+ "compositor_y5_picker_system_base",
+ "compositor_y5_picker_three_constant",
+ "compositor_y5_picker_three_orient",
+]
+
+[[package]]
 name = "compositor_y5_picker_command_base"
 version = "0.0.1"
 dependencies = [
@@ -7583,6 +7595,7 @@ dependencies = [
  "compositor_y5_picker_scene_create",
  "compositor_y5_picker_state_base",
  "compositor_y5_picker_system_base",
+ "compositor_y5_picker_three_constant",
  "smithay",
 ]
 
@@ -7675,6 +7688,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_y5_picker_scene_fade"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_record",
+ "compositor_orchestration_core_state_base",
+ "compositor_y5_picker_system_base",
+ "compositor_y5_picker_three_constant",
+ "smithay",
+]
+
+[[package]]
 name = "compositor_y5_picker_seat_cursor"
 version = "0.0.1"
 dependencies = [
@@ -7704,6 +7728,7 @@ dependencies = [
  "compositor_model_debug_instance_record",
  "compositor_orchestration_core_state_base",
  "compositor_y5_camera_transform_translate",
+ "compositor_y5_picker_pick_base",
  "compositor_y5_picker_seat_pointer",
  "compositor_y5_picker_state_base",
  "compositor_y5_picker_system_base",

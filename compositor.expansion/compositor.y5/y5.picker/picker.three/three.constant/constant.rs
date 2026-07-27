@@ -10,8 +10,12 @@ pub const CELL_COUNT: usize = 6 * CELLS_PER_FACE * CELLS_PER_FACE;
 /// Sphere the cells sit on (cell centers are at this radius).
 pub const SPHERE_RADIUS: f32 = 1.0;
 
-/// Picker entry fade: seconds for the black overlay to clear (fade-in, no morph).
-pub const FADE_SECS: f32 = 0.35;
+/// Picker entry transition, in two strictly sequential halves that meet on a
+/// fully black frame: the world being left ramps to opaque over `FADE_OUT_SECS`,
+/// the switch happens there, and the picker clears the same overlay over
+/// `FADE_SECS`. No morph.
+pub const FADE_OUT_SECS: f32 = 0.125;
+pub const FADE_SECS: f32 = 0.25;
 
 /// Camera: distance from origin + vertical field of view (radians, ~45°).
 pub const CAMERA_DISTANCE: f32 = 3.4;
@@ -30,12 +34,19 @@ pub const ROTATE_SENSITIVITY: f32 = 3.0;
 /// "W"-aligned — no over-the-top tumbling. Yaw is free (spins around).
 pub const PITCH_MAX: f32 = 0.6;
 
-/// Drag-release momentum: yaw velocity carried per frame, decayed by SPIN_DECAY
-/// each frame until it settles.
+/// The refresh rate the two rates below are quoted against. They are applied
+/// per SECOND via this exponent (`orient::approach`/`momentum`), so the globe
+/// coasts and glides identically at 60 Hz and 240 Hz; a frame-counted rate made
+/// a 240 Hz session spin four times as fast.
+pub const REFERENCE_HZ: f32 = 60.0;
+
+/// Drag-release momentum: the fraction of the spin velocity retained after one
+/// `REFERENCE_HZ` frame, until it settles.
 pub const SPIN_DECAY: f32 = 0.94;
 
-/// Selection re-face animation: fraction the orientation slerps toward the
-/// target each frame (so arrow nav glides to the chosen cell instead of snapping).
+/// Selection re-face animation: fraction of the REMAINING angle the orientation
+/// slerps toward the target in one `REFERENCE_HZ` frame (so arrow nav glides to
+/// the chosen cell instead of snapping).
 pub const APPROACH_RATE: f32 = 0.22;
 
 /// Scroll-to-zoom: camera distance = CAMERA_DISTANCE / zoom. Step per axis tick,

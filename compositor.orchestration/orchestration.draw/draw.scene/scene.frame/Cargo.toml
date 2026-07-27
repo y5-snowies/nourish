@@ -24,6 +24,7 @@ compositor_orchestration_bus_legacy_base = { workspace = true }
 compositor_support_system_world_frame_base = { workspace = true }
 compositor_y5_lock_interface_base.workspace = true
 compositor_y5_picker_interface_capture.workspace = true
+compositor_y5_picker_scene_fade.workspace = true
 compositor_model_debug_instance_record = { workspace = true }
 bitflags = { workspace = true }
 smithay = { workspace = true }

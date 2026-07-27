@@ -10,6 +10,7 @@ compositor_orchestration_core_state_base = { workspace = true }
 compositor_orchestration_driver_capture_base = { workspace = true }
 compositor_y5_picker_system_base = { workspace = true }
 compositor_y5_picker_state_base = { workspace = true }
+compositor_y5_picker_three_constant = { workspace = true }
 compositor_y5_picker_interface_base = { workspace = true }
 compositor_y5_picker_scene_create = { workspace = true }
 compositor_y5_graphic_capture_registry = { workspace = true }

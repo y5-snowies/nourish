@@ -22,8 +22,11 @@ pub enum Tab {
 }
 
 /// The resolved freeze backdrop: a blurred desktop copy, or the sharp snapshot.
+/// `Blur` KEEPS the sharp snapshot it was derived from — the World tab reuses it
+/// as the current world's globe thumbnail, and it is the only unblurred frame of
+/// the pre-overlay desktop anyone still holds.
 pub enum Backdrop {
-    Blur(AllocatedDmabuf),
+    Blur(AllocatedDmabuf, SnapshotHandle),
     Sharp(SnapshotHandle),
 }
 
@@ -68,6 +71,15 @@ impl Overview {
     /// no-capture fallback) — i.e. the overlay (grid + menu) may be shown.
     pub fn overlay_ready(&self) -> bool {
         matches!(self.phase, Phase::Ready(_))
+    }
+
+    /// The frozen SHARP pre-overlay desktop frame, once resolved — i.e. the
+    /// active world exactly as it looked before the overlay drew over it.
+    pub fn frozen(&self) -> Option<&SnapshotHandle> {
+        match &self.phase {
+            Phase::Ready(Some(Backdrop::Blur(_, snap) | Backdrop::Sharp(snap))) => Some(snap),
+            _ => None,
+        }
     }
 
     pub fn is_world(&self) -> bool {
