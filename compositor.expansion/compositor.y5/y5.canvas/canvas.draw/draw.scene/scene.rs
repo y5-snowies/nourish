@@ -60,7 +60,7 @@ where
         if !placed(window) { return; }
         let (elems, drawn) = compositor_y5_window_draw_frame::scene::scene(state, renderer, size, window, &canvas_context, occ);
         visible.note(window, &drawn);
-        if let Some(rect) = drawn.occluder { occ.push(rect); }
+        occ.extend(&drawn.opaque);
         for e in elems { content.push(ContentItem::Canvas(Element::Window(e))); }
     };
 

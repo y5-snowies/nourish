@@ -218,7 +218,7 @@ where
     if !force_capture && !window.visible(state) {
         return (vec![], Drawn::default());
     }
-    let mut drawn = Drawn { on_pane: true, visible: true, occluder: None };
+    let mut drawn = Drawn { on_pane: true, visible: true, opaque: Vec::new() };
     if !force_capture {
         match placed_on(state, window, size) {
             // Frustum cull: a window whose slot projects outside the pane being
@@ -243,8 +243,9 @@ where
             // exempt outright.
             Placed::On(rect) => {
                 if occluders.hidden(rect) && !has_popup(window) {
-                    drawn.visible = false;
-                    return (vec![], drawn);
+                    // The one exit where the two flags disagree — the neighbours
+                    // above return `Drawn::default()`, both false.
+                    return (vec![], Drawn { on_pane: true, visible: false, opaque: Vec::new() });
                 }
             }
         }
@@ -453,32 +454,57 @@ where
         }
     }
 
-    // Opaque black fill behind the content covering the whole slot. Pushed (so drawn behind the
-    // content) whenever the content doesn't fill the slot (letterbox) OR a resize is in flight: a
-    // resizing client can commit a blank/no-content frame for a few frames right after acking, and
-    // the fill keeps the background from flashing through during that gap (the window shows the
-    // fill, not whatever is behind it).
-    let fills = ref_size.w as f64 * fit_sx >= slot_size.w as f64 - 1.0
-        && ref_size.h as f64 * fit_sy >= slot_size.h as f64 - 1.0;
-    if !fills || stretch {
-        let black = SolidColorRenderElement::new(
+    // The content's own rect, projected by its CORNERS exactly like `crop_slot`
+    // so both land on the same lattice. That is what makes the subtraction below
+    // exact: when the fit covers the slot the two rects are equal and the
+    // remainder is empty, with no epsilon anywhere. The `- ref_loc * fit_s` inside
+    // `fit_surf` cancels against `ref_loc`, so this is the same expression in
+    // every fit regime (see `fit::window_fit`); `hit.rs` derives it identically.
+    let content = project_rect(
+        ctx,
+        elem_loc.x as f64 + (slot_size.w as f64 - ref_size.w as f64 * fit_sx) / 2.0,
+        elem_loc.y as f64 + (slot_size.h as f64 - ref_size.h as f64 * fit_sy) / 2.0,
+        ref_size.w as f64 * fit_sx,
+        ref_size.h as f64 * fit_sy,
+    );
+
+    // Opaque black behind the content. A resize in flight keeps the FULL-slot
+    // backstop: the client can commit a blank/no-content frame for a few frames
+    // right after acking, and without something opaque under the content the
+    // background flashes through that gap.
+    //
+    // Otherwise only the letterbox BARS are painted — the slot minus the content.
+    // Nothing is drawn under content that is about to cover it, and a translucent
+    // client stops being silently backed with black. `subtract_rect` returns
+    // nothing at all when the fit covers the slot, so it also replaces the
+    // "does it fill?" test that used to gate this.
+    let bars: Vec<Rectangle<i32, Physical>> =
+        if stretch { vec![crop_slot] } else { crop_slot.subtract_rect(content) };
+    for rect in &bars {
+        elements.push(Element::SolidBox(SolidColorRenderElement::new(
             Id::new(),
-            crop_slot,
+            *rect,
             CommitCounter::default(),
             [0.0, 0.0, 0.0, 1.0],
             Kind::Unspecified,
-        );
-        elements.push(Element::SolidBox(black));
+        )));
     }
 
-    // Deposit what this window hides from everything drawn behind it. `crop_slot`
-    // is opaque either because the fill above covers it outright — the fill IS
-    // `crop_slot`, at alpha 1.0 — or because the client's own buffer carries no
-    // alpha. The `- 1.0` slack in `fills` is inherited: content stopping one
-    // logical pixel short of the slot edge suppresses the fill, so the same pixel
-    // is claimed here. The existing letterbox decision already accepts that.
-    if !fills || stretch || surface_opaque(&root_surface) {
-        drawn.occluder = Some(crop_slot);
+    // Deposit exactly what is opaque — no slack, because the bars are literally
+    // the rects just painted at alpha 1.0. The content region joins them only
+    // when the client's buffer has no alpha; the two then tile `crop_slot`, so an
+    // opaque client in a letterbox still hides the whole slot. A translucent one
+    // now hides only the bars, which is the truth and was not expressible while
+    // this was a single rect.
+    drawn.opaque = bars;
+    // `subsurface_shrinks` fits the whole TREE (`bbox`), so the content rect can
+    // reach past the root surface and `surface_opaque` would not be speaking for
+    // all of it. Only the bars are claimed under that flag.
+    if !cfg.window_subsurface_shrinks
+        && surface_opaque(&root_surface)
+        && let Some(covered) = content.intersection(crop_slot)
+    {
+        drawn.opaque.push(covered);
     }
 
     (elements, drawn)

@@ -29,8 +29,15 @@ pub struct Drawn {
     pub on_pane: bool,
     /// The window actually contributed pixels: on the pane AND not fully covered.
     pub visible: bool,
-    /// Rect this window is opaque over, if it is opaque at all.
-    pub occluder: Option<Rectangle<i32, Physical>>,
+    /// The rects this window is opaque over — the letterbox bars, which are
+    /// compositor solids, plus the content region when the client's own buffer
+    /// carries no alpha.
+    ///
+    /// A list rather than one rect because those two have different owners and
+    /// are not opaque together: a translucent client in a letterbox hides the
+    /// bars and nothing else, which a single slot-sized rect could only express
+    /// by claiming the content region as well.
+    pub opaque: Vec<Rectangle<i32, Physical>>,
 }
 
 /// The opaque rects deposited by nearer windows, in output-physical space.
@@ -58,6 +65,12 @@ impl Occluders {
     pub fn push(&mut self, rect: Rectangle<i32, Physical>) {
         if rect.size.w > 0 && rect.size.h > 0 {
             self.rect.push(rect);
+        }
+    }
+
+    pub fn extend(&mut self, rects: &[Rectangle<i32, Physical>]) {
+        for r in rects {
+            self.push(*r);
         }
     }
 }
