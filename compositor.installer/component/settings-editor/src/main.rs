@@ -60,9 +60,18 @@ fn main() {
 }
 
 /// Load and parse an existing settings file, or `None` if absent/unreadable/invalid.
+///
+/// Migrated first, with the SAME `config.base::migrate` the compositor runs on
+/// load. Without it this tool would show an older file's authored values while
+/// the compositor is already acting on the migrated ones — and a save would then
+/// write the stale value back, undoing the migration permanently.
 fn load_existing(path: &Path) -> Option<Environment> {
     let raw = std::fs::read_to_string(path).ok()?;
-    match serde_json::from_str(&raw) {
+    let parsed = serde_json::from_str::<serde_json::Value>(&raw).map(|mut v| {
+        compositor_model_environment_config_base::base::migrate(&mut v);
+        v
+    });
+    match parsed.and_then(serde_json::from_value) {
         Ok(env) => Some(env),
         Err(e) => {
             eprintln!("note: existing {} is invalid ({e}); starting from defaults.", path.display());

@@ -29,7 +29,9 @@ _y5_bool() {
 #   COMPOSITOR_WINDOW_SUBSURFACE_SHRINKS
 compositor_env_json() {
     local renderer="${COMPOSITOR_RENDERER:-vulkan}"
-    local renderer_sync="${COMPOSITOR_RENDERER_SYNC:-}"
+    # KMS IN_FENCE by default, matching config.base::RENDERER_SYNC_DEFAULT. Set
+    # COMPOSITOR_RENDERER_SYNC=sync for the synchronous device_wait_idle path.
+    local renderer_sync="${COMPOSITOR_RENDERER_SYNC:-infence}"
     local render_node="${COMPOSITOR_RENDER_NODE:-/dev/dri/renderD128}"
     local desktop_name="${COMPOSITOR_DESKTOP_NAME:-Y5Compositor}"
     local log_level="${COMPOSITOR_LOG_LEVEL:-info,warn,error}"

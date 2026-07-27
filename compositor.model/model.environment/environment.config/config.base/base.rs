@@ -17,11 +17,12 @@ pub struct Environment {
     pub renderer: String,
     /// Fall back to GLES if Vulkan initialization fails.
     pub renderer_fallback: bool,
-    /// Frame-sync: `""` (synchronous, default), `"infence"` (KMS IN_FENCE,
-    /// raw — no fence validation, for observing actual hardware behavior), or
-    /// `"infence_fallback_sync"` (KMS IN_FENCE with a first-frame fence
-    /// self-test, degrading to synchronous if it fails; hand-set only — the
-    /// settings editor never writes it).
+    /// Frame-sync. The KMS IN_FENCE path is the DEFAULT and the only opt-OUT is
+    /// the explicit [`RENDERER_SYNC_SYNCHRONOUS`]; see [`renderer_sync_fence`]
+    /// for why every other spelling — including the empty string older files
+    /// carry — resolves to the fence path. [`RENDERER_SYNC_SELF_TEST`] is the
+    /// fence path plus a first-frame validation, hand-set only (the settings
+    /// editor never writes it).
     pub renderer_sync: String,
     /// Enable HDR output (Vulkan only).
     pub hdr: bool,
@@ -68,10 +69,15 @@ pub struct Environment {
     /// CPU scheduling boost: `""` (default scheduling), `"auto"` (raise the
     /// compositor's priority — direct nice first, rtkit over D-Bus second — so
     /// frame deadlines survive all-core loads like shader-compile storms), or
-    /// `"realtime"` (SCHED_RR, inherited by compositor threads; needs the
-    /// CAP_SYS_NICE the build scripts setcap, degrades to `"auto"` otherwise).
-    /// In both modes children stop inheriting the boost once startup completes
-    /// (SCHED_RESET_ON_FORK is armed after the initial threads exist).
+    /// [`PRIORITY_DEFAULT`] (SCHED_RR, inherited by compositor threads; needs
+    /// the CAP_SYS_NICE the build scripts setcap, degrades to exactly what
+    /// `"auto"` does otherwise, rtkit included). In both modes children stop
+    /// inheriting the boost once startup completes (SCHED_RESET_ON_FORK is
+    /// armed after the initial threads exist).
+    ///
+    /// Not prompted anywhere: the shipped value is the right one, and the two
+    /// weaker settings exist for hand-editing a machine that misbehaves under
+    /// SCHED_RR, not as a choice to put in front of someone installing.
     pub priority: String,
     /// `false` = compositor-tracked window sizing; `true` = client xdg geometry.
     pub window_client_size_fallback: bool,
@@ -85,15 +91,70 @@ pub struct Environment {
 
 /// Current settings-schema version. Bump when adding fields, and teach
 /// [`migrate`] to fill the new fields' defaults for older files.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
+
+/// The stored [`Environment::renderer_sync`] for a fresh install. `"infence"`
+/// is the historical spelling and stays the canonical stored form;
+/// [`RENDERER_SYNC_NATIVE`] is the advertised one.
+pub const RENDERER_SYNC_DEFAULT: &str = "infence";
+
+/// The advertised alias for [`RENDERER_SYNC_DEFAULT`] — what the settings
+/// editor calls it, since "in-fence" names a KMS property rather than anything
+/// a person installing a compositor is choosing between.
+pub const RENDERER_SYNC_NATIVE: &str = "native";
+
+/// The ONE value that selects the synchronous `device_wait_idle` submit — the
+/// path everything used to get from an empty string.
+pub const RENDERER_SYNC_SYNCHRONOUS: &str = "sync";
+
+/// The fence path plus a first-frame fence self-test that degrades to
+/// synchronous if the exported fence never signals. Hand-set only.
+pub const RENDERER_SYNC_SELF_TEST: &str = "infence_fallback_sync";
+
+/// Does `raw` select the KMS IN_FENCE path? Everything that is not the explicit
+/// [`RENDERER_SYNC_SYNCHRONOUS`] opt-out does.
+///
+/// Deliberately a denylist rather than an allowlist. The fence path is the
+/// default, and a file can carry any of several dead spellings for it (the
+/// empty string this field shipped with, `"kms"`, a typo); resolving all of
+/// them to the default means the only way to end up on the slow path is to ask
+/// for it by name. [`migrate`] rewrites the dead spellings so the file agrees
+/// with the behaviour, but this is what actually decides.
+pub fn renderer_sync_fence(raw: &str) -> bool {
+    !raw.eq_ignore_ascii_case(RENDERER_SYNC_SYNCHRONOUS)
+}
+
+/// Does `raw` ask for the first-frame fence self-test? Implies
+/// [`renderer_sync_fence`].
+pub fn renderer_sync_self_test(raw: &str) -> bool {
+    raw.eq_ignore_ascii_case(RENDERER_SYNC_SELF_TEST)
+}
+
+/// The canonical spelling of `raw` — what a file should hold to mean what `raw`
+/// resolves to. Only the three live values survive verbatim; every dead
+/// spelling collapses onto [`RENDERER_SYNC_DEFAULT`].
+pub fn normalized_renderer_sync(raw: &str) -> String {
+    match () {
+        _ if !renderer_sync_fence(raw) => RENDERER_SYNC_SYNCHRONOUS.to_string(),
+        _ if renderer_sync_self_test(raw) => RENDERER_SYNC_SELF_TEST.to_string(),
+        _ => RENDERER_SYNC_DEFAULT.to_string(),
+    }
+}
+
+/// The shipped [`Environment::priority`]. SCHED_RR, because the failure it
+/// prevents (a commit missing vblank because the compositor was not scheduled
+/// in time) is one the user experiences as the compositor stuttering, and the
+/// degradation path when the binary is not setcap'd is exactly `"auto"`.
+pub const PRIORITY_DEFAULT: &str = "realtime";
 
 /// Migrate a parsed settings JSON object in place to [`SCHEMA_VERSION`],
-/// chaining version steps up to the current schema (now just v1 → v2).
-/// Returns `true` if anything changed. In-memory only — callers never persist
-/// the result implicitly; the file keeps its authored version until an
-/// explicit [`save`]. Fields are only ever ADDED with their defaults —
-/// existing values are never touched, so a migration cannot alter configured
-/// behavior.
+/// chaining version steps up to the current schema. Returns `true` if anything
+/// changed. In-memory only — callers never persist the result implicitly; the
+/// file keeps its authored version until an explicit [`save`].
+///
+/// Normally a step only ADDS a field at its default, so it cannot alter
+/// configured behavior. v2 → v3 is the exception and is deliberate: see the
+/// step's own comment.
 pub fn migrate(root: &mut serde_json::Value) -> bool {
     let Some(obj) = root.as_object_mut() else {
         return false;
@@ -103,8 +164,21 @@ pub fn migrate(root: &mut serde_json::Value) -> bool {
         return false;
     }
     if version < 2 {
-        // v1 → v2: `priority` (CPU scheduling boost, default off) + `version`.
-        obj.entry("priority").or_insert_with(|| serde_json::Value::String(String::new()));
+        // v1 → v2: `priority` (CPU scheduling boost) + `version`.
+        obj.entry("priority")
+            .or_insert_with(|| serde_json::Value::String(PRIORITY_DEFAULT.to_string()));
+    }
+    if version < 3 {
+        // v2 → v3: `renderer_sync`'s default flipped from synchronous to the KMS
+        // IN_FENCE path, and the opt-out moved from "the empty string" to the
+        // explicit `"sync"`. So every v2 file that is not already asking for the
+        // self-test carries a spelling that no longer means what it meant, and
+        // rewriting it here is what keeps the file honest about the behavior it
+        // gets. This DOES change a v2 user's configured sync mode — intentionally;
+        // the empty string was the absence of a choice, not a choice.
+        let raw = obj.get("renderer_sync").and_then(|v| v.as_str()).unwrap_or_default();
+        let normalized = normalized_renderer_sync(raw);
+        obj.insert("renderer_sync".into(), serde_json::Value::String(normalized));
     }
     obj.insert("version".into(), serde_json::Value::from(SCHEMA_VERSION));
     true
@@ -186,7 +260,7 @@ pub fn default_settings() -> Environment {
         version: SCHEMA_VERSION,
         renderer: "vulkan".to_string(),
         renderer_fallback: true,
-        renderer_sync: String::new(),
+        renderer_sync: RENDERER_SYNC_DEFAULT.to_string(),
         hdr: false,
         depth: 8,
         vrr: false,
@@ -201,7 +275,7 @@ pub fn default_settings() -> Environment {
         capture_background_encoder: "ffmpeg".to_string(),
         capture_nvenc_allow_readback_fallback: false,
         capture_variable_frame_rate: false,
-        priority: String::new(),
+        priority: PRIORITY_DEFAULT.to_string(),
         window_client_size_fallback: false,
         window_subsurface_shrinks: false,
     }
@@ -247,7 +321,7 @@ pub fn save(env: &Environment) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    /// A v1 file (no `version`, no `priority`) migrates to a complete v2
+    /// A v1 file (no `version`, no `priority`) migrates to a complete current
     /// Environment with the new fields at their defaults — and the migration
     /// is idempotent.
     #[test]
@@ -259,11 +333,12 @@ mod tests {
         assert!(super::migrate(&mut v));
         let env: super::Environment = serde_json::from_value(v.clone()).unwrap();
         assert_eq!(env.version, super::SCHEMA_VERSION);
-        assert_eq!(env.priority, "");
+        assert_eq!(env.priority, super::PRIORITY_DEFAULT);
         assert!(!super::migrate(&mut v));
     }
 
-    /// Migration never overwrites an existing value.
+    /// Migration never overwrites a value it did not set out to rewrite —
+    /// `priority` is added-if-absent, so an authored one survives.
     #[test]
     fn migrate_preserves_existing_values() {
         let mut v = serde_json::to_value(super::default_settings()).unwrap();
@@ -273,5 +348,41 @@ mod tests {
         assert!(super::migrate(&mut v));
         let env: super::Environment = serde_json::from_value(v).unwrap();
         assert_eq!(env.priority, "auto");
+    }
+
+    /// v2 → v3 rewrites every dead `renderer_sync` spelling onto the fence
+    /// default, and leaves the two live opt-outs exactly as authored.
+    #[test]
+    fn migrates_v2_renderer_sync() {
+        let cases = [
+            ("", super::RENDERER_SYNC_DEFAULT),
+            ("kms", super::RENDERER_SYNC_DEFAULT),
+            ("native", super::RENDERER_SYNC_DEFAULT),
+            ("infence", super::RENDERER_SYNC_DEFAULT),
+            ("sync", super::RENDERER_SYNC_SYNCHRONOUS),
+            ("infence_fallback_sync", super::RENDERER_SYNC_SELF_TEST),
+        ];
+        for (authored, expected) in cases {
+            let mut v = serde_json::to_value(super::default_settings()).unwrap();
+            let obj = v.as_object_mut().unwrap();
+            obj.insert("version".into(), serde_json::Value::from(2));
+            obj.insert("renderer_sync".into(), serde_json::Value::String(authored.into()));
+            assert!(super::migrate(&mut v));
+            let env: super::Environment = serde_json::from_value(v).unwrap();
+            assert_eq!(env.renderer_sync, expected, "authored {authored:?}");
+        }
+    }
+
+    /// The fence path is the default, so only the explicit opt-out leaves it —
+    /// including for values no migration has (or ever will) rewrite.
+    #[test]
+    fn only_sync_opts_out_of_the_fence_path() {
+        assert!(!super::renderer_sync_fence("sync"));
+        assert!(!super::renderer_sync_fence("SYNC"));
+        for on in ["", "kms", "native", "infence", "infence_fallback_sync", "typo"] {
+            assert!(super::renderer_sync_fence(on), "{on:?}");
+        }
+        assert!(super::renderer_sync_self_test("infence_fallback_sync"));
+        assert!(!super::renderer_sync_self_test("infence"));
     }
 }

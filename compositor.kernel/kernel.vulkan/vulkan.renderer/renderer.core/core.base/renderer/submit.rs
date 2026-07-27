@@ -341,9 +341,10 @@ impl VulkanRenderer {
         }
 
         if !self.use_native_fence() {
-            // Synchronous (the DEFAULT; winit; anything but the infence opt-in):
-            // signal the timeline, then device_wait_idle. The returned SyncPoint
-            // is already-signaled.
+            // Synchronous (winit, which has no DRM fd; or the explicit
+            // `renderer_sync = "sync"` opt-out; or a failed self-test): signal
+            // the timeline, then device_wait_idle. The returned SyncPoint is
+            // already-signaled.
             compositor_kernel_vulkan_device_queue_base::queue::submit_with_timeline(
                 dev,
                 &self.queue,

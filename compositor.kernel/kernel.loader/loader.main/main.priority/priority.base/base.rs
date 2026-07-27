@@ -1,16 +1,23 @@
 //! CPU-priority boost for the compositor (settings.json `priority`): under
 //! all-core load (e.g. Steam's shader compile) wakeup latency makes commits
-//! miss vblank. `"auto"` = nice (direct, then rtkit over D-Bus); `"realtime"`
-//! = SCHED_RR. Best-effort; every outcome logged. [`apply`] runs early so ALL
-//! compositor threads inherit the boost; the `priority.arm` crate stops child
-//! inheritance once startup completes.
+//! miss vblank. `"realtime"` (the DEFAULT) = SCHED_RR; `"auto"` = nice (direct,
+//! then rtkit over D-Bus). Best-effort; every outcome logged. [`apply`] runs
+//! early so ALL compositor threads inherit the boost; the `priority.arm` crate
+//! stops child inheritance once startup completes.
+//!
+//! Both of the weaker settings are hand-edit escape hatches — nothing prompts
+//! for this — so the shipped path has to degrade on its own. It does: without
+//! CAP_SYS_NICE, `realtime` runs [`auto`], which is the same function `"auto"`
+//! itself runs, rtkit fallback included. A machine that cannot grant SCHED_RR
+//! ends up exactly where it would have with the previous default.
 const NICE: i32 = -10;
 
 /// SCHED_RR priority for `"realtime"`: preempts every CFS task already, stays
 /// under pipewire's audio. Kernel RT throttling (95%/s) bounds a runaway.
 const RR_PRIORITY: i32 = 2;
 
-/// Apply the policy: `""` off, `"auto"` nice, `"realtime"` SCHED_RR.
+/// Apply the policy: `"realtime"` (the default) SCHED_RR, `"auto"` nice, `""`
+/// off.
 pub fn apply(priority: &str) {
     match priority {
         "" => trace!("priority: disabled (settings.json priority=\"\")"),
@@ -25,7 +32,11 @@ pub fn apply(priority: &str) {
 
 /// SCHED_RR; threads spawned afterwards inherit it (intended) until
 /// [`arm_reset_on_fork`]. Direct-only; needs CAP_SYS_NICE (the build scripts
-/// setcap it); on failure degrades to `auto`.
+/// and the installer setcap it). On failure it calls [`auto`] — the same
+/// function, not an approximation of it — so an un-setcap'd machine gets the
+/// full nice ladder, rtkit over D-Bus included. Deliberately NOT rtkit's
+/// `MakeThreadRealtime`: that would hand back the SCHED_RR this failure just
+/// established the machine will not grant directly.
 fn realtime() {
     let param = libc::sched_param { sched_priority: RR_PRIORITY };
     if unsafe { libc::sched_setscheduler(0, libc::SCHED_RR, &param) } == 0 {

@@ -82,9 +82,10 @@ pub struct VulkanRenderer {
     /// The display's DRM device fd, set on the native backend (None under
     /// winit). Its presence selects the native KMS IN_FENCE path.
     pub(super) drm_fd: Option<smithay::backend::drm::DrmDeviceFd>,
-    /// Opt in to the native KMS IN_FENCE path via `COMPOSITOR_RENDERER_SYNC=
-    /// infence` (strict) or `infence_fallback_sync`. DEFAULT IS OFF
-    /// (synchronous `device_wait_idle` submit).
+    /// The native KMS IN_FENCE path. DEFAULT IS ON — only
+    /// `COMPOSITOR_RENDERER_SYNC=sync` turns it off (synchronous
+    /// `device_wait_idle` submit); the name is historical, from when it was the
+    /// opt-in.
     pub(super) native_fence_optin: bool,
     /// `infence_fallback_sync`: run the first-frame fence self-test and degrade
     /// to synchronous mode if the exported fence never signals. Plain `infence`
@@ -165,9 +166,9 @@ impl VulkanRenderer {
         }
     }
 
-    /// Provide the display's DRM device fd (native backend). With the IN_FENCE
-    /// opt-in (`COMPOSITOR_RENDERER_SYNC=infence`) its presence switches
-    /// `finish()` to the KMS IN_FENCE path; otherwise the default synchronous
+    /// Provide the display's DRM device fd (native backend). Its presence is
+    /// what switches `finish()` to the KMS IN_FENCE path — unless
+    /// `COMPOSITOR_RENDERER_SYNC=sync` opted out, in which case the synchronous
     /// submit is kept.
     pub fn set_drm_fd(&mut self, fd: smithay::backend::drm::DrmDeviceFd) {
         self.drm_fd = Some(fd);
@@ -175,7 +176,7 @@ impl VulkanRenderer {
             info!("sync mode: native KMS IN_FENCE (sync_file export, no per-frame device_wait_idle)");
             stats::set_sync_mode("native KMS IN_FENCE (sync_file)");
         } else {
-            info!("sync mode: synchronous device_wait_idle (renderer_sync != \"infence\")");
+            info!("sync mode: synchronous device_wait_idle (renderer_sync == \"sync\")");
         }
     }
 
@@ -202,8 +203,8 @@ impl VulkanRenderer {
         self.hdr_enabled
     }
 
-    /// True when the native KMS IN_FENCE path should be used: explicitly opted in
-    /// (`COMPOSITOR_RENDERER_SYNC=infence`) and a DRM fd is present (native).
+    /// True when the native KMS IN_FENCE path should be used: not opted out of
+    /// (`COMPOSITOR_RENDERER_SYNC=sync`) and a DRM fd is present (native).
     pub(super) fn use_native_fence(&self) -> bool {
         self.native_fence_optin && self.drm_fd.is_some()
     }
