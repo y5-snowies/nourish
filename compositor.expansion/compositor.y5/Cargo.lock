@@ -6373,6 +6373,7 @@ dependencies = [
  "compositor_y5_select_box_base",
  "compositor_y5_surface_system_base",
  "compositor_y5_window_draw_frame",
+ "compositor_y5_window_draw_occlude",
  "compositor_y5_window_interface_record",
  "smithay",
  "tracing",
@@ -8588,8 +8589,19 @@ dependencies = [
  "compositor_y5_lock_system_base",
  "compositor_y5_window_decoration_element",
  "compositor_y5_window_draw_element",
+ "compositor_y5_window_draw_occlude",
  "compositor_y5_window_interface_draw",
  "compositor_y5_window_interface_record",
+ "smithay",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "compositor_y5_window_draw_occlude"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -8635,6 +8647,7 @@ dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_y5_window_interface_record",
  "smithay",
+ "uuid",
 ]
 
 [[package]]

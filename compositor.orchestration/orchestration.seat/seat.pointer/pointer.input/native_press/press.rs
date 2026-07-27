@@ -135,7 +135,13 @@ pub fn apply_focus(
     }
 
     let focus_surface: Option<WlSurface> = match hit {
-        SurfaceHit::Window { window, .. } => {
+        // Chrome joins the window arm deliberately: a press on the letterbox
+        // raises, activates and focuses the window exactly like a press on its
+        // content. Only the pointer delivery differs, and that is decided by
+        // `hit.surface()` elsewhere, not here — this arm derives everything from
+        // the window and ends by taking the toplevel's surface for KEYBOARD
+        // focus, which is a property of the window, not of where the click fell.
+        SurfaceHit::Window { window, .. } | SurfaceHit::WindowChrome { window } => {
             _loop.inner.space_state_mut().state.raise_element(window, true);
             if let Some(uuid) = window.uuid() {
                 _loop.inner.raise_drawable(uuid);

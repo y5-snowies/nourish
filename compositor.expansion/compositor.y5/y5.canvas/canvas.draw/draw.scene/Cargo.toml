@@ -24,5 +24,6 @@ compositor_y5_canvas_draw_element.workspace = true
 compositor_y5_canvas_cursor_element.workspace = true
 compositor_y5_window_draw_frame.workspace = true
 compositor_y5_select_box_base.workspace = true
+compositor_y5_window_draw_occlude.workspace = true
 [lib]
 path = "lib.rs"

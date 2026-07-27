@@ -649,14 +649,24 @@ where
                         }
                     }
                 }
-                // The window scene geometrically culls off-pane windows (capture
-                // targets exempt), so `vis` — the drawn set — is both the presented
-                // set (`visible_window` → frame callbacks + presentation feedback)
-                // and the per-slot fractional-scale set: capture targets count as
-                // visible and keep reacting to zoom-driven scale updates. A window
-                // panned off every pane (and not captured) is in neither — it stops
-                // re-rendering and receiving scale updates until revealed.
-                let mut uuids: Vec<uuid::Uuid> = vis.iter().filter_map(|w| w.uuid()).collect();
+                // The window scene culls twice (capture targets exempt from both),
+                // and the two sets it returns feed different consumers:
+                //
+                // `vis.drawn` — passed the frustum AND was not fully covered by
+                // opaque windows in front of it. This is the presented set
+                // (`visible_window` → frame callbacks + presentation feedback):
+                // a window that contributed no pixels is not owed either.
+                //
+                // `vis.on_pane` — passed the frustum, covered or not. This is the
+                // per-slot fractional-scale set. Occlusion deliberately does NOT
+                // narrow it: an occluded window is revealed the instant the
+                // window over it moves or closes, with no pan to hide a scale
+                // republish behind, so it must keep its real scale.
+                //
+                // A window panned off every pane (and not captured) is in neither
+                // — it stops re-rendering and receiving scale updates until
+                // revealed.
+                let mut uuids: Vec<uuid::Uuid> = vis.on_pane.iter().filter_map(|w| w.uuid()).collect();
                 // "full" grace band: windows just outside the pane get their REAL
                 // scale published ahead of reveal, so panning them in doesn't flash
                 // a stale scale-1 buffer. Fractional-only — they are still culled
@@ -671,7 +681,7 @@ where
                     );
                 }
                 state.inner.viewports_mut().visible.insert(region.slot, uuids);
-                cw.extend(vis);
+                cw.extend(vis.drawn);
             }
             state.inner.render_target = None;
             // Wide bars between split panes (drawn above window content).

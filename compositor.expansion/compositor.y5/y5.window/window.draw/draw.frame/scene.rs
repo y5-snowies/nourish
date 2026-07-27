@@ -37,6 +37,7 @@ use compositor_y5_camera_transform_translate::transform::{Context as XformCtx, T
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_y5_window_draw_element::element::{ClampOpaque, Element, ElementWindowSurface};
+use compositor_y5_window_draw_occlude::occlude::{Drawn, Occluders};
 use compositor_y5_window_interface_draw::visible::DrawWindow;
 use compositor_y5_window_interface_record::window::LoopWindow;
 
@@ -68,22 +69,10 @@ fn project_rect(ctx: XformCtx, x: f64, y: f64, w: f64, h: f64) -> Rectangle<i32,
     Rectangle::new(tl, Size::from((br.x - tl.x, br.y - tl.y)))
 }
 
-/// True when the window's slot rect, projected through the current camera,
-/// overlaps the pane being drawn (`render_target`; full output when unset) —
-/// i.e. the window is actually on screen here, not merely mapped somewhere in
-/// the pannable world. Mirrors `crop_slot`'s projection below.
-fn on_pane(state: &mut Loop, window: &Window, size: Size<i32, Physical>) -> bool {
-    let Some(loc) = state.inner.space_state().state.element_location(window) else {
-        return false;
-    };
-    let sz = slot::expected_size(window).unwrap_or_else(|| window.geometry().size);
-    if sz.w <= 0 || sz.h <= 0 {
-        // Degenerate size (nothing committed yet): draw normally.
-        return true;
-    }
-    let ctx = state.viewport_context();
-    let rect = project_rect(ctx, loc.x as f64, loc.y as f64, sz.w as f64, sz.h as f64);
-    let pane = state
+/// The pane being drawn (`render_target`) in output-physical space; the whole
+/// output when unset (full-output render).
+fn pane_rect(state: &Loop, ctx: XformCtx, size: Size<i32, Physical>) -> Rectangle<i32, Physical> {
+    state
         .inner
         .render_target
         .map(|rt| {
@@ -95,8 +84,90 @@ fn on_pane(state: &mut Loop, window: &Window, size: Size<i32, Physical>) -> bool
                 Size::from((rt.size_physical.0.round() as i32, rt.size_physical.1.round() as i32)),
             )
         })
-        .unwrap_or(Rectangle::new(Point::from((0, 0)), size));
-    rect.overlaps(pane)
+        .unwrap_or(Rectangle::new(Point::from((0, 0)), size))
+}
+
+/// Widest decoration border (`window.decoration.element`: 12 logical px on the
+/// primary selection) plus the 1px outset it is drawn at. Decorations frame the
+/// slot from OUTSIDE it, so the occlusion test runs on the slot inflated by this
+/// — a covered slot whose frame still shows is not a window we may cull.
+const DECORATION_MARGIN: f64 = 13.0;
+
+/// Where a window's slot lands on the pane being drawn.
+enum Placed {
+    /// On screen here. Carries the rect the occlusion test uses: the projected
+    /// slot inflated by [`DECORATION_MARGIN`] and re-clipped to the pane (the
+    /// re-clip is what still lets a pane-filling window be occluded at all).
+    On(Rectangle<i32, Physical>),
+    /// Degenerate size — nothing committed yet. Draw it; there is no rect to
+    /// cull against or to occlude with.
+    Unsized,
+    /// Entirely off this pane.
+    Off,
+}
+
+/// The compositor-decided slot — the SAME derivation the fit and `crop_slot`
+/// below use. The culls have to agree with it exactly: the whole reason a
+/// covered window may be skipped is that the slot bounds everything it can ever
+/// draw, and a rect derived any other way does not carry that guarantee.
+///
+/// `None` means no slot has been decided, which sends the fit down the native
+/// fallback — content rendered at the client's own location with no crop. So the
+/// caller treats it as `Unsized` and culls nothing: there is no bound to rely on.
+fn slot_size_of(window: &Window) -> Option<Size<i32, Logical>> {
+    if compositor_model_environment_config_base::base::get().window_client_size_fallback {
+        window
+            .toplevel()
+            .and_then(|t| t.with_pending_state(|s| s.size))
+            .filter(|s| s.w > 0 && s.h > 0)
+            .or_else(|| Some(window.geometry().size))
+    } else {
+        slot::expected_size(window)
+    }
+}
+
+fn placed_on(state: &mut Loop, window: &Window, size: Size<i32, Physical>) -> Placed {
+    let Some(loc) = state.inner.space_state().state.element_location(window) else {
+        return Placed::Off;
+    };
+    let Some(sz) = slot_size_of(window) else {
+        return Placed::Unsized;
+    };
+    if sz.w <= 0 || sz.h <= 0 {
+        return Placed::Unsized;
+    }
+    let ctx = state.viewport_context();
+    // Mirrors `crop_slot`'s projection below, so cull and crop agree.
+    let rect = project_rect(ctx, loc.x as f64, loc.y as f64, sz.w as f64, sz.h as f64);
+    let pane = pane_rect(state, ctx, size);
+    if !rect.overlaps(pane) {
+        return Placed::Off;
+    }
+    let pad = (DECORATION_MARGIN * ctx.scale).ceil() as i32;
+    let grown = Rectangle::new(
+        Point::from((rect.loc.x - pad, rect.loc.y - pad)),
+        Size::from((rect.size.w + pad * 2, rect.size.h + pad * 2)),
+    );
+    Placed::On(grown.intersection(pane).unwrap_or(rect))
+}
+
+fn has_popup(window: &Window) -> bool {
+    window
+        .wl_surface()
+        .is_some_and(|s| PopupManager::popups_for_surface(s.as_ref()).next().is_some())
+}
+
+/// True when the root surface is opaque over its whole `dst` — an alpha-free
+/// buffer, or a client-declared opaque region that covers it. Subsurfaces are
+/// not walked: they can only ADD opacity, so ignoring them errs toward drawing.
+fn surface_opaque(surface: &WlSurface) -> bool {
+    with_states(surface, |s| {
+        let Some(view) = view_of(s) else { return false };
+        let Some(m) = s.data_map.get::<RendererSurfaceStateUserData>() else { return false };
+        let Ok(g) = m.lock() else { return false };
+        let dst = Rectangle::from_size(view.dst);
+        g.opaque_regions().is_some_and(|r| r.iter().any(|o| o.contains_rect(dst)))
+    })
 }
 
 /// Apply the fit transform to a native surface element: force a fixed geometry (so the result
@@ -129,7 +200,8 @@ pub fn scene<R>(
     size: Size<i32, Physical>,
     window: &Window,
     context: &compositor_y5_canvas_draw_context::context::Context,
-) -> (Vec<Element<R>>, bool)
+    occluders: &Occluders,
+) -> (Vec<Element<R>>, Drawn)
 where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Texture + Clone + Send + 'static,
@@ -144,15 +216,38 @@ where
 
     // Skip drawing windows with their groups collapsed.
     if !force_capture && !window.visible(state) {
-        return (vec![], false);
+        return (vec![], Drawn::default());
     }
-    // Geometric cull: a window whose slot projects outside the pane being drawn
-    // contributes nothing — skip its whole scene (surface-tree walk, decorations,
-    // fit), and `false` keeps it out of the presented set (no frame callbacks
-    // off-screen). Capture targets are exempt, same as the hidden-group override
-    // above: a recorded window keeps compositing wherever it is.
-    if !force_capture && !on_pane(state, window, size) {
-        return (vec![], false);
+    let mut drawn = Drawn { on_pane: true, visible: true, occluder: None };
+    if !force_capture {
+        match placed_on(state, window, size) {
+            // Frustum cull: a window whose slot projects outside the pane being
+            // drawn contributes nothing — skip its whole scene (surface-tree
+            // walk, decorations, fit) and keep it out of BOTH sets.
+            Placed::Off => return (vec![], Drawn::default()),
+            Placed::Unsized => {}
+            // Occlusion cull: fully covered by opaque windows already drawn in
+            // front of it. `on_pane` stays set — the window is still on screen,
+            // one move away from being revealed with no pan to hide a
+            // fractional-scale republish behind, so it keeps its real scale.
+            //
+            // The SLOT is the right thing to test, and it is sufficient. Content
+            // crops to it, the letterbox fill is exactly it, and the slot is the
+            // compositor's decision — so a client that answers a configure with
+            // a corrected buffer lands inside the same rect. Whether bars are
+            // showing changes nothing about what is covered.
+            //
+            // The two things that do escape the slot are handled: decorations
+            // frame it from outside, which is what `DECORATION_MARGIN` inflates
+            // for, and popups crop to the OUTPUT, so a window holding one is
+            // exempt outright.
+            Placed::On(rect) => {
+                if occluders.hidden(rect) && !has_popup(window) {
+                    drawn.visible = false;
+                    return (vec![], drawn);
+                }
+            }
+        }
     }
     let bound = compositor_y5_window_interface_draw::bound::calculate(
         state, renderer, size, window, context,
@@ -180,23 +275,15 @@ where
 
     let Some(root_surface) = root_surface else {
         elements.extend(decoration.into_iter().map(Element::SolidBox));
-        return (elements, true);
+        return (elements, drawn);
     };
     let Some(root_view) = with_states(&root_surface, |s| view_of(s)) else {
         elements.extend(decoration.into_iter().map(Element::SolidBox));
-        return (elements, true);
+        return (elements, drawn);
     };
 
     // Compositor-decided slot (authority); None → defer to client (native render, no fit).
-    let slot_size = if cfg.window_client_size_fallback {
-        window
-            .toplevel()
-            .and_then(|t| t.with_pending_state(|s| s.size))
-            .filter(|s| s.w > 0 && s.h > 0)
-            .or_else(|| Some(window.geometry().size))
-    } else {
-        slot::expected_size(window)
-    };
+    let slot_size = slot_size_of(window);
 
     let render_native = |renderer: &mut R, out: &mut Vec<Element<R>>, surface: &WlSurface, loc: Point<i32, Physical>| {
         let native: Vec<WaylandSurfaceRenderElement<R>> = render_elements_from_surface_tree(
@@ -254,7 +341,7 @@ where
         }
         elements.extend(decoration.into_iter().map(Element::SolidBox));
         render_native(renderer, &mut elements, &root_surface, render_at);
-        return (elements, true);
+        return (elements, drawn);
     };
 
     // ── Fitted path ─────────────────────────────────────────────────────────────────
@@ -279,17 +366,8 @@ where
     // When rendering a split/floating viewport pane, clamp content + popups to the
     // pane's physical rect so a window near the pane edge can't bleed into the
     // neighbour pane. Full-output render (no render target) → the whole output.
-    let pane = state.inner.render_target.map(|rt| {
-        Rectangle::new(
-            Point::from(((rt.origin_logical.0 * ctx.scale).round() as i32, (rt.origin_logical.1 * ctx.scale).round() as i32)),
-            Size::from((rt.size_physical.0.round() as i32, rt.size_physical.1.round() as i32)),
-        )
-    });
-    let crop_output = pane.unwrap_or(Rectangle::new(Point::from((0, 0)), size));
-    let crop_slot = match pane {
-        Some(p) => crop_slot.intersection(p).unwrap_or_default(),
-        None => crop_slot,
-    };
+    let crop_output = pane_rect(state, ctx, size);
+    let crop_slot = crop_slot.intersection(crop_output).unwrap_or_default();
 
     // Popups (front): positioned in the SAME fit frame as the content so they stick to the
     // rendered window content, not the raw slot. A popup's `location` is geometry-relative, but
@@ -393,5 +471,15 @@ where
         elements.push(Element::SolidBox(black));
     }
 
-    (elements, true)
+    // Deposit what this window hides from everything drawn behind it. `crop_slot`
+    // is opaque either because the fill above covers it outright — the fill IS
+    // `crop_slot`, at alpha 1.0 — or because the client's own buffer carries no
+    // alpha. The `- 1.0` slack in `fills` is inherited: content stopping one
+    // logical pixel short of the slot edge suppresses the fill, so the same pixel
+    // is claimed here. The existing letterbox decision already accepts that.
+    if !fills || stretch || surface_opaque(&root_surface) {
+        drawn.occluder = Some(crop_slot);
+    }
+
+    (elements, drawn)
 }

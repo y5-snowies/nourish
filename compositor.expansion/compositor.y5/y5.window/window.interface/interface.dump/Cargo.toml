@@ -11,5 +11,6 @@ compositor_orchestration_core_state_base = { workspace = true }
 compositor_y5_window_interface_record = { workspace = true }
 smithay = { workspace = true }
 
+uuid.workspace = true
 [lib]
 path = "lib.rs"

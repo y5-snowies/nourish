@@ -793,6 +793,7 @@ compositor_y5_viewport_state_base = { path = "../../compositor.expansion/composi
 compositor_y5_window_decoration_element = { path = "../../compositor.expansion/compositor.y5/y5.window/window.decoration/decoration.element" }
 compositor_y5_window_draw_element = { path = "../../compositor.expansion/compositor.y5/y5.window/window.draw/draw.element" }
 compositor_y5_window_draw_frame = { path = "../../compositor.expansion/compositor.y5/y5.window/window.draw/draw.frame" }
+compositor_y5_window_draw_occlude = { path = "../../compositor.expansion/compositor.y5/y5.window/window.draw/draw.occlude" }
 compositor_y5_window_interface_data = { path = "../../compositor.expansion/compositor.y5/y5.window/window.interface/interface.data" }
 compositor_y5_window_interface_draw = { path = "../../compositor.expansion/compositor.y5/y5.window/window.interface/interface.draw" }
 compositor_y5_window_interface_dump = { path = "../../compositor.expansion/compositor.y5/y5.window/window.interface/interface.dump" }

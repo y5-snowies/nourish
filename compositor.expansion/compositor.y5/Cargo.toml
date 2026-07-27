@@ -902,6 +902,7 @@ compositor_y5_viewport_state_base = { path = "y5.viewport/viewport.state/state.b
 compositor_y5_window_decoration_element = { path = "y5.window/window.decoration/decoration.element" }
 compositor_y5_window_draw_element = { path = "y5.window/window.draw/draw.element" }
 compositor_y5_window_draw_frame = { path = "y5.window/window.draw/draw.frame" }
+compositor_y5_window_draw_occlude = { path = "y5.window/window.draw/draw.occlude" }
 compositor_y5_window_interface_data = { path = "y5.window/window.interface/interface.data" }
 compositor_y5_window_interface_draw = { path = "y5.window/window.interface/interface.draw" }
 compositor_y5_window_interface_dump = { path = "y5.window/window.interface/interface.dump" }

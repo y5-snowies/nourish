@@ -1154,16 +1154,44 @@ fn present(
             })
         };
         let focus = state.state.seat.seat.get_keyboard().and_then(|kb| kb.current_focus());
-        let scene = Scene {
-            target_visible: window_visible.iter().any(tagged),
-            target_focused: focus.as_ref().is_some_and(|f| {
-                window_visible
-                    .iter()
-                    .filter(|w| tagged(w))
-                    .any(|w| w.wl_surface().is_some_and(|s| s.as_ref() == f))
-            }),
-            any_focused: focus.is_some(),
-            any_visible: !window_visible.is_empty(),
+        // The overview overlay owns the whole content band, so the windows in
+        // the drawn set are thumbnails inside compositor UI — not a client
+        // presenting to the user. An empty scene disengages every section for as
+        // long as it is open.
+        //
+        // Without this the cadence belongs to a window the user has just
+        // navigated away from, and the failure is not theoretical: games
+        // routinely stop drawing the moment they are covered, and a stalled
+        // owner paces the overlay at the watchdog floor with every input-driven
+        // redraw silenced. The thumbnails still take their frame callbacks
+        // below, which is what keeps them live.
+        //
+        // The gate is one global across outputs, so this is deliberately not
+        // per-output: the overlay is on the active monitor, but the answer to
+        // "may a client own the cadence" has to be the same everywhere.
+        //
+        // `visible` alone, NOT `visible && overlay_ready()` the way the band
+        // itself is gated — do not "correct" this to match. Between Super+Tab
+        // and ready the normal canvas is still drawn, so the two conditions do
+        // differ; but reaching ready is exactly what needs frames, since
+        // `backdrop::arm` composites the freeze snapshot over those frames. Wait
+        // for ready and a stalled target holds the gate through the one window
+        // where releasing it is what lets the overlay open at all. The cost is a
+        // few untorn frames during the transition.
+        let scene = if state.inner.overview().visible {
+            Scene::default()
+        } else {
+            Scene {
+                target_visible: window_visible.iter().any(tagged),
+                target_focused: focus.as_ref().is_some_and(|f| {
+                    window_visible
+                        .iter()
+                        .filter(|w| tagged(w))
+                        .any(|w| w.wl_surface().is_some_and(|s| s.as_ref() == f))
+                }),
+                any_focused: focus.is_some(),
+                any_visible: !window_visible.is_empty(),
+            }
         };
 
         let cfg = compositor_model_environment_tearing_config::config::get();
