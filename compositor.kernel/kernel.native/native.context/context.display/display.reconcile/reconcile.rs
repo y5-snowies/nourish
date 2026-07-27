@@ -448,8 +448,13 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
     // `execute(RenderScope::All)`) so the new pipe gets its first frame and starts its own
     // vblank cycle — otherwise a plain `schedule_redraw` no-ops while another pipe is
     // mid-flight and the new output stays dark until the next full resume render.
+    // That force covers the documented case above. The settle net on top of it is
+    // a safeguard for what is NOT documented: whether one frame is enough to leave
+    // a freshly lit pipe carrying its own cadence. It kicks 30fps for a few
+    // seconds and retires itself.
     if brought_up {
         state.force_redraw();
+        compositor_kernel_native_wire_watchdog_settle::settle::arm(&state.loop_handle);
     } else {
         state.schedule_redraw();
     }

@@ -11,7 +11,10 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-/// Nanoseconds; `0` = no floor, watchdog disabled.
+/// Nanoseconds. Always a real interval — there is no "off" (see
+/// `environment.tearing/tearing.config::FLOOR_MIN_FPS`): with a gate engaged the
+/// rescue frames are the only thing still carrying the cursor, the compositor's
+/// UI and the frame callbacks the admitted client needs before it may commit.
 ///
 /// Seeded at 33ms rather than at `FLOOR_DEFAULT`, which is a multiple of refresh
 /// and so cannot be resolved without a mode. This value only governs the window
@@ -24,21 +27,16 @@ static FLOOR_NS: AtomicU64 = AtomicU64::new(33_000_000);
 /// take the cursor and the UI down with it.
 pub const CEILING: Duration = Duration::from_millis(250);
 
-pub fn set(floor: Option<Duration>) {
-    FLOOR_NS.store(floor.map_or(0, |d| d.as_nanos() as u64), Ordering::Relaxed);
+pub fn set(floor: Duration) {
+    FLOOR_NS.store(floor.as_nanos() as u64, Ordering::Relaxed);
 }
 
-/// `None` when the user turned the watchdog off.
-pub fn get() -> Option<Duration> {
-    match FLOOR_NS.load(Ordering::Relaxed) {
-        0 => None,
-        ns => Some(Duration::from_nanos(ns)),
-    }
+pub fn get() -> Duration {
+    Duration::from_nanos(FLOOR_NS.load(Ordering::Relaxed))
 }
 
-/// How often the watchdog should ask. Tracks the floor, so a fast floor is not
-/// answered by a slow timer; the fallback applies only while disabled, when the
-/// answer does not matter.
+/// How often the watchdog should ask — the floor itself, so a fast floor is not
+/// answered by a slow timer.
 pub fn poll() -> Duration {
-    get().unwrap_or(Duration::from_millis(33))
+    get()
 }

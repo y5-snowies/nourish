@@ -19,5 +19,7 @@ compositor_kernel_graphic_seat_modifier_clear.workspace = true
 compositor_orchestration_core_state_base.workspace = true
 compositor_y5_graphic_capture_interface.workspace = true
 
+compositor_kernel_native_wire_watchdog_settle.workspace = true
+
 [lib]
 path = "lib.rs"

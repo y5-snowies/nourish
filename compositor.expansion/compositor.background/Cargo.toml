@@ -244,6 +244,7 @@ compositor_kernel_native_wire_input_map = { path = "../../compositor.kernel/kern
 compositor_kernel_native_wire_plugin_base = { path = "../../compositor.kernel/kernel.native/native.wire/wire.plugin/plugin.base" }
 compositor_kernel_native_wire_session_base = { path = "../../compositor.kernel/kernel.native/native.wire/wire.session/session.base" }
 compositor_kernel_native_wire_watchdog_base = { path = "../../compositor.kernel/kernel.native/native.wire/wire.watchdog/watchdog.base" }
+compositor_kernel_native_wire_watchdog_settle = { path = "../../compositor.kernel/kernel.native/native.wire/wire.watchdog/watchdog.settle" }
 compositor_kernel_scanout_commit_build_base = { path = "../../compositor.kernel/kernel.scanout/scanout.commit/commit.build/build.base" }
 compositor_kernel_scanout_commit_submit_base = { path = "../../compositor.kernel/kernel.scanout/scanout.commit/commit.submit/submit.base" }
 compositor_kernel_scanout_commit_test_base = { path = "../../compositor.kernel/kernel.scanout/scanout.commit/commit.test/test.base" }

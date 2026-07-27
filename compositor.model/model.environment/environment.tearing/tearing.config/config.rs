@@ -14,6 +14,7 @@
 use compositor_model_environment_tearing_rate::rate::{PaceMode, Rate, TearMode};
 use compositor_model_environment_tearing_select::select::{Exclusivity, Selector};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct Tearing {
@@ -56,8 +57,8 @@ pub struct Config {
     #[serde(default)]
     pub tag: Tagging,
     /// Floor for the exclusivity watchdog: the SLOWEST the compositor may run
-    /// while a gate is engaged. Not a cap — a rescue rate. `Uncapped` removes the
-    /// watchdog entirely, which lets a stalled target freeze the desktop.
+    /// while a gate is engaged. Not a cap — a rescue rate, and not optional:
+    /// see [`FLOOR_MIN_FPS`]. Anything slower normalizes up to it.
     #[serde(default = "floor_default")]
     pub floor: Rate,
 }
@@ -71,6 +72,26 @@ pub struct Config {
 /// refresh never reaches it.
 pub const FLOOR_DEFAULT: Rate = Rate::Multiplier(1.0);
 fn floor_default() -> Rate { FLOOR_DEFAULT }
+
+/// The floor has no "off". While a gate is engaged the rescue frames are the only
+/// thing still driving the loop: the cursor, the compositor's own UI and — the
+/// part that actually deadlocks — the frame callbacks the admitted client needs
+/// before it may commit again. `Uncapped` there is not a rate, it is a hang, so
+/// it normalizes up to [`FLOOR_DEFAULT`] and this is the slowest selectable rate.
+pub const FLOOR_MIN_FPS: f32 = 15.0;
+/// `1 / FLOOR_MIN_FPS`. Written out: const float division is not available here.
+pub const FLOOR_MAX_INTERVAL: Duration = Duration::from_nanos(66_666_667);
+
+/// Normalize a FLOOR rate. Unlike a cap it cannot be uncapped, and `Multiplier`
+/// is left alone — it resolves against a mode this layer cannot see, so its clamp
+/// belongs to [`Config::floor_interval`].
+pub fn normalized_floor(r: Rate) -> Rate {
+    match r.normalized() {
+        Rate::Fps(f) => Rate::Fps(f.max(FLOOR_MIN_FPS)),
+        Rate::Multiplier(m) => Rate::Multiplier(m),
+        Rate::Uncapped => FLOOR_DEFAULT,
+    }
+}
 
 /// Tearing is armed for a tagged client that is BOTH visible and focused, and
 /// takes exclusive control of the cadence while it is. Scoping to focus is what
@@ -106,8 +127,19 @@ impl Config {
     pub fn normalized(mut self) -> Self {
         self.tearing.rate = self.tearing.rate.normalized();
         self.pacing.rate = self.pacing.rate.normalized();
-        self.floor = self.floor.normalized();
+        self.floor = normalized_floor(self.floor);
         self
+    }
+
+    /// The floor as a concrete interval for `refresh` — never absent, and never
+    /// slower than [`FLOOR_MAX_INTERVAL`]. `Multiplier` is only bounded here,
+    /// where the mode is known: `0.1x` on a 60Hz panel would otherwise resolve to
+    /// a 166ms rescue, well past the point the desktop stops being usable.
+    pub fn floor_interval(&self, refresh: Duration) -> Duration {
+        self.floor
+            .min_interval(refresh)
+            .unwrap_or(FLOOR_MAX_INTERVAL)
+            .min(FLOOR_MAX_INTERVAL)
     }
 }
 

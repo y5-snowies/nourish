@@ -198,7 +198,26 @@ fn flip_section<'a>(f: Config) -> El<'a> {
               the rest of the desktop may get while a target owns the cadence.")
             .size(10).color(style::MUTED),
         floor_field(f),
+        reset_row(f),
     ].spacing(10).into()
+}
+
+/// Reset every control on this page at once.
+///
+/// The whole page is a single `Config`, so this is literally `Config::default()`
+/// — there is no per-field list here to drift out of sync when a field is added
+/// to the struct. Accented while anything differs, so it reads as "there is
+/// something to undo" rather than as a button that is always live.
+fn reset_row<'a>(f: Config) -> El<'a> {
+    let b = button(text("Reset to defaults").size(11))
+        .on_press(SettingsMessage::SetFlip(Config::default()));
+    let b = if f == Config::default() { b.style(control::action) } else { b.style(control::accent) };
+    field(
+        "DEFAULTS",
+        vec![b.into()],
+        "Restores tearing, pacing, target tagging and the exclusivity floor to \
+         their shipped values. Applies immediately, like every other control here.",
+    )
 }
 
 /// What counts as a "target" for the WHEN/EXCLUSIVITY rules below. A client can
@@ -277,9 +296,15 @@ fn rate_field<'a>(f: Config, tearing_section: bool) -> El<'a> {
 /// same kind of quantity — a rate against this monitor's refresh — but it bounds
 /// the loop from BELOW: how slow the desktop may get while a target owns the
 /// cadence. One setting for both sections; there is one redraw loop to rescue.
+///
+/// No "Off" row, unlike [`rate_field`]: the rescue frames are what carry the
+/// cursor, the compositor's UI and the admitted client's frame callbacks while a
+/// gate is engaged, so turning them off is a hang rather than a setting. The
+/// stepper clamps at `FLOOR_MIN_FPS` and the model normalizes anything slower.
 fn floor_field<'a>(f: Config) -> El<'a> {
     use compositor_configurator_settings_surface_tearhint::tearhint as d;
     use compositor_configurator_settings_surface_tearlabel::tearlabel as t;
+    use compositor_model_environment_tearing_config::config::{FLOOR_DEFAULT, FLOOR_MIN_FPS};
     let cur = f.floor;
     let put = move |r: Rate| SettingsMessage::SetFlip(Config { floor: r, ..f });
     let kind = |lbl: &'a str, r: Rate, on: bool| -> El<'a> {
@@ -287,20 +312,19 @@ fn floor_field<'a>(f: Config) -> El<'a> {
         if on { b.style(control::accent) } else { b.style(control::action) }.into()
     };
     let mut choices: Vec<El<'a>> = vec![
-        kind("Off", Rate::Uncapped, matches!(cur, Rate::Uncapped)),
         kind("x refresh", Rate::Multiplier(1.0), matches!(cur, Rate::Multiplier(_))),
         kind("FPS", Rate::Fps(30.0), matches!(cur, Rate::Fps(_))),
     ];
+    // A `Multiplier` floor is clamped against the live mode, not here, so the
+    // stepper only guards the absolute form.
     let step = |delta: f32| match cur {
-        Rate::Multiplier(m) => Rate::Multiplier(m + delta * 0.25),
-        Rate::Fps(v) => Rate::Fps(v + delta * 5.0),
-        Rate::Uncapped => Rate::Uncapped,
+        Rate::Multiplier(m) => Rate::Multiplier((m + delta * 0.25).max(0.25)),
+        Rate::Fps(v) => Rate::Fps((v + delta * 5.0).max(FLOOR_MIN_FPS)),
+        Rate::Uncapped => FLOOR_DEFAULT,
     };
-    if !matches!(cur, Rate::Uncapped) {
-        choices.push(button(text("-").size(11)).on_press(put(step(-1.0))).style(control::action).into());
-        choices.push(text(t::rate_label(cur)).size(11).color(style::ACCENT).into());
-        choices.push(button(text("+").size(11)).on_press(put(step(1.0))).style(control::action).into());
-    }
+    choices.push(button(text("-").size(11)).on_press(put(step(-1.0))).style(control::action).into());
+    choices.push(text(t::rate_label(cur)).size(11).color(style::ACCENT).into());
+    choices.push(button(text("+").size(11)).on_press(put(step(1.0))).style(control::action).into());
     field("FLOOR", choices, d::floor_describe(cur))
 }
 

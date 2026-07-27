@@ -27,7 +27,14 @@ pub fn arm(loop_handle: &LoopHandle<'static, Loop>, slot: &mut Option<Registrati
     // would churn 300 registrations a second to answer a question that only
     // needs asking 30 times.
     match loop_handle.insert_source(Timer::from_duration(floor::poll()), |_, _, state: &mut Loop| {
-        if compositor_support_smithay_state_tearing_gate::gate::engaged() && liveness::stalled() {
+        let kick = compositor_support_smithay_state_tearing_gate::gate::engaged()
+            && liveness::stalled();
+        // Tell liveness whose frames the next ones are BEFORE asking for them.
+        // Rescue frames must not be measured as the pacer's cadence: the
+        // threshold is derived from that cadence, so each one would space the
+        // next further out and the watchdog would talk itself down to 4fps.
+        liveness::set_rescue(kick);
+        if kick {
             state.force_redraw();
         }
         TimeoutAction::ToDuration(floor::poll())

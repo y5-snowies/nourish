@@ -167,6 +167,13 @@ pub fn register(
                         move |state: &mut Loop| kick(ctx.clone(), state),
                     );
                     *state.inner.kernel.get_mut(&compositor_orchestration_driver_resume_base::base::RESUME_WATCHDOG_MUT) = Some(token);
+
+                    // And the bounded settle net on top, purely as a safeguard: the
+                    // resume watchdog above retires on the FIRST real vblank, which
+                    // proves the pipe flipped once rather than that the loop is
+                    // carrying itself. No known failure here — this just keeps
+                    // frames coming for a few seconds past that point.
+                    compositor_kernel_native_wire_watchdog_settle::settle::arm(&session_loop_handle);
                 }
             }
         })

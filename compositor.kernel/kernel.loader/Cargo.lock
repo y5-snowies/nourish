@@ -3783,6 +3783,7 @@ dependencies = [
  "compositor_kernel_native_context_display_build",
  "compositor_kernel_native_context_display_enumerate",
  "compositor_kernel_native_context_render_base",
+ "compositor_kernel_native_wire_watchdog_settle",
  "compositor_model_debug_instance_record",
  "compositor_model_environment_config_base",
  "compositor_orchestration_core_state_base",
@@ -3959,6 +3960,7 @@ dependencies = [
  "compositor_kernel_graphic_draw_present_callbacks",
  "compositor_kernel_native_context_render_base",
  "compositor_kernel_native_render_execute_base",
+ "compositor_kernel_native_wire_watchdog_settle",
  "compositor_kernel_scanout_flip_estimate_base",
  "compositor_kernel_scanout_flip_feedback_base",
  "compositor_kernel_scanout_timing_predict_base",
@@ -4036,6 +4038,7 @@ dependencies = [
  "bitflags 2.13.0",
  "compositor_kernel_graphic_seat_modifier_clear",
  "compositor_kernel_native_context_render_base",
+ "compositor_kernel_native_wire_watchdog_settle",
  "compositor_kernel_scanout_surface_output_base",
  "compositor_kernel_seat_lifecycle_pause_base",
  "compositor_kernel_seat_lifecycle_resume_base",
@@ -4056,6 +4059,15 @@ dependencies = [
  "compositor_support_smithay_state_tearing_floor",
  "compositor_support_smithay_state_tearing_gate",
  "compositor_support_smithay_state_tearing_liveness",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_native_wire_watchdog_settle"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_record",
+ "compositor_orchestration_core_state_base",
  "smithay",
 ]
 

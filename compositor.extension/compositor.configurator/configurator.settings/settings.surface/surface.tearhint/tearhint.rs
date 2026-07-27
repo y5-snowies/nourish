@@ -65,10 +65,12 @@ pub fn pace_mode_describe(m: PaceMode) -> &'static str {
 /// compositor may run, this is the slowest it may run while a gate is engaged.
 pub fn floor_describe(r: Rate) -> &'static str {
     match r {
+        // Not selectable: the model normalizes it to the default floor. Kept as an
+        // arm because the enum is shared with the rate caps, where OFF is valid.
         Rate::Uncapped => {
-            "OFF — no rescue frames. A target that stops drawing (loading screen, \
-             shader hitch) takes the cursor and the whole desktop with it until it \
-             resumes. Only sensible while measuring."
+            "Not available for the floor — with no rescue frames a target that \
+             stops drawing takes the cursor, the UI and its own frame callbacks \
+             down with it. Normalized to full refresh."
         }
         Rate::Multiplier(_) => {
             "Rescue rate follows this monitor's refresh. 1x is full refresh — a stalled \

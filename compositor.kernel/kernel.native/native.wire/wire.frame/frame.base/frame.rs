@@ -200,6 +200,12 @@ pub fn register(
     // The exclusive-pacing floor watchdog is NOT registered here: it is armed on
     // the transition into gate engagement and dropped on the way out, by
     // `wire.watchdog`. See that crate for why.
+    //
+    // The post-activation SETTLE watchdog is a different thing and does belong
+    // here, as a safeguard: the kickstart below is a single idle render, and the
+    // second one comes from whichever source happens to pick the loop up. No
+    // known failure — it just runs 30fps for a few seconds and then retires.
+    compositor_kernel_native_wire_watchdog_settle::settle::arm(&state.loop_handle);
 
     let loop_handle_init = event_loop.handle();
     #[cfg(feature = "flip-estimate")]

@@ -4015,6 +4015,7 @@ dependencies = [
  "compositor_y5_osk_board_create",
  "compositor_y5_overview_draw_frame",
  "compositor_y5_picker_interface_capture",
+ "compositor_y5_picker_scene_fade",
  "compositor_y5_placeholder_interface_base",
  "compositor_y5_select_overlay_interface",
  "compositor_y5_surface_draw_fps",
@@ -6908,6 +6909,7 @@ dependencies = [
  "compositor_y5_select_box_base",
  "compositor_y5_surface_system_base",
  "compositor_y5_window_draw_frame",
+ "compositor_y5_window_draw_occlude",
  "compositor_y5_window_interface_record",
  "smithay",
  "tracing",
@@ -7920,12 +7922,11 @@ dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_draw_layer_base",
  "compositor_support_bevy_core_compositor_base",
- "compositor_y5_picker_command_base",
+ "compositor_y5_picker_command_advance",
  "compositor_y5_picker_interface_embed",
  "compositor_y5_picker_scene_create",
+ "compositor_y5_picker_state_base",
  "compositor_y5_picker_system_base",
- "compositor_y5_picker_three_constant",
- "compositor_y5_picker_three_orient",
  "smithay",
 ]
 
@@ -8026,6 +8027,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_y5_picker_command_advance"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_record",
+ "compositor_orchestration_core_state_base",
+ "compositor_y5_picker_command_base",
+ "compositor_y5_picker_system_base",
+ "compositor_y5_picker_three_constant",
+ "compositor_y5_picker_three_orient",
+]
+
+[[package]]
 name = "compositor_y5_picker_command_base"
 version = "0.0.1"
 dependencies = [
@@ -8067,6 +8080,7 @@ dependencies = [
  "compositor_y5_picker_scene_create",
  "compositor_y5_picker_state_base",
  "compositor_y5_picker_system_base",
+ "compositor_y5_picker_three_constant",
  "smithay",
 ]
 
@@ -8204,11 +8218,9 @@ dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_draw_platform_base",
  "compositor_support_system_world_frame_base",
- "compositor_y5_picker_command_base",
+ "compositor_y5_picker_command_advance",
  "compositor_y5_picker_surface_handle",
  "compositor_y5_picker_system_base",
- "compositor_y5_picker_three_constant",
- "compositor_y5_picker_three_orient",
  "compositor_y5_surface_protocol_base",
  "smithay",
 ]
@@ -8243,6 +8255,7 @@ dependencies = [
  "compositor_model_debug_instance_record",
  "compositor_orchestration_core_state_base",
  "compositor_y5_camera_transform_translate",
+ "compositor_y5_picker_pick_base",
  "compositor_y5_picker_seat_pointer",
  "compositor_y5_picker_state_base",
  "compositor_y5_picker_system_base",
@@ -9051,6 +9064,7 @@ dependencies = [
  "compositor_y5_select_system_base",
  "compositor_y5_window_draw_element",
  "compositor_y5_window_interface_draw",
+ "compositor_y5_window_interface_record",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -9082,8 +9096,19 @@ dependencies = [
  "compositor_y5_lock_system_base",
  "compositor_y5_window_decoration_element",
  "compositor_y5_window_draw_element",
+ "compositor_y5_window_draw_occlude",
  "compositor_y5_window_interface_draw",
  "compositor_y5_window_interface_record",
+ "smithay",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "compositor_y5_window_draw_occlude"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.13.0",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -9118,6 +9143,7 @@ dependencies = [
  "smithay",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -9129,6 +9155,7 @@ dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_y5_window_interface_record",
  "smithay",
+ "uuid",
 ]
 
 [[package]]

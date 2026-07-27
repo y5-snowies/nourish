@@ -1264,7 +1264,7 @@ fn present(
         // The watchdog floor is a rate like any other, so it is resolved against
         // this output's refresh here — the layer that owns the timer knows
         // nothing about modes.
-        compositor_support_smithay_state_tearing_floor::floor::set(cfg.floor.min_interval(refresh));
+        compositor_support_smithay_state_tearing_floor::floor::set(cfg.floor_interval(refresh));
         if gate::set_tearing(active.may_tear(refresh)) {
             info!(
                 "tearing: planes {} for the next frame",

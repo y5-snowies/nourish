@@ -1,0 +1,12 @@
+[package]
+name = "compositor_kernel_native_wire_watchdog_settle"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_model_debug_instance_record.workspace = true
+compositor_orchestration_core_state_base.workspace = true
+smithay.workspace = true
+
+[lib]
+path = "lib.rs"

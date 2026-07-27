@@ -23,5 +23,7 @@ compositor_model_environment_config_base = { workspace = true }
 # Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
 compositor_model_debug_instance_record = { workspace = true }
 
+compositor_kernel_native_wire_watchdog_settle.workspace = true
+
 [lib]
 path = "lib.rs"
