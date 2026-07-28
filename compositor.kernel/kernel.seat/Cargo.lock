@@ -246,34 +246,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "compositor_developer_debug_instance_channel"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_debug_instance_level",
- "crossbeam-channel",
-]
-
-[[package]]
-name = "compositor_developer_debug_instance_level"
-version = "0.0.1"
-dependencies = [
- "crossbeam-channel",
-]
-
-[[package]]
-name = "compositor_developer_debug_instance_record"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_debug_instance_channel",
- "compositor_developer_debug_instance_level",
-]
-
-[[package]]
 name = "compositor_kernel_seat_interface_open_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -282,7 +259,7 @@ name = "compositor_kernel_seat_lifecycle_pause_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -291,7 +268,7 @@ name = "compositor_kernel_seat_lifecycle_resume_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -300,7 +277,7 @@ name = "compositor_kernel_seat_loop_session_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -309,8 +286,31 @@ name = "compositor_kernel_seat_session_factory_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_channel"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_level",
+ "crossbeam-channel",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_level"
+version = "0.0.1"
+dependencies = [
+ "crossbeam-channel",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_record"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_channel",
+ "compositor_model_debug_instance_level",
 ]
 
 [[package]]

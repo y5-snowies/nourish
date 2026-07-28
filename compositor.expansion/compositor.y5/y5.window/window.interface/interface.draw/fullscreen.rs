@@ -74,17 +74,45 @@ pub fn fullscreen_set(_loop: &mut Loop, window: Window, fullscreen: bool) {
         };
         window.set_fullscreen(None);
 
+        // Where to land.
+        //
+        // UNGROUPED keeps whatever the window is at NOW. Entering fullscreen
+        // ungrouped is geometrically a no-op — `fullscreen_target` hands back the
+        // window's own loc/size — so the stored restore rect can only ever differ
+        // from the live one because the user moved or resized the window WHILE
+        // fullscreen, and undoing that was the whole bug. Both live values are
+        // maintained by the canvas grabs (`map_element` on move,
+        // `set_expected_size` at `canvas.system/motion.rs`), so they are exactly
+        // what the user left it at.
+        //
+        // GROUPED restores, because there the divergence is real: fullscreen
+        // means the group's INNER BBOX, a different rect from the window's own
+        // size by construction, so keeping it would silently adopt the group's
+        // dimensions as the window's own.
+        let (loc, size) = if group_of(_loop, &window).is_some() {
+            (restore.restore_loc, restore.restore_size)
+        } else {
+            let loc = _loop
+                .inner.space_state()
+                .state
+                .element_location(&window)
+                .unwrap_or(restore.restore_loc);
+            let size = slot::expected_size(&window)
+                .filter(|s| s.w > 0 && s.h > 0)
+                .unwrap_or(restore.restore_size);
+            (loc, size)
+        };
+
         _loop
             .inner.space_state_mut()
             .state
-            .map_element(window.clone(), restore.restore_loc, false);
+            .map_element(window.clone(), loc, false);
 
-        // Restore the pre-fullscreen slot too (mirror of the enter path).
-        slot::set_expected_size(&window, restore.restore_size);
+        slot::set_expected_size(&window, size);
 
         toplevel.with_pending_state(|state| {
             state.states.unset(xdg_toplevel::State::Fullscreen);
-            state.size = Some(restore.restore_size);
+            state.size = Some(size);
         });
         toplevel.send_configure();
     }
@@ -120,16 +148,7 @@ fn fullscreen_target(
     current_loc: Point<i32, Logical>,
     current_size: Size<i32, Logical>,
 ) -> (Point<i32, Logical>, Size<i32, Logical>) {
-    let Some(uuid) = window.uuid() else {
-        return (current_loc, current_size);
-    };
-
-    let Some(group_uuid) = _loop.inner.group_mut()
-        
-        .window
-        .get(&uuid)
-        .map(|g| g.as_ref().clone())
-    else {
+    let Some(group_uuid) = group_of(_loop, window) else {
         return (current_loc, current_size);
     };
 
@@ -148,6 +167,14 @@ fn fullscreen_target(
     let rect = compositor_y5_group_interface_base::interface::bbox_inner(_loop, &group)
         .into_storage_rect();
     (rect.loc, rect.size)
+}
+
+/// The group `window` belongs to. The single answer to "does fullscreen mean
+/// something other than this window's own rect for it", which both the enter
+/// target and the exit restore turn on.
+fn group_of(_loop: &mut Loop, window: &Window) -> Option<uuid::Uuid> {
+    let uuid = window.uuid()?;
+    _loop.inner.group_mut().window.get(&uuid).map(|g| g.as_ref().clone())
 }
 
 /// The window backing the current keyboard focus, if any.

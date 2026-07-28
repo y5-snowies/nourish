@@ -61,6 +61,19 @@ pub fn register(
             // We were pinged because something called schedule_redraw while
             // the VBlank cycle was idle. Run the executor to restart the cycle.
             if state.take_needs_redraw() {
+                // Sampled BEFORE execute, and that ordering is the whole point.
+                // `execute` SETS `in_flight` on every pipe it queues, so sampling
+                // afterwards cannot tell "a pipe was already flying and got
+                // skipped" (the case this guards) from "I just queued a frame"
+                // (the normal case) — it sees `true` either way and re-arms
+                // unconditionally. The pending vblank then finds the latch set
+                // and renders a second time, so every frame produces two.
+                //
+                // That was invisible while the parallax re-armed `needs_redraw`
+                // each frame anyway; with exclusive pacing silencing every other
+                // source it became the sole re-arm, and doubled the pacer's rate.
+                let was_in_flight =
+                    context_ping.borrow().outputs.iter().any(|p| p.in_flight);
                 let outcome = compositor_kernel_native_render_execute_base::execute::execute(
                     context_ping.clone(),
                     loop_handle_ping.clone(),
@@ -74,10 +87,11 @@ pub fn register(
                 // would find it cleared → no re-render, no further flip, and the
                 // parallax's non-pinging `schedule_redraw_post_vblank` cannot restart
                 // an idle cycle: the loop freezes until the next input schedule_redraw.
-                // Re-arm (post_vblank = set, no ping) so the pending vblank still
-                // re-renders. No-op when nothing is in flight (avoids a busy spin).
-                if context_ping.borrow().outputs.iter().any(|p| p.in_flight) {
-                    state.schedule_redraw_post_vblank();
+                // Re-arm (no ping) so the pending vblank still re-renders.
+                if was_in_flight {
+                    // `rearm_redraw`, not the animation path: this must survive
+                    // exclusive pacing or the lost-wakeup freeze comes back.
+                    state.rearm_redraw();
                 }
                 handle_outcome(
                     outcome,
@@ -183,6 +197,16 @@ pub fn register(
 
     // ---- Kickstart the very first frame to initiate the cycle.
     let context_init = ctx_rc;
+    // The exclusive-pacing floor watchdog is NOT registered here: it is armed on
+    // the transition into gate engagement and dropped on the way out, by
+    // `wire.watchdog`. See that crate for why.
+    //
+    // The post-activation SETTLE watchdog is a different thing and does belong
+    // here, as a safeguard: the kickstart below is a single idle render, and the
+    // second one comes from whichever source happens to pick the loop up. No
+    // known failure — it just runs 30fps for a few seconds and then retires.
+    compositor_kernel_native_wire_watchdog_settle::settle::arm(&state.loop_handle);
+
     let loop_handle_init = event_loop.handle();
     #[cfg(feature = "flip-estimate")]
     let estimate_init = estimate_slot;
@@ -243,6 +267,21 @@ fn process_vblank(
     // (on `needs_redraw`) will now redraw THIS output; other pipes still in flight
     // stay skipped until their own vblank, so each output paces to its own refresh.
     ctx.outputs[idx].in_flight = false;
+    // Phase reference for the tearing policy's "time until the next vblank".
+    //
+    // Anchored to the retrace the kernel timestamped, NOT to when we observed
+    // the event: an async (tearing) flip completes mid-scanout, so its event
+    // arrival is not a vblank at all, and anchoring on it would corrupt the
+    // phase. `anchor` recovers the true instant by measuring our dispatch delay
+    // against CLOCK_MONOTONIC — the clock DRM stamps events with, and the one
+    // `Instant` reads, which is why the two can be related at all. Note this
+    // must NOT use `start_time.elapsed()`: that is a since-launch clock, a
+    // different epoch entirely.
+    ctx.outputs[idx].last_vblank = Some(compositor_kernel_scanout_timing_vblank_base::vblank::anchor(
+        std::time::Instant::now(),
+        time,
+        compositor_kernel_scanout_timing_vblank_base::vblank::monotonic_now(),
+    ));
 
     // 1. Pop presentation feedback for the frame that just hit screen. No output
     //    during a monitor-switch teardown window → nothing to pop.
@@ -257,11 +296,18 @@ fn process_vblank(
     if matches!(pending_feedback, Some(Some(_))) {
         let key =
             compositor_orchestration_core_state_base::state::output_key(&ctx.outputs[idx].output);
-        compositor_developer_stats_registry_base::base::present(&key);
+        compositor_model_stats_registry_base::base::present(&key);
     }
 
-    let refresh_rate =
-        compositor_kernel_scanout_timing_vblank_base::vblank::refresh_interval(&ctx.outputs[idx].mode);
+    // A torn frame has no predictable next refresh — it was applied mid-scanout
+    // rather than at a retrace — so report `Unknown` rather than the panel's
+    // fixed interval, which would be a wrong prediction rather than a missing one.
+    let tore = ctx.outputs[idx].last_tear;
+    let refresh_rate = if tore {
+        smithay::wayland::presentation::Refresh::Unknown
+    } else {
+        compositor_kernel_scanout_timing_vblank_base::vblank::refresh_interval(&ctx.outputs[idx].mode)
+    };
     // Per-output refresh interval — the pacing (empty-frame estimate delay) must
     // use the interval of the output that ACTUALLY flipped, not the global primary
     // `refresh`. Otherwise a high-refresh output is paced at a slower neighbour's
@@ -295,7 +341,7 @@ fn process_vblank(
             stamp.time,
             refresh_rate,
             stamp.sequence,
-            compositor_kernel_graphic_draw_present_callbacks::callbacks::hw_flip_kind(),
+            compositor_kernel_graphic_draw_present_callbacks::callbacks::hw_flip_kind(tore),
         );
     }
 

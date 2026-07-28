@@ -37,6 +37,7 @@ use compositor_y5_camera_transform_translate::transform::{Context as XformCtx, T
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_y5_window_draw_element::element::{ClampOpaque, Element, ElementWindowSurface};
+use compositor_y5_window_draw_occlude::occlude::{Drawn, Occluders};
 use compositor_y5_window_interface_draw::visible::DrawWindow;
 use compositor_y5_window_interface_record::window::LoopWindow;
 
@@ -66,6 +67,107 @@ fn project_rect(ctx: XformCtx, x: f64, y: f64, w: f64, h: f64) -> Rectangle<i32,
     let tl = project_point(ctx, x, y);
     let br = project_point(ctx, x + w, y + h);
     Rectangle::new(tl, Size::from((br.x - tl.x, br.y - tl.y)))
+}
+
+/// The pane being drawn (`render_target`) in output-physical space; the whole
+/// output when unset (full-output render).
+fn pane_rect(state: &Loop, ctx: XformCtx, size: Size<i32, Physical>) -> Rectangle<i32, Physical> {
+    state
+        .inner
+        .render_target
+        .map(|rt| {
+            Rectangle::new(
+                Point::from((
+                    (rt.origin_logical.0 * ctx.scale).round() as i32,
+                    (rt.origin_logical.1 * ctx.scale).round() as i32,
+                )),
+                Size::from((rt.size_physical.0.round() as i32, rt.size_physical.1.round() as i32)),
+            )
+        })
+        .unwrap_or(Rectangle::new(Point::from((0, 0)), size))
+}
+
+/// Widest decoration border (`window.decoration.element`: 12 logical px on the
+/// primary selection) plus the 1px outset it is drawn at. Decorations frame the
+/// slot from OUTSIDE it, so the occlusion test runs on the slot inflated by this
+/// — a covered slot whose frame still shows is not a window we may cull.
+const DECORATION_MARGIN: f64 = 13.0;
+
+/// Where a window's slot lands on the pane being drawn.
+enum Placed {
+    /// On screen here. Carries the rect the occlusion test uses: the projected
+    /// slot inflated by [`DECORATION_MARGIN`] and re-clipped to the pane (the
+    /// re-clip is what still lets a pane-filling window be occluded at all).
+    On(Rectangle<i32, Physical>),
+    /// Degenerate size — nothing committed yet. Draw it; there is no rect to
+    /// cull against or to occlude with.
+    Unsized,
+    /// Entirely off this pane.
+    Off,
+}
+
+/// The compositor-decided slot — the SAME derivation the fit and `crop_slot`
+/// below use. The culls have to agree with it exactly: the whole reason a
+/// covered window may be skipped is that the slot bounds everything it can ever
+/// draw, and a rect derived any other way does not carry that guarantee.
+///
+/// `None` means no slot has been decided, which sends the fit down the native
+/// fallback — content rendered at the client's own location with no crop. So the
+/// caller treats it as `Unsized` and culls nothing: there is no bound to rely on.
+fn slot_size_of(window: &Window) -> Option<Size<i32, Logical>> {
+    if compositor_model_environment_config_base::base::get().window_client_size_fallback {
+        window
+            .toplevel()
+            .and_then(|t| t.with_pending_state(|s| s.size))
+            .filter(|s| s.w > 0 && s.h > 0)
+            .or_else(|| Some(window.geometry().size))
+    } else {
+        slot::expected_size(window)
+    }
+}
+
+fn placed_on(state: &mut Loop, window: &Window, size: Size<i32, Physical>) -> Placed {
+    let Some(loc) = state.inner.space_state().state.element_location(window) else {
+        return Placed::Off;
+    };
+    let Some(sz) = slot_size_of(window) else {
+        return Placed::Unsized;
+    };
+    if sz.w <= 0 || sz.h <= 0 {
+        return Placed::Unsized;
+    }
+    let ctx = state.viewport_context();
+    // Mirrors `crop_slot`'s projection below, so cull and crop agree.
+    let rect = project_rect(ctx, loc.x as f64, loc.y as f64, sz.w as f64, sz.h as f64);
+    let pane = pane_rect(state, ctx, size);
+    if !rect.overlaps(pane) {
+        return Placed::Off;
+    }
+    let pad = (DECORATION_MARGIN * ctx.scale).ceil() as i32;
+    let grown = Rectangle::new(
+        Point::from((rect.loc.x - pad, rect.loc.y - pad)),
+        Size::from((rect.size.w + pad * 2, rect.size.h + pad * 2)),
+    );
+    Placed::On(grown.intersection(pane).unwrap_or(rect))
+}
+
+fn has_popup(window: &Window) -> bool {
+    window
+        .wl_surface()
+        .is_some_and(|s| PopupManager::popups_for_surface(s.as_ref()).next().is_some())
+}
+
+/// True when the root surface is opaque over its whole `dst` — an alpha-free
+/// buffer, or a client-declared opaque region that covers it. Subsurfaces are
+/// not walked: they can only ADD opacity, so ignoring them errs toward drawing.
+fn surface_opaque(surface: &WlSurface) -> bool {
+    with_states(surface, |s| {
+        let Some(view) = view_of(s) else { return false };
+        let Some(m) = s.data_map.get::<RendererSurfaceStateUserData>() else { return false };
+        let Ok(g) = m.lock() else { return false };
+        let dst = Rectangle::from_size(view.dst);
+        g.opaque_regions().is_some_and(|r| r.iter().any(|o| o.contains_rect(dst)))
+    })
 }
 
 /// Apply the fit transform to a native surface element: force a fixed geometry (so the result
@@ -98,7 +200,8 @@ pub fn scene<R>(
     size: Size<i32, Physical>,
     window: &Window,
     context: &compositor_y5_canvas_draw_context::context::Context,
-) -> (Vec<Element<R>>, bool)
+    occluders: &Occluders,
+) -> (Vec<Element<R>>, Drawn)
 where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Texture + Clone + Send + 'static,
@@ -113,7 +216,39 @@ where
 
     // Skip drawing windows with their groups collapsed.
     if !force_capture && !window.visible(state) {
-        return (vec![], false);
+        return (vec![], Drawn::default());
+    }
+    let mut drawn = Drawn { on_pane: true, visible: true, opaque: Vec::new() };
+    if !force_capture {
+        match placed_on(state, window, size) {
+            // Frustum cull: a window whose slot projects outside the pane being
+            // drawn contributes nothing — skip its whole scene (surface-tree
+            // walk, decorations, fit) and keep it out of BOTH sets.
+            Placed::Off => return (vec![], Drawn::default()),
+            Placed::Unsized => {}
+            // Occlusion cull: fully covered by opaque windows already drawn in
+            // front of it. `on_pane` stays set — the window is still on screen,
+            // one move away from being revealed with no pan to hide a
+            // fractional-scale republish behind, so it keeps its real scale.
+            //
+            // The SLOT is the right thing to test, and it is sufficient. Content
+            // crops to it, the letterbox fill is exactly it, and the slot is the
+            // compositor's decision — so a client that answers a configure with
+            // a corrected buffer lands inside the same rect. Whether bars are
+            // showing changes nothing about what is covered.
+            //
+            // The two things that do escape the slot are handled: decorations
+            // frame it from outside, which is what `DECORATION_MARGIN` inflates
+            // for, and popups crop to the OUTPUT, so a window holding one is
+            // exempt outright.
+            Placed::On(rect) => {
+                if occluders.hidden(rect) && !has_popup(window) {
+                    // The one exit where the two flags disagree — the neighbours
+                    // above return `Drawn::default()`, both false.
+                    return (vec![], Drawn { on_pane: true, visible: false, opaque: Vec::new() });
+                }
+            }
+        }
     }
     let bound = compositor_y5_window_interface_draw::bound::calculate(
         state, renderer, size, window, context,
@@ -122,7 +257,7 @@ where
     let ctx = state.viewport_context();
     let output_scale = ctx.scale * state.inner.camera_mut().transform.zoom();
     let zoom = ctx.camera_zoom;
-    let cfg = compositor_developer_environment_config_base::base::get();
+    let cfg = compositor_model_environment_config_base::base::get();
 
     let elem_loc = state
         .inner.space_state()
@@ -141,23 +276,15 @@ where
 
     let Some(root_surface) = root_surface else {
         elements.extend(decoration.into_iter().map(Element::SolidBox));
-        return (elements, true);
+        return (elements, drawn);
     };
     let Some(root_view) = with_states(&root_surface, |s| view_of(s)) else {
         elements.extend(decoration.into_iter().map(Element::SolidBox));
-        return (elements, true);
+        return (elements, drawn);
     };
 
     // Compositor-decided slot (authority); None → defer to client (native render, no fit).
-    let slot_size = if cfg.window_client_size_fallback {
-        window
-            .toplevel()
-            .and_then(|t| t.with_pending_state(|s| s.size))
-            .filter(|s| s.w > 0 && s.h > 0)
-            .or_else(|| Some(window.geometry().size))
-    } else {
-        slot::expected_size(window)
-    };
+    let slot_size = slot_size_of(window);
 
     let render_native = |renderer: &mut R, out: &mut Vec<Element<R>>, surface: &WlSurface, loc: Point<i32, Physical>| {
         let native: Vec<WaylandSurfaceRenderElement<R>> = render_elements_from_surface_tree(
@@ -215,7 +342,7 @@ where
         }
         elements.extend(decoration.into_iter().map(Element::SolidBox));
         render_native(renderer, &mut elements, &root_surface, render_at);
-        return (elements, true);
+        return (elements, drawn);
     };
 
     // ── Fitted path ─────────────────────────────────────────────────────────────────
@@ -240,17 +367,8 @@ where
     // When rendering a split/floating viewport pane, clamp content + popups to the
     // pane's physical rect so a window near the pane edge can't bleed into the
     // neighbour pane. Full-output render (no render target) → the whole output.
-    let pane = state.inner.render_target.map(|rt| {
-        Rectangle::new(
-            Point::from(((rt.origin_logical.0 * ctx.scale).round() as i32, (rt.origin_logical.1 * ctx.scale).round() as i32)),
-            Size::from((rt.size_physical.0.round() as i32, rt.size_physical.1.round() as i32)),
-        )
-    });
-    let crop_output = pane.unwrap_or(Rectangle::new(Point::from((0, 0)), size));
-    let crop_slot = match pane {
-        Some(p) => crop_slot.intersection(p).unwrap_or_default(),
-        None => crop_slot,
-    };
+    let crop_output = pane_rect(state, ctx, size);
+    let crop_slot = crop_slot.intersection(crop_output).unwrap_or_default();
 
     // Popups (front): positioned in the SAME fit frame as the content so they stick to the
     // rendered window content, not the raw slot. A popup's `location` is geometry-relative, but
@@ -336,23 +454,58 @@ where
         }
     }
 
-    // Opaque black fill behind the content covering the whole slot. Pushed (so drawn behind the
-    // content) whenever the content doesn't fill the slot (letterbox) OR a resize is in flight: a
-    // resizing client can commit a blank/no-content frame for a few frames right after acking, and
-    // the fill keeps the background from flashing through during that gap (the window shows the
-    // fill, not whatever is behind it).
-    let fills = ref_size.w as f64 * fit_sx >= slot_size.w as f64 - 1.0
-        && ref_size.h as f64 * fit_sy >= slot_size.h as f64 - 1.0;
-    if !fills || stretch {
-        let black = SolidColorRenderElement::new(
+    // The content's own rect, projected by its CORNERS exactly like `crop_slot`
+    // so both land on the same lattice. That is what makes the subtraction below
+    // exact: when the fit covers the slot the two rects are equal and the
+    // remainder is empty, with no epsilon anywhere. The `- ref_loc * fit_s` inside
+    // `fit_surf` cancels against `ref_loc`, so this is the same expression in
+    // every fit regime (see `fit::window_fit`); `hit.rs` derives it identically.
+    let content = project_rect(
+        ctx,
+        elem_loc.x as f64 + (slot_size.w as f64 - ref_size.w as f64 * fit_sx) / 2.0,
+        elem_loc.y as f64 + (slot_size.h as f64 - ref_size.h as f64 * fit_sy) / 2.0,
+        ref_size.w as f64 * fit_sx,
+        ref_size.h as f64 * fit_sy,
+    );
+
+    // Opaque black behind the content. A resize in flight keeps the FULL-slot
+    // backstop: the client can commit a blank/no-content frame for a few frames
+    // right after acking, and without something opaque under the content the
+    // background flashes through that gap.
+    //
+    // Otherwise only the letterbox BARS are painted — the slot minus the content.
+    // Nothing is drawn under content that is about to cover it, and a translucent
+    // client stops being silently backed with black. `subtract_rect` returns
+    // nothing at all when the fit covers the slot, so it also replaces the
+    // "does it fill?" test that used to gate this.
+    let bars: Vec<Rectangle<i32, Physical>> =
+        if stretch { vec![crop_slot] } else { crop_slot.subtract_rect(content) };
+    for rect in &bars {
+        elements.push(Element::SolidBox(SolidColorRenderElement::new(
             Id::new(),
-            crop_slot,
+            *rect,
             CommitCounter::default(),
             [0.0, 0.0, 0.0, 1.0],
             Kind::Unspecified,
-        );
-        elements.push(Element::SolidBox(black));
+        )));
     }
 
-    (elements, true)
+    // Deposit exactly what is opaque — no slack, because the bars are literally
+    // the rects just painted at alpha 1.0. The content region joins them only
+    // when the client's buffer has no alpha; the two then tile `crop_slot`, so an
+    // opaque client in a letterbox still hides the whole slot. A translucent one
+    // now hides only the bars, which is the truth and was not expressible while
+    // this was a single rect.
+    drawn.opaque = bars;
+    // `subsurface_shrinks` fits the whole TREE (`bbox`), so the content rect can
+    // reach past the root surface and `surface_opaque` would not be speaking for
+    // all of it. Only the bars are claimed under that flag.
+    if !cfg.window_subsurface_shrinks
+        && surface_opaque(&root_surface)
+        && let Some(covered) = content.intersection(crop_slot)
+    {
+        drawn.opaque.push(covered);
+    }
+
+    (elements, drawn)
 }

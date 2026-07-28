@@ -17,5 +17,13 @@ rustflags = [
     # (mold linker removed — the default system linker is used)
 ]
 
+# x86-64 only: tune codegen for the x86-64-v3 microarchitecture level (Haswell
+# 2013+ — AVX2/FMA/BMI2). Cargo JOINS this with the cfg(all()) flags above.
+# Applies to every profile built from this tree; the binaries SIGILL on pre-v3
+# CPUs, so remove or narrow this block when producing bundles for generic
+# hardware. aarch64 (Raspberry Pi) builds are unaffected.
+[target.'cfg(target_arch = "x86_64")']
+rustflags = ["-C", "target-cpu=x86-64-v3"]
+
 [net]
 git-fetch-with-cli = true            # more reliable/faster fetches behind proxies

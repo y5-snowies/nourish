@@ -9,7 +9,7 @@ compositor_support_system_persist_document_entry = { workspace = true }
 compositor_support_system_persist_store_base = { workspace = true }
 compositor_support_system_persist_store_reconcile = { workspace = true }
 compositor_support_system_persist_path_base = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 
 uuid = { workspace = true }
 

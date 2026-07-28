@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use compositor_developer_environment_config_base::base as config;
+use compositor_model_environment_config_base::base as config;
 use compositor_installer_process_config_parse_base::Preset;
 use compositor_installer_process_layout_compute_policy as policy;
 use compositor_installer_process_layout_compute_session as session;
@@ -23,13 +23,9 @@ pub fn binary_actions(stage: &Stage, presets: &[Preset]) -> Vec<Action> {
         .collect();
 
     // The settings tool is REQUIRED (the wrappers no longer write settings.json) — placed
-    // unconditionally like the compositor binaries, so every install refreshes it.
-    actions.push(place(
-        PathBuf::from("/usr/bin/y5.compositor.settings"),
-        Source::Copy(stage.binary("y5.compositor.settings")),
-        0o755,
-        true,
-    ));
+    // unconditionally like the binaries, so every install refreshes it.
+    let tool = PathBuf::from("/usr/bin/y5.compositor.settings");
+    actions.push(place(tool, Source::Copy(stage.binary("y5.compositor.settings")), 0o755, true));
     actions
 }
 
@@ -37,12 +33,13 @@ pub fn binary_actions(stage: &Stage, presets: &[Preset]) -> Vec<Action> {
 /// in `config.base` (the same values `y5.compositor.settings` seeds — all 19 required
 /// fields), override the prompted values + GPU capture encoder, serde-serialize (so it can
 /// never go partial, which would panic the compositor: `deny_unknown_fields`, all required).
+/// `renderer_sync` is normalized, not copied — a dead spelling would seed a misleading file.
 pub fn settings_json(preset: &Preset) -> String {
     let p = &preset.env;
     let env = config::Environment {
         renderer: p.renderer.clone(),
         renderer_fallback: p.renderer_fallback,
-        renderer_sync: p.renderer_sync.clone(),
+        renderer_sync: config::normalized_renderer_sync(&p.renderer_sync),
         depth: p.depth,
         vrr: p.vrr,
         render_node: p.render_node.clone(),

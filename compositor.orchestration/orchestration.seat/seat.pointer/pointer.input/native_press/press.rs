@@ -62,6 +62,11 @@ fn exclusive_layer(_loop: &Loop) -> Option<WlSurface> {
     None
 }
 
+/// `grabbed`: the seat pointer holds a grab (smithay's implicit click grab while
+/// another button is down, or a client DnD grab). Each step decides its own
+/// mid-grab behavior: focus/raise and iced dispatch are the grab owner's and
+/// skip; the wayland button always delivers — the grab routes it to ITS focus
+/// (chorded presses land on the held window even off-cursor).
 pub fn input_received<I: InputBackend>(
     pointer: &PointerHandle<Dispatch>,
     event: &I::PointerButtonEvent,
@@ -69,13 +74,16 @@ pub fn input_received<I: InputBackend>(
     hit: SurfaceHit,
     keyboard: &KeyboardHandle<Dispatch>,
     button_state: ButtonState,
+    grabbed: bool,
 ) {
     let serial = SERIAL_COUNTER.next_serial();
     let button = event.button_code();
 
     // Raise / activate / keyboard-focus what was hit. Shared with touch-down so a
-    // tap focuses a window exactly like a click does.
-    apply_focus(_loop, &hit, keyboard, serial);
+    // tap focuses a window exactly like a click does. Never mid-grab.
+    if !grabbed {
+        apply_focus(_loop, &hit, keyboard, serial);
+    }
 
     pointer.button(
         &mut _loop.state,
@@ -88,13 +96,15 @@ pub fn input_received<I: InputBackend>(
     );
     pointer.frame(&mut _loop.state);
 
-    // Iced pointer-button target (None for non-iced hits).
-    let iced_button_target = match &hit {
-        SurfaceHit::Iced { handle, .. } => Some(*handle),
-        _ => None,
-    };
-    if let Some(registry) = _loop.inner.surface_mut().registry.as_mut() {
-        registry.dispatch_button(iced_button_target, button, true);
+    if !grabbed {
+        // Iced pointer-button target (None for non-iced hits).
+        let iced_button_target = match &hit {
+            SurfaceHit::Iced { handle, .. } => Some(*handle),
+            _ => None,
+        };
+        if let Some(registry) = _loop.inner.surface_mut().registry.as_mut() {
+            registry.dispatch_button(iced_button_target, button, true);
+        }
     }
 }
 
@@ -125,7 +135,13 @@ pub fn apply_focus(
     }
 
     let focus_surface: Option<WlSurface> = match hit {
-        SurfaceHit::Window { window, .. } => {
+        // Chrome joins the window arm deliberately: a press on the letterbox
+        // raises, activates and focuses the window exactly like a press on its
+        // content. Only the pointer delivery differs, and that is decided by
+        // `hit.surface()` elsewhere, not here — this arm derives everything from
+        // the window and ends by taking the toplevel's surface for KEYBOARD
+        // focus, which is a property of the window, not of where the click fell.
+        SurfaceHit::Window { window, .. } | SurfaceHit::WindowChrome { window } => {
             _loop.inner.space_state_mut().state.raise_element(window, true);
             if let Some(uuid) = window.uuid() {
                 _loop.inner.raise_drawable(uuid);

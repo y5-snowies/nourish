@@ -4,13 +4,13 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
-compositor_developer_debug_instance_record.workspace = true
+compositor_model_debug_instance_record.workspace = true
 bitflags.workspace = true
 smithay.workspace = true
 
 # Source of the per-monitor profiles: the live preferences document
 # (preferences.json) authored by the settings window and `y5.compositor.settings`.
-compositor_developer_environment_preference_base.workspace = true
+compositor_model_environment_preference_base.workspace = true
 
 [lib]
 path = "lib.rs"

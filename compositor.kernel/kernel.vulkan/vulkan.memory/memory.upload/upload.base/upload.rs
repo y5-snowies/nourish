@@ -131,7 +131,10 @@ const COLOR_RANGE: vk::ImageSubresourceRange = vk::ImageSubresourceRange {
 };
 
 /// Run a one-time-submit command buffer synchronously (alloc → record → submit
-/// → device_wait_idle → free).
+/// → fence wait → free). The wait is scoped to THIS submission via its own
+/// VkFence — a `device_wait_idle` here would also drain the in-flight
+/// composite on the native IN_FENCE path (a full pipeline stall per SHM
+/// upload).
 fn one_time<F: FnOnce(vk::CommandBuffer)>(
     dev: &VulkanDevice,
     command_pool: vk::CommandPool,
@@ -153,10 +156,14 @@ fn one_time<F: FnOnce(vk::CommandBuffer)>(
         record(cmd);
         device.end_command_buffer(cmd)?;
         let cmds = [cmd];
+        let fence = device.create_fence(&vk::FenceCreateInfo::default(), None)?;
         let submit = vk::SubmitInfo::default().command_buffers(&cmds);
-        device.queue_submit(queue, &[submit], vk::Fence::null())?;
-        device.device_wait_idle()?;
+        let result = device
+            .queue_submit(queue, &[submit], fence)
+            .and_then(|()| device.wait_for_fences(&[fence], true, u64::MAX));
+        device.destroy_fence(fence, None);
         device.free_command_buffers(command_pool, &cmds);
+        result?;
     }
     Ok(())
 }

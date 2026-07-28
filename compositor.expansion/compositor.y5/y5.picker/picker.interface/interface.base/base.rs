@@ -38,6 +38,7 @@ pub fn open(state: &mut Loop) {
         bevy: None,
         surface: None,
         time: Instant::now(),
+        step: Instant::now(),
     });
 
     info!("picker: open (origin world {origin}, cell {selected:?})");

@@ -5,7 +5,7 @@
 //! source) for those. Every edit emits the whole `KeyboardLayout`
 //! (`SettingsMessage::Keyboard`), applied live + persisted by the handler; the
 //! picker's open/search are UI-local (`LangPickerOpen`/`LangSearch`).
-use compositor_developer_environment_preference_base::base::{KeyboardLayout, LayoutSource, LayoutSwitch};
+use compositor_model_environment_preference_base::base::{KeyboardLayout, LayoutSource, LayoutSwitch};
 use compositor_support_iced_core_engine_base::Renderer;
 use compositor_configurator_settings_surface_message::message::SettingsMessage;
 use compositor_configurator_settings_surface_style::style;

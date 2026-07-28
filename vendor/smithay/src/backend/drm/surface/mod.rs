@@ -356,6 +356,20 @@ impl DrmSurface {
         }
     }
 
+    /// y5 patch: arm/disarm async (tearing) page flips for subsequent frames.
+    ///
+    /// Unlike [`DrmSurface::use_vrr`] this sets no KMS property and can never
+    /// cause [`DrmSurface::commit_pending`] to return `true` — it only selects
+    /// `DRM_MODE_PAGE_FLIP_ASYNC` on the next commit, with an automatic
+    /// synchronous retry if the kernel rejects it. A no-op on legacy DRM, which
+    /// has no async-flip concept.
+    pub fn set_tearing(&self, tearing: bool) {
+        match &*self.internal {
+            DrmSurfaceInternal::Atomic(surf) => surf.set_tearing(tearing),
+            DrmSurfaceInternal::Legacy(_) => {}
+        }
+    }
+
     /// Disables the given plane.
     ///
     /// Errors if the plane is not supported by this crtc or if the underlying

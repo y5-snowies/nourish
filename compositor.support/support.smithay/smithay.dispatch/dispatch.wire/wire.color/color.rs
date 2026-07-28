@@ -54,7 +54,7 @@ pub fn wenum<T: TryFrom<u32>>(w: smithay::reexports::wayland_server::WEnum<T>) -
 }
 
 pub fn create_global<W: GlobalDispatch<WpColorManagerV1, ()> + 'static>(dh: &DisplayHandle) {
-    if !compositor_developer_environment_config_base::base::get().hdr { return; }
+    if !compositor_model_environment_config_base::base::get().hdr { return; }
     dh.create_global::<W, WpColorManagerV1, ()>(1, ());
 }
 

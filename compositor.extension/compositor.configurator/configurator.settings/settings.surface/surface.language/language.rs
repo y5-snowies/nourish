@@ -3,7 +3,7 @@
 //! next start). Split out of the former Misc tab; the keyboard section is the
 //! multi-layout editor, and each IME edit emits the whole `Ime`, persisted live by
 //! the handler.
-use compositor_developer_environment_preference_base::base::{Ime, KeyboardLayout};
+use compositor_model_environment_preference_base::base::{Ime, KeyboardLayout};
 use compositor_support_iced_core_engine_base::Renderer;
 use compositor_configurator_settings_surface_message::message::SettingsMessage;
 use compositor_configurator_settings_surface_style::style;

@@ -173,6 +173,14 @@ pub enum SurfaceHit {
         surface: WlSurface,
         position: Point<f64, Logical>,
     },
+    /// Compositor-drawn window chrome — the letterbox bars. Names the window but
+    /// carries NO client surface, and the three consequences are all wanted:
+    /// pointer motion finds no focus here so the client is sent a leave rather
+    /// than an edge coordinate it never asked for; the press still resolves to
+    /// the window, so `apply_focus` raises and focuses it and a Move/Scale grab
+    /// anchors; and returning a hit at all stops the search, so a bar occludes
+    /// whatever is beneath it instead of letting the click fall through.
+    WindowChrome { window: Window },
     Layer {
         Ice: Option<bool>,
         layer: Layer,
@@ -191,7 +199,7 @@ impl SurfaceHit {
     pub fn surface(&self) -> Option<&WlSurface> {
         match self {
             Self::Window { surface, .. } | Self::Layer { surface, .. } => Some(surface),
-            Self::Iced { .. } => None,
+            Self::Iced { .. } | Self::WindowChrome { .. } => None,
         }
     }
 
@@ -199,7 +207,7 @@ impl SurfaceHit {
         match self {
             Self::Window { position, .. } => Some(*position),
             Self::Layer { position_space, .. } => Some(*position_space),
-            Self::Iced { .. } => None,
+            Self::Iced { .. } | Self::WindowChrome { .. } => None,
         }
     }
 
@@ -212,9 +220,15 @@ impl SurfaceHit {
 
     pub fn window(&self) -> Option<&Window> {
         match self {
-            Self::Window { window, .. } => Some(window),
+            Self::Window { window, .. } | Self::WindowChrome { window } => Some(window),
             _ => None,
         }
+    }
+
+    /// True when the hit is compositor chrome rather than client content, so
+    /// nothing may be delivered to a client for it.
+    pub fn is_chrome(&self) -> bool {
+        matches!(self, Self::WindowChrome { .. })
     }
 
     /// True for a wlr layer-shell surface hit (used to gate layer input, e.g. make layers
@@ -373,7 +387,7 @@ fn hit_window(
     position_world: Point<f64, Logical>,
     filter: HitFilter,
 ) -> Option<SurfaceHit> {
-    let cfg = compositor_developer_environment_config_base::base::get();
+    let cfg = compositor_model_environment_config_base::base::get();
     let elem_loc = hcx.space_state().state.element_location(window).unwrap_or_default();
     let geom = window.geometry();
     let gloc = geom.loc;
@@ -467,6 +481,47 @@ fn hit_window(
                 window.surface_under(local, WindowSurfaceType::TOPLEVEL | WindowSurfaceType::SUBSURFACE)
             {
                 let hit = deliver(surface, sub_pos, local);
+                if filter(&hit) {
+                    return Some(hit);
+                }
+            }
+
+            // Letterbox bars: inside the SLOT but outside the fitted content.
+            //
+            // The slot is the window's authoritative extent — the decoration
+            // frames it, the renderer crops to it, and the black fill paints it
+            // (`window.draw.frame::scene`). No surface reaches into the bars, so
+            // `surface_under` above misses and the press used to fall through to
+            // the canvas: clicking a bar hit nothing, and a move/resize grab
+            // never anchored. The bars are opaque compositor pixels, so they hit
+            // the window — as `WindowChrome`, which deliberately carries no
+            // surface, so the client is told nothing about a pointer that is not
+            // over it. See the variant for what that buys.
+            //
+            // Scoped to the bars, not the whole slot, on purpose: a miss INSIDE
+            // the content is the client's own input region talking, and that
+            // still falls through exactly as before. The content rect is the
+            // one `window_fit` centres in the slot, so in the cover and stretch
+            // regimes it covers the slot and this can never fire — only the
+            // contain (genuine letterbox) regime reaches here.
+            let content = Rectangle::<f64, Logical>::new(
+                Point::from((
+                    elem_loc.x as f64 + (slot_size.w as f64 - ref_size.w as f64 * fit_sx) / 2.0,
+                    elem_loc.y as f64 + (slot_size.h as f64 - ref_size.h as f64 * fit_sy) / 2.0,
+                )),
+                Size::from((ref_size.w as f64 * fit_sx, ref_size.h as f64 * fit_sy)),
+            );
+            let slot_rect = Rectangle::<f64, Logical>::new(
+                Point::from((elem_loc.x as f64, elem_loc.y as f64)),
+                Size::from((slot_size.w as f64, slot_size.h as f64)),
+            );
+            // `root_surface` is required: with no root the render path draws only
+            // the decoration and never paints the fill, so there are no bars.
+            if root_surface.is_some()
+                && slot_rect.contains(position_world)
+                && !content.contains(position_world)
+            {
+                let hit = SurfaceHit::WindowChrome { window: window.clone() };
                 if filter(&hit) {
                     return Some(hit);
                 }

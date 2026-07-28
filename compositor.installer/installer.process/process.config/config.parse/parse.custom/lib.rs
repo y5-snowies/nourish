@@ -36,7 +36,9 @@ pub fn prompt_custom_env(base: &BaseConfig) -> Env {
     Env {
         renderer,
         renderer_fallback,
-        renderer_sync: String::new(),
+        // The KMS IN_FENCE path (`config.base::RENDERER_SYNC_DEFAULT`); not
+        // prompted, and normalized again by `compute.plan::settings_json`.
+        renderer_sync: "infence".to_string(),
         hdr,
         depth,
         vrr,

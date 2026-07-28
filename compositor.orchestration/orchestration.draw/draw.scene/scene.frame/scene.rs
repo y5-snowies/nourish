@@ -32,9 +32,13 @@ pub struct Scene<R: Renderer> {
 thread_local! {
     /// Last fractional scale emitted per surface — the dedup so `update_fractional`
     /// only re-sends `wp_fractional_scale` when a window's best-resolution scale
-    /// actually changes, not every frame. Keyed by the surface's protocol id.
+    /// actually changes, not every frame. Keyed by the surface's protocol id;
+    /// `Published` distinguishes a real scale from the idle sentinel explicitly.
     static FRAC_SENT: std::cell::RefCell<
-        std::collections::HashMap<smithay::reexports::wayland_server::backend::ObjectId, f64>,
+        std::collections::HashMap<
+            smithay::reexports::wayland_server::backend::ObjectId,
+            compositor_support_smithay_state_fractional_dispatch::Published,
+        >,
     > = std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
@@ -44,7 +48,9 @@ thread_local! {
 /// per-output view state (`output_views`: each slot's camera zoom + its `visible`
 /// window set), so it's independent of which output is mid-render — and emitted only
 /// on change (via `FRAC_SENT`), which is what stops the per-output flip-flop from
-/// re-sending the scale to clients every frame.
+/// re-sending the scale to clients every frame. `emit_best_per_surface` then
+/// debounces whatever is left pending, so a zoom ease or a drift pan publishes once
+/// it settles rather than at every lattice crossing.
 fn update_fractional(state: &mut Loop) {
     use smithay::reexports::wayland_server::Resource;
     // uuid → surface for currently-mapped windows (the `visible` sets store uuids).
@@ -60,9 +66,11 @@ fn update_fractional(state: &mut Loop) {
         smithay::reexports::wayland_server::backend::ObjectId,
         (f64, WlSurface),
     > = std::collections::HashMap::new();
+    let mut max_zoom: Option<f64> = None;
     for vps in state.inner.output_views().map.values() {
         for (slot, uuids) in &vps.visible {
             let zoom = vps.camera_of(*slot).map(|c| c.transform.zoom).unwrap_or(1.0);
+            max_zoom = Some(max_zoom.map_or(zoom, |m| m.max(zoom)));
             for u in uuids {
                 if let Some(surf) = uuid_surface.get(u) {
                     best.entry(surf.id())
@@ -72,14 +80,127 @@ fn update_fractional(state: &mut Loop) {
             }
         }
     }
+    // Invisible-window strategy (`fractional_invisible` preference, live):
+    // "off" — invisible windows keep receiving zoom-driven updates (the
+    // historical behavior; backfilled below, since the render cull keeps them
+    // out of the visible sets). "optimized" — invisible windows get no
+    // publishes until visible again; parked worlds' windows get scale 1 so
+    // their clients drop hi-res buffers. "full" — the hosted world's invisible
+    // windows get scale 1 too. Capture targets are drawn, so they count as
+    // visible in every mode.
+    let mode = state.inner.preference.fractional_invisible.clone();
+    let full = mode == "full";
+    let optimized = full || mode == "optimized";
+    if !optimized {
+        // "off": feed the culled (but group-visible) windows back at the
+        // sharpest zoom in play — historically they sat in every pane's drawn
+        // set, so their best-zoom was the global max. Group-hidden windows
+        // stay out, as they always were. No slots yet → nothing to emit.
+        if let Some(max_zoom) = max_zoom {
+            use compositor_y5_window_interface_draw::visible::DrawWindow;
+            let unculled: Vec<WlSurface> = state
+                .inner
+                .space_state()
+                .state
+                .elements()
+                .filter(|w| w.visible(state))
+                .filter_map(|w| w.wl_surface().map(|s| s.into_owned()))
+                .collect();
+            for surf in unculled {
+                best.entry(surf.id()).or_insert((max_zoom, surf));
+            }
+        }
+    }
+    let mut idle: Vec<WlSurface> = Vec::new();
+    if optimized {
+        // Windows of every non-hosted world: invisible by definition — scale 1
+        // lets their clients drop hi-res buffers while the world is parked.
+        for space in state.inner.other_world_spaces() {
+            idle.extend(space.state.elements().filter_map(|w| w.wl_surface().map(|s| s.into_owned())));
+        }
+    }
+    if full {
+        // Hosted world, mapped but on no pane's screen (or group-hidden).
+        // Capture targets are exempt: a recorded off-screen window keeps its
+        // last real scale instead of degrading the recording to scale 1.
+        let force = &state
+            .inner
+            .kernel
+            .get(&compositor_orchestration_driver_capture_base::base::CAPTURE)
+            .force_set;
+        idle.extend(
+            uuid_surface
+                .iter()
+                .filter(|(u, s)| !best.contains_key(&s.id()) && !force.contains(u))
+                .map(|(_, s)| s.clone()),
+        );
+    }
     let per: Vec<(f64, WlSurface)> = best.into_values().collect();
     FRAC_SENT.with(|sent| {
         compositor_support_smithay_state_fractional_dispatch::emit_best_per_surface(
-            &state.state.fractional,
+            &mut state.state.fractional,
             &mut sent.borrow_mut(),
             &per,
+            &idle,
         );
     });
+}
+
+
+/// Grace margin for the "full" fractional strategy, in world-logical units,
+/// zoom-scaled the same way as the snap ranges (divided by zoom — so it is a
+/// CONSTANT screen-space band around each pane, `range × output_scale` px,
+/// regardless of zoom). Windows inside the band are published their real scale
+/// before they scroll into view.
+const FRACTIONAL_GRACE_RANGE: f64 = 256.0;
+
+/// The "full" strategy's grace band: uuids of group-visible windows whose slot
+/// rect, projected through the pane's camera (`render_target`), falls within
+/// `pane` inflated by [`FRACTIONAL_GRACE_RANGE`]. These get their real
+/// fractional scale ahead of reveal (instead of scale 1), so a pan-in never
+/// shows a client still rendered at scale 1; they remain excluded from
+/// rendering and frame callbacks.
+fn grace_windows(
+    state: &mut Loop,
+    pane: smithay::utils::Rectangle<i32, Physical>,
+) -> Vec<uuid::Uuid> {
+    use compositor_y5_window_interface_draw::visible::DrawWindow;
+    let ctx = state.viewport_context();
+    let pad = (FRACTIONAL_GRACE_RANGE * ctx.scale).round() as i32;
+    let windows: Vec<(uuid::Uuid, Window)> = state
+        .inner
+        .space_state()
+        .state
+        .elements()
+        .filter(|w| w.visible(state))
+        .filter_map(|w| w.uuid().map(|u| (u, w.clone())))
+        .collect();
+    let mut out = Vec::new();
+    for (u, w) in windows {
+        let Some(loc) = state.inner.space_state().state.element_location(&w) else {
+            continue;
+        };
+        let sz = compositor_y5_camera_transform_translate::slot::expected_size(&w)
+            .unwrap_or_else(|| w.geometry().size);
+        if sz.w <= 0 || sz.h <= 0 {
+            continue;
+        }
+        let project = |x: f64, y: f64| -> Point<i32, Physical> {
+            let t: compositor_y5_camera_transform_translate::transform::Transform =
+                ((x, y), ctx).into();
+            t.into()
+        };
+        let tl = project(loc.x as f64, loc.y as f64);
+        let br = project((loc.x + sz.w) as f64, (loc.y + sz.h) as f64);
+        if tl.x < pane.loc.x + pane.size.w + pad
+            && pane.loc.x - pad < br.x
+            && tl.y < pane.loc.y + pane.size.h + pad
+            && pane.loc.y - pad < br.y
+        {
+            out.push(u);
+        }
+    }
+    out
 }
 
 /// Colour of the bar drawn between split viewport panes.
@@ -384,6 +505,13 @@ where
         Some(tag) => render_key.as_deref().map_or(true, |k| k == tag.as_str()),
     };
     if draw_screen {
+        // Picker entry, FIRST half: the world being left ramps to black before the
+        // switch (the picker's scene clears the same overlay on the far side).
+        // Pushed ahead of the pointer, so — like the picker's own — it covers the
+        // cursor too; nothing should survive the fade.
+        if let Some(solid) = compositor_y5_picker_scene_fade::fade::leaving(state, size) {
+            plan.push(layer::POINTER, DrawNode::Solid(solid));
+        }
         let pointer = compositor_orchestration_seat_pointer_draw::scene::element(state, renderer, size);
         plan.extend(layer::POINTER, pointer.into_iter().map(DrawNode::Pointer));
     }
@@ -528,12 +656,39 @@ where
                         }
                     }
                 }
-                // Record which windows are visible in this pane, for the per-window
-                // fractional scale (computed cross-output after the pass — see
-                // `update_fractional`, which reads each slot's camera zoom + visible).
-                let uuids: Vec<uuid::Uuid> = vis.iter().filter_map(|w| w.uuid()).collect();
+                // The window scene culls twice (capture targets exempt from both),
+                // and the two sets it returns feed different consumers:
+                //
+                // `vis.drawn` — passed the frustum AND was not fully covered by
+                // opaque windows in front of it. This is the presented set
+                // (`visible_window` → frame callbacks + presentation feedback):
+                // a window that contributed no pixels is not owed either.
+                //
+                // `vis.on_pane` — passed the frustum, covered or not. This is the
+                // per-slot fractional-scale set. Occlusion deliberately does NOT
+                // narrow it: an occluded window is revealed the instant the
+                // window over it moves or closes, with no pan to hide a scale
+                // republish behind, so it must keep its real scale.
+                //
+                // A window panned off every pane (and not captured) is in neither
+                // — it stops re-rendering and receiving scale updates until
+                // revealed.
+                let mut uuids: Vec<uuid::Uuid> = vis.on_pane.iter().filter_map(|w| w.uuid()).collect();
+                // "full" grace band: windows just outside the pane get their REAL
+                // scale published ahead of reveal, so panning them in doesn't flash
+                // a stale scale-1 buffer. Fractional-only — they are still culled
+                // from rendering and frame callbacks.
+                if state.inner.preference.fractional_invisible == "full" {
+                    let present: std::collections::HashSet<uuid::Uuid> =
+                        uuids.iter().copied().collect();
+                    uuids.extend(
+                        grace_windows(state, region.rect)
+                            .into_iter()
+                            .filter(|u| !present.contains(u)),
+                    );
+                }
                 state.inner.viewports_mut().visible.insert(region.slot, uuids);
-                cw.extend(vis);
+                cw.extend(vis.drawn);
             }
             state.inner.render_target = None;
             // Wide bars between split panes (drawn above window content).

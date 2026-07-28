@@ -124,6 +124,7 @@ impl Renderer for VulkanRenderer {
             output_size,
             transform: dst_transform,
             clear: [0.0, 0.0, 0.0, 0.0],
+            clear_rects: Vec::new(),
             ops: Vec::new(),
             current_meta: compositor_orchestration_draw_dispatch_frame::ElementMeta::SCREEN,
         })
@@ -140,17 +141,57 @@ impl Bind<Dmabuf> for VulkanRenderer {
         &mut self,
         target: &'a mut Dmabuf,
     ) -> Result<VulkanFramebuffer<'a>, VulkanError> {
+        use crate::frame::TargetAcquire;
+
+        let weak = target.weak();
+        // Reuse the import rather than paying create-image + dedicated
+        // import-alloc + view — and the matching destroy — on every frame. A
+        // scanout swapchain cycles a handful of buffers forever, so after the
+        // first pass over them this is always a hit.
+        if let Some(t) = self.target_cache.get(&weak) {
+            return Ok(VulkanFramebuffer {
+                device: self.dev.device.clone(),
+                retire: self.retired.clone(),
+                image: t.image,
+                memory: t.memory,
+                view: t.view,
+                format: t.format,
+                fourcc: Some(target.format().code),
+                width: t.width,
+                height: t.height,
+                owned: false,
+                // The same VkImage the last composite left in GENERAL, so its
+                // contents (and layout) can be acquired back rather than dropped.
+                acquire: TargetAcquire::Cached,
+                _marker: PhantomData,
+            });
+        }
+
         let (image, memory, view, format, width, height) =
             self.import_dmabuf_as_target(target, vk::ImageUsageFlags::COLOR_ATTACHMENT, true)?;
+        let view = view.expect("make_view=true ⇒ Some(view)");
+        self.target_cache.insert(
+            weak,
+            crate::renderer::CachedTarget { image, memory, view, format, width, height },
+        );
         Ok(VulkanFramebuffer {
             device: self.dev.device.clone(),
+            retire: self.retired.clone(),
             image,
             memory,
-            view: view.expect("make_view=true ⇒ Some(view)"),
+            view,
             format,
             fourcc: Some(target.format().code),
             width,
             height,
+            // The cache owns it from here; the framebuffer must not retire it.
+            owned: false,
+            // A brand-new VkImage over this dmabuf: nothing of ours is in it that
+            // this VkImage could preserve, so discard and clear in full. Cache
+            // membership IS the "have we composited into this buffer" record —
+            // entries are reaped only once the dmabuf itself is gone, so a miss
+            // always means a genuinely untouched buffer.
+            acquire: TargetAcquire::Fresh,
             _marker: PhantomData,
         })
     }

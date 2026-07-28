@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 compositor_orchestration_driver_resume_base = { workspace = true }
 compositor_orchestration_driver_remote_base = { workspace = true }
-compositor_developer_debug_instance_record.workspace = true
+compositor_model_debug_instance_record.workspace = true
 bitflags.workspace = true
 smithay.workspace = true
 
@@ -18,6 +18,8 @@ compositor_kernel_seat_lifecycle_resume_base.workspace = true
 compositor_kernel_graphic_seat_modifier_clear.workspace = true
 compositor_orchestration_core_state_base.workspace = true
 compositor_y5_graphic_capture_interface.workspace = true
+
+compositor_kernel_native_wire_watchdog_settle.workspace = true
 
 [lib]
 path = "lib.rs"

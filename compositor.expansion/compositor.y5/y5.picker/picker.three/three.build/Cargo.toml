@@ -7,7 +7,7 @@ edition = "2024"
 build = false
 
 [dependencies]
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 compositor_support_bevy_core_bridge_base = { workspace = true }
 compositor_support_bevy_core_placeholder_base = { workspace = true }
 compositor_y5_picker_three_state = { workspace = true }

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 thiserror = { workspace = true }
 wgpu = { workspace = true }
 iced_core = { workspace = true }

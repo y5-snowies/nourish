@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Compile the y5_compositor binary for a chosen backend and profile.
 #
-# Usage: ./build.sh [winit|udev|native] [debug|release]   (default: winit debug)
+# Usage: ./build.sh [winit|udev|native] [debug|release|fast]   (default: winit debug)
+#   fast = the release-fast cargo profile: release without LTO — skips the
+#   multi-minute serial link for quick deploy iterations (~30% larger binary).
 #   winit        : nested backend — runs inside an existing Wayland/X session.
 #                  Plain `cargo build` (default `backend-winit` feature).
 #   udev|native  : DRM/KMS native backend — runs on real hardware / a TTY.
@@ -71,7 +73,11 @@ esac
 case "$PROFILE" in
     debug)   profile_args=()          ; sub=debug   ;;
     release) profile_args=(--release) ; sub=release ;;
-    *) echo "build.sh: unknown profile '$PROFILE' (expected debug|release)" >&2; exit 1 ;;
+    # release-fast: release minus LTO (the multi-minute serial link) for quick
+    # deploy iterations — ~30% larger binary, a fraction of the build time.
+    # Own target subdir, so it never invalidates the real release cache.
+    fast|release-fast) profile_args=(--profile release-fast) ; sub=release-fast ;;
+    *) echo "build.sh: unknown profile '$PROFILE' (expected debug|release|fast)" >&2; exit 1 ;;
 esac
 
 # --- Target dir: explicit override, else the loader workspace's own target/ -
@@ -99,4 +105,22 @@ echo ">> building y5_compositor [backend=$BACKEND profile=$PROFILE]" >&2
 
 BIN="$TARGET_DIR/$sub/y5_compositor"
 chmod +x "$BIN"
+
+# CAP_SYS_NICE on the binary lets settings.json `priority="auto"` take the
+# direct-nice rung (no rtkit round trip). Best-effort and re-applied every
+# build — cargo rewrites the binary, which clears file capabilities.
+# Interactive (stderr is a tty): plain sudo, which may prompt for a password
+# on /dev/tty. Unattended (CI/container/cron): `sudo -n` never prompts, so a
+# headless build can't hang; without the cap the compositor simply falls back
+# to rtkit over D-Bus.
+if command -v setcap >/dev/null 2>&1 || [ -x /usr/sbin/setcap ]; then
+    if [ -t 2 ]; then
+        sudo setcap cap_sys_nice+ep "$BIN" \
+            || echo ">> note: setcap cap_sys_nice failed; priority=\"auto\" will use rtkit" >&2
+    else
+        sudo -n setcap cap_sys_nice+ep "$BIN" 2>/dev/null \
+            || echo ">> note: setcap cap_sys_nice skipped (unattended, needs passwordless sudo); priority=\"auto\" will use rtkit" >&2
+    fi
+fi
+
 echo "$BIN"

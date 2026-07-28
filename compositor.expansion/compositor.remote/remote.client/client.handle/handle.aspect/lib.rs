@@ -1,6 +1,6 @@
 //! Body of the gRPC `SelectionService::fit_aspect` handler.
 
-use compositor_developer_debug_instance_record::abort;
+use compositor_model_debug_instance_record::abort;
 use compositor_orchestration_core_state_base::Loop;
 use compositor_remote_message_client_base::bind::selection::{FitAspect, FitAspectResponse};
 use compositor_support_action_camera_fit_aspect::aspect;

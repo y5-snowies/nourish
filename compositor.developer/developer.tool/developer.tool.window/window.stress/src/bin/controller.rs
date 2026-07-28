@@ -193,6 +193,32 @@ impl Params {
         b.push(btn(x, y, cw, "SIZE 480x320", Act::Send(Command::Size(480, 320))));
         y += 23;
         b.push(btn(x, y, cw, "QUIT SUBJECT", Act::Send(Command::Quit)));
+        y += 30;
+
+        // TEARING — the pacing test. The hint tags this client as a pacer for the
+        // compositor's Exclusive mode; the rate buttons drive commits off the
+        // subject's own timer so the compositor's flip rate is an independent
+        // measurement rather than an echo of the cadence it already granted.
+        //
+        // The decisive check needs a SECOND, untagged subject: flip rate must
+        // track the tagged client and stay INVARIANT to the untagged one. With
+        // one window, Exclusive and Always are indistinguishable.
+        hdr(&mut h, &mut y, "TEARING");
+        b.push(btn(x, y, half, "HINT ASYNC", Act::Send(Command::Tearing(true))));
+        b.push(btn(x + half + 6, y, half, "HINT VSYNC", Act::Send(Command::Tearing(false))));
+        y += 23;
+        let q = (cw - 18) / 4;
+        for (i, hz) in [0u32, 30, 60, 120].iter().enumerate() {
+            let label = if *hz == 0 { "OFF".to_string() } else { format!("{hz}Hz") };
+            b.push(btn(x + (q + 6) * i as i32, y, q, &label, Act::Send(Command::CommitRate(*hz))));
+        }
+        y += 23;
+        for (i, hz) in [144u32, 240, 300, 500].iter().enumerate() {
+            b.push(btn(x + (q + 6) * i as i32, y, q, &format!("{hz}Hz"), Act::Send(Command::CommitRate(*hz))));
+        }
+        y += 23;
+        b.push(btn(x, y, half, "COUNTER ON", Act::Send(Command::ShowCounter(true))));
+        b.push(btn(x + half + 6, y, half, "COUNTER OFF", Act::Send(Command::ShowCounter(false))));
 
         // Column B
         let x = 8 + cw + 12;

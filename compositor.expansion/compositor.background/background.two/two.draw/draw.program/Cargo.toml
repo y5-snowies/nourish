@@ -7,5 +7,5 @@ edition = "2024"
 path = "lib.rs"
 
 [dependencies]
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 smithay = { workspace = true }

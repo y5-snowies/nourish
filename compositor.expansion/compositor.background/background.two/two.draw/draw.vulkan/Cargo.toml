@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 compositor_orchestration_draw_dispatch_frame = { workspace = true }
-compositor_developer_stats_registry_base = { workspace = true }
+compositor_model_stats_registry_base = { workspace = true }
 
 # The parallax WGSL shaders are naga-compiled to SPIR-V at build time (like the
 # kernel's HDR composite); the kernel embeds nothing parallax-specific.

@@ -5,13 +5,17 @@ use crate::prompt::{ask, ask_u8, choose, yes_no};
 use crate::select::{select_list, Item};
 use crate::term::Nav;
 use compositor_configurator_hardware_gpu_base::base::render_devices;
-use compositor_developer_environment_config_base::base::Environment;
+use compositor_model_environment_config_base::base as config;
+use compositor_model_environment_config_base::base::{Environment, SCHEMA_VERSION};
 
 /// The settings flow is a straight sequence of required fields — there is no
 /// "back" target mid-flow, so no field (including the GPU list) offers Escape.
 pub fn interactive(base: Environment) -> Environment {
     println!("y5.compositor.settings — every field is required; press Enter to keep the shown value.");
     Environment {
+        // Not prompted: the schema version this editor writes (migrations in
+        // config.base lift older files on load).
+        version: SCHEMA_VERSION,
         renderer: choose(
             "renderer",
             "Renderer backend. NOTE for AMD users: some have reported Vulkan not \
@@ -24,10 +28,43 @@ pub fn interactive(base: Environment) -> Environment {
             "Fall back to GLES if Vulkan initialization fails.",
             base.renderer_fallback,
         ),
-        // Experimental — always disabled, never prompted (renderer_sync, hdr, vk_diag,
-        // and the two window-sizing flags below are forced off regardless of the
+        // Prompted as "composite sync" with friendly labels. The stored field
+        // stays `renderer_sync`, and the stored value for the default stays the
+        // historical `"infence"` — `config.base` owns both spellings, and
+        // "native" is only what it is CALLED here.
+        renderer_sync: {
+            let options = [
+                format!("{} — hand the display the render fence (default)", config::RENDERER_SYNC_NATIVE),
+                format!("{} — wait for the GPU on the CPU first", config::RENDERER_SYNC_SYNCHRONOUS),
+            ];
+            let refs: Vec<&str> = options.iter().map(String::as_str).collect();
+            // Anything that is not the explicit opt-out is the default, so a file
+            // carrying a dead spelling shows the default rather than mis-reporting
+            // what the compositor will actually do with it.
+            let current = match config::renderer_sync_fence(&base.renderer_sync) {
+                true => refs[0],
+                false => refs[1],
+            };
+            let picked = choose(
+                "composite sync (renderer_sync)",
+                "How the composited frame is committed to the display.",
+                &refs,
+                current,
+            );
+            match picked == refs[1] {
+                true => config::RENDERER_SYNC_SYNCHRONOUS.to_string(),
+                false => config::RENDERER_SYNC_DEFAULT.to_string(),
+            }
+        },
+        // NOT prompted: the shipped `realtime` is the right value on every
+        // machine — it degrades to the old `auto` behavior by itself when
+        // CAP_SYS_NICE is missing — so there is nothing here for someone
+        // installing to decide. Carried through rather than forced, so a value
+        // hand-edited into the file survives a trip through this tool.
+        priority: base.priority.clone(),
+        // Experimental — always disabled, never prompted (hdr, vk_diag, and the
+        // two window-sizing flags below are forced off regardless of the
         // existing file).
-        renderer_sync: String::new(),
         hdr: false,
         depth: ask_u8(
             "depth",

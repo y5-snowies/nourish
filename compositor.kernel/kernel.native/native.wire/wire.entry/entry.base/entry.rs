@@ -107,17 +107,19 @@ pub fn wire(
     // vulkan — compose via VulkanRenderer and scan out through the same
     // DrmOutput. The GLES multigpu is still used for the per-frame
     // iced/bevy/parallax prepare(). Failure aborts unless fallback is opted in.
-    let env = compositor_developer_environment_config_base::base::get();
+    let env = compositor_model_environment_config_base::base::get();
     let mut vulkan_mode = !env.renderer.eq_ignore_ascii_case("gles");
     let vulkan_fallback = env.renderer_fallback;
     let mut vulkan = if vulkan_mode {
         match compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::new_default() {
             Ok(mut vk) => {
-                // Hand the renderer the display's DRM fd so finish() takes the
-                // KMS IN_FENCE path (render-completion sync_file via DRM syncobj)
-                // instead of synchronous device_wait_idle.
+                // Hand the renderer the display's DRM fd; with it, finish()
+                // takes the KMS IN_FENCE path (render-completion sync_file via
+                // DRM syncobj) unless `renderer_sync=sync` opted back out to
+                // synchronous device_wait_idle. `set_drm_fd` logs the mode
+                // actually chosen.
                 vk.set_drm_fd(display.drm_fd.clone());
-                info!("native: renderer = vulkan (COMPOSITOR_RENDERER); KMS IN_FENCE enabled");
+                info!("native: renderer = vulkan (COMPOSITOR_RENDERER)");
                 Some(vk)
             }
             Err(e) if vulkan_fallback => {
@@ -137,7 +139,7 @@ pub fn wire(
 
     // Record the active renderer once (after any GLES fallback). Producers skip
     // GLES-path-only resources (per-surface GlesTexture) when this is true.
-    compositor_developer_stats_registry_base::base::set_compositor_prefers_dmabuf(vulkan_mode);
+    compositor_model_stats_registry_base::base::set_compositor_prefers_dmabuf(vulkan_mode);
 
     // HDR (M5): opt-in via COMPOSITOR_HDR, Vulkan-only, and only on a
     // PQ-capable display. Until the full pipeline lands the path is incomplete;
@@ -170,7 +172,7 @@ pub fn wire(
     if let Some(vk) = vulkan.as_mut() {
         vk.set_hdr_enabled(hdr_active);
     }
-    compositor_developer_stats_registry_base::base::set_hdr_info(
+    compositor_model_stats_registry_base::base::set_hdr_info(
         hdr_active,
         hdr_caps.hdr_capable(),
         hdr_transfer,
@@ -196,6 +198,11 @@ pub fn wire(
             mode_revert: None,
             global: None,
             in_flight: false,
+            last_vblank: None,
+            render_start: None,
+            last_tear: false,
+            cap_interval: None,
+            cap_wake: None,
         }],
         drm_output_manager: renderer.drm_output_manager,
         gpu_binding: renderer.gpu_binding.clone(),
@@ -206,6 +213,7 @@ pub fn wire(
         vulkan,
         drm_fd: display.drm_fd.clone(),
         dark_tick: None,
+        watchdog: None,
     }));
 
     // ---- Advertised-mode snapshot for the settings Display panel (kernel → rim).

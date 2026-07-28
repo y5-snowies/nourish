@@ -11,7 +11,7 @@ pub struct Placeholder {
     pub launch_session: Option<LaunchPlan>, // <-- Retains session based launc for refresh logic
     pub uuid: Uuid,
     pub session_time: Instant,
-    pub persistent: bool
+    pub persistent: bool,
 }
 
 #[derive(Clone, Debug)]

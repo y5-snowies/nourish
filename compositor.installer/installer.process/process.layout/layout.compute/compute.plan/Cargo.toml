@@ -10,7 +10,7 @@ compositor_installer_process_layout_compute_session = { path = "../compute.sessi
 compositor_installer_process_layout_compute_stage = { path = "../compute.stage" }
 # The canonical compositor settings schema + shared default values — the same crate the
 # `y5.compositor.settings` tool builds on, so the seeded settings.json is always complete.
-compositor_developer_environment_config_base = { path = "../../../../../compositor.developer/developer.environment/environment.config/config.base" }
+compositor_model_environment_config_base = { path = "../../../../../compositor.model/model.environment/environment.config/config.base" }
 serde_json = "1"
 
 [lib]

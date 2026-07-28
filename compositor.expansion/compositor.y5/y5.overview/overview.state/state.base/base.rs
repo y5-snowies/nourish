@@ -22,8 +22,11 @@ pub enum Tab {
 }
 
 /// The resolved freeze backdrop: a blurred desktop copy, or the sharp snapshot.
+/// `Blur` KEEPS the sharp snapshot it was derived from — the World tab reuses it
+/// as the current world's globe thumbnail, and it is the only unblurred frame of
+/// the pre-overlay desktop anyone still holds.
 pub enum Backdrop {
-    Blur(AllocatedDmabuf),
+    Blur(AllocatedDmabuf, SnapshotHandle),
     Sharp(SnapshotHandle),
 }
 
@@ -70,6 +73,15 @@ impl Overview {
         matches!(self.phase, Phase::Ready(_))
     }
 
+    /// The frozen SHARP pre-overlay desktop frame, once resolved — i.e. the
+    /// active world exactly as it looked before the overlay drew over it.
+    pub fn frozen(&self) -> Option<&SnapshotHandle> {
+        match &self.phase {
+            Phase::Ready(Some(Backdrop::Blur(_, snap) | Backdrop::Sharp(snap))) => Some(snap),
+            _ => None,
+        }
+    }
+
     pub fn is_world(&self) -> bool {
         matches!(self.tab, Tab::World)
     }
@@ -82,6 +94,13 @@ impl Overview {
 /// The overview slot token (read via the core `overview()` focus accessor).
 pub static OVERVIEW: Token<Overview> = Token::new();
 pub static OVERVIEW_MUT: TokenMut<Overview> = TokenMut::new(&OVERVIEW);
+
+/// The last active tab, retained ACROSS worlds (kernel store). The overview
+/// slot itself stays per-world, but the tab is a session preference: every tab
+/// change writes it here, and `toggle` seeds the opening world's slot from it —
+/// so after entering a world via the World tab, Super+Tab reopens on World.
+pub static OVERVIEW_TAB: Token<Tab> = Token::new();
+pub static OVERVIEW_TAB_MUT: TokenMut<Tab> = TokenMut::new(&OVERVIEW_TAB);
 
 /// Deferred overview action handled by the surface pump (holds the renderer).
 /// `Reconcile` syncs the menu bar to `visible`; the rest come from iced message

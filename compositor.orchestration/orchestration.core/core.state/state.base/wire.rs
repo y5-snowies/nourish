@@ -14,7 +14,7 @@ use compositor_support_smithay_dispatch_state_base::state::Dispatch;
 use compositor_support_smithay_dispatch_wire_base::wire::Wire;
 use compositor_support_smithay_dispatch_wire_trait::wire_trait::{ActivationOrigin, WireTrait};
 use compositor_support_smithay_state_xdg_activation_dispatch::wire::ActivationDetails;
-use compositor_y5_window_interface_record::data::WindowData;
+use compositor_y5_window_interface_record::data::{DiscardPlaceholder, WindowData};
 use compositor_y5_window_lifecycle_event::event::WindowLifecycleEvent;
 use compositor_y5_window_lifecycle_state::lifecycle::WindowLifecycle;
 
@@ -154,9 +154,12 @@ impl WireTrait for Orchestrator {
                 .UUID
                 .clone();
             info!("destroy_surface_data: {:?}", data);
+            // Shift-close mark: surface user data set by the selection toolbar —
+            // the placeholder destroy path must not spawn a tile for this window.
+            let discard_placeholder = states.data_map.get::<DiscardPlaceholder>().is_some();
             self.window_lifecycle_mut()
                 .incoming
-                .push(WindowLifecycleEvent::Destroyed(data, activation_details));
+                .push(WindowLifecycleEvent::Destroyed(data, activation_details, discard_placeholder));
         });
     }
 

@@ -37,28 +37,29 @@ impl VideoEncoder {
             .unwrap_or(0);
         let temp = std::env::temp_dir().join(format!("y5-capture-{nanos}.mp4"));
 
-        let mut child = Command::new("ffmpeg")
-            .args([
-                "-y",
-                "-loglevel",
-                "error",
-                "-f",
-                "rawvideo",
-                "-pix_fmt",
-                "bgra",
-                "-s",
-                &format!("{w}x{h}"),
-                "-r",
-                &fps.max(1).to_string(),
-                "-i",
-                "-",
-                "-pix_fmt",
-                "yuv420p",
-            ])
-            .arg(&temp)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+        let mut cmd = Command::new("ffmpeg");
+        cmd.args([
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgra",
+            "-s",
+            &format!("{w}x{h}"),
+            "-r",
+            &fps.max(1).to_string(),
+            "-i",
+            "-",
+            "-pix_fmt",
+            "yuv420p",
+        ])
+        .arg(&temp)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+        let mut child = cmd
             .spawn()
             .map_err(|e| warn!("ffmpeg spawn failed (video disabled): {e}"))
             .ok()?;

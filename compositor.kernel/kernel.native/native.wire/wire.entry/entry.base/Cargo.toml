@@ -6,9 +6,9 @@ edition = "2024"
 [dependencies]
 compositor_orchestration_driver_output_base.workspace = true
 compositor_kernel_vulkan_renderer_core_base.workspace = true
-compositor_developer_debug_instance_record.workspace = true
-compositor_developer_environment_config_base.workspace = true
-compositor_developer_stats_registry_base = { workspace = true }
+compositor_model_debug_instance_record.workspace = true
+compositor_model_environment_config_base.workspace = true
+compositor_model_stats_registry_base = { workspace = true }
 bitflags.workspace = true
 smithay.workspace = true
 

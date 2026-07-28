@@ -1,0 +1,15 @@
+[package]
+name = "compositor_model_log_process_instance_bind"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+tonic = { workspace = true }
+prost = { workspace = true }
+tonic-prost = { workspace = true }
+
+[build-dependencies]
+tonic-prost-build = { workspace = true }
+
+[lib]
+path = "lib.rs"

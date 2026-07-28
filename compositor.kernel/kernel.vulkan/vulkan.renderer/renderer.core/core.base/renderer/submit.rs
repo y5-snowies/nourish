@@ -3,7 +3,7 @@
 
 use ash::vk;
 use smithay::backend::renderer::sync::SyncPoint;
-use compositor_developer_stats_registry_base::base as stats;
+use compositor_model_stats_registry_base::base as stats;
 
 use crate::error::VulkanError;
 use crate::frame::DrawOp;
@@ -12,6 +12,7 @@ use super::VulkanRenderer;
 impl VulkanRenderer {
     /// Replay the queued draw ops into one composite pass and submit. Called by
     /// `VulkanFrame::finish`.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn submit_frame(
         &mut self,
         image: vk::Image,
@@ -19,6 +20,8 @@ impl VulkanRenderer {
         format: vk::Format,
         extent: (u32, u32),
         clear: [f32; 4],
+        clear_rects: Vec<vk::Rect2D>,
+        acquire: crate::frame::TargetAcquire,
         ops: Vec<DrawOp>,
     ) -> Result<SyncPoint, VulkanError> {
         self.ensure_pipelines(format)?;
@@ -29,28 +32,11 @@ impl VulkanRenderer {
         // Build any fullscreen-shader-pass pipelines this frame references (a
         // mutable borrow, done before the immutable borrows used to record).
         for op in &ops {
-            if let DrawOp::ShaderPass { sdr, hdr } = op {
+            if let DrawOp::ShaderPass { sdr, hdr, .. } = op {
                 let v = if use_hdr { hdr.as_ref().unwrap_or(sdr) } else { sdr };
                 self.ensure_shader_pass(v, format)?;
             }
         }
-
-        // Live graphics config (settings "Graphics" tab, via preferences) +
-        // current world zoom → the effective, zoom-weighted AA knobs. AA applies
-        // to the SDR composite path only (HDR skips it). The pipeline is built
-        // lazily on activation and torn down on deactivation.
-        let gfx = compositor_developer_environment_graphics_base::base::get();
-        let zoom = compositor_developer_stats_registry_base::base::world_zoom() as f32;
-        let eff = gfx.effective(zoom);
-        let aa_active = eff.active && !use_hdr;
-        if aa_active {
-            self.ensure_aa_pipeline(format)?;
-        } else if self.aa_was_active {
-            // Deactivation edge: reclaim the AA pipeline(s) and per-surface mip
-            // images so a disabled AA config costs no resident GPU memory.
-            self.teardown_aa();
-        }
-        self.aa_was_active = aa_active;
 
         // The native-fence path reuses one command buffer + descriptor pool and
         // does NOT device_wait_idle, so before re-recording we must ensure the
@@ -65,11 +51,52 @@ impl VulkanRenderer {
                 self.dev.device.reset_fences(&[self.frame_fence])?;
             }
         }
+        // The previous frame is provably complete here (fence wait above on
+        // the native path; the sync path device_wait_idles inside submit), so
+        // the render targets it retired can be destroyed — and its texture
+        // pins dropped. The frame being submitted keeps its own pins (pushed
+        // during record) until the next drain point.
+        self.drain_retired();
+        // Same proven-complete precondition as the drain above, so cached imports
+        // whose dmabuf has died are reclaimed here.
+        self.reap_targets();
+        self.in_flight_textures = std::mem::take(&mut self.pinned_textures);
+
+        // Compose only what smithay says changed. Requires a target whose
+        // contents we can take over (see `TargetAcquire`); the HDR branch below
+        // keeps the full-clear shape, so it opts out too.
+        let acquire_layout = acquire.old_layout().filter(|_| !self.use_hdr());
+        let damaged = acquire_layout.is_some();
+
+        // Textures served from the import cache since the last submit (already
+        // deduped on push). Drained here, so the barrier is paid once for
+        // everything that accumulated over any frames that never submitted.
+        let acquires = std::mem::take(&mut self.pending_acquires);
+
+        // Live graphics config (settings "Graphics" tab, via preferences) +
+        // current world zoom → the effective, zoom-weighted AA knobs. AA applies
+        // to the SDR composite path only (HDR skips it). The pipeline is built
+        // lazily on activation and torn down on deactivation. Placed AFTER the
+        // drain point above: the teardown destroys objects the previous frame
+        // may have had in flight, and needs no drain of its own here.
+        let gfx = compositor_model_environment_graphics_base::base::get();
+        let zoom = compositor_model_stats_registry_base::base::world_zoom() as f32;
+        let eff = gfx.effective(zoom);
+        let aa_active = eff.active && !use_hdr;
+        if aa_active {
+            self.ensure_aa_pipeline(format)?;
+        } else if self.aa_was_active {
+            // Deactivation edge: reclaim the AA pipeline(s) and per-surface mip
+            // images so a disabled AA config costs no resident GPU memory.
+            self.teardown_aa();
+        }
+        self.aa_was_active = aa_active;
 
         self.frame_counter += 1;
         let value = self.frame_counter;
         stats::frame();
 
+        let this = &*self;
         let dev = &self.dev;
         let pipelines = self
             .pipelines
@@ -85,7 +112,7 @@ impl VulkanRenderer {
                 .hdr_pipelines
                 .get(&format)
                 .expect("hdr pipeline ensured above");
-            let t = compositor_developer_stats_registry_base::base::hdr_tuning();
+            let t = compositor_model_stats_registry_base::base::hdr_tuning();
             hdr.update_tuning(&crate::hdr_composite::HdrTuningUbo {
                 enabled: t.enabled,
                 sdr_white_nits: t.sdr_white_nits,
@@ -112,13 +139,14 @@ impl VulkanRenderer {
             let sdr = [0.0_f32; 4];
             compositor_kernel_vulkan_command_record_base::record::record_composition(
                 dev, cmd, image, view, extent, clear, pipelines,
-                |_cmd| {},
+                None,
+                |cmd| this.record_pending_acquires(cmd, &acquires),
                 |cmd| {
                     hdr.begin_frame(dev, cmd);
                     for op in ops.iter() {
                         match op {
-                            DrawOp::Solid { quad } => hdr.draw_solid(dev, cmd, to_push(quad, sdr)),
-                            DrawOp::ShaderPass { sdr: s, hdr: h } => {
+                            DrawOp::Solid { quad, .. } => hdr.draw_solid(dev, cmd, to_push(quad, sdr)),
+                            DrawOp::ShaderPass { sdr: s, hdr: h, .. } => {
                                 let v = if use_hdr { h.as_ref().unwrap_or(s) } else { s };
                                 if let Some(fp) = shader_passes.get(&(v.id, format)) {
                                     fp.draw(dev, cmd, &v.push);
@@ -159,7 +187,7 @@ impl VulkanRenderer {
             let fsr = aa_easu || aa_rcas;
             // Which pre-built sampler the composite draws bind for this method.
             use compositor_kernel_vulkan_pipeline_composite_base::composite::SamplerSel;
-            use compositor_developer_environment_graphics_base::base::AaMethod;
+            use compositor_model_environment_graphics_base::base::AaMethod;
             let comp_sel = if fsr {
                 // EASU/RCAS fetch integer texels (textureLoad) and only bilinear-
                 // sample for alpha; the mip samplers don't apply.
@@ -264,6 +292,12 @@ impl VulkanRenderer {
             }
 
             let mipgen = &self.mipgen;
+            let damage_pass = acquire_layout.map(|old_layout| {
+                compositor_kernel_vulkan_command_record_base::record::DamagePass {
+                    clear_rects: &clear_rects,
+                    old_layout,
+                }
+            });
             compositor_kernel_vulkan_command_record_base::record::record_composition(
                 dev,
                 cmd,
@@ -272,7 +306,11 @@ impl VulkanRenderer {
                 extent,
                 clear,
                 pipelines,
+                damage_pass,
                 |cmd| {
+                    // Cache-served imports first: the mip pre-pass below samples
+                    // them, so their writes must be visible before it runs.
+                    this.record_pending_acquires(cmd, &acquires);
                     // Pre-pass: (re)generate the mip chain for each AA mip op.
                     if !mip_jobs.is_empty() {
                         if let Some(aa) = aa {
@@ -284,44 +322,59 @@ impl VulkanRenderer {
                     }
                 },
                 |cmd| {
+                    // Run each draw once per damage rect under a scissor, instead
+                    // of once over the whole target. On a full redraw, one
+                    // unscissored draw under `begin`'s full-extent scissor.
+                    let scissored = |scissors: &[vk::Rect2D], draw: &dyn Fn()| {
+                        if !damaged {
+                            draw();
+                            return;
+                        }
+                        for s in scissors {
+                            unsafe {
+                                dev.device.cmd_set_scissor(cmd, 0, std::slice::from_ref(s));
+                            }
+                            draw();
+                        }
+                    };
                     for (i, (op, set)) in ops.iter().zip(sets.iter()).enumerate() {
                         match op {
-                            DrawOp::Solid { quad } => {
-                                compositor_kernel_vulkan_element_solid_base::solid::draw(
-                                    dev, pipelines, cmd, *quad,
-                                );
+                            DrawOp::Solid { quad, scissors } => {
+                                scissored(scissors, &|| {
+                                    compositor_kernel_vulkan_element_solid_base::solid::draw(
+                                        dev, pipelines, cmd, *quad,
+                                    );
+                                });
                             }
-                            DrawOp::ShaderPass { sdr, hdr } => {
+                            DrawOp::ShaderPass { sdr, hdr, scissors } => {
                                 let v = if use_hdr { hdr.as_ref().unwrap_or(sdr) } else { sdr };
                                 if let Some(fp) = shader_passes.get(&(v.id, format)) {
-                                    fp.draw(dev, cmd, &v.push);
+                                    scissored(scissors, &|| fp.draw(dev, cmd, &v.push));
                                 }
                             }
-                            DrawOp::Textured { quad, tex_w, tex_h, .. } => {
+                            DrawOp::Textured { quad, tex_w, tex_h, scissors, .. } => {
                                 let set = set.expect("textured op has a set");
                                 if aa_op[i] {
                                     let aa = aa.expect("aa pipeline present for aa op");
-                                    aa.draw(
-                                        dev,
-                                        cmd,
-                                        set,
-                                        compositor_kernel_vulkan_pipeline_composite_base::composite::AaPush {
-                                            dst: quad.dst,
-                                            src: quad.src,
-                                            color: quad.color,
-                                            params: [aa_taps as f32, aa_spread, aa_sharpen, aa_lod_bias],
-                                            params2: [
-                                                if aa_easu { 1.0 } else { 0.0 },
-                                                if aa_rcas { aa_rcas_strength } else { 0.0 },
-                                                *tex_w as f32,
-                                                *tex_h as f32,
-                                            ],
-                                        },
-                                    );
+                                    let push = compositor_kernel_vulkan_pipeline_composite_base::composite::AaPush {
+                                        dst: quad.dst,
+                                        src: quad.src,
+                                        color: quad.color,
+                                        params: [aa_taps as f32, aa_spread, aa_sharpen, aa_lod_bias],
+                                        params2: [
+                                            if aa_easu { 1.0 } else { 0.0 },
+                                            if aa_rcas { aa_rcas_strength } else { 0.0 },
+                                            *tex_w as f32,
+                                            *tex_h as f32,
+                                        ],
+                                    };
+                                    scissored(scissors, &|| aa.draw(dev, cmd, set, push));
                                 } else {
-                                    compositor_kernel_vulkan_element_texture_base::texture::draw(
-                                        dev, pipelines, cmd, set, *quad,
-                                    );
+                                    scissored(scissors, &|| {
+                                        compositor_kernel_vulkan_element_texture_base::texture::draw(
+                                            dev, pipelines, cmd, set, *quad,
+                                        );
+                                    });
                                 }
                             }
                         }
@@ -332,9 +385,10 @@ impl VulkanRenderer {
         }
 
         if !self.use_native_fence() {
-            // Synchronous (the DEFAULT; winit; anything but the infence opt-in):
-            // signal the timeline, then device_wait_idle. The returned SyncPoint
-            // is already-signaled.
+            // Synchronous (winit, which has no DRM fd; or the explicit
+            // `renderer_sync = "sync"` opt-out; or a failed self-test): signal
+            // the timeline, then device_wait_idle. The returned SyncPoint is
+            // already-signaled.
             compositor_kernel_vulkan_device_queue_base::queue::submit_with_timeline(
                 dev,
                 &self.queue,
@@ -347,10 +401,11 @@ impl VulkanRenderer {
                 dev.device.device_wait_idle()?;
             }
             stats::fence_synchronous();
-            // Post-scene capture (native Vulkan path): copy the now-complete
-            // composed scene into the registry entry dmabufs. No-op unless the
-            // backend set capture targets for this frame. Ends the `dev` borrow
-            // first (it needs `&mut self`'s capture fields).
+            // Post-scene capture: copy the now-complete composed scene into
+            // the registry entry dmabufs. No-op unless the backend set capture
+            // targets for this frame. Ends the `dev` borrow first (it needs
+            // `&mut self`'s capture fields). No wait point — the drain above
+            // already completed the composite.
             let _ = dev;
             let targets = std::mem::take(&mut self.capture_targets);
             compositor_kernel_vulkan_capture_blit_base::blit::blit_into_targets(
@@ -361,6 +416,7 @@ impl VulkanRenderer {
                 image,
                 extent,
                 &targets,
+                None,
             );
             return Ok(SyncPoint::signaled());
         }
@@ -386,13 +442,44 @@ impl VulkanRenderer {
                 .queue_submit2(self.queue.queue, &[submit], self.frame_fence)
                 .map_err(|e| VulkanError::Vk(format!("queue_submit2: {e}")))?;
         }
-        match compositor_kernel_vulkan_sync_export_base::export::export_sync_file(
+        let sync = match compositor_kernel_vulkan_sync_export_base::export::export_sync_file(
             dev,
             self.render_semaphore,
         ) {
+            Ok(fd) if self.fence_fallback_optin && !self.fence_validated => {
+                // First-frame self-test, ONLY under infence_fallback_sync: a
+                // dud exported fence would park the queued atomic commit
+                // forever (the historical infence freeze). Costs one
+                // composite-length CPU wait, once. Plain `infence` runs no
+                // validation at all — raw behavior, so broken fence stacks
+                // can be observed as they actually fail.
+                use std::os::unix::io::AsFd;
+                let drm_fd = self.drm_fd.as_ref().expect("native fence path has drm_fd");
+                if compositor_kernel_drm_syncobj_device_base::device::sync_file_signals_within(
+                    drm_fd,
+                    fd.as_fd(),
+                    std::time::Duration::from_secs(1),
+                ) {
+                    self.fence_validated = true;
+                    info!("native KMS IN_FENCE self-test passed: first exported fence signaled");
+                    stats::fence_kms_infence();
+                    SyncPoint::from(crate::sync_fence::SyncFileFence::new(fd))
+                } else {
+                    warn!(
+                        "native KMS IN_FENCE self-test FAILED: exported sync_file did not \
+                         signal within 1s; falling back to synchronous mode permanently \
+                         (renderer_sync=infence_fallback_sync)"
+                    );
+                    self.native_fence_optin = false;
+                    stats::set_sync_mode("synchronous (device_wait_idle; IN_FENCE self-test failed)");
+                    unsafe { dev.device.device_wait_idle()? };
+                    stats::fence_fallback();
+                    SyncPoint::signaled()
+                }
+            }
             Ok(fd) => {
                 stats::fence_kms_infence();
-                Ok(SyncPoint::from(crate::sync_fence::SyncFileFence::new(fd)))
+                SyncPoint::from(crate::sync_fence::SyncFileFence::new(fd))
             }
             Err(e) => {
                 if self
@@ -404,8 +491,26 @@ impl VulkanRenderer {
                 }
                 unsafe { dev.device.device_wait_idle()? };
                 stats::fence_fallback();
-                Ok(SyncPoint::signaled())
+                SyncPoint::signaled()
             }
-        }
+        };
+        // Post-scene capture on the native path: a second submission on the
+        // same queue, GPU-ordered after the composite by waiting its timeline
+        // point; the CPU wait inside is scoped to the blit's fence, paid only
+        // on frames that capture. Scanout's IN_FENCE above never waits for
+        // this. Ends the `dev` borrow first (capture fields need `&mut self`).
+        let _ = dev;
+        let targets = std::mem::take(&mut self.capture_targets);
+        compositor_kernel_vulkan_capture_blit_base::blit::blit_into_targets(
+            &self.dev,
+            self.command_pool,
+            self.queue.queue,
+            &mut self.capture_cache,
+            image,
+            extent,
+            &targets,
+            Some((self.timeline, value)),
+        );
+        Ok(sync)
     }
 }

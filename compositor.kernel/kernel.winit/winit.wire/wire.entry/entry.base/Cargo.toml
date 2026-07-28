@@ -5,8 +5,8 @@ edition = "2024"
 
 [dependencies]
 compositor_kernel_vulkan_renderer_core_base.workspace = true
-compositor_developer_debug_instance_record.workspace = true
-compositor_developer_environment_config_base.workspace = true
+compositor_model_debug_instance_record.workspace = true
+compositor_model_environment_config_base.workspace = true
 bitflags.workspace = true
 smithay.workspace = true
 
@@ -20,7 +20,7 @@ compositor_kernel_graphic_render_contract_base.workspace = true
 compositor_orchestration_core_state_base.workspace = true
 compositor_orchestration_draw_state_lifecycle.workspace = true
 # Records the active renderer (Vulkan vs GLES) once at wire time. Direct path dep.
-compositor_developer_stats_registry_base = { workspace = true }
+compositor_model_stats_registry_base = { workspace = true }
 
 [lib]
 path = "lib.rs"

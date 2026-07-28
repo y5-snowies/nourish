@@ -11,7 +11,7 @@ use smithay::backend::renderer::{Bind, Color32F, ContextId, DebugFlags, Frame, R
 use smithay::backend::vulkan::PhysicalDevice;
 use smithay::utils::{Rectangle, Size, Transform};
 use std::collections::HashMap;
-use compositor_developer_stats_registry_base::base as stats;
+use compositor_model_stats_registry_base::base as stats;
 
 use crate::error::VulkanError;
 use super::VulkanRenderer;
@@ -38,14 +38,22 @@ impl VulkanRenderer {
             )?
         };
 
-        // `renderer_sync == "infence"` opts in to the native KMS IN_FENCE path.
-        // DEFAULT is synchronous `device_wait_idle`.
-        let native_fence_optin = compositor_developer_environment_config_base::base::get()
-            .renderer_sync
-            .eq_ignore_ascii_case("infence");
+        // The native KMS IN_FENCE path is the DEFAULT; `renderer_sync = "sync"`
+        // is the only thing that opts back out to synchronous
+        // `device_wait_idle`. It runs raw — no validation, so broken fence
+        // hardware shows its actual behavior; `"infence_fallback_sync"`
+        // additionally self-tests the first exported fence and degrades to
+        // synchronous if it never signals. `config.base` owns that vocabulary,
+        // so the installer and the compositor cannot disagree about what a
+        // given string means.
+        use compositor_model_environment_config_base::base as config;
+        let renderer_sync = &config::get().renderer_sync;
+        let fence_fallback_optin = config::renderer_sync_self_test(renderer_sync);
+        let native_fence_optin = config::renderer_sync_fence(renderer_sync);
         info!(
-            "VulkanRenderer initialized (queue family {}, native_fence_optin={})",
-            queue.family_index, native_fence_optin
+            "VulkanRenderer initialized (queue family {}, native_fence_optin={native_fence_optin}, \
+             fence_fallback_optin={fence_fallback_optin})",
+            queue.family_index
         );
         stats::set_renderer("vulkan", true);
         stats::set_sync_mode("synchronous (device_wait_idle)");
@@ -70,11 +78,19 @@ impl VulkanRenderer {
             frame_fence,
             drm_fd: None,
             native_fence_optin,
+            fence_fallback_optin,
+            fence_validated: false,
             last_fence_warn: None,
             capture_targets: Vec::new(),
             capture_cache: CaptureCache::new(),
             shm_staging: StagingBuffer::new(),
             frame_counter: 0,
+            retired: Default::default(),
+            pinned_textures: Vec::new(),
+            in_flight_textures: Vec::new(),
+            target_cache: HashMap::new(),
+            import_cache: HashMap::new(),
+            pending_acquires: Vec::new(),
             debug_flags: DebugFlags::empty(),
             downscale: TextureFilter::Linear,
             upscale: TextureFilter::Linear,

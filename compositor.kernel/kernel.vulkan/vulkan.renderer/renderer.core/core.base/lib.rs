@@ -16,7 +16,7 @@
 //! "convergence" phase (generifying the GLES-typed `State.gpus` substrate).
 
 #[macro_use]
-extern crate compositor_developer_debug_instance_record;
+extern crate compositor_model_debug_instance_record;
 
 pub mod dispatch;
 pub mod frame;

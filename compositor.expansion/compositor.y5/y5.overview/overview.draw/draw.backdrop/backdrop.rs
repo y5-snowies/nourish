@@ -66,7 +66,7 @@ pub fn arm(state: &mut Loop, gles: &mut GlesRenderer, _size: Size<i32, Physical>
                         // if the blur passes fail.
                         Some(snap) => Some(
                             match compositor_y5_overview_draw_blur::blur::blur(gles, &gpu, &snap) {
-                                Some(blurred) => Backdrop::Blur(blurred),
+                                Some(blurred) => Backdrop::Blur(blurred, snap),
                                 None => Backdrop::Sharp(snap),
                             },
                         ),
@@ -86,7 +86,7 @@ pub fn arm(state: &mut Loop, gles: &mut GlesRenderer, _size: Size<i32, Physical>
 /// scene to import + draw 1:1.
 pub fn snapshot_dmabuf(state: &Loop) -> Option<Dmabuf> {
     match &state.inner.overview().phase {
-        Phase::Ready(Some(Backdrop::Blur(a))) => Some(a.dmabuf.clone()),
+        Phase::Ready(Some(Backdrop::Blur(a, _))) => Some(a.dmabuf.clone()),
         Phase::Ready(Some(Backdrop::Sharp(s))) => Some(s.dmabuf().clone()),
         _ => None,
     }

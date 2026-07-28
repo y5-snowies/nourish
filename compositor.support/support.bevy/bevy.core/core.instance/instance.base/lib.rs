@@ -8,7 +8,7 @@ use compositor_support_bevy_core_handle_base::HandleId;
 use compositor_support_bevy_core_host_base::BevyRuntime;
 use compositor_support_bevy_core_scene_base::BevyScene;
 use compositor_support_bevy_core_surface_base::BevySurface;
-use compositor_developer_debug_instance_record::trace;
+use compositor_model_debug_instance_record::trace;
 use smithay::backend::renderer::element::Id;
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::backend::renderer::utils::CommitCounter;

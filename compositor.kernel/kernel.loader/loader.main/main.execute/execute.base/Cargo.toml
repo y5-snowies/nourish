@@ -10,8 +10,6 @@ readme = "../../../../../README.md"
 
 
 [dependencies]
-uuid = { workspace = true }
-compositor_support_system_trait_system_base = { workspace = true }
 compositor_background_three_system_prewarm = { workspace = true }
 compositor_orchestration_driver_capture_base = { workspace = true }
 compositor_y5_graphic_capture_registry = { workspace = true }
@@ -45,7 +43,7 @@ compositor_background_three_system_base = { workspace = true }
 compositor_orchestration_environment_interface_lifecycle.workspace = true
 compositor_orchestration_environment_type_base.workspace = true
 # Diagnostics registry (developer Statistics tab) — direct cross-workspace path dep.
-compositor_developer_stats_registry_base = { workspace = true }
+compositor_model_stats_registry_base = { workspace = true }
 compositor_support_bevy_core_runtime_base.workspace = true
 bitflags = { workspace = true }
 smithay = { workspace = true }
@@ -66,12 +64,17 @@ compositor_introspection_sampler_window_base.workspace = true
 compositor_introspection_extraction_window_base.workspace = true
 # Developer structured logging (separate compositor.developer workspace). Direct path deps
 # keep the wiring local — no edits to this workspace's link.json/GENERATED block.
-compositor_developer_log_process_main = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_log_process_main = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 # Central environment config — read once at the very top of main() (before logging).
-compositor_developer_environment_config_base = { workspace = true }
+compositor_model_environment_config_base = { workspace = true }
+# Embedded default UI font (Inter) — installed in main() before any iced
+# surface exists, so text renders on systems with no fonts installed.
+compositor_support_iced_font_default_base = { workspace = true }
+compositor_kernel_loader_main_priority_base = { workspace = true }
+compositor_kernel_loader_main_priority_arm = { workspace = true }
 # Opt-in experimental gpu_* flags — read once right after config (before logging).
-compositor_developer_environment_experimental_base = { workspace = true }
+compositor_model_environment_experimental_base = { workspace = true }
 compositor_y5_picker_world_restore = { workspace = true }
 # App-launch executor wiring (kernel.execution driver) — main() calls
 # block_sigchld() + install() and nothing else from the launch subsystem.

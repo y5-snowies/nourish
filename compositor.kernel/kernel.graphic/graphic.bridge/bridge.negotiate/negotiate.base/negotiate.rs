@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use compositor_developer_environment_experimental_base::base::GpuFlags;
+use compositor_model_environment_experimental_base::base::GpuFlags;
 use compositor_kernel_graphic_bridge_negotiate_classify::classify::{is_dcc, is_tiled, rank};
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::{Format as DrmFormat, Fourcc, Modifier};
@@ -90,7 +90,7 @@ pub fn bridge_modifiers(
     wgpu_importable: FormatSet,
     fourcc: Fourcc,
 ) -> Vec<Modifier> {
-    use compositor_developer_environment_experimental_base::base as ex;
+    use compositor_model_environment_experimental_base::base as ex;
     BridgeFormats::intersect(&[renderer, wgpu_importable]).modifiers_for(fourcc, ex::get(), ex::raw())
 }
 

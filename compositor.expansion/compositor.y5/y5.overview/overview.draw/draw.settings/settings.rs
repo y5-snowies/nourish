@@ -64,7 +64,7 @@ fn shader_state(state: &Loop) -> (Vec<String>, Option<String>, Vec<ShaderProp>, 
     let status = two.and_then(|t| t.shader_error.clone());
     let current = two
         .and_then(|t| t.background_shader.clone())
-        .or_else(compositor_developer_stats_registry_base::base::background_shader_default);
+        .or_else(compositor_model_stats_registry_base::base::background_shader_default);
     let overrides = two.map(|t| t.params.clone()).unwrap_or_default();
     // This world's per-axis background pan inversion + sRGB output (default off).
     let (invert_x, invert_y) = two.map(|t| (t.invert_pan_x, t.invert_pan_y)).unwrap_or((false, false));
@@ -168,7 +168,7 @@ fn sync(state: &mut Loop, id: HandleId, size: Size<i32, Physical>) {
         pen_changed = true;
     }
     if pen_changed {
-        let _ = compositor_developer_environment_preference_base::base::save(&state.inner.preference);
+        let _ = compositor_model_environment_preference_base::base::save(&state.inner.preference);
         let pen = state.inner.preference.pen.clone();
         if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
             let _ = reg.dispatch_message(IcedHandle::<Settings>::from_id(id), SettingsMessage::SyncPen(pen));
@@ -262,9 +262,9 @@ fn sync(state: &mut Loop, id: HandleId, size: Size<i32, Physical>) {
 fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physical>) {
     let rect = settings_rect(size);
     SIZED.with(|s| *s.borrow_mut() = Some(size));
-    let env = compositor_developer_environment_config_base::base::read_current();
-    state.inner.preference = compositor_developer_environment_preference_base::base::load();
-    state.inner.keybinding = compositor_developer_environment_keybinding_base::base::load();
+    let env = compositor_model_environment_config_base::base::read_current();
+    state.inner.preference = compositor_model_environment_preference_base::base::load();
+    state.inner.keybinding = compositor_model_environment_keybinding_base::base::load();
     let cursor = state.inner.preference.cursor_sensitivity as f32;
     let natural = state.inner.preference.input_natural_scroll;
     let touch_pan_speed = state.inner.preference.input_touch_pan_speed as f32;
@@ -273,6 +273,8 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     let osk_world_position = state.inner.preference.osk_world_position;
     let show_fps = state.inner.preference.show_fps;
     let release_hidden = state.inner.preference.release_hidden_surfaces;
+    let fractional_invisible = state.inner.preference.fractional_invisible.clone();
+    let flip = state.inner.preference.flip;
     let snap = state.inner.kernel.get(&OUTPUTS_SNAPSHOT).clone();
     let mut keys = compositor_y5_overlay_interface_keyboard::keyboard::registry(&state.inner.keybinding);
     keys.extend(compositor_y5_canvas_input_keyboard::navigator::registry(&state.inner.keybinding));
@@ -286,7 +288,7 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     let protocol_foreign = state.inner.preference.protocol_foreign.clone();
     let protocol_foreign_all_worlds = state.inner.preference.protocol_foreign_all_worlds;
     let pen = state.inner.preference.pen.clone();
-    let ui = Settings::new(env, cursor, natural, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, show_fps, release_hidden, snap, keys, tab, layout, cyclic, ime, keyboard, protocol_foreign, protocol_foreign_all_worlds, pen);
+    let ui = Settings::new(env, cursor, natural, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, show_fps, release_hidden, fractional_invisible, flip, snap, keys, tab, layout, cyclic, ime, keyboard, protocol_foreign, protocol_foreign_all_worlds, pen);
     let handle = load(state, renderer, ui, rect, IcedSpace::Screen, Layer::SCENE.bits());
     install_handler(state, handle);
     let untyped = handle.untyped();

@@ -1,10 +1,13 @@
 //! Full-width "SYSTEM CONFIGURATION" chrome: title bar, left module sidebar,
 //! scrollable section content, and a bottom status/apply bar — built from plain
 //! data so the `IcedUi` owner stays tiny. Section bodies live in surface.* builders.
-use compositor_developer_environment_config_base::base::Environment;
-use compositor_developer_environment_preference_base::base::{Ime, KeyboardLayout};
-use compositor_developer_environment_keybinding_base::base::KeyRow;
-use compositor_developer_environment_preference_base::base::LayoutPlacement;
+use compositor_model_environment_config_base::base::Environment;
+use compositor_model_environment_preference_base::base::{Ime, KeyboardLayout};
+use compositor_model_environment_keybinding_base::base::KeyRow;
+use compositor_model_environment_preference_base::base::LayoutPlacement;
+use compositor_model_environment_tearing_config::config::{Config, Pacing, Tagging, Tearing};
+use compositor_model_environment_tearing_rate::rate::{PaceMode, Rate, TearMode};
+use compositor_model_environment_tearing_select::select::{Exclusivity, Selector};
 use compositor_configurator_hardware_gpu_base::base::RenderDevice;
 use compositor_orchestration_driver_output_base::base::{DisplayInfo, ModeInfo, TouchDeviceInfo};
 use compositor_support_iced_core_engine_base::Renderer;
@@ -20,16 +23,16 @@ use compositor_configurator_settings_surface_language::language;
 use compositor_configurator_audio_tab_base::base as audio_tab;
 use compositor_configurator_network_tab_base::base as network_tab;
 use compositor_configurator_bluetooth_tab_base::base as bluetooth_tab;
-use compositor_configurator_settings_surface_message::message::{Applied, InputTab, SettingsMessage, ShaderProp, Tab};
+use compositor_configurator_settings_surface_message::message::{Applied, GraphicsTab, InputTab, SettingsMessage, ShaderProp, Tab};
 use compositor_configurator_settings_surface_style::style;
 use compositor_configurator_settings_surface_control::control;
 use compositor_configurator_settings_surface_world::world;
 use compositor_configurator_settings_surface_graphics::graphics;
 use compositor_configurator_settings_surface_pen::pen;
-use compositor_developer_environment_graphics_base::base::GraphicsAaConfig;
-use compositor_developer_environment_preference_base::base::PenConfig;
+use compositor_model_environment_graphics_base::base::GraphicsAaConfig;
+use compositor_model_environment_preference_base::base::PenConfig;
 use iced_core::{Alignment, Element, Length, Padding, Theme};
-use iced_widget::{button, column, container, row, scrollable, slider, text, toggler, Column, Row};
+use iced_widget::{button, column, container, responsive, row, scrollable, slider, text, toggler, Column, Row};
 
 type El<'a> = Element<'a, SettingsMessage, Theme, Renderer>;
 
@@ -37,10 +40,13 @@ fn fixed(px: f32) -> Length {
     Length::Fixed(px)
 }
 
-/// Same sidebar module? Every `Input` sub-tab counts as the one INPUT module so the
-/// sidebar row stays lit across the sub-tabs.
+/// Same sidebar module? Every sub-tab of a tabbed module counts as that one
+/// module, so the sidebar row stays lit as you move between its sub-tabs.
 fn same_module(a: Tab, b: Tab) -> bool {
-    matches!((a, b), (Tab::Input(_), Tab::Input(_))) || a == b
+    matches!(
+        (a, b),
+        (Tab::Input(_), Tab::Input(_)) | (Tab::Graphics(_), Tab::Graphics(_))
+    ) || a == b
 }
 
 fn module<'a>(icon: &'a str, label: &'a str, t: Tab, sel: Tab) -> El<'a> {
@@ -61,7 +67,7 @@ fn sidebar<'a>(sel: Tab) -> El<'a> {
         module("▲", "PERFORMANCE", Tab::Performance, sel),
         module("⚙", "SYSTEM", Tab::System, sel),
         module("文", "LANGUAGE", Tab::Language, sel),
-        module("◆", "GRAPHICS", Tab::Graphics, sel),
+        module("◆", "GRAPHICS", Tab::Graphics(GraphicsTab::Aa), sel),
         module("⋯", "MISC", Tab::Misc, sel),
     ].spacing(4).padding(14);
     container(list).width(fixed(224.0)).height(Length::Fill).style(style::sidebar).into()
@@ -76,14 +82,250 @@ fn titlebar<'a>(dirty: bool) -> El<'a> {
     container(title).style(style::strip).width(Length::Fill).padding(Padding::from([14, 22])).into()
 }
 
-fn performance<'a>(fps: u32, show_fps: bool, release_hidden: bool) -> El<'a> {
+fn performance<'a>(fps: u32, show_fps: bool, release_hidden: bool, fractional_invisible: &'a str) -> El<'a> {
     let cell = container(row![text("FRAME RATE").color(style::MUTED).width(Length::Fill), text(format!("{fps} FPS")).color(style::ACCENT)].align_y(Alignment::Center).padding(16))
         .style(style::card).width(Length::Fill);
     let overlay = container(row![text("FPS OVERLAY (per monitor)").color(style::MUTED).width(Length::Fill), toggler(show_fps).on_toggle(SettingsMessage::SetShowFps).style(control::toggler)].align_y(Alignment::Center).padding(16))
         .style(style::card).width(Length::Fill);
     let release = container(row![text("RELEASE HIDDEN SURFACE MEMORY").color(style::MUTED).width(Length::Fill), toggler(release_hidden).on_toggle(SettingsMessage::SetReleaseHidden).style(control::toggler)].align_y(Alignment::Center).padding(16))
         .style(style::card).width(Length::Fill);
-    column![text("PERFORMANCE").size(16).color(style::ACCENT), text("Live runtime metrics.").size(11).color(style::MUTED), cell, overlay, release].spacing(12).into()
+    // Invisible-window fractional scale: off (always update, historical) /
+    // optimized (freeze invisible; other worlds render at scale 1) / full
+    // (all invisible windows render at scale 1 to free client memory).
+    let mk = |label: &'a str, value: &'a str| {
+        let b = button(text(label).size(12)).on_press(SettingsMessage::SetFractionalInvisible(value.to_string()));
+        if fractional_invisible == value { b.style(control::accent) } else { b.style(control::action) }
+    };
+    let fractional = container(row![
+        text("INVISIBLE WINDOW SCALE").color(style::MUTED).width(Length::Fill),
+        mk("Off", "off"),
+        mk("Optimized", "optimized"),
+        mk("Full", "full"),
+    ].align_y(Alignment::Center).spacing(10).padding(16))
+        .style(style::card).width(Length::Fill);
+
+    column![
+        text("PERFORMANCE").size(16).color(style::ACCENT),
+        text("Live runtime metrics.").size(11).color(style::MUTED),
+        cell, overlay, release, fractional,
+    ].spacing(12).into()
+}
+
+/// The GRAPHICS module: a sub-tab bar over the selected sub-tab's body. The
+/// sub-tab is carried in `Tab::Graphics`, so it persists across launches.
+fn graphics_body<'a>(sub: GraphicsTab, graphics: &'a GraphicsAaConfig, flip: Config) -> El<'a> {
+    let tab = |label: &'a str, t: GraphicsTab| -> El<'a> {
+        button(text(label).size(13))
+            .padding(Padding::from([6, 14]))
+            .on_press(SettingsMessage::Tab(Tab::Graphics(t)))
+            .style(control::tab(sub == t))
+            .into()
+    };
+    let bar = row![
+        tab("Anti-aliasing", GraphicsTab::Aa),
+        tab("FSR", GraphicsTab::Fsr),
+        tab("Pacing", GraphicsTab::Pacing),
+    ].spacing(6);
+    let body: El<'a> = match sub {
+        GraphicsTab::Aa => graphics::build_aa(graphics),
+        GraphicsTab::Fsr => graphics::build_fsr(graphics),
+        GraphicsTab::Pacing => scrollable(flip_section(flip)).height(Length::Fill).into(),
+    };
+    column![bar, body].spacing(16).height(Length::Fill).into()
+}
+
+/// One settings row: a label, a set of choices, and a balloon describing the
+/// choice that is currently selected. The balloon is the whole point — several
+/// of these options tear, and a flip policy that tears without saying so is the
+/// failure mode worth designing against here.
+fn field<'a>(label: &'a str, choices: Vec<El<'a>>, balloon: &'a str) -> El<'a> {
+    let mut r = row![text(label).color(style::MUTED).width(Length::Fill)]
+        .align_y(Alignment::Center).spacing(8);
+    for c in choices { r = r.push(c); }
+    container(column![r, text(balloon).size(10).color(style::MUTED)].spacing(6).padding(16))
+        .style(style::card).width(Length::Fill).into()
+}
+
+fn pick<'a, T: PartialEq + Copy + 'a>(
+    all: &'a [T], current: T, label: fn(T) -> &'static str, msg: impl Fn(T) -> SettingsMessage,
+) -> Vec<El<'a>> {
+    all.iter().map(|&v| {
+        let b = button(text(label(v)).size(11)).on_press(msg(v));
+        if v == current { b.style(control::accent) } else { b.style(control::action) }
+    }.into()).collect()
+}
+
+/// The tearing policy and its pacing fallback. Tearing outranks pacing and the
+/// two are mutually exclusive in TIME: at any instant one section governs, or
+/// neither and the compositor default applies.
+fn flip_section<'a>(f: Config) -> El<'a> {
+    use compositor_configurator_settings_surface_tearhint::tearhint as d;
+    use compositor_configurator_settings_surface_tearlabel::tearlabel as t;
+
+    let t_sel = pick(&Selector::ALL, f.tearing.selector, t::selector_label,
+        move |v| SettingsMessage::SetFlip(Config { tearing: Tearing { selector: v, ..f.tearing }, ..f }));
+    let t_mode = pick(&TearMode::ALL, f.tearing.mode, t::tear_mode_label,
+        move |v| SettingsMessage::SetFlip(Config { tearing: Tearing { mode: v, ..f.tearing }, ..f }));
+    let t_excl = pick(&Exclusivity::ALL, f.tearing.exclusivity, t::exclusivity_label,
+        move |v| SettingsMessage::SetFlip(Config { tearing: Tearing { exclusivity: v, ..f.tearing }, ..f }));
+
+    let p_sel = pick(&Selector::ALL, f.pacing.selector, t::selector_label,
+        move |v| SettingsMessage::SetFlip(Config { pacing: Pacing { selector: v, ..f.pacing }, ..f }));
+    let p_mode = pick(&PaceMode::ALL, f.pacing.mode, t::pace_mode_label,
+        move |v| SettingsMessage::SetFlip(Config { pacing: Pacing { mode: v, ..f.pacing }, ..f }));
+    let p_excl = pick(&Exclusivity::ALL, f.pacing.exclusivity, t::exclusivity_label,
+        move |v| SettingsMessage::SetFlip(Config { pacing: Pacing { exclusivity: v, ..f.pacing }, ..f }));
+
+    column![
+        text("GRAPHICS — PACING").size(16).color(style::ACCENT),
+        text("Which windows the page flip follows, and whether it waits for the scan-out.")
+            .size(11).color(style::MUTED),
+        tag_section(f),
+        text("PAGE FLIP — TEARING").size(14).color(style::ACCENT),
+        field("WHEN", t_sel, d::selector_describe(f.tearing.selector)),
+        field("MODE", t_mode, d::tear_mode_describe(f.tearing.mode)),
+        rate_field(f, true),
+        field("EXCLUSIVITY", t_excl, d::exclusivity_describe(f.tearing.exclusivity)),
+        text("PAGE FLIP — PACING (fallback)").size(14).color(style::ACCENT),
+        text("Applies only while the tearing section above is not in force.")
+            .size(10).color(style::MUTED),
+        field("WHEN", p_sel, d::selector_describe(f.pacing.selector)),
+        field("MODE", p_mode, d::pace_mode_describe(f.pacing.mode)),
+        rate_field(f, false),
+        field("EXCLUSIVITY", p_excl, d::exclusivity_describe(f.pacing.exclusivity)),
+        text("EXCLUSIVITY FLOOR").size(14).color(style::ACCENT),
+        text("Shared by both sections: whichever one is in force, this is how slow \
+              the rest of the desktop may get while a target owns the cadence.")
+            .size(10).color(style::MUTED),
+        floor_field(f),
+        reset_row(f),
+    ].spacing(10).into()
+}
+
+/// Reset every control on this page at once.
+///
+/// The whole page is a single `Config`, so this is literally `Config::default()`
+/// — there is no per-field list here to drift out of sync when a field is added
+/// to the struct. Accented while anything differs, so it reads as "there is
+/// something to undo" rather than as a button that is always live.
+fn reset_row<'a>(f: Config) -> El<'a> {
+    let b = button(text("Reset to defaults").size(11))
+        .on_press(SettingsMessage::SetFlip(Config::default()));
+    let b = if f == Config::default() { b.style(control::action) } else { b.style(control::accent) };
+    field(
+        "DEFAULTS",
+        vec![b.into()],
+        "Restores tearing, pacing, target tagging and the exclusivity floor to \
+         their shipped values. Applies immediately, like every other control here.",
+    )
+}
+
+/// What counts as a "target" for the WHEN/EXCLUSIVITY rules below. A client can
+/// say so itself with `wp_tearing_control_v1`, but almost no game does, so the
+/// tag is also inferred from the process — which is a guess, hence the toggle.
+///
+/// Inference reads `/proc`, far too heavy to repeat per commit, so it resolves
+/// once when a window maps. That is why both balloons say "opened after": these
+/// switches cannot retag a window that is already on screen.
+fn tag_section<'a>(f: Config) -> El<'a> {
+    let toggle = toggler(f.tag.steam)
+        .on_toggle(move |v| SettingsMessage::SetFlip(Config { tag: Tagging { steam: v }, ..f }))
+        .style(control::toggler);
+    let steam = container(column![
+        row![text("AUTO-TAG STEAM APPS").color(style::MUTED).width(Length::Fill), toggle]
+            .align_y(Alignment::Center),
+        text("Treats a window as a target when it is a Steam title — a steam_app_* \
+              identity, Steam's launch environment, or an executable inside a Steam \
+              library. Steam's own windows are excluded. Applies to windows opened \
+              after the change.")
+            .size(10).color(style::MUTED),
+    ].spacing(6).padding(16)).style(style::card).width(Length::Fill);
+    let env = container(column![
+        text("Y5_TEARING=1").color(style::MUTED),
+        text("Always honoured, with or without the toggle above: any process started \
+              with this in its environment is a target, and so is anything it launches. \
+              Set it in a Steam launch command to tag one game, then reopen it. It \
+              cannot reach a title running under X11 — those all share the xwayland \
+              proxy's environment.")
+            .size(10).color(style::MUTED),
+    ].spacing(6).padding(16)).style(style::card).width(Length::Fill);
+    column![
+        text("TARGET TAGGING").size(14).color(style::ACCENT),
+        steam,
+        env,
+    ].spacing(10).into()
+}
+
+/// Rate: pick the KIND (uncapped / multiple of refresh / absolute FPS), then step
+/// the value. Kept as one control because the three are alternatives, not an
+/// enable plus a number.
+fn rate_field<'a>(f: Config, tearing_section: bool) -> El<'a> {
+    use compositor_configurator_settings_surface_tearhint::tearhint as d;
+    use compositor_configurator_settings_surface_tearlabel::tearlabel as t;
+    let cur = if tearing_section { f.tearing.rate } else { f.pacing.rate };
+    let put = move |r: Rate| {
+        if tearing_section {
+            SettingsMessage::SetFlip(Config { tearing: Tearing { rate: r, ..f.tearing }, ..f })
+        } else {
+            SettingsMessage::SetFlip(Config { pacing: Pacing { rate: r, ..f.pacing }, ..f })
+        }
+    };
+    let kind = |lbl: &'a str, r: Rate, on: bool| -> El<'a> {
+        let b = button(text(lbl).size(11)).on_press(put(r));
+        if on { b.style(control::accent) } else { b.style(control::action) }.into()
+    };
+    let mut choices: Vec<El<'a>> = vec![
+        kind("Uncapped", Rate::Uncapped, matches!(cur, Rate::Uncapped)),
+        kind("x refresh", Rate::Multiplier(2.0), matches!(cur, Rate::Multiplier(_))),
+        kind("FPS", Rate::Fps(60.0), matches!(cur, Rate::Fps(_))),
+    ];
+    let step = |delta: f32| match cur {
+        Rate::Multiplier(m) => Rate::Multiplier(m + delta * 0.5),
+        Rate::Fps(v) => Rate::Fps(v + delta * 10.0),
+        Rate::Uncapped => Rate::Uncapped,
+    };
+    if !matches!(cur, Rate::Uncapped) {
+        choices.push(button(text("-").size(11)).on_press(put(step(-1.0))).style(control::action).into());
+        choices.push(text(t::rate_label(cur)).size(11).color(style::ACCENT).into());
+        choices.push(button(text("+").size(11)).on_press(put(step(1.0))).style(control::action).into());
+    }
+    field("RATE", choices, d::rate_describe(cur))
+}
+
+/// The watchdog floor. Same control shape as [`rate_field`] because it is the
+/// same kind of quantity — a rate against this monitor's refresh — but it bounds
+/// the loop from BELOW: how slow the desktop may get while a target owns the
+/// cadence. One setting for both sections; there is one redraw loop to rescue.
+///
+/// No "Off" row, unlike [`rate_field`]: the rescue frames are what carry the
+/// cursor, the compositor's UI and the admitted client's frame callbacks while a
+/// gate is engaged, so turning them off is a hang rather than a setting. The
+/// stepper clamps at `FLOOR_MIN_FPS` and the model normalizes anything slower.
+fn floor_field<'a>(f: Config) -> El<'a> {
+    use compositor_configurator_settings_surface_tearhint::tearhint as d;
+    use compositor_configurator_settings_surface_tearlabel::tearlabel as t;
+    use compositor_model_environment_tearing_config::config::{FLOOR_DEFAULT, FLOOR_MIN_FPS};
+    let cur = f.floor;
+    let put = move |r: Rate| SettingsMessage::SetFlip(Config { floor: r, ..f });
+    let kind = |lbl: &'a str, r: Rate, on: bool| -> El<'a> {
+        let b = button(text(lbl).size(11)).on_press(put(r));
+        if on { b.style(control::accent) } else { b.style(control::action) }.into()
+    };
+    let mut choices: Vec<El<'a>> = vec![
+        kind("x refresh", Rate::Multiplier(1.0), matches!(cur, Rate::Multiplier(_))),
+        kind("FPS", Rate::Fps(30.0), matches!(cur, Rate::Fps(_))),
+    ];
+    // A `Multiplier` floor is clamped against the live mode, not here, so the
+    // stepper only guards the absolute form.
+    let step = |delta: f32| match cur {
+        Rate::Multiplier(m) => Rate::Multiplier((m + delta * 0.25).max(0.25)),
+        Rate::Fps(v) => Rate::Fps((v + delta * 5.0).max(FLOOR_MIN_FPS)),
+        Rate::Uncapped => FLOOR_DEFAULT,
+    };
+    choices.push(button(text("-").size(11)).on_press(put(step(-1.0))).style(control::action).into());
+    choices.push(text(t::rate_label(cur)).size(11).color(style::ACCENT).into());
+    choices.push(button(text("+").size(11)).on_press(put(step(1.0))).style(control::action).into());
+    field("FLOOR", choices, d::floor_describe(cur))
 }
 
 /// The INPUT module: a sub-tab bar (Mouse & Touchpad / Touch / Keyboard) over the
@@ -203,7 +445,7 @@ fn touch_input<'a>(
 
 #[allow(clippy::too_many_arguments)]
 pub fn render<'a>(
-    tab: Tab, dirty: bool, cursor_sensitivity: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, env: &'a Environment,
+    tab: Tab, dirty: bool, cursor_sensitivity: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, fractional_invisible: &'a str, flip: Config, env: &'a Environment,
     displays: &'a [DisplayInfo], touch_devices: &'a [TouchDeviceInfo], active_edid: &'a str, selected_display: &'a str,
     selected_mode: Option<ModeInfo>, pending: Option<&'a Applied>,
     staged_active: Option<&'a (String, Option<ModeInfo>)>, confirming: bool,
@@ -220,30 +462,39 @@ pub fn render<'a>(
     pen: &'a PenConfig,
     pen_capturing: bool,
 ) -> El<'a> {
-    let body: El<'a> = match tab {
-        Tab::Display => display::build(displays, touch_devices, active_edid, selected_display, selected_mode, confirming, pending, staged_active, layout, selected_placement, cyclic, selected_inactive),
-        Tab::Audio => audio_tab::build(audio),
-        Tab::Input(sub) => input_body(sub, cursor_sensitivity, natural, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, keys, touch_devices, displays, pen, pen_capturing),
-        Tab::Network => network_tab::build(wifi, wifi_selected, wifi_password),
-        Tab::Bluetooth => bluetooth_tab::build(bt),
-        Tab::Performance => performance(fps, show_fps, release_hidden),
-        Tab::System => environment::build(env, devices),
-        Tab::Misc => misc::build(protocol_foreign, protocol_foreign_all_worlds),
-        Tab::Language => language::build(keyboard, catalog, lang_picker_open, lang_search, ime),
-        Tab::World => world::build(shaders, shader_current, shader_props, preview_source, shader_status, invert_pan_x, invert_pan_y, srgb),
-        Tab::Graphics => graphics::build(graphics),
-    };
-    // Each section still scrolls its own lists vertically. The content area holds a
-    // MINIMUM width (`MIN_CONTENT`) so panes never squish/overflow on a narrow window;
-    // a horizontal scrollbar appears when the window is narrower than that floor.
-    // (iced has no `min_width`, so a fixed floor + horizontal scroll is the mechanism.)
+    // Each section still scrolls its own lists vertically. The content pane is
+    // RESPONSIVE: it fills the available width up to `MAX_CONTENT` — a readability
+    // cap, since the label-left/control-right (space-between) rows get absurd gaps
+    // on wide monitors — staying anchored to the left (next to the sidebar) when
+    // there's more room than that. It never shrinks below `MIN_CONTENT`: iced has
+    // no `min_width`, so a fixed floor + horizontal scroll is the narrow-window
+    // mechanism.
     const MIN_CONTENT: f32 = 620.0;
-    let content = column![body].spacing(16).height(Length::Fill);
-    let pane = container(content).width(Length::Fixed(MIN_CONTENT)).height(Length::Fill).padding(24);
-    let scroller = scrollable(pane)
-        .direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::default()))
-        .width(Length::Fill)
-        .height(Length::Fill);
-    let main = row![sidebar(tab), scroller].height(Length::Fill);
+    const MAX_CONTENT: f32 = 900.0;
+    let content_area: El<'a> = responsive(move |avail| {
+        let body: El<'a> = match tab {
+            Tab::Display => display::build(displays, touch_devices, active_edid, selected_display, selected_mode, confirming, pending, staged_active, layout, selected_placement, cyclic, selected_inactive),
+            Tab::Audio => audio_tab::build(audio),
+            Tab::Input(sub) => input_body(sub, cursor_sensitivity, natural, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, keys, touch_devices, displays, pen, pen_capturing),
+            Tab::Network => network_tab::build(wifi, wifi_selected, wifi_password),
+            Tab::Bluetooth => bluetooth_tab::build(bt),
+            Tab::Performance => performance(fps, show_fps, release_hidden, fractional_invisible),
+            Tab::System => environment::build(env, devices),
+            Tab::Misc => misc::build(protocol_foreign, protocol_foreign_all_worlds),
+            Tab::Language => language::build(keyboard, catalog, lang_picker_open, lang_search, ime),
+            Tab::World => world::build(shaders, shader_current, shader_props, preview_source, shader_status, invert_pan_x, invert_pan_y, srgb),
+            Tab::Graphics(sub) => graphics_body(sub, graphics, flip),
+        };
+        let content = column![body].spacing(16).height(Length::Fill);
+        let pane_w = avail.width.clamp(MIN_CONTENT, MAX_CONTENT);
+        let pane = container(content).width(fixed(pane_w)).height(Length::Fill).padding(24);
+        scrollable(pane)
+            .direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::default()))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    })
+    .into();
+    let main = row![sidebar(tab), content_area].height(Length::Fill);
     container(column![titlebar(dirty), main]).width(Length::Fill).height(Length::Fill).style(style::backdrop).into()
 }

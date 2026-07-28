@@ -313,7 +313,7 @@ impl System for CameraSystem {
                 camera.transform.zoom = zoom;
                 // Publish to the kernel side-channel so the Vulkan renderer can
                 // zoom-weight the anti-aliasing knobs (world-AA graphics config).
-                compositor_developer_stats_registry_base::base::set_world_zoom(zoom);
+                compositor_model_stats_registry_base::base::set_world_zoom(zoom);
                 cx.channels.send(&CAMERA_ZOOMED_TX, CameraZoomed { zoom });
             }
             CamCmd::Pan(screen_x, screen_y, do_pan) => {

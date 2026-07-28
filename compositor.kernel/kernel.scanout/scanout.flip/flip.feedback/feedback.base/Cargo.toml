@@ -4,7 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
-compositor_developer_debug_instance_record.workspace = true
+compositor_model_debug_instance_record.workspace = true
 bitflags.workspace = true
 smithay.workspace = true
 
@@ -12,7 +12,7 @@ smithay.workspace = true
 compositor_kernel_scanout_surface_output_base.workspace = true
 
 # Diagnostics registry (developer Statistics tab) — direct cross-workspace path dep.
-compositor_developer_stats_registry_base = { workspace = true }
+compositor_model_stats_registry_base = { workspace = true }
 
 [lib]
 path = "lib.rs"

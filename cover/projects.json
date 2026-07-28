@@ -4,8 +4,8 @@
     "A 'project' is a SET of top-level Cargo workspace roots. Coverage for a",
     "source file is attributed to exactly the project whose workspace OWNS it",
     "(cargo metadata --no-deps), so a cross-workspace path dependency stays with",
-    "its owner (e.g. compositor.developer links support.action, but support.action",
-    "belongs to 'compositor', not 'dev').",
+    "its owner (e.g. every compositor root links compositor.model, but the model",
+    "crates belong to 'model', not 'compositor').",
     "",
     "roots: an explicit list of repo-relative workspace roots, OR the string '*'",
     "meaning 'every discovered workspace root minus .exclude'. '*' keeps the",
@@ -17,14 +17,14 @@
     "installer": {
       "roots": ["compositor.installer/installer.process"]
     },
-    "dev": {
-      "roots": ["compositor.developer"]
+    "model": {
+      "roots": ["compositor.model"]
     },
     "compositor": {
       "roots": "*",
       "exclude": [
         "compositor.installer/installer.process",
-        "compositor.developer"
+        "compositor.model"
       ]
     }
   }

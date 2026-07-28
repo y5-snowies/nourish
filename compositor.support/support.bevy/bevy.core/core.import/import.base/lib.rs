@@ -5,7 +5,7 @@ use std::os::fd::AsRawFd;
 
 use compositor_support_bevy_core_context_base::WgpuVulkanContext;
 use compositor_support_bevy_core_fault_base::WgpuImportError;
-use compositor_developer_debug_instance_record::info;
+use compositor_model_debug_instance_record::info;
 use smithay::backend::allocator::Buffer;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use wgpu::TextureUses;

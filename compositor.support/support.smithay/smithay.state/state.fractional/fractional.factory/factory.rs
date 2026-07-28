@@ -22,10 +22,10 @@ where
     return Fractional {
         state: fractional_manager_state,
         cfg: FractionalScaleConfig::default(),
-        last_observed_target: None,
+        last_observed: None,
         cycle: None,
-        pending_emit: None,
-        last_emitted_scale: None,
+        armed: false,
         last_emit_at: None,
+        last_emitted_scale: None,
     };
 }

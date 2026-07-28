@@ -156,12 +156,12 @@ pub struct Orchestrator {
     /// disk whenever the settings window opens, and written live by the settings
     /// handler (which then persists it). Read per-event by motion.rs / axis.rs;
     /// reachable from both the input path and the UI handler via `&mut Loop`.
-    pub preference: compositor_developer_environment_preference_base::base::Preference,
+    pub preference: compositor_model_environment_preference_base::base::Preference,
     /// Live keyboard-shortcut overrides (keybinding.json). Seeded at startup,
     /// refreshed whenever the settings window opens, written by the settings
     /// handler. Read by the overlay shortcut path on every keypress (parse-or-
     /// default). The inline-reloaded counterpart to the read-once settings.
-    pub keybinding: compositor_developer_environment_keybinding_base::base::KeyBindings,
+    pub keybinding: compositor_model_environment_keybinding_base::base::KeyBindings,
     // Cursor-teleport state moved OUT of the Orchestrator into `driver.output` storage
     // tokens: the layout + current placement (`TELEPORT_LAYOUT` / `CURSOR_PLACEMENT`, in
     // kernel storage) and the suppression lock (`TELEPORT_SUPPRESS`, a refcount in world
@@ -182,13 +182,6 @@ pub static GPU_BINDING: compositor_support_system_storage_token_base::base::Toke
     compositor_support_system_storage_token_base::base::Token::new();
 pub static GPU_BINDING_MUT: compositor_support_system_storage_token_base::base::TokenMut<Option<Rc<RefCell<StateDRMBinding>>>> =
     compositor_support_system_storage_token_base::base::TokenMut::new(&GPU_BINDING);
-
-/// TEMPORARY (sanity test): the world ids behind the Super+Alt+1/2/3 switch
-/// shortcuts — slot 0 is the main world, 1/2 are pre-created spatial test worlds.
-/// Driver data so the overlay shortcut can resolve them. Removed once real world
-/// selection lands.
-pub static TEST_WORLDS: compositor_support_system_storage_token_base::base::Token<[uuid::Uuid; 3]> =
-    compositor_support_system_storage_token_base::base::Token::new();
 
 pub enum Status {
     Running,
@@ -235,14 +228,14 @@ impl Orchestrator {
 
         // Live user preferences (cursor speed, touch natural-scroll) loaded fresh
         // from preferences.json to seed the runtime cells below.
-        let prefs = compositor_developer_environment_preference_base::base::load();
+        let prefs = compositor_model_environment_preference_base::base::load();
         // Seed the process-global default background shader so `background.two`'s
         // system (no preference access in `update()`) can resolve it per world.
-        compositor_developer_stats_registry_base::base::set_background_shader_default(
+        compositor_model_stats_registry_base::base::set_background_shader_default(
             prefs.background_shader.clone(),
         );
         // Keyboard-shortcut overrides loaded fresh from keybinding.json.
-        let keybinding = compositor_developer_environment_keybinding_base::base::load();
+        let keybinding = compositor_model_environment_keybinding_base::base::load();
 
         // Audio/media are driver data: stored in the kernel/driver storage by
         // token, not as Orchestrator fields.
@@ -273,6 +266,13 @@ impl Orchestrator {
 
         // Selection-overlay driver: the align/distribute toolbar instance.
         kernel_data.insert(&compositor_orchestration_driver_selection_base::base::SELECTION_OVERLAY, Default::default());
+
+        // Overview overlay: the session-wide last-active tab (the overview slot
+        // itself is per-world; only the tab preference crosses worlds).
+        kernel_data.insert(
+            &compositor_y5_overview_state_base::base::OVERVIEW_TAB,
+            compositor_y5_overview_state_base::base::Tab::Layout,
+        );
 
         // On-screen-keyboard driver state (shown/pinned/mods/placement).
         kernel_data.insert(&compositor_y5_osk_board_state::state::OSK, Default::default());
@@ -413,6 +413,26 @@ impl Orchestrator {
             .storage_mut()
             .get_mut(&compositor_support_world_host_space_base::base::SPACE_MUT)
             .inner
+    }
+
+    /// The space of every world EXCEPT the hosted (spawn-target) one. Those
+    /// worlds' windows are invisible by definition (nothing renders them), so
+    /// the per-window fractional scale can publish scale 1 to them under the
+    /// `fractional_invisible` optimized/full strategies.
+    pub fn other_world_spaces(&self) -> Vec<&compositor_support_smithay_state_space_base::state::SpaceState> {
+        let hosted = self.worlds.spawn_target();
+        self.worlds
+            .ids()
+            .into_iter()
+            .filter(|&id| id != hosted)
+            .filter_map(|id| {
+                self.worlds
+                    .get(id)
+                    .storage()
+                    .try_get(&compositor_support_world_host_space_base::base::SPACE)
+            })
+            .map(|w| &w.inner)
+            .collect()
     }
 
     /// The [`OutputKey`](compositor_orchestration_driver_output_base::base::OutputKey)

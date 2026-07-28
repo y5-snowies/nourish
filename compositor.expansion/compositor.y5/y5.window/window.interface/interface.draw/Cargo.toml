@@ -18,8 +18,9 @@ bitflags = { workspace = true }
 smithay = { workspace = true }
 compositor_orchestration_core_state_base.workspace = true
 compositor_y5_camera_transform_translate.workspace = true
-compositor_developer_environment_config_base.workspace = true
+compositor_model_environment_config_base.workspace = true
 compositor_y5_canvas_draw_context.workspace = true
 compositor_y5_window_interface_record.workspace=true
+uuid.workspace = true
 [lib]
 path = "lib.rs"

@@ -35,6 +35,7 @@ pub fn embed_open(state: &mut Loop) {
         bevy: None,
         surface: None,
         time: Instant::now(),
+        step: Instant::now(),
     });
 }
 

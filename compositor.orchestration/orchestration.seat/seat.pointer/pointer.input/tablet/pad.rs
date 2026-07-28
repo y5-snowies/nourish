@@ -4,7 +4,7 @@
 //! `zwp_tablet_pad_v2` button to the focused client; a bound one runs its action
 //! (toggle hand mode / open touch menu / key combo / click) and is NOT forwarded.
 
-use compositor_developer_environment_preference_base::base::PenAction;
+use compositor_model_environment_preference_base::base::PenAction;
 use compositor_orchestration_core_state_base::Loop;
 use crate::tablet::action;
 

@@ -8,7 +8,7 @@ smithay = { workspace = true }
 compositor_y5_window_draw_element = { workspace = true }
 compositor_y5_canvas_draw_element = { workspace = true }
 # Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 
 [lib]
 path = "lib.rs"

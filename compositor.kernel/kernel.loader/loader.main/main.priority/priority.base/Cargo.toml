@@ -1,0 +1,18 @@
+[package]
+name = "compositor_kernel_loader_main_priority_base"
+version = "0.0.1"
+edition = "2024"
+description = "y5 — a Wayland compositor with an infinite, zoomable canvas (the y5_compositor binary). Publicly branded Nourish."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/y5-snowies/nourish"
+homepage = "https://nourish.snowies.com"
+readme = "../../../../../README.md"
+
+[dependencies]
+libc = { workspace = true }
+zbus = { workspace = true }
+# Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+compositor_model_debug_instance_record = { workspace = true }
+
+[lib]
+path = "lib.rs"

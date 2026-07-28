@@ -12,7 +12,9 @@ pub fn default_presets(base: &BaseConfig, capture_encoder: &str) -> Vec<Preset> 
     let env = Env {
         renderer: base.renderer.clone(),
         renderer_fallback: base.renderer_fallback,
-        renderer_sync: String::new(),
+        // The KMS IN_FENCE path (`config.base::RENDERER_SYNC_DEFAULT`); a literal
+        // here only because this crate is otherwise pure `parse.model`.
+        renderer_sync: "infence".to_string(),
         hdr: false,
         depth: base.depth,
         vrr: base.vrr,

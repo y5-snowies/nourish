@@ -6,7 +6,7 @@ use compositor_support_library_input_keyboard_base::keyboard::handler::ShortcutH
 use compositor_support_library_input_keyboard_base::keyboard::key::Key;
 use compositor_support_library_input_keyboard_base::shortcut;
 use compositor_support_library_input_keyboard_format::format;
-use compositor_developer_environment_keybinding_base::base::{KeyBindings, KeyRow};
+use compositor_model_environment_keybinding_base::base::{KeyBindings, KeyRow};
 
 use compositor_orchestration_core_state_base::Loop;
 
@@ -51,6 +51,13 @@ struct Bind {
     id: &'static str,
     label: &'static str,
     default: KeyCombo,
+    /// Keep this one out of the settings Keys tab.
+    ///
+    /// For developer diagnostics: they are live, and still rebindable or
+    /// disableable through `keybinding.json` by id, but listing them would put
+    /// log-dumping tools in front of every user in a panel that is otherwise all
+    /// window management.
+    hidden: bool,
     action: Box<dyn Fn(&mut Loop) -> bool>,
 }
 
@@ -59,8 +66,12 @@ struct Bind {
 /// to the settings Keys tab.
 fn bindings() -> Vec<Bind> {
     vec![
-        Bind { id: "sleep", label: "Sleep", default: shortcut!(Super + Alt + L), action: Box::new(|s| { sleep(s); true }) },
-        Bind { id: "world_picker", label: "Open world picker", default: shortcut!(Super + K), action: Box::new(|s| { compositor_y5_picker_interface_entry::entry::toggle(s); true }) },
+        Bind { id: "sleep", label: "Sleep", default: shortcut!(Super + Alt + L), hidden: false, action: Box::new(|s| { sleep(s); true }) },
+        Bind { id: "world_picker", label: "Open world picker", default: shortcut!(Super + K), hidden: false, action: Box::new(|s| { compositor_y5_picker_interface_entry::entry::toggle(s); true }) },
+        // Diagnostic: prints the focused window's process tree (and its ancestors)
+        // to the log. Reads /proc, so it is deliberately on a key rather than on
+        // any lifecycle path. `hidden` — live, but not listed in the Keys tab.
+        Bind { id: "meta_dump", label: "Dump focused window metadata", default: shortcut!(Super + Alt + Shift + I), hidden: true, action: Box::new(|s| { compositor_y5_window_interface_dump::dump::focused_meta(s); true }) },
         // (Settings has no global shortcut — reachable only via the overview Settings tab.)
         // Removed (per request): world-switch test shortcuts, Escape/cancel-picker,
         // VT switches, and all sink/media shortcuts — deactivated AND not listed.
@@ -187,10 +198,13 @@ pub fn fixed() -> Vec<KeyRow> {
     ]
 }
 
-/// All shortcuts as `(id, label, default, effective)` rows for the settings Keys tab.
+/// All shortcuts as `(id, label, default, effective)` rows for the settings Keys
+/// tab. `hidden` bindings are omitted — they still run and can still be rebound
+/// by id in `keybinding.json`, they are just not advertised.
 pub fn registry(overrides: &KeyBindings) -> Vec<KeyRow> {
     bindings()
         .into_iter()
+        .filter(|b| !b.hidden)
         .map(|b| {
             let default = format::combo_string(&b.default);
             let combo = overrides.combo_for(b.id).map(str::to_string).unwrap_or_else(|| default.clone());
@@ -238,26 +252,3 @@ fn sleep(state: &mut Loop) {
     state.inner.ping_control();
 }
 
-/// TEMPORARY (sanity test): make test-world `slot` (0=main, 1/2=pre-created
-/// spatial worlds) the active + spawn-target world, exercising world delegation.
-fn switch_world(state: &mut Loop, slot: usize) -> bool {
-    let target = state.inner.kernel.get(&compositor_orchestration_core_state_base::state::TEST_WORLDS)[slot];
-    // Capture all outputs + positions before switch (multi-output: map every one
-    // into the target world's fresh Space at its real position, not just the first).
-    let outputs: Vec<(smithay::output::Output, smithay::utils::Point<i32, smithay::utils::Logical>)> =
-        state.inner.space_state().state.outputs().map(|o| {
-            let loc = state.inner.space_state().state.output_geometry(o).map(|g| g.loc).unwrap_or_default();
-            (o.clone(), loc)
-        }).collect();
-
-    state.inner.worlds.switch(target, &state.inner.kernel);
-    state.inner.set_spawn_target_world(target);
-    info!("world switch -> slot {slot} (world {target})");
-
-    if state.inner.space_state().state.outputs().next().is_none() {
-        for (output, loc) in &outputs {
-            state.inner.space_state_mut().state.map_output(output, *loc);
-        }
-    }
-    true
-}

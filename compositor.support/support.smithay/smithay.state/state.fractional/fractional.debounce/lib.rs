@@ -18,75 +18,61 @@ pub fn rate_limit_clear(cfg: &FractionalScaleConfig, last_emit_at: Option<Instan
 
 /// Result of a single debounce tick.
 pub struct TickResult {
-    pub last_observed_target: Option<f64>,
+    pub last_observed: Option<u64>,
     pub cycle: Option<DebounceCycle>,
-    pub pending_emit: Option<f64>,
-    pub last_emitted_scale: Option<f64>,
+    pub armed: bool,
     pub last_emit_at: Option<Instant>,
-    pub emit: Option<f64>,
+    pub fire: bool,
 }
 
+/// One debounce tick over the PENDING EMIT SET, fingerprinted by `pending`
+/// (`None` == nothing pending).
+///
+/// Observing the batch itself rather than a proxy signal is what makes ONE cycle
+/// cover every source of churn: a zoom ease crossing lattice rungs, a drift pan
+/// pushing windows off the pane, a window moving to a differently-zoomed pane.
+/// Any change to the fingerprint restarts the quiet window; the tick fires once the
+/// batch has held steady for `debounce_quiet`, or unconditionally at `debounce_max`,
+/// subject to `min_interval`. Firing clears the cycle and the caller submits the
+/// whole batch at once.
 pub fn run_tick(
     cfg: &FractionalScaleConfig,
-    last_observed_target: Option<f64>,
+    last_observed: Option<u64>,
     cycle: Option<DebounceCycle>,
-    pending_emit: Option<f64>,
-    last_emitted_scale: Option<f64>,
+    armed: bool,
     last_emit_at: Option<Instant>,
-    raw_zoom: f64,
+    pending: Option<u64>,
 ) -> TickResult {
-    let zoom = raw_zoom + cfg.auto_increment;
     let now = Instant::now();
-    let target = snap(cfg, zoom);
-
-    let changed = match last_observed_target {
-        None => false,
-        Some(prev) => (prev - target).abs() >= cfg.step * 0.5,
+    let Some(pending) = pending else {
+        return TickResult { last_observed: None, cycle: None, armed: false, last_emit_at, fire: false };
     };
-    let last_observed_target = Some(target);
 
     let mut cycle = cycle;
-    let mut pending_emit = pending_emit;
-
-    if changed {
-        match &mut cycle {
-            Some(c) => { c.quiet_after = now + cfg.debounce_quiet; }
-            None => {
-                cycle = Some(DebounceCycle {
-                    started_at: now,
-                    quiet_after: now + cfg.debounce_quiet,
-                });
-            }
-        }
-        if pending_emit.is_some() {
-            pending_emit = Some(target);
-        }
+    if last_observed != Some(pending) {
+        // `started_at` survives the restart, so `debounce_max` still bounds a batch
+        // that keeps churning.
+        let started_at = cycle.map_or(now, |c| c.started_at);
+        cycle = Some(DebounceCycle { started_at, quiet_after: now + cfg.debounce_quiet });
     }
 
+    // `armed` is sticky once set: a batch that changes again after the cycle
+    // elapsed still fires at the next clear interval rather than restarting.
+    let mut armed = armed;
     if let Some(c) = cycle {
-        let quiet_fired = now >= c.quiet_after;
-        let max_fired = now.duration_since(c.started_at) >= cfg.debounce_max;
-        if quiet_fired || max_fired {
-            if last_emitted_scale != Some(target) {
-                pending_emit = Some(target);
-            }
+        if now >= c.quiet_after || now.duration_since(c.started_at) >= cfg.debounce_max {
+            armed = true;
             cycle = None;
         }
     }
 
-    let mut emit = None;
-    let mut last_emitted_scale = last_emitted_scale;
+    let mut fire = false;
     let mut last_emit_at = last_emit_at;
-    let mut pending_emit = pending_emit;
-
-    if let Some(scale) = pending_emit {
-        if rate_limit_clear(cfg, last_emit_at, now) {
-            last_emitted_scale = Some(scale);
-            last_emit_at = Some(now);
-            pending_emit = None;
-            emit = Some(scale);
-        }
+    if armed && rate_limit_clear(cfg, last_emit_at, now) {
+        armed = false;
+        last_emit_at = Some(now);
+        fire = true;
     }
 
-    TickResult { last_observed_target, cycle, pending_emit, last_emitted_scale, last_emit_at, emit }
+    TickResult { last_observed: Some(pending), cycle, armed, last_emit_at, fire }
 }

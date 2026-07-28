@@ -30,9 +30,23 @@ use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::renderer::{ContextId, DebugFlags, TextureFilter};
 use smithay::backend::vulkan::PhysicalDevice;
 use std::collections::HashMap;
-use compositor_developer_stats_registry_base::base as stats;
+use compositor_model_stats_registry_base::base as stats;
 
 use crate::texture::VulkanTexture;
+
+/// One output dmabuf imported as a colour attachment and KEPT, rather than
+/// re-imported and destroyed every frame. Keyed by the dmabuf's pointer
+/// identity, so a swapchain buffer reappearing next frame reuses its `VkImage` —
+/// which is also what lets the composite preserve the undamaged remainder,
+/// since the driver still tracks that image's layout.
+pub(super) struct CachedTarget {
+    pub(super) image: vk::Image,
+    pub(super) memory: vk::DeviceMemory,
+    pub(super) view: vk::ImageView,
+    pub(super) format: vk::Format,
+    pub(super) width: u32,
+    pub(super) height: u32,
+}
 
 /// A Vulkan renderer implementing Smithay's `Renderer`/`Frame` family.
 ///
@@ -82,9 +96,21 @@ pub struct VulkanRenderer {
     /// The display's DRM device fd, set on the native backend (None under
     /// winit). Its presence selects the native KMS IN_FENCE path.
     pub(super) drm_fd: Option<smithay::backend::drm::DrmDeviceFd>,
-    /// Opt in to the native KMS IN_FENCE path via `COMPOSITOR_RENDERER_SYNC=infence`.
-    /// DEFAULT IS OFF (synchronous `device_wait_idle` submit).
+    /// The native KMS IN_FENCE path. DEFAULT IS ON — only
+    /// `COMPOSITOR_RENDERER_SYNC=sync` turns it off (synchronous
+    /// `device_wait_idle` submit); the name is historical, from when it was the
+    /// opt-in.
     pub(super) native_fence_optin: bool,
+    /// `infence_fallback_sync`: run the first-frame fence self-test and degrade
+    /// to synchronous mode if the exported fence never signals. Plain `infence`
+    /// performs NO validation — the raw path, so a broken fence stack can be
+    /// observed behaving as it actually does.
+    pub(super) fence_fallback_optin: bool,
+    /// One exported sync_file has been observed to actually signal (first-frame
+    /// self-test, `infence_fallback_sync` only). Until then each export is
+    /// validated; a dud fence flips `native_fence_optin` off permanently
+    /// instead of freezing the commit.
+    pub(super) fence_validated: bool,
     /// Throttle for the per-frame native-fence-export warning (once/min).
     pub(super) last_fence_warn: Option<std::time::Instant>,
     /// Post-scene capture targets for THIS frame: the registry's entry dmabufs to
@@ -103,6 +129,44 @@ pub struct VulkanRenderer {
     pub(super) downscale: TextureFilter,
     pub(super) upscale: TextureFilter,
     pub(super) context_id: ContextId<VulkanTexture>,
+    /// Render-target objects parked by `VulkanFramebuffer::drop` — the GPU may
+    /// still be writing to them (native IN_FENCE path). Destroyed by
+    /// `drain_retired` at points where the using frame is provably complete.
+    pub(super) retired: std::sync::Arc<std::sync::Mutex<Vec<crate::frame::RetiredTarget>>>,
+    /// Arc pins for every texture the frame currently being recorded samples
+    /// (pushed by `render_texture_from_to`), moved to `in_flight_textures` at
+    /// submit — so a client texture whose last other handle drops mid-flight
+    /// (window close) isn't destroyed while the GPU still reads it.
+    pub(super) pinned_textures: Vec<crate::texture::VulkanTexture>,
+    /// The previously submitted frame's texture pins; dropped at the drain
+    /// point once that frame has provably completed.
+    pub(super) in_flight_textures: Vec<crate::texture::VulkanTexture>,
+    /// Live scanout-target imports, keyed by dmabuf identity. Entries whose
+    /// dmabuf has died (an output resize/mode change retires its whole
+    /// swapchain) are reaped at the drain point in `submit_frame`. Membership is
+    /// also the record of which buffers hold one of our composites, which is
+    /// what `bind` reads to decide whether the target can be acquired
+    /// content-preserving or must be discarded and fully cleared.
+    pub(super) target_cache: HashMap<smithay::backend::allocator::dmabuf::WeakDmabuf, CachedTarget>,
+    /// Sampled dmabuf imports kept across frames, keyed by source dmabuf
+    /// identity. The `Arc` inside `VulkanTexture` owns the image/memory/view, so
+    /// an entry dropped here is destroyed only once every other handle
+    /// (including this frame's `pinned_textures`) is gone.
+    pub(super) import_cache:
+        HashMap<smithay::backend::allocator::dmabuf::WeakDmabuf, VulkanTexture>,
+    /// Textures served from `import_cache` since the last submit. Their producer
+    /// (iced's wgpu, a client) may have written to the underlying dmabuf since we
+    /// last sampled it, so the frame that samples them opens with one batched
+    /// availability barrier — the in-command-buffer replacement for the
+    /// per-import `transition_to_sampled` submit+fence the cache skips.
+    ///
+    /// Holds `VulkanTexture` PINS, not bare `vk::Image`, and is deduped on push.
+    /// Scene building imports even on frames that never submit (smithay's damage
+    /// tracker early-returns before `render()` when nothing changed — the common
+    /// idle case), so this list both outlives individual frames and must not grow
+    /// unbounded: the pin keeps a since-evicted image valid, and the dedup bounds
+    /// the length by the number of distinct live surfaces.
+    pub(super) pending_acquires: Vec<VulkanTexture>,
 }
 
 impl std::fmt::Debug for VulkanRenderer {
@@ -119,14 +183,74 @@ impl VulkanRenderer {
         self.context_id.clone()
     }
 
-    /// Provide the display's DRM device fd (native backend). With the IN_FENCE
-    /// opt-in (`COMPOSITOR_RENDERER_SYNC=infence`) its presence switches
-    /// `finish()` to the KMS IN_FENCE path; otherwise the default synchronous
+    /// Destroy retired render-target objects. Call ONLY where the frames that
+    /// used them are provably complete: after the pre-record `frame_fence`
+    /// wait (native path), after a `device_wait_idle`, or at renderer drop.
+    pub(super) fn drain_retired(&self) {
+        let mut retired = match self.retired.lock() {
+            Ok(list) => list,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        for target in retired.drain(..) {
+            unsafe {
+                if target.view != vk::ImageView::null() {
+                    self.dev.device.destroy_image_view(target.view, None);
+                }
+                if target.image != vk::Image::null() {
+                    self.dev.device.destroy_image(target.image, None);
+                }
+                if target.memory != vk::DeviceMemory::null() {
+                    self.dev.device.free_memory(target.memory, None);
+                }
+            }
+        }
+    }
+
+    /// Destroy one cached scanout-target import. Callers must be at a point
+    /// where the frame that last used it has provably completed.
+    pub(super) fn destroy_target(dev: &VulkanDevice, t: &CachedTarget) {
+        unsafe {
+            dev.device.destroy_image_view(t.view, None);
+            dev.device.destroy_image(t.image, None);
+            dev.device.free_memory(t.memory, None);
+        }
+    }
+
+    /// Drop cache entries whose source dmabuf has been freed — an output resize
+    /// or mode change retires its whole swapchain; a surface resize or release
+    /// mints a new backing buffer. Same safety precondition as
+    /// [`drain_retired`], and called from the same place.
+    ///
+    /// Dropping an `import_cache` entry only releases OUR handle: a texture this
+    /// frame still samples stays alive through its `pinned_textures` pin, so
+    /// this cannot free something the GPU is reading. `target_cache` entries own
+    /// their objects outright, hence the explicit destroy.
+    pub(super) fn reap_targets(&mut self) {
+        self.import_cache.retain(|w, _| w.upgrade().is_some());
+        let dead: Vec<_> = self
+            .target_cache
+            .keys()
+            .filter(|w| w.upgrade().is_none())
+            .cloned()
+            .collect();
+        for key in dead {
+            if let Some(t) = self.target_cache.remove(&key) {
+                Self::destroy_target(&self.dev, &t);
+            }
+        }
+    }
+
+    /// Provide the display's DRM device fd (native backend). Its presence is
+    /// what switches `finish()` to the KMS IN_FENCE path — unless
+    /// `COMPOSITOR_RENDERER_SYNC=sync` opted out, in which case the synchronous
     /// submit is kept.
     pub fn set_drm_fd(&mut self, fd: smithay::backend::drm::DrmDeviceFd) {
         self.drm_fd = Some(fd);
         if self.native_fence_optin {
+            info!("sync mode: native KMS IN_FENCE (sync_file export, no per-frame device_wait_idle)");
             stats::set_sync_mode("native KMS IN_FENCE (sync_file)");
+        } else {
+            info!("sync mode: synchronous device_wait_idle (renderer_sync == \"sync\")");
         }
     }
 
@@ -153,8 +277,8 @@ impl VulkanRenderer {
         self.hdr_enabled
     }
 
-    /// True when the native KMS IN_FENCE path should be used: explicitly opted in
-    /// (`COMPOSITOR_RENDERER_SYNC=infence`) and a DRM fd is present (native).
+    /// True when the native KMS IN_FENCE path should be used: not opted out of
+    /// (`COMPOSITOR_RENDERER_SYNC=sync`) and a DRM fd is present (native).
     pub(super) fn use_native_fence(&self) -> bool {
         self.native_fence_optin && self.drm_fd.is_some()
     }
@@ -164,6 +288,16 @@ impl Drop for VulkanRenderer {
     fn drop(&mut self) {
         unsafe {
             let _ = self.dev.device.device_wait_idle();
+            self.drain_retired();
+            // Scanout-target imports: the framebuffers no longer own these.
+            for (_, t) in self.target_cache.drain() {
+                Self::destroy_target(&self.dev, &t);
+            }
+            // Drop texture pins BEFORE destroy_device below — `TextureInner`
+            // destroys through its own device clone on last-handle drop.
+            self.in_flight_textures.clear();
+            self.pinned_textures.clear();
+            self.import_cache.clear();
             // Capture-target imports + the reusable SHM staging buffer.
             self.capture_cache.destroy(&self.dev);
             self.shm_staging.destroy(&self.dev);

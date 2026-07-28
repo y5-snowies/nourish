@@ -17,8 +17,12 @@ pub fn toggle(state: &mut Loop) {
     let now = !state.inner.overview().visible;
     state.inner.overview_mut().visible = now;
     if now {
-        // Reopen on the last-used tab (persists for the session), freshly scrolled.
-        state.inner.overview_mut().scroll = 0.0;
+        // Reopen on the SESSION's last-used tab, freshly scrolled — retained
+        // across world switches via the kernel `OVERVIEW_TAB` token.
+        let tab = *state.inner.kernel.get(&compositor_y5_overview_state_base::base::OVERVIEW_TAB);
+        let overview = state.inner.overview_mut();
+        overview.scroll = 0.0;
+        overview.tab = tab;
     }
     defer_reconcile(state);
 }
@@ -66,6 +70,8 @@ pub fn handle(state: &mut Loop, renderer: &mut GlesRenderer, message: OverviewSu
         }
         OverviewSurfaceMessage::SetTab(tab) => {
             state.inner.overview_mut().tab = tab;
+            // Session-wide tab memory (survives world switches).
+            *state.inner.kernel.get_mut(&compositor_y5_overview_state_base::base::OVERVIEW_TAB_MUT) = tab;
         }
         OverviewSurfaceMessage::Close => {
             request_close(state);

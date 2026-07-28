@@ -46,10 +46,12 @@ pub fn is_client(_loop: &mut Loop, world: Point<f64, Logical>) -> bool {
 /// split single-finger touch: over a window/layer → click/drag; otherwise (empty
 /// canvas / passthrough) → glide-pan.
 pub fn over_window(_loop: &mut Loop, world: Point<f64, Logical>) -> bool {
-    matches!(
-        topmost(_loop, world),
-        Some(SurfaceHit::Window { .. }) | Some(SurfaceHit::Layer { .. })
-    )
+    // `window()` rather than the `Window` variant, so a touch on the letterbox
+    // bars counts as over the window and gets click/drag. It is the window's own
+    // opaque pixels; glide-panning the canvas through them would be as wrong as
+    // panning through its content. `focus_of` above still returns `None` there,
+    // so the client is forwarded nothing either way.
+    topmost(_loop, world).is_some_and(|h| h.window().is_some() || h.is_layer())
 }
 
 /// Is the topmost thing under this world point a compositor iced surface (the

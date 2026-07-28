@@ -12,7 +12,7 @@ pub fn pop(output: &mut NativeDrmOutput) -> Option<Option<OutputPresentationFeed
     match output.frame_submitted() {
         Ok(Some(feedback)) => {
             // A frame reached the screen — count the vblank/page-flip.
-            compositor_developer_stats_registry_base::base::vblank();
+            compositor_model_stats_registry_base::base::vblank();
             Some(feedback)
         }
         Ok(None) => None,

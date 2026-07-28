@@ -51,16 +51,14 @@ impl VulkanRenderer {
 
     /// Free all AA resources (the per-format `AaComposite` pipelines and every
     /// per-surface mip image) when AA is turned off, so a disabled config holds
-    /// no resident GPU memory. Waits for device idle first (the resources may
-    /// have been in flight on the non-synchronous path); cheap and rare — only
-    /// on the active→inactive edge. Rebuilt lazily by `ensure_aa_pipeline` when
-    /// AA is re-enabled.
+    /// no resident GPU memory. Call ONLY where the previous frame is provably
+    /// complete — after `submit_frame`'s pre-record pacing wait (native path)
+    /// or the sync path's post-submit drain; the zoom-gated active flag can
+    /// flip mid-gesture, so this must not stall the frame with a drain of its
+    /// own. Rebuilt lazily by `ensure_aa_pipeline` when AA is re-enabled.
     pub(super) fn teardown_aa(&mut self) {
         if self.aa_pipelines.is_empty() && self.mipgen.borrow().is_empty() {
             return;
-        }
-        unsafe {
-            let _ = self.dev.device.device_wait_idle();
         }
         for (_, aa) in self.aa_pipelines.drain() {
             aa.destroy(&self.dev);

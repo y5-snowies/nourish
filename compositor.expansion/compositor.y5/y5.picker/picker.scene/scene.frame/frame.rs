@@ -35,7 +35,13 @@ fn on_active_output(s: &Loop) -> bool {
 
 /// GLES preparation: render the picker bevy instance (tagged `PICKER_SCENE`).
 pub fn prepare(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physical>) -> PickerPrepared {
-    use compositor_y5_picker_system_base::base::PICKER_WORLD;
+    use compositor_y5_picker_system_base::base::{PICKER_MUT, PICKER_WORLD};
+
+    // Retire the fade-OUT half of the entry transition. It outlives the world
+    // switch by one frame on purpose (see `interface.capture`): that frame still
+    // composes through the main scene, and only from here on does the Picker pass
+    // own the output — so this is the first moment it is safe to drop.
+    state.inner.worlds.get_mut(PICKER_WORLD).storage_mut().get_mut(&PICKER_MUT).fade_out = None;
 
     // Per-frame pre-step: momentum, transform push, parallax extraction. Runs on
     // every output so the parallax fills each monitor behind the picker.

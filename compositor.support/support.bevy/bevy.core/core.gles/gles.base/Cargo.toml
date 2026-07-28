@@ -8,5 +8,5 @@ path = "lib.rs"
 
 [dependencies]
 compositor_support_bevy_core_fault_base = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 smithay = { workspace = true }

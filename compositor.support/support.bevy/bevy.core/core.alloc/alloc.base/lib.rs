@@ -4,7 +4,7 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::path::Path;
 
 use compositor_support_bevy_core_fault_base::AllocError;
-use compositor_developer_debug_instance_record::{info, warn};
+use compositor_model_debug_instance_record::{info, warn};
 use gbm::{BufferObjectFlags, Device as GbmDevice, Format as GbmFormat};
 use smithay::backend::allocator::dmabuf::{Dmabuf, DmabufFlags};
 use smithay::backend::allocator::{Buffer, Fourcc, Modifier};
@@ -179,7 +179,7 @@ fn allocate_with_modifiers(
 /// Record the post-determined format for the developer "GPU formats" panel.
 fn publish_stats(kind: &str, fourcc: Fourcc, modifier: Modifier, plane_count: u32) {
     use compositor_kernel_graphic_bridge_negotiate_classify::classify;
-    compositor_developer_stats_registry_gpu::gpu::set_device_format(
+    compositor_model_stats_registry_gpu::gpu::set_device_format(
         kind,
         &format!("{fourcc:?}"),
         modifier.into(),

@@ -1,0 +1,15 @@
+[package]
+name = "compositor_model_stats_registry_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_model_stats_registry_counter = { workspace = true }
+compositor_model_stats_registry_hdr = { workspace = true }
+compositor_model_stats_registry_meta = { workspace = true }
+compositor_model_stats_registry_shader = { workspace = true }
+compositor_model_stats_registry_gpu = { workspace = true }
+compositor_model_stats_registry_snapshot = { workspace = true }
+
+[lib]
+path = "lib.rs"

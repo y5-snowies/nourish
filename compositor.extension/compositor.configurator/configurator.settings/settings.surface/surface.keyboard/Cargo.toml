@@ -4,7 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
-compositor_developer_environment_preference_base = { workspace = true }
+compositor_model_environment_preference_base = { workspace = true }
 compositor_configurator_settings_surface_message = { workspace = true }
 compositor_configurator_settings_surface_style = { workspace = true }
 compositor_configurator_settings_surface_control = { workspace = true }

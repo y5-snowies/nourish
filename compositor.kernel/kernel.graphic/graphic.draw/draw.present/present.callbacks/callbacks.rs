@@ -9,10 +9,24 @@ use std::time::Duration;
 use compositor_orchestration_core_state_base::Loop;
 
 /// The presentation Kind flags this compositor reports for a hardware flip.
-pub fn hw_flip_kind() -> wp_presentation_feedback::Kind {
-    wp_presentation_feedback::Kind::Vsync
-        | wp_presentation_feedback::Kind::HwClock
-        | wp_presentation_feedback::Kind::HwCompletion
+///
+/// `Vsync` asserts the presentation was synchronized to the vertical retrace, so
+/// it MUST be dropped for a frame that was async-flipped — clients (Mesa's WSI,
+/// engine frame pacers) read this flag to detect tearing and adapt their own
+/// pacing, and reporting it on a torn frame feeds them a false signal.
+///
+/// `HwClock` and `HwCompletion` stay set for BOTH, and deliberately. Neither
+/// makes a claim about retrace: they say the timestamp came from the display
+/// hardware and that the hardware signalled the presentation, and an async flip
+/// satisfies both — the kernel's page-flip event IS the hardware saying the new
+/// buffer began scanning out. Dropping them on a torn frame would replace one
+/// true statement with a vaguer one; `Vsync` is the only flag that was ever
+/// wrong here, and the truthful per-frame mix is what the protocol asks for.
+/// The other half of the same honesty is `Refresh::Unknown` at `wire.frame`:
+/// a torn frame genuinely has no predictable next presentation.
+pub fn hw_flip_kind(tearing: bool) -> wp_presentation_feedback::Kind {
+    let hw = wp_presentation_feedback::Kind::HwClock | wp_presentation_feedback::Kind::HwCompletion;
+    if tearing { hw } else { wp_presentation_feedback::Kind::Vsync | hw }
 }
 
 /// Collect presentation feedback for the windows visible in the frame that is
@@ -23,7 +37,9 @@ pub fn collect_feedback(output: &Output, visible: &[Window]) -> OutputPresentati
         window.take_presentation_feedback(
             &mut feedback,
             |_, _| Some(output.clone()),
-            |_, _| hw_flip_kind(),
+            // Collection-time placeholder; the real flags are chosen at
+            // `presented()`, once the flip mode for this frame is known.
+            |_, _| hw_flip_kind(false),
         );
     }
     feedback

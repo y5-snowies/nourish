@@ -60,6 +60,15 @@ pub mod env {
         "container",
         // App-specific identity
         "CHROME_DESKTOP",
+        // Game attribution — a Steam-launched process carries these whether it
+        // reached us through xwayland or natively, and they survive into every
+        // child, so the tree walk can find them on a wrapper script.
+        "SteamAppId",
+        "SteamGameId",
+        "STEAM_COMPAT_DATA_PATH",
+        "PROTON_ENABLE_WAYLAND",
+        // Explicit user opt-in to tearing (settable as a Steam launch command).
+        "Y5_TEARING",
         // Language runtimes
         "VIRTUAL_ENV",
         "CONDA_PREFIX",

@@ -57,9 +57,9 @@ impl SceneDispatch for VulkanRenderer {
         frame: &mut VulkanFrame<'_, '_>,
         _program: Option<&GlesPixelProgram>,
         _src: Rectangle<f64, BufferCoord>,
-        _dst: Rectangle<i32, Physical>,
+        dst: Rectangle<i32, Physical>,
         _size: Size<i32, BufferCoord>,
-        _damage: &[Rectangle<i32, Physical>],
+        damage: &[Rectangle<i32, Physical>],
         _alpha: f32,
         _uniforms: &[Uniform<'_>],
         pass: NativeShaderPass<'_>,
@@ -70,6 +70,7 @@ impl SceneDispatch for VulkanRenderer {
         frame.ops.push(DrawOp::ShaderPass {
             sdr: own_variant(pass.sdr),
             hdr: pass.hdr.map(own_variant),
+            scissors: crate::frame::scissors_for(dst, damage),
         });
         Ok(())
     }

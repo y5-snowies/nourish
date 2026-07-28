@@ -3,14 +3,6 @@
 version = 4
 
 [[package]]
-name = "compositor_developer_environment_config_base"
-version = "0.0.1"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "compositor_installer_process_config_parse_base"
 version = "0.1.0"
 dependencies = [
@@ -76,11 +68,11 @@ dependencies = [
 name = "compositor_installer_process_layout_compute_plan"
 version = "0.1.0"
 dependencies = [
- "compositor_developer_environment_config_base",
  "compositor_installer_process_config_parse_base",
  "compositor_installer_process_layout_compute_policy",
  "compositor_installer_process_layout_compute_session",
  "compositor_installer_process_layout_compute_stage",
+ "compositor_model_environment_config_base",
  "serde_json",
 ]
 
@@ -226,6 +218,14 @@ name = "compositor_installer_process_packages_enumerate_rpmfusion"
 version = "0.1.0"
 dependencies = [
  "compositor_installer_process_packages_enumerate_install",
+]
+
+[[package]]
+name = "compositor_model_environment_config_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

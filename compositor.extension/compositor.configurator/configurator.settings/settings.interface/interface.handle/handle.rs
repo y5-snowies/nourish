@@ -3,7 +3,7 @@
 //! takes effect immediately) and then persisted to preferences.json. Environment
 //! edits write settings.json (the UI already flagged the reboot banner); output
 //! modes go via the OUTPUT_MODE_REQUEST channel (apply / confirm+persist / revert).
-use compositor_developer_environment_preference_base::base as pref;
+use compositor_model_environment_preference_base::base as pref;
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_driver_output_base::base::{ActiveRevert, ApplyResult, OutputModeRequest, OUTPUTS_SNAPSHOT, OUTPUT_ACTIVE_REVERT, OUTPUT_ACTIVE_REVERT_MUT, OUTPUT_MODE_REQUEST_MUT, OUTPUT_MODE_RESULT_MUT, OUTPUT_RECONCILE_REQUEST_MUT};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
@@ -163,8 +163,25 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
             state.inner.preference.release_hidden_surfaces = b;
             let _ = pref::save(&state.inner.preference);
         }
+        SettingsMessage::SetFractionalInvisible(v) => {
+            // Invisible-window fractional-scale strategy ("off"/"optimized"/"full").
+            // Read live each frame by `update_fractional`, so no reboot needed.
+            state.inner.preference.fractional_invisible = v;
+            let _ = pref::save(&state.inner.preference);
+        }
+        SettingsMessage::SetFlip(t) => {
+            // Page-flip policy. `pref::save` mirrors it into the scanout-readable
+            // global, so the next frame picks it up — no reboot. `normalized()`
+            // there also clamps the stepper values.
+            // Normalize HERE, not just in the mirror: the stored value is what
+            // the steppers read back next render, so an un-clamped one would let
+            // repeated "-" drift the cap negative and need the same number of
+            // "+" presses to climb back out of a range that displays identically.
+            state.inner.preference.flip = t.normalized();
+            let _ = pref::save(&state.inner.preference);
+        }
         SettingsMessage::Env(e) => {
-            let _ = compositor_developer_environment_config_base::base::save(&e);
+            let _ = compositor_model_environment_config_base::base::save(&e);
         }
         SettingsMessage::Ime(ime) => {
             // Persist the input-method launch command live to preferences.json. Applied
@@ -239,11 +256,11 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
         }
         SettingsMessage::Rebind(id, combo) => {
             state.inner.keybinding.set(&id, combo);
-            let _ = compositor_developer_environment_keybinding_base::base::save(&state.inner.keybinding);
+            let _ = compositor_model_environment_keybinding_base::base::save(&state.inner.keybinding);
         }
         SettingsMessage::ResetBind(id) => {
             state.inner.keybinding.clear(&id);
-            let _ = compositor_developer_environment_keybinding_base::base::save(&state.inner.keybinding);
+            let _ = compositor_model_environment_keybinding_base::base::save(&state.inner.keybinding);
         }
         SettingsMessage::SetDefaultSink(name) => {
             if let Some(a) = state.inner.kernel.get(&AUDIO) {
@@ -300,7 +317,7 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
                 // Map the name-keyed overrides onto the live instance's param
                 // slots (slot = the prop's index in the selected shader's props).
                 let selection = two.background_shader.clone().or_else(
-                    compositor_developer_stats_registry_base::base::background_shader_default,
+                    compositor_model_stats_registry_base::base::background_shader_default,
                 );
                 let props = match &selection {
                     Some(sel) => compositor_background_two_shader_load::properties_for(sel),

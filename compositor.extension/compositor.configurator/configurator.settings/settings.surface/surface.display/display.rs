@@ -4,7 +4,7 @@
 //! and **REVERT** undoes it. All three are always rendered (no layout shift) and
 //! enabled only when relevant. Selecting a different monitor + applying switches
 //! the active output; selecting another mode changes the active monitor's mode.
-use compositor_developer_environment_preference_base::base::LayoutPlacement;
+use compositor_model_environment_preference_base::base::LayoutPlacement;
 use compositor_orchestration_driver_output_base::base::{DisplayInfo, ModeInfo, TouchDeviceInfo};
 use compositor_support_iced_core_engine_base::Renderer;
 use compositor_configurator_settings_surface_message::message::{Applied, SettingsMessage};

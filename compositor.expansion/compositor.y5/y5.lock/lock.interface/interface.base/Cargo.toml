@@ -14,7 +14,7 @@ compositor_background_two_storage_base = { workspace = true }
 compositor_background_three_system_base = { workspace = true }
 compositor_background_three_system_prewarm = { workspace = true }
 compositor_orchestration_seat_keyboard_input.workspace = true
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 compositor_y5_lock_state_transition.workspace = true
 compositor_y5_surface_protocol_base.workspace = true
 compositor_y5_surface_draw_handle.workspace = true

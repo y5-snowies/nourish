@@ -1,5 +1,5 @@
 [
-  "../../compositor.developer",
+  "../../compositor.model",
   "../../compositor.orchestration",
   "../../compositor.extension/compositor.monitor",
   "../../compositor.support/support.iced",

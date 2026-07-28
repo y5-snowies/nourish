@@ -4,6 +4,14 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_support_smithay_state_tearing_floor.workspace = true
+compositor_support_smithay_state_tearing_liveness.workspace = true
+compositor_kernel_native_wire_watchdog_base.workspace = true
+compositor_support_smithay_state_tearing_gate.workspace = true
+compositor_support_smithay_state_tearing_pacer.workspace = true
+compositor_model_environment_tearing_config.workspace = true
+compositor_y5_graphic_tearing_resolve.workspace = true
+compositor_model_environment_tearing_select.workspace = true
 compositor_orchestration_driver_capture_base = { workspace = true }
 compositor_orchestration_driver_resume_base = { workspace = true }
 compositor_orchestration_driver_lid_base = { workspace = true }
@@ -14,13 +22,13 @@ compositor_y5_lock_scene_element.workspace = true
 compositor_orchestration_draw_scene_element.workspace = true
 compositor_orchestration_draw_dispatch_frame.workspace = true
 compositor_kernel_vulkan_renderer_core_base.workspace = true
-compositor_developer_debug_instance_record.workspace = true
+compositor_model_debug_instance_record.workspace = true
 bitflags.workspace = true
 smithay.workspace = true
 
 # Compositor dependencies (CI ensures availability in workspace)
 compositor_kernel_drm_edid_parse_base.workspace = true
-compositor_developer_stats_registry_base = { workspace = true }
+compositor_model_stats_registry_base = { workspace = true }
 compositor_kernel_gles_element_combined_base.workspace = true
 compositor_kernel_gles_element_wrap_base.workspace = true
 compositor_kernel_native_context_render_base.workspace = true
@@ -28,6 +36,7 @@ compositor_kernel_native_context_display_mode.workspace = true
 compositor_kernel_native_context_display_reconcile.workspace = true
 compositor_kernel_scanout_flip_queue_base.workspace = true
 compositor_kernel_scanout_plane_direct_base.workspace = true
+compositor_kernel_scanout_timing_vblank_base.workspace = true
 compositor_kernel_graphic_draw_plan_frame.workspace = true
 compositor_kernel_graphic_draw_plan_tap.workspace = true
 compositor_kernel_graphic_draw_present_callbacks.workspace = true

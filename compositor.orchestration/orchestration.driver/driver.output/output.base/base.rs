@@ -346,10 +346,10 @@ fn within(v: f32, lo: f32, hi: f32) -> bool {
 /// in preferences but are dropped here (so reactivating/replugging restores them in
 /// place). Empty when no layout is set (single-monitor default → the pointer clamps).
 pub fn build_teleport(
-    prefs: &compositor_developer_environment_preference_base::base::Preference,
+    prefs: &compositor_model_environment_preference_base::base::Preference,
     connected_keys: &[String],
 ) -> TeleportLayout {
-    use compositor_developer_environment_preference_base::base::output_active;
+    use compositor_model_environment_preference_base::base::output_active;
     TeleportLayout::new(
         prefs
             .outputs_layout

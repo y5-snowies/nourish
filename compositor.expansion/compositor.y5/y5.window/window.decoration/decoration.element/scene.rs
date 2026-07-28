@@ -9,6 +9,7 @@ use compositor_y5_camera_transform_translate::transform::Transform;
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_y5_window_interface_draw::bound::CalculateBoundResult;
+use compositor_y5_window_interface_record::window::LoopWindow;
 
 pub fn scene<R>(
     state: &mut Loop,
@@ -29,6 +30,15 @@ where
     // let is_active = window.toplevel().map(|t| t.current_state().activated).unwrap_or(false);
     let is_active = state.inner.select().get(window.clone());
     let is_primary = state.inner.select().primary(window.clone());
+
+    // Fullscreen owns its whole region, and the border is drawn OUTSIDE the slot
+    // (top at `y - 1`, right at `x + w` below) — into the very area the window was
+    // told it fills. Selection overrides that: the frame is how a selected window
+    // is identified, and dropping it on the one window covering everything else
+    // would leave the selection unreadable.
+    if window.is_fullscreen() && !is_active {
+        return elements;
+    }
     let (color, bw_logical) = if is_active {
         if is_primary {
             ([0.0, 0.0, 1.0, 1.0], 12.0)

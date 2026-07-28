@@ -11,7 +11,7 @@ edition = "2024"
 # cleans up underlying captures when the last handle is dropped.
 
 [dependencies]
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 compositor_kernel_graphic_bridge_negotiate_base = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }

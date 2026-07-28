@@ -17,5 +17,5 @@ compositor_support_bevy_core_scene_base = { workspace = true }
 compositor_support_bevy_core_shared_base = { workspace = true }
 compositor_support_bevy_core_space_base = { workspace = true }
 compositor_support_bevy_core_surface_base = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 smithay = { workspace = true }

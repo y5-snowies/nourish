@@ -89,7 +89,7 @@ fn bring_up(ctx: &mut NativeRenderContext, target: &connector::Info, requested: 
         target,
         requested,
     )?;
-    let env = compositor_developer_environment_config_base::base::get();
+    let env = compositor_model_environment_config_base::base::get();
     let new_hdr_active = env.hdr && built.hdr.hdr_capable() && ctx.vulkan_mode;
     let new_mode = Mode::from(built.drm_mode);
     ctx.pipe_mut().drm_output = Some(built.drm_output);
@@ -233,7 +233,7 @@ fn add_output(
     );
     state.inner.space_state_mut().state.map_output(&output, (x, 0));
     let damage_tracker = smithay::backend::renderer::damage::OutputDamageTracker::from_output(&output);
-    let env = compositor_developer_environment_config_base::base::get();
+    let env = compositor_model_environment_config_base::base::get();
     let hdr_active = env.hdr && built.hdr.hdr_capable() && ctx.vulkan_mode;
     info!(
         "add_output: connector={:?} crtc={:?} mode={}x{} pos=({}, 0) → {} outputs total",
@@ -259,6 +259,11 @@ fn add_output(
         mode_revert: None,
         global: Some(global),
         in_flight: false,
+        last_vblank: None,
+        render_start: None,
+        last_tear: false,
+        cap_interval: None,
+        cap_wake: None,
     });
     Ok(())
 }
@@ -443,8 +448,13 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
     // `execute(RenderScope::All)`) so the new pipe gets its first frame and starts its own
     // vblank cycle — otherwise a plain `schedule_redraw` no-ops while another pipe is
     // mid-flight and the new output stays dark until the next full resume render.
+    // That force covers the documented case above. The settle net on top of it is
+    // a safeguard for what is NOT documented: whether one frame is enough to leave
+    // a freshly lit pipe carrying its own cadence. It kicks 30fps for a few
+    // seconds and retires itself.
     if brought_up {
         state.force_redraw();
+        compositor_kernel_native_wire_watchdog_settle::settle::arm(&state.loop_handle);
     } else {
         state.schedule_redraw();
     }

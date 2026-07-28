@@ -1,0 +1,11 @@
+[package]
+name = "compositor_model_debug_instance_channel"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_model_debug_instance_level = { workspace = true }
+crossbeam-channel = { workspace = true }
+
+[lib]
+path = "lib.rs"

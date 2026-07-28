@@ -8,7 +8,7 @@ edition = "2024"
 uuid = { workspace = true }
 compositor_y5_lock_system_base = { workspace = true }
 compositor_y5_surface_system_base = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 bitflags = { workspace = true }
 smithay = { workspace = true }
 compositor_orchestration_core_state_base.workspace = true

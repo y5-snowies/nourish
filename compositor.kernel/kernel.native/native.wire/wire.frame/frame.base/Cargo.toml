@@ -4,8 +4,10 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_support_smithay_state_tearing_gate.workspace = true
+compositor_support_smithay_state_tearing_pacer.workspace = true
 compositor_orchestration_driver_resume_base = { workspace = true }
-compositor_developer_debug_instance_record.workspace = true
+compositor_model_debug_instance_record.workspace = true
 bitflags.workspace = true
 smithay.workspace = true
 
@@ -17,7 +19,8 @@ compositor_kernel_scanout_flip_feedback_base.workspace = true
 compositor_kernel_scanout_timing_vblank_base.workspace = true
 compositor_kernel_graphic_draw_present_callbacks.workspace = true
 compositor_orchestration_core_state_base.workspace = true
-compositor_developer_stats_registry_base.workspace = true
+compositor_model_stats_registry_base.workspace = true
+compositor_kernel_native_wire_watchdog_settle.workspace = true
 
 compositor_kernel_scanout_timing_throttle_base = { workspace = true, optional = true }
 compositor_kernel_scanout_timing_predict_base = { workspace = true, optional = true }

@@ -72,7 +72,7 @@ impl System for TwoSystem {
                 .and_then(|p| p.renderer())
             {
                 let sel = override_sel.or_else(
-                    compositor_developer_stats_registry_base::base::background_shader_default,
+                    compositor_model_stats_registry_base::base::background_shader_default,
                 );
                 let mut instance = ParallaxBackground::new(renderer, size, sel.as_deref(), &params);
                 instance.invert_pan_x = invert_pan_x;

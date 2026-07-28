@@ -28,8 +28,9 @@ pub struct PickerState {
     pub world_names: HashMap<uuid::Uuid, String>,
     /// In-flight capture arming for the deferred open (see picker.interface).
     pub arming: Option<Arming>,
-    /// Origin world to open ONE frame after the snapshot (so it has time to land).
-    pub pending_open: Option<uuid::Uuid>,
+    /// An open is pending: when the outgoing world's fade-to-black started. The
+    /// switch waits for it, so the transition meets on an opaque frame.
+    pub fade_out: Option<Instant>,
 }
 
 pub struct Arming {
@@ -61,17 +62,16 @@ pub struct PickerActive {
     pub surface: Option<IcedHandle<PickerSurface>>,
     /// When the picker opened — drives the entry transition.
     pub time: Instant,
+    /// When the orientation was last advanced — the dt source for momentum and
+    /// the re-face glide, so both run in wall time rather than in frames.
+    pub step: Instant,
 }
 
 impl PickerState {
     pub fn new() -> Self {
         Self {
-            active: None,
-            cell_worlds: vec![None; CELL_COUNT],
-            thumbnails: HashMap::new(),
-            world_names: HashMap::new(),
-            arming: None,
-            pending_open: None,
+            active: None, cell_worlds: vec![None; CELL_COUNT], thumbnails: HashMap::new(),
+            world_names: HashMap::new(), arming: None, fade_out: None,
         }
     }
 

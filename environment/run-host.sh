@@ -58,7 +58,7 @@ fi
 VARS=(
     "COMPOSITOR_RENDERER|Renderer: 'vulkan' (default) or 'gles'|${COMPOSITOR_RENDERER:-vulkan}"
     "COMPOSITOR_RENDERER_FALLBACK|Fall back to GLES if Vulkan init fails (1/gles/true to enable)|${COMPOSITOR_RENDERER_FALLBACK:-}"
-    "COMPOSITOR_RENDERER_SYNC|Frame-sync: '' (off), 'infence' (KMS IN_FENCE), or 'kms'|${COMPOSITOR_RENDERER_SYNC:-}"
+    "COMPOSITOR_RENDERER_SYNC|Frame-sync: '' (synchronous, default) or 'infence' (KMS IN_FENCE)|${COMPOSITOR_RENDERER_SYNC:-}"
     "COMPOSITOR_HDR|HDR output (M5): 1 to enable on a PQ-capable display (Vulkan only)|${COMPOSITOR_HDR:-}"
     "COMPOSITOR_DEPTH|Scanout bit depth: 10 for 10-bit/deep-color SDR (no HDR); empty/8 = 8-bit|${COMPOSITOR_DEPTH:-}"
     "COMPOSITOR_VRR|Adaptive sync / VRR: 1/on (default) or 0/off|${COMPOSITOR_VRR:-}"

@@ -7,7 +7,7 @@ use compositor_support_bevy_core_context_base::WgpuVulkanContext;
 use compositor_support_bevy_core_fault_base::SurfaceError;
 use compositor_support_bevy_core_gles_base::import_dmabuf_to_gles;
 use compositor_support_bevy_core_import_base::{TEXTURE_FORMAT, import_dmabuf_to_wgpu};
-use compositor_developer_debug_instance_record::info;
+use compositor_model_debug_instance_record::info;
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::utils::{Physical, Size};
 

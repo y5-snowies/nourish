@@ -11,7 +11,7 @@ compositor_support_system_channel_router_base = { workspace = true }
 compositor_support_system_trait_system_base = { workspace = true }
 compositor_support_system_storage_slot_base = { workspace = true }
 compositor_support_iced_core_engine_base = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 compositor_y5_surface_state_base = { workspace = true }
 compositor_monitor_runtime_surface_base = { workspace = true }
 compositor_monitor_compositor_iced_base = { workspace = true }

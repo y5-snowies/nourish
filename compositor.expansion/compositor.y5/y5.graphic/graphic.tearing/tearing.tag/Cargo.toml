@@ -1,0 +1,17 @@
+[package]
+name = "compositor_y5_graphic_tearing_tag"
+version = "0.0.1"
+edition = "2024"
+
+
+[dependencies]
+compositor_model_debug_instance_record = { workspace = true }
+compositor_model_environment_tearing_config = { workspace = true }
+compositor_support_smithay_state_tearing_pacer = { workspace = true }
+compositor_orchestration_core_state_base = { workspace = true }
+compositor_y5_window_interface_record = { workspace = true }
+compositor_y5_graphic_tearing_heuristic = { workspace = true }
+smithay = { workspace = true }
+
+[lib]
+path = "lib.rs"

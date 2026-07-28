@@ -76,6 +76,11 @@ impl<A: WireTrait + 'static> Wire<A> {
         let dispatch = new_dispatch(display_handle, drm_device);
         cm::create_global::<Dispatch>(display_handle);
         compositor_support_smithay_dispatch_wire_tablet::tablet::create_global::<Dispatch>(display_handle);
+        // Advertised unconditionally: a client may declare its tearing intent
+        // before the user picks a mode, and a bound global cannot be revoked.
+        // The hint only ever TAGS a surface; whether it tears is the
+        // compositor's call (`environment.tearing`).
+        compositor_support_smithay_dispatch_wire_tearing::tearing::create_global::<Dispatch>(display_handle);
         Self { state: dispatch, inner, loop_handle }
     }
 }
@@ -106,7 +111,7 @@ pub fn new_dispatch(
             // disabled, NEITHER foreign-toplevel global is advertised (clients can't bind
             // them); when enabled, both are. Read once at boot — no hot-reload; a change
             // takes effect on the next launch.
-            let prefs = compositor_developer_environment_preference_base::base::load();
+            let prefs = compositor_model_environment_preference_base::base::load();
             let enabled = prefs.protocol_foreign == "enabled";
             let all_worlds = prefs.protocol_foreign_all_worlds;
             compositor_support_smithay_state_foreign_factory::factory::new::<Dispatch>(display_handle, enabled, all_worlds)
@@ -149,6 +154,7 @@ pub fn new_dispatch(
 // ── Inherent helpers (on Wire<A>: they bridge `state` (seat) + `inner` (world)) ─
 impl<A: WireTrait + 'static> Wire<A> {
     #[inline] pub fn schedule_redraw_post_vblank(&mut self) { self.state.schedule_redraw_post_vblank(); }
+    #[inline] pub fn rearm_redraw(&mut self) { self.state.rearm_redraw(); }
     #[inline] pub fn schedule_redraw(&mut self) { self.state.schedule_redraw(); }
     #[inline] pub fn force_redraw(&mut self) { self.state.force_redraw(); }
     #[inline] pub fn take_needs_redraw(&mut self) -> bool { self.state.take_needs_redraw() }

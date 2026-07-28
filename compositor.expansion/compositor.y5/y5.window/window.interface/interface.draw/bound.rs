@@ -45,7 +45,7 @@ where
     // and the rect content is letterboxed into), so decoration borders frame the slot rather
     // than the client's (possibly misbehaving) committed geometry. Mirrors the render/input
     // slot logic. Falls back to element_geometry when no size is decided (0x0 defer).
-    let cfg = compositor_developer_environment_config_base::base::get();
+    let cfg = compositor_model_environment_config_base::base::get();
     let elem_loc = state
         .inner.space_state()
         .state

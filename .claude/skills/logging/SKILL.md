@@ -7,7 +7,7 @@ description: How to log in the y5 compositor. Use whenever you add, change, or m
 
 y5 has its **own** structured logging system. **Never use `tracing`, `log`, or `println!`/
 `eprintln!` for diagnostics in compositor code.** Use the macros from
-`compositor_developer_debug_instance_record`. Full reference: `document/LOGGING.md`.
+`compositor_model_debug_instance_record`. Full reference: `document/LOGGING.md`.
 
 ## The rule
 
@@ -23,14 +23,14 @@ The `add-crate` template already inserts this. If a crate lacks it, add to its *
 
 ```rust
 #[macro_use]
-extern crate compositor_developer_debug_instance_record;
+extern crate compositor_model_debug_instance_record;
 ```
 
 and ensure its `Cargo.toml` has (it resolves via the workspace links — run `./link.all.sh` if
 you just added the dep to a workspace that didn't have it):
 
 ```toml
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 ```
 
 Then call the macros from any module in the crate — no per-module `use` needed. The crate name

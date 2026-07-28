@@ -73,6 +73,14 @@ impl ParallaxBackground {
         self.motion.tick(self.pan, self.lock_time.is_some());
         self.commit.increment();
     }
+    /// Put the "locked" (distant) look on IMMEDIATELY, skipping the 1s
+    /// `lock_amount` ramp in `Motion::tick`. For an overlay that owns its own
+    /// entry transition (the world picker), that ramp is a second, competing
+    /// background animation rather than part of the look.
+    pub fn snap_locked(&mut self) {
+        self.lock_time = Some(Instant::now());
+        self.motion.lock_amount = 1.0;
+    }
     /// Rebind a clone to a viewport pane (render rect + pane camera + distinct id).
     pub fn bind_pane(&mut self, offset: (i32, i32), size: (f32, f32), pan: (f32, f32), zoom: f32, id: Id) {
         self.offset = offset; self.output_size = size; self.pan = pan; self.zoom = zoom; self.id = id;

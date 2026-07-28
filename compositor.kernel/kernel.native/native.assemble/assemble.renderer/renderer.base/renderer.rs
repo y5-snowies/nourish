@@ -115,7 +115,7 @@ fn assemble_gles(display: &mut DisplayAssembly) -> RendererAssembly {
     // implies 10-bit, but depth == 10 gives 10-bit SDR without engaging
     // the PQ/HDR composite (the SDR transfer is byte-range identical, just finer
     // quantization). PQ is only signalled (stage C) when HDR is actually active.
-    let env = compositor_developer_environment_config_base::base::get();
+    let env = compositor_model_environment_config_base::base::get();
     let hdr_scanout = display.hdr.hdr_capable() && env.hdr;
     let deep_color = env.depth == 10;
     let ten_bit = hdr_scanout || deep_color;
@@ -196,11 +196,11 @@ fn assemble_gles(display: &mut DisplayAssembly) -> RendererAssembly {
                 info!("native: VRR not supported by this output");
                 false
             };
-            compositor_developer_stats_registry_base::base::set_vrr(supported, enabled);
+            compositor_model_stats_registry_base::base::set_vrr(supported, enabled);
         });
     } else {
         info!("native: VRR disabled (COMPOSITOR_VRR)");
-        compositor_developer_stats_registry_base::base::set_vrr(false, false);
+        compositor_model_stats_registry_base::base::set_vrr(false, false);
     }
 
     // Output + mode for the Statistics tab.
@@ -212,7 +212,7 @@ fn assemble_gles(display: &mut DisplayAssembly) -> RendererAssembly {
             m.size.h,
             m.refresh as f32 / 1000.0
         );
-        compositor_developer_stats_registry_base::base::set_output(
+        compositor_model_stats_registry_base::base::set_output(
             &display.output.name(),
             &mode_str,
         );
@@ -344,6 +344,9 @@ fn vulkan_self_test(display: &DisplayAssembly) -> String {
         (64, 64),
         [0.0, 0.0, 0.0, 1.0],
         &pipelines,
+        // Self-test: full-target clear, and no pre-pass.
+        None,
+        |_cmd| {},
         |cmd| {
             compositor_kernel_vulkan_element_solid_base::solid::draw(&device, &pipelines, cmd, solid);
         },
@@ -441,6 +444,9 @@ fn vulkan_self_test(display: &DisplayAssembly) -> String {
         (64, 64),
         [0.0, 0.0, 0.0, 1.0],
         &pipelines,
+        // Self-test: full-target clear, and no pre-pass.
+        None,
+        |_cmd| {},
         |cmd| {
             compositor_kernel_vulkan_element_texture_base::texture::draw(
                 &device,

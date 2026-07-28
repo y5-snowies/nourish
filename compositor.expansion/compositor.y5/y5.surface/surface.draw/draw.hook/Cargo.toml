@@ -9,7 +9,7 @@ compositor_y5_lock_system_base = { workspace = true }
 compositor_y5_overview_interface_base = { workspace = true }
 compositor_configurator_settings_interface_handle = { workspace = true }
 compositor_y5_surface_system_base = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 compositor_y5_group_interface_base.workspace = true
 compositor_y5_lock_protocol_base.workspace = true
 bitflags = { workspace = true }

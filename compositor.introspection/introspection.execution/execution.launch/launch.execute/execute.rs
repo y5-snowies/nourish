@@ -53,6 +53,9 @@ pub fn execute(req: &LaunchRequest, scope: bool) -> LaunchOutcome {
             // exec (rather than closing now), which leaves Rust's CLOEXEC
             // error-report pipe usable so spawn-failure detection still works.
             // Best-effort — ignore the result (e.g. pre-5.11 kernels).
+            // (Scheduling needs no reset here: the compositor arms
+            // SCHED_RESET_ON_FORK after startup, so forked children already
+            // start at default policy/nice despite the `priority` boost.)
             libc::close_range(3, libc::c_uint::MAX, libc::CLOSE_RANGE_CLOEXEC as libc::c_int);
 
             Ok(())

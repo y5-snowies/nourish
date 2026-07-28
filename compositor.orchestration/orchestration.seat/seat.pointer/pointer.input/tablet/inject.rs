@@ -9,7 +9,7 @@ use smithay::backend::input::{Axis, AxisSource, KeyState};
 use smithay::input::keyboard::{FilterResult, Keycode};
 use smithay::input::pointer::AxisFrame;
 use smithay::utils::SERIAL_COUNTER;
-use compositor_developer_environment_preference_base::base::KeyBind;
+use compositor_model_environment_preference_base::base::KeyBind;
 use compositor_orchestration_core_state_base::Loop;
 
 /// Forward one synthetic key edge to the focused client. `code` is a keyboard keycode

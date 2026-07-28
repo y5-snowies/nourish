@@ -12,7 +12,7 @@ compositor_y5_lock_system_base = { workspace = true }
 compositor_y5_camera_system_base = { workspace = true }
 compositor_y5_canvas_system_base = { workspace = true }
 compositor_y5_navigator_system_base = { workspace = true }
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 compositor_y5_lock_state_transition.workspace = true
 compositor_y5_navigator_lock_state.workspace = true
 compositor_y5_window_lifecycle_interface.workspace = true

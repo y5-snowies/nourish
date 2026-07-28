@@ -13,7 +13,7 @@
 // 3. Feature: Time: A rocket that always seem to be moving upwards. After some
 //    time, it'll reloop to the start. It has visible ignition engine.
 
-use compositor_developer_debug_instance_record::abort;
+use compositor_model_debug_instance_record::abort;
 use smithay::backend::renderer::gles::{
     GlesError, GlesPixelProgram, GlesRenderer, UniformName, UniformType,
 };

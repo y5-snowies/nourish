@@ -7,7 +7,7 @@ use compositor_installer_process_config_parse_model::Env;
 /// the exact environment it runs with.
 #[derive(Clone, Debug)]
 pub struct Preset {
-    /// Stable id: "default" | "dev" | "gles" | "exp" | "nosync" | "kmssync" | "custom".
+    /// Stable id: "default" (the one installed session) | "custom".
     pub id: String,
     /// Human label for menus / logs.
     pub label: String,

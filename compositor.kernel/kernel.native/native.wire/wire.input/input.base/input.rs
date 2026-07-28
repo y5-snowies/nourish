@@ -57,7 +57,7 @@ fn handle_pad(state: &mut Loop, event: &TabletPadEvent) {
             match state.inner.preference.pen.dial.clone() {
                 // Remap: inject a modifier + wheel scroll (e.g. Alt+Wheel for brush
                 // size) into the focused client — for apps without tablet-v2.
-                compositor_developer_environment_preference_base::base::PenAction::Wheel { mods } => {
+                compositor_model_environment_preference_base::base::PenAction::Wheel { mods } => {
                     compositor_orchestration_seat_pointer_input::tablet::inject::wheel(
                         state, &mods, v120, e.time(),
                     );

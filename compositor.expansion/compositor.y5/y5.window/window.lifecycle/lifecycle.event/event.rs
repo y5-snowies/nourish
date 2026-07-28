@@ -6,7 +6,9 @@ use compositor_support_smithay_dispatch_wire_trait::wire_trait::ActivationOrigin
 pub enum WindowLifecycleEvent {
     InitialMap(Window),
     // Resize(Window),
-    Destroyed(Uuid, Option<ActivationDetails>),
+    /// The `bool` is the surface's `DiscardPlaceholder` mark (Shift-close from the
+    /// selection toolbar): destroy must leave no placeholder tile behind.
+    Destroyed(Uuid, Option<ActivationDetails>, bool),
     /// (Un)fullscreen request for a window. `true` = enter fullscreen.
     Fullscreen(Window, bool),
     /// Bring `window` into view (camera `view`) and activate it. Queued by the neutral wire

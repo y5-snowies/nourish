@@ -246,75 +246,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "compositor_developer_debug_instance_channel"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_debug_instance_level",
- "crossbeam-channel",
-]
-
-[[package]]
-name = "compositor_developer_debug_instance_level"
-version = "0.0.1"
-dependencies = [
- "crossbeam-channel",
-]
-
-[[package]]
-name = "compositor_developer_debug_instance_record"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_debug_instance_channel",
- "compositor_developer_debug_instance_level",
-]
-
-[[package]]
-name = "compositor_developer_stats_registry_base"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_stats_registry_counter",
- "compositor_developer_stats_registry_gpu",
- "compositor_developer_stats_registry_hdr",
- "compositor_developer_stats_registry_meta",
- "compositor_developer_stats_registry_shader",
- "compositor_developer_stats_registry_snapshot",
-]
-
-[[package]]
-name = "compositor_developer_stats_registry_counter"
-version = "0.0.1"
-
-[[package]]
-name = "compositor_developer_stats_registry_gpu"
-version = "0.0.1"
-
-[[package]]
-name = "compositor_developer_stats_registry_hdr"
-version = "0.0.1"
-
-[[package]]
-name = "compositor_developer_stats_registry_meta"
-version = "0.0.1"
-
-[[package]]
-name = "compositor_developer_stats_registry_shader"
-version = "0.0.1"
-
-[[package]]
-name = "compositor_developer_stats_registry_snapshot"
-version = "0.0.1"
-dependencies = [
- "compositor_developer_stats_registry_counter",
- "compositor_developer_stats_registry_gpu",
- "compositor_developer_stats_registry_meta",
-]
-
-[[package]]
 name = "compositor_kernel_scanout_commit_build_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -323,7 +259,7 @@ name = "compositor_kernel_scanout_commit_submit_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -332,7 +268,7 @@ name = "compositor_kernel_scanout_commit_test_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -341,8 +277,8 @@ name = "compositor_kernel_scanout_fence_in_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_scanout_commit_build_base",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -351,8 +287,8 @@ name = "compositor_kernel_scanout_fence_out_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_scanout_commit_build_base",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -361,7 +297,7 @@ name = "compositor_kernel_scanout_flip_estimate_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -370,9 +306,9 @@ name = "compositor_kernel_scanout_flip_feedback_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
- "compositor_developer_stats_registry_base",
  "compositor_kernel_scanout_surface_output_base",
+ "compositor_model_debug_instance_record",
+ "compositor_model_stats_registry_base",
  "smithay",
 ]
 
@@ -381,8 +317,8 @@ name = "compositor_kernel_scanout_flip_queue_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_scanout_surface_output_base",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -391,9 +327,9 @@ name = "compositor_kernel_scanout_framebuffer_export_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_scanout_framebuffer_import_base",
  "compositor_kernel_scanout_swapchain_slot_base",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -402,7 +338,7 @@ name = "compositor_kernel_scanout_framebuffer_import_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -411,7 +347,7 @@ name = "compositor_kernel_scanout_framebuffer_modifier_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -420,7 +356,7 @@ name = "compositor_kernel_scanout_pipe_assign_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -429,7 +365,7 @@ name = "compositor_kernel_scanout_pipe_claim_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -437,7 +373,7 @@ dependencies = [
 name = "compositor_kernel_scanout_pipe_claim_free"
 version = "0.0.1"
 dependencies = [
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -446,7 +382,7 @@ name = "compositor_kernel_scanout_plane_assign_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -455,7 +391,7 @@ name = "compositor_kernel_scanout_plane_cursor_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
  "thiserror 2.0.18",
 ]
@@ -465,8 +401,8 @@ name = "compositor_kernel_scanout_plane_direct_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_scanout_plane_assign_base",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -475,7 +411,7 @@ name = "compositor_kernel_scanout_surface_output_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -484,8 +420,8 @@ name = "compositor_kernel_scanout_surface_reconfigure_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_scanout_surface_output_base",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -494,8 +430,8 @@ name = "compositor_kernel_scanout_swapchain_acquire_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
  "compositor_kernel_scanout_swapchain_slot_base",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -504,7 +440,7 @@ name = "compositor_kernel_scanout_swapchain_slot_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -513,7 +449,7 @@ name = "compositor_kernel_scanout_timing_predict_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -522,7 +458,7 @@ name = "compositor_kernel_scanout_timing_throttle_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -531,8 +467,73 @@ name = "compositor_kernel_scanout_timing_vblank_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
- "compositor_developer_debug_instance_record",
+ "compositor_model_debug_instance_record",
+ "libc",
  "smithay",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_channel"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_level",
+ "crossbeam-channel",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_level"
+version = "0.0.1"
+dependencies = [
+ "crossbeam-channel",
+]
+
+[[package]]
+name = "compositor_model_debug_instance_record"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_channel",
+ "compositor_model_debug_instance_level",
+]
+
+[[package]]
+name = "compositor_model_stats_registry_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_stats_registry_counter",
+ "compositor_model_stats_registry_gpu",
+ "compositor_model_stats_registry_hdr",
+ "compositor_model_stats_registry_meta",
+ "compositor_model_stats_registry_shader",
+ "compositor_model_stats_registry_snapshot",
+]
+
+[[package]]
+name = "compositor_model_stats_registry_counter"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_model_stats_registry_gpu"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_model_stats_registry_hdr"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_model_stats_registry_meta"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_model_stats_registry_shader"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_model_stats_registry_snapshot"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_stats_registry_counter",
+ "compositor_model_stats_registry_gpu",
+ "compositor_model_stats_registry_meta",
 ]
 
 [[package]]

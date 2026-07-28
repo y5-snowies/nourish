@@ -11,7 +11,7 @@
 //! affects a monitor's scale or resolution. The APPLY LAYOUT button (in `display.rs`)
 //! persists the arrangement.
 use compositor_configurator_settings_surface_message::message::SettingsMessage;
-use compositor_developer_environment_preference_base::base::LayoutPlacement;
+use compositor_model_environment_preference_base::base::LayoutPlacement;
 use compositor_orchestration_driver_output_base::base::DisplayInfo;
 use compositor_support_iced_core_engine_base::Renderer;
 use iced_core::renderer::Renderer as _;

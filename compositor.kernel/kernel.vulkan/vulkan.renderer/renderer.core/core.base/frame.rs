@@ -20,10 +20,22 @@ use crate::error::VulkanError;
 use crate::renderer::VulkanRenderer;
 use crate::texture::VulkanTexture;
 
+/// Render-target objects parked for deferred destruction: the GPU may still be
+/// compositing into the image when the framebuffer drops (the native IN_FENCE
+/// path returns from submit before completion), so destruction waits for a
+/// point where the frame is provably done (`VulkanRenderer::drain_retired`).
+pub(crate) struct RetiredTarget {
+    pub(crate) image: vk::Image,
+    pub(crate) memory: vk::DeviceMemory,
+    pub(crate) view: vk::ImageView,
+}
+
 /// A render target the renderer can draw into. Owns the color-attachment image
-/// imported from the bound dmabuf; destroyed when the framebuffer drops.
+/// imported from the bound dmabuf; retired to the renderer when the
+/// framebuffer drops, destroyed once the frame that used it has completed.
 pub struct VulkanFramebuffer<'buffer> {
     pub(crate) device: ash::Device,
+    pub(crate) retire: std::sync::Arc<std::sync::Mutex<Vec<RetiredTarget>>>,
     pub(crate) image: vk::Image,
     pub(crate) memory: vk::DeviceMemory,
     pub(crate) view: vk::ImageView,
@@ -31,7 +43,38 @@ pub struct VulkanFramebuffer<'buffer> {
     pub(crate) fourcc: Option<Fourcc>,
     pub(crate) width: u32,
     pub(crate) height: u32,
+    /// This framebuffer owns its imported objects and retires them on drop.
+    /// False for a target served by the renderer's import cache, which keeps
+    /// them alive across frames and owns their destruction.
+    pub(crate) owned: bool,
+    /// How the composite must acquire this target's existing contents.
+    pub(crate) acquire: TargetAcquire,
     pub(crate) _marker: PhantomData<&'buffer mut ()>,
+}
+
+/// How a bound target's existing contents must be taken over — the difference
+/// between a partial redraw that keeps the undamaged remainder and one that
+/// composites over garbage.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum TargetAcquire {
+    /// Nothing of ours has ever been composited into this dmabuf, so there is
+    /// nothing to preserve: discard, and clear the whole target this frame.
+    Fresh,
+    /// The SAME `VkImage` a previous composite left in `GENERAL`, released to the
+    /// display engine. The driver tracks its layout, so it can be acquired back
+    /// from there with its contents intact.
+    Cached,
+}
+
+impl TargetAcquire {
+    /// The `oldLayout` for the acquire barrier, or `None` when there is nothing
+    /// worth preserving (the caller then takes the full-clear path).
+    pub(crate) fn old_layout(self) -> Option<vk::ImageLayout> {
+        match self {
+            TargetAcquire::Fresh => None,
+            TargetAcquire::Cached => Some(vk::ImageLayout::GENERAL),
+        }
+    }
 }
 
 impl std::fmt::Debug for VulkanFramebuffer<'_> {
@@ -60,15 +103,31 @@ impl Texture for VulkanFramebuffer<'_> {
 
 impl Drop for VulkanFramebuffer<'_> {
     fn drop(&mut self) {
-        unsafe {
-            if self.view != vk::ImageView::null() {
-                self.device.destroy_image_view(self.view, None);
-            }
-            if self.image != vk::Image::null() {
-                self.device.destroy_image(self.image, None);
-            }
-            if self.memory != vk::DeviceMemory::null() {
-                self.device.free_memory(self.memory, None);
+        // Cached target: the renderer keeps these objects for the next frame's
+        // bind, so dropping the framebuffer must not retire them.
+        if !self.owned {
+            return;
+        }
+        let target = RetiredTarget {
+            image: self.image,
+            memory: self.memory,
+            view: self.view,
+        };
+        if let Ok(mut retired) = self.retire.lock() {
+            retired.push(target);
+        } else {
+            // Poisoned retire list (a panic elsewhere): destroy eagerly rather
+            // than leak — the process is going down anyway.
+            unsafe {
+                if target.view != vk::ImageView::null() {
+                    self.device.destroy_image_view(target.view, None);
+                }
+                if target.image != vk::Image::null() {
+                    self.device.destroy_image(target.image, None);
+                }
+                if target.memory != vk::DeviceMemory::null() {
+                    self.device.free_memory(target.memory, None);
+                }
             }
         }
     }
@@ -92,10 +151,17 @@ pub(crate) struct ShaderVariant {
 /// A single queued draw: a solid fill or a textured quad. Order is preserved
 /// (back-to-front z-order is the call order from the scene).
 pub(crate) enum DrawOp {
-    Solid { quad: PushQuad },
+    Solid {
+        quad: PushQuad,
+        /// The op's damage rects in OUTPUT space, one scissor per draw. Empty ⇒
+        /// the op contributes nothing this frame. Ignored when the target had
+        /// nothing to preserve and the whole frame is redrawn.
+        scissors: Vec<vk::Rect2D>,
+    },
     Textured {
         view: vk::ImageView,
         quad: PushQuad,
+        scissors: Vec<vk::Rect2D>,
         /// Per-surface HDR composite flag `[transfer, is_hdr, 0, 0]` (M5).
         surf: [f32; 4],
         /// Source texture dimensions — the size of the mipped copy the AA
@@ -112,7 +178,39 @@ pub(crate) enum DrawOp {
     ShaderPass {
         sdr: ShaderVariant,
         hdr: Option<ShaderVariant>,
+        scissors: Vec<vk::Rect2D>,
     },
+}
+
+/// Clamp one element-local damage rect into `dst` and lift it to output space —
+/// the scissor for that draw. `None` when the rect falls outside `dst` entirely.
+/// Mirrors the GLES frame's per-instance damage constraint.
+pub(crate) fn scissor_for(
+    dst: Rectangle<i32, Physical>,
+    damage: Rectangle<i32, Physical>,
+) -> Option<vk::Rect2D> {
+    let local = Rectangle::from_loc_and_size((0, 0), dst.size).intersection(damage)?;
+    if local.size.w <= 0 || local.size.h <= 0 {
+        return None;
+    }
+    Some(vk::Rect2D {
+        offset: vk::Offset2D {
+            x: local.loc.x + dst.loc.x,
+            y: local.loc.y + dst.loc.y,
+        },
+        extent: vk::Extent2D {
+            width: local.size.w as u32,
+            height: local.size.h as u32,
+        },
+    })
+}
+
+/// The scissor list for one element draw (element-local `damage` against `dst`).
+pub(crate) fn scissors_for(
+    dst: Rectangle<i32, Physical>,
+    damage: &[Rectangle<i32, Physical>],
+) -> Vec<vk::Rect2D> {
+    damage.iter().filter_map(|d| scissor_for(dst, *d)).collect()
 }
 
 pub struct VulkanFrame<'frame, 'buffer> {
@@ -121,6 +219,10 @@ pub struct VulkanFrame<'frame, 'buffer> {
     pub(crate) output_size: Size<i32, Physical>,
     pub(crate) transform: Transform,
     pub(crate) clear: [f32; 4],
+    /// The rects smithay asked to be cleared, in OUTPUT space (unlike
+    /// per-element damage, these arrive unshifted). Unused on a full redraw,
+    /// which clears the whole target.
+    pub(crate) clear_rects: Vec<vk::Rect2D>,
     pub(crate) ops: Vec<DrawOp>,
     /// Metadata for the element currently being drawn (its space, etc.). Set per
     /// element by the scene wrapper via `SceneDispatch::set_element_meta`; read in
@@ -143,17 +245,24 @@ impl Frame for VulkanFrame<'_, '_> {
         self.renderer.context_id_value()
     }
 
-    fn clear(&mut self, color: Color32F, _at: &[Rectangle<i32, Physical>]) -> Result<(), VulkanError> {
-        // Foundation: full-target clear (the per-rect `at` semantics are an
-        // optimization to add once damage tracking is exercised on hardware).
+    fn clear(&mut self, color: Color32F, at: &[Rectangle<i32, Physical>]) -> Result<(), VulkanError> {
+        // `at` is already output-space; the composite clears exactly these rects
+        // and preserves the rest, falling back to a full-target clear only when
+        // the bound target had no contents worth keeping.
         self.clear = [color.r(), color.g(), color.b(), color.a()];
+        let out = self.extent();
+        let full = Rectangle::from_loc_and_size((0, 0), (out.0 as i32, out.1 as i32));
+        self.clear_rects = at
+            .iter()
+            .filter_map(|r| crate::frame::scissor_for(full, *r))
+            .collect();
         Ok(())
     }
 
     fn draw_solid(
         &mut self,
         dst: Rectangle<i32, Physical>,
-        _damage: &[Rectangle<i32, Physical>],
+        damage: &[Rectangle<i32, Physical>],
         color: Color32F,
     ) -> Result<(), VulkanError> {
         let out = self.extent();
@@ -162,7 +271,10 @@ impl Frame for VulkanFrame<'_, '_> {
             (dst.loc.x, dst.loc.y, dst.size.w, dst.size.h),
             [color.r(), color.g(), color.b(), color.a()],
         );
-        self.ops.push(DrawOp::Solid { quad });
+        self.ops.push(DrawOp::Solid {
+            quad,
+            scissors: crate::frame::scissors_for(dst, damage),
+        });
         Ok(())
     }
 
@@ -171,7 +283,7 @@ impl Frame for VulkanFrame<'_, '_> {
         texture: &VulkanTexture,
         src: Rectangle<f64, BufferCoord>,
         dst: Rectangle<i32, Physical>,
-        _damage: &[Rectangle<i32, Physical>],
+        damage: &[Rectangle<i32, Physical>],
         _opaque_regions: &[Rectangle<i32, Physical>],
         _src_transform: Transform,
         alpha: f32,
@@ -191,12 +303,17 @@ impl Frame for VulkanFrame<'_, '_> {
             src_uv,
             alpha,
         );
+        // Pin the texture until the frame that samples it provably completes —
+        // the native IN_FENCE path returns from submit while the GPU still
+        // reads it (see `VulkanRenderer::pinned_textures`).
+        self.renderer.pinned_textures.push(texture.clone());
         // AA targets ONLY world content (windows + iced-world), tagged per
         // element by the scene wrapper (`set_element_meta`). Screen-space iced
         // (settings/picker) and the bevy background are never eligible.
         self.ops.push(DrawOp::Textured {
             view: texture.view(),
             quad,
+            scissors: crate::frame::scissors_for(dst, damage),
             surf: texture.surf(),
             tex_w: texture.width().max(1),
             tex_h: texture.height().max(1),
@@ -222,12 +339,15 @@ impl Frame for VulkanFrame<'_, '_> {
 
     fn finish(self) -> Result<SyncPoint, VulkanError> {
         let extent = self.extent();
+        let acquire = self.framebuffer.acquire;
         self.renderer.submit_frame(
             self.framebuffer.image,
             self.framebuffer.view,
             self.framebuffer.format,
             extent,
             self.clear,
+            self.clear_rects,
+            acquire,
             self.ops,
         )
     }

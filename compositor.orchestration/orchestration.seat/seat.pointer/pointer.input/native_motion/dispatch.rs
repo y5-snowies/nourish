@@ -61,6 +61,12 @@ pub fn dispatch(
                 screen_point,
                 ..
             } => {}
+            // Letterbox bars. Leaving `under_hit` unset gives the pointer no
+            // focus, so smithay sends the previously-focused client a leave —
+            // which is the truth: the cursor is over compositor pixels, not over
+            // the client. Delivering an edge coordinate instead would have it
+            // tracking a pointer that had left it.
+            SurfaceHit::WindowChrome { .. } => {}
             SurfaceHit::Window {
                 surface, position, ..
             }

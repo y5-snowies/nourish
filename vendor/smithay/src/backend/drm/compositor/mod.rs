@@ -2733,6 +2733,12 @@ where
         self.surface.use_vrr(vrr).map_err(FrameError::DrmError)
     }
 
+    /// y5 patch: arm/disarm async (tearing) page flips for subsequent frames.
+    /// See [`DrmSurface::set_tearing`]. Infallible and modeset-free.
+    pub fn set_tearing(&mut self, tearing: bool) {
+        self.surface.set_tearing(tearing);
+    }
+
     /// Set the [`DebugFlags`] to use
     ///
     /// Note: This will reset the primary plane swapchain if

@@ -11,7 +11,7 @@ compositor_kernel_drm_edid_identity_base = { workspace = true }
 compositor_kernel_graphic_preference_output_profile = { workspace = true }
 compositor_orchestration_driver_output_base = { workspace = true }
 # Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
-compositor_developer_debug_instance_record = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 
 [lib]
 path = "lib.rs"

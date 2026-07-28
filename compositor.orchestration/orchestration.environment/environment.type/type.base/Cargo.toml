@@ -8,7 +8,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 bitflags = { workspace = true }
 smithay = { workspace = true }
-compositor_developer_environment_config_base = { workspace = true }
+compositor_model_environment_config_base = { workspace = true }
 
 [lib]
 path = "lib.rs"

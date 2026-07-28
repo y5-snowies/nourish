@@ -45,14 +45,14 @@ pub fn active(edid_key: &str) -> bool {
 /// value type. A missing/invalid file yields an empty vec (default policy), so this
 /// is behavior-neutral when the user has set no output preferences.
 pub fn get() -> Vec<OutputProfile> {
-    compositor_developer_environment_preference_base::base::load()
+    compositor_model_environment_preference_base::base::load()
         .outputs
         .into_iter()
         .map(map_profile)
         .collect()
 }
 
-fn map_profile(p: compositor_developer_environment_preference_base::base::OutputProfile) -> OutputProfile {
+fn map_profile(p: compositor_model_environment_preference_base::base::OutputProfile) -> OutputProfile {
     OutputProfile { identity: p.identity, mode: p.mode.map(map_mode), active: p.active }
 }
 
@@ -60,7 +60,7 @@ fn map_profile(p: compositor_developer_environment_preference_base::base::Output
 /// `Advertised` request (mHz refresh, already normalized on load). `None` when
 /// unset — callers fall back to the default mode-selection policy.
 pub fn default_mode() -> Option<ModeRequest> {
-    compositor_developer_environment_preference_base::base::load()
+    compositor_model_environment_preference_base::base::load()
         .outputs_default_mode
         .map(|m| ModeRequest::Advertised {
             width: m.width,
@@ -69,8 +69,8 @@ pub fn default_mode() -> Option<ModeRequest> {
         })
 }
 
-fn map_mode(m: compositor_developer_environment_preference_base::base::ModeRequest) -> ModeRequest {
-    use compositor_developer_environment_preference_base::base::ModeRequest as Src;
+fn map_mode(m: compositor_model_environment_preference_base::base::ModeRequest) -> ModeRequest {
+    use compositor_model_environment_preference_base::base::ModeRequest as Src;
     match m {
         Src::Advertised { width, height, refresh_mhz } => ModeRequest::Advertised { width, height, refresh_mhz },
         Src::Cvt { width, height, refresh } => ModeRequest::Cvt { width, height, refresh },

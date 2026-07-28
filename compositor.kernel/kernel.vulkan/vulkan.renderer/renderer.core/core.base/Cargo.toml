@@ -4,9 +4,9 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
-compositor_developer_debug_instance_record.workspace = true
-compositor_developer_environment_config_base.workspace = true
-compositor_developer_environment_graphics_base.workspace = true
+compositor_model_debug_instance_record.workspace = true
+compositor_model_environment_config_base.workspace = true
+compositor_model_environment_graphics_base.workspace = true
 smithay.workspace = true
 ash.workspace = true
 
@@ -23,6 +23,7 @@ compositor_kernel_vulkan_instance_factory_base.workspace = true
 compositor_kernel_vulkan_instance_physical_base.workspace = true
 compositor_kernel_vulkan_memory_export_base.workspace = true
 compositor_kernel_vulkan_sync_export_base.workspace = true
+compositor_kernel_drm_syncobj_device_base.workspace = true
 compositor_kernel_vulkan_sync_fence_base.workspace = true
 compositor_kernel_vulkan_format_query_base.workspace = true
 compositor_kernel_vulkan_format_modifier_base.workspace = true
@@ -43,7 +44,7 @@ compositor_orchestration_draw_dispatch_frame.workspace = true
 # Diagnostics registry (developer tool Statistics tab). Direct cross-workspace
 # path dep (minimal blast radius — std-only crate, no cycle); not in the
 # generated link block.
-compositor_developer_stats_registry_base = { workspace = true }
+compositor_model_stats_registry_base = { workspace = true }
 # Per-surface HDR color tag (shared with the color-management protocol). Leaf
 # type crate; direct path dep (minimal blast, no support-layer coupling).
 compositor_kernel_graphic_color_surface_base = { workspace = true }

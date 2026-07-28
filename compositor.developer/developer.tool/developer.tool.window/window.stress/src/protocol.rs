@@ -94,6 +94,20 @@ pub enum Command {
     SpSub(u8, u8, u8, u8),
     SpNoViewport,
 
+    // --- Tearing (wp_tearing_control_v1) ---
+    /// Publish `set_presentation_hint(async|vsync)` on the main surface. In the
+    /// compositor's `Exclusive` mode `async` tags this client as a pacer.
+    Tearing(bool),
+    /// Self-drive commits at N Hz on the subject's OWN timer, ignoring frame
+    /// callbacks — a game in IMMEDIATE present mode. `0` restores the default
+    /// animation-only tick. This is the independent variable the pacing test
+    /// sweeps; driving off callbacks instead would make the measurement circular.
+    CommitRate(u32),
+    /// Draw the live FRAME/COMMIT counter into the subject's overlay. Off gives
+    /// pixel-identical frames — the control case for judging whether a seen tear
+    /// is real.
+    ShowCounter(bool),
+
     // --- Lifecycle ---
     Map,
     Unmap,
@@ -228,6 +242,15 @@ impl Command {
             }
             Command::SpNoViewport => s.push_str("sp-noviewport"),
 
+            Command::Tearing(on) => {
+                let _ = write!(s, "tearing {}", on8(*on));
+            }
+            Command::CommitRate(hz) => {
+                let _ = write!(s, "commitrate {hz}");
+            }
+            Command::ShowCounter(on) => {
+                let _ = write!(s, "showcounter {}", on8(*on));
+            }
             Command::Map => s.push_str("map"),
             Command::Unmap => s.push_str("unmap"),
             Command::MapCycle(on) => {
@@ -320,6 +343,9 @@ impl Command {
             ),
             "sp-noviewport" => Command::SpNoViewport,
 
+            "tearing" => Command::Tearing(parse_on(next()?)?),
+            "commitrate" => Command::CommitRate(next()?.parse().ok()?),
+            "showcounter" => Command::ShowCounter(parse_on(next()?)?),
             "map" => Command::Map,
             "unmap" => Command::Unmap,
             "mapcycle" => Command::MapCycle(parse_on(next()?)?),

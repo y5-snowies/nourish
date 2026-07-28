@@ -9,8 +9,8 @@ use wgpu::{
 };
 
 use compositor_support_bevy_core_fault_base::WgpuContextError;
-use compositor_developer_debug_instance_record::info;
-use compositor_developer_environment_experimental_base::base as experimental;
+use compositor_model_debug_instance_record::info;
+use compositor_model_environment_experimental_base::base as experimental;
 
 pub struct WgpuVulkanContext {
     pub instance: Instance,
@@ -44,7 +44,7 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
 
     // Pin the wgpu adapter to the render node by default; opt out via gpu_no_pin_wgpu_node.
     let pinned = (!experimental::get().contains(experimental::GpuFlags::NO_PIN_WGPU_NODE)).then(|| {
-        let node = compositor_developer_environment_config_base::base::get().render_node.clone();
+        let node = compositor_model_environment_config_base::base::get().render_node.clone();
         compositor_kernel_graphic_bridge_negotiate_wgpu::query::pick_adapter(&instance, &node)
     });
     let adapter = match pinned.flatten() {
