@@ -69,6 +69,46 @@ impl VulkanRenderer {
         }
         Ok(())
     }
+
+    /// Make external writes to every cache-served dmabuf visible to this frame's
+    /// sampling. Recorded into the frame's own command buffer — no extra submit
+    /// and no host wait, which is the whole point of the import cache — and
+    /// batched into ONE barrier covering every image, so the cost is O(1) API
+    /// calls regardless of how many surfaces are on screen. The layout is
+    /// unchanged: these images have been `SHADER_READ_ONLY_OPTIMAL` since their
+    /// one-time `transition_to_sampled` at first import.
+    pub(super) fn record_pending_acquires(&self, cmd: vk::CommandBuffer, textures: &[VulkanTexture]) {
+        if textures.is_empty() {
+            return;
+        }
+        let barriers: Vec<vk::ImageMemoryBarrier2> = textures
+            .iter()
+            .map(|t| &t.inner.image)
+            .map(|image| {
+                vk::ImageMemoryBarrier2::default()
+                    .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+                    .src_access_mask(vk::AccessFlags2::MEMORY_WRITE)
+                    .dst_stage_mask(vk::PipelineStageFlags2::FRAGMENT_SHADER)
+                    .dst_access_mask(vk::AccessFlags2::SHADER_SAMPLED_READ)
+                    .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .image(*image)
+                    .subresource_range(vk::ImageSubresourceRange {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        base_mip_level: 0,
+                        level_count: 1,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    })
+            })
+            .collect();
+        unsafe {
+            self.dev.device.cmd_pipeline_barrier2(
+                cmd,
+                &vk::DependencyInfo::default().image_memory_barriers(&barriers),
+            );
+        }
+    }
 }
 
 impl ImportDma for VulkanRenderer {
@@ -87,11 +127,41 @@ impl ImportDma for VulkanRenderer {
         dmabuf: &Dmabuf,
         _damage: Option<&[Rectangle<i32, BufferCoord>]>,
     ) -> Result<VulkanTexture, VulkanError> {
+        // Reuse the import for a dmabuf we already hold. The scene lowers
+        // iced/bevy nodes by calling this EVERY FRAME for EVERY surface
+        // (`draw.node`'s `import_texture`) — unlike client buffers, which smithay
+        // caches per commit in `RendererSurfaceState`. Uncached, each of those
+        // calls is a create-image + dedicated dmabuf import-alloc + view, plus the
+        // fenced layout submit below, plus the matching destroy, so the cost
+        // scaled with the number of iced surfaces on screen. The dmabuf backing a
+        // surface is stable for its lifetime — reallocated only on resize or on
+        // the visibility sweep's release, both of which mint a new `Arc` — so
+        // pointer identity is a sound key, and a stale entry cannot alias a new
+        // buffer.
+        let key = dmabuf.weak();
+        if let Some(tex) = self.import_cache.get(&key) {
+            // Skipping `transition_to_sampled` skips its queue submit AND its host
+            // fence wait, which is the actual win: that wait sat on the same queue
+            // as the composite, so it drained the in-flight frame once per surface.
+            // The producer may have redrawn into this dmabuf since, so the frame
+            // that samples it opens with a batched availability barrier instead
+            // (see `pending_acquires`). Deduped: a surface visible in several panes
+            // imports once per pane, and one barrier per image covers them all.
+            let tex = tex.clone();
+            if !self
+                .pending_acquires
+                .iter()
+                .any(|t| t.inner.image == tex.inner.image)
+            {
+                self.pending_acquires.push(tex.clone());
+            }
+            return Ok(tex);
+        }
         let imported =
             compositor_kernel_vulkan_memory_import_base::import::import(&self.dev, &self.phd, dmabuf)
                 .map_err(|e| VulkanError::Import(e.to_string()))?;
         self.transition_to_sampled(imported.image)?;
-        Ok(VulkanTexture {
+        let texture = VulkanTexture {
             inner: Arc::new(TextureInner {
                 device: self.dev.device.clone(),
                 image: imported.image,
@@ -105,7 +175,9 @@ impl ImportDma for VulkanRenderer {
                 owns_memory: true,
             }),
             surf: [0.0; 4],
-        })
+        };
+        self.import_cache.insert(key, texture.clone());
+        Ok(texture)
     }
 }
 

@@ -3176,6 +3176,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_model_environment_experimental_runtime"
+version = "0.0.1"
+
+[[package]]
 name = "compositor_model_environment_graphics_base"
 version = "0.0.1"
 dependencies = [
@@ -7242,6 +7246,7 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_model_debug_instance_record",
+ "compositor_model_environment_experimental_runtime",
  "compositor_model_environment_keybinding_base",
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_driver_audio_base",

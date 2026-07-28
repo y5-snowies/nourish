@@ -34,6 +34,20 @@ use compositor_model_stats_registry_base::base as stats;
 
 use crate::texture::VulkanTexture;
 
+/// One output dmabuf imported as a colour attachment and KEPT, rather than
+/// re-imported and destroyed every frame. Keyed by the dmabuf's pointer
+/// identity, so a swapchain buffer reappearing next frame reuses its `VkImage` —
+/// which is also what lets the composite preserve the undamaged remainder,
+/// since the driver still tracks that image's layout.
+pub(super) struct CachedTarget {
+    pub(super) image: vk::Image,
+    pub(super) memory: vk::DeviceMemory,
+    pub(super) view: vk::ImageView,
+    pub(super) format: vk::Format,
+    pub(super) width: u32,
+    pub(super) height: u32,
+}
+
 /// A Vulkan renderer implementing Smithay's `Renderer`/`Frame` family.
 ///
 /// Execution model (foundation): one reused command buffer, synchronous
@@ -127,6 +141,32 @@ pub struct VulkanRenderer {
     /// The previously submitted frame's texture pins; dropped at the drain
     /// point once that frame has provably completed.
     pub(super) in_flight_textures: Vec<crate::texture::VulkanTexture>,
+    /// Live scanout-target imports, keyed by dmabuf identity. Entries whose
+    /// dmabuf has died (an output resize/mode change retires its whole
+    /// swapchain) are reaped at the drain point in `submit_frame`. Membership is
+    /// also the record of which buffers hold one of our composites, which is
+    /// what `bind` reads to decide whether the target can be acquired
+    /// content-preserving or must be discarded and fully cleared.
+    pub(super) target_cache: HashMap<smithay::backend::allocator::dmabuf::WeakDmabuf, CachedTarget>,
+    /// Sampled dmabuf imports kept across frames, keyed by source dmabuf
+    /// identity. The `Arc` inside `VulkanTexture` owns the image/memory/view, so
+    /// an entry dropped here is destroyed only once every other handle
+    /// (including this frame's `pinned_textures`) is gone.
+    pub(super) import_cache:
+        HashMap<smithay::backend::allocator::dmabuf::WeakDmabuf, VulkanTexture>,
+    /// Textures served from `import_cache` since the last submit. Their producer
+    /// (iced's wgpu, a client) may have written to the underlying dmabuf since we
+    /// last sampled it, so the frame that samples them opens with one batched
+    /// availability barrier — the in-command-buffer replacement for the
+    /// per-import `transition_to_sampled` submit+fence the cache skips.
+    ///
+    /// Holds `VulkanTexture` PINS, not bare `vk::Image`, and is deduped on push.
+    /// Scene building imports even on frames that never submit (smithay's damage
+    /// tracker early-returns before `render()` when nothing changed — the common
+    /// idle case), so this list both outlives individual frames and must not grow
+    /// unbounded: the pin keeps a since-evicted image valid, and the dedup bounds
+    /// the length by the number of distinct live surfaces.
+    pub(super) pending_acquires: Vec<VulkanTexture>,
 }
 
 impl std::fmt::Debug for VulkanRenderer {
@@ -162,6 +202,40 @@ impl VulkanRenderer {
                 if target.memory != vk::DeviceMemory::null() {
                     self.dev.device.free_memory(target.memory, None);
                 }
+            }
+        }
+    }
+
+    /// Destroy one cached scanout-target import. Callers must be at a point
+    /// where the frame that last used it has provably completed.
+    pub(super) fn destroy_target(dev: &VulkanDevice, t: &CachedTarget) {
+        unsafe {
+            dev.device.destroy_image_view(t.view, None);
+            dev.device.destroy_image(t.image, None);
+            dev.device.free_memory(t.memory, None);
+        }
+    }
+
+    /// Drop cache entries whose source dmabuf has been freed — an output resize
+    /// or mode change retires its whole swapchain; a surface resize or release
+    /// mints a new backing buffer. Same safety precondition as
+    /// [`drain_retired`], and called from the same place.
+    ///
+    /// Dropping an `import_cache` entry only releases OUR handle: a texture this
+    /// frame still samples stays alive through its `pinned_textures` pin, so
+    /// this cannot free something the GPU is reading. `target_cache` entries own
+    /// their objects outright, hence the explicit destroy.
+    pub(super) fn reap_targets(&mut self) {
+        self.import_cache.retain(|w, _| w.upgrade().is_some());
+        let dead: Vec<_> = self
+            .target_cache
+            .keys()
+            .filter(|w| w.upgrade().is_none())
+            .cloned()
+            .collect();
+        for key in dead {
+            if let Some(t) = self.target_cache.remove(&key) {
+                Self::destroy_target(&self.dev, &t);
             }
         }
     }
@@ -215,10 +289,15 @@ impl Drop for VulkanRenderer {
         unsafe {
             let _ = self.dev.device.device_wait_idle();
             self.drain_retired();
+            // Scanout-target imports: the framebuffers no longer own these.
+            for (_, t) in self.target_cache.drain() {
+                Self::destroy_target(&self.dev, &t);
+            }
             // Drop texture pins BEFORE destroy_device below — `TextureInner`
             // destroys through its own device clone on last-handle drop.
             self.in_flight_textures.clear();
             self.pinned_textures.clear();
+            self.import_cache.clear();
             // Capture-target imports + the reusable SHM staging buffer.
             self.capture_cache.destroy(&self.dev);
             self.shm_staging.destroy(&self.dev);

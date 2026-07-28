@@ -12,6 +12,7 @@ use super::VulkanRenderer;
 impl VulkanRenderer {
     /// Replay the queued draw ops into one composite pass and submit. Called by
     /// `VulkanFrame::finish`.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn submit_frame(
         &mut self,
         image: vk::Image,
@@ -19,6 +20,8 @@ impl VulkanRenderer {
         format: vk::Format,
         extent: (u32, u32),
         clear: [f32; 4],
+        clear_rects: Vec<vk::Rect2D>,
+        acquire: crate::frame::TargetAcquire,
         ops: Vec<DrawOp>,
     ) -> Result<SyncPoint, VulkanError> {
         self.ensure_pipelines(format)?;
@@ -29,7 +32,7 @@ impl VulkanRenderer {
         // Build any fullscreen-shader-pass pipelines this frame references (a
         // mutable borrow, done before the immutable borrows used to record).
         for op in &ops {
-            if let DrawOp::ShaderPass { sdr, hdr } = op {
+            if let DrawOp::ShaderPass { sdr, hdr, .. } = op {
                 let v = if use_hdr { hdr.as_ref().unwrap_or(sdr) } else { sdr };
                 self.ensure_shader_pass(v, format)?;
             }
@@ -54,7 +57,21 @@ impl VulkanRenderer {
         // pins dropped. The frame being submitted keeps its own pins (pushed
         // during record) until the next drain point.
         self.drain_retired();
+        // Same proven-complete precondition as the drain above, so cached imports
+        // whose dmabuf has died are reclaimed here.
+        self.reap_targets();
         self.in_flight_textures = std::mem::take(&mut self.pinned_textures);
+
+        // Compose only what smithay says changed. Requires a target whose
+        // contents we can take over (see `TargetAcquire`); the HDR branch below
+        // keeps the full-clear shape, so it opts out too.
+        let acquire_layout = acquire.old_layout().filter(|_| !self.use_hdr());
+        let damaged = acquire_layout.is_some();
+
+        // Textures served from the import cache since the last submit (already
+        // deduped on push). Drained here, so the barrier is paid once for
+        // everything that accumulated over any frames that never submitted.
+        let acquires = std::mem::take(&mut self.pending_acquires);
 
         // Live graphics config (settings "Graphics" tab, via preferences) +
         // current world zoom → the effective, zoom-weighted AA knobs. AA applies
@@ -79,6 +96,7 @@ impl VulkanRenderer {
         let value = self.frame_counter;
         stats::frame();
 
+        let this = &*self;
         let dev = &self.dev;
         let pipelines = self
             .pipelines
@@ -121,13 +139,14 @@ impl VulkanRenderer {
             let sdr = [0.0_f32; 4];
             compositor_kernel_vulkan_command_record_base::record::record_composition(
                 dev, cmd, image, view, extent, clear, pipelines,
-                |_cmd| {},
+                None,
+                |cmd| this.record_pending_acquires(cmd, &acquires),
                 |cmd| {
                     hdr.begin_frame(dev, cmd);
                     for op in ops.iter() {
                         match op {
-                            DrawOp::Solid { quad } => hdr.draw_solid(dev, cmd, to_push(quad, sdr)),
-                            DrawOp::ShaderPass { sdr: s, hdr: h } => {
+                            DrawOp::Solid { quad, .. } => hdr.draw_solid(dev, cmd, to_push(quad, sdr)),
+                            DrawOp::ShaderPass { sdr: s, hdr: h, .. } => {
                                 let v = if use_hdr { h.as_ref().unwrap_or(s) } else { s };
                                 if let Some(fp) = shader_passes.get(&(v.id, format)) {
                                     fp.draw(dev, cmd, &v.push);
@@ -273,6 +292,12 @@ impl VulkanRenderer {
             }
 
             let mipgen = &self.mipgen;
+            let damage_pass = acquire_layout.map(|old_layout| {
+                compositor_kernel_vulkan_command_record_base::record::DamagePass {
+                    clear_rects: &clear_rects,
+                    old_layout,
+                }
+            });
             compositor_kernel_vulkan_command_record_base::record::record_composition(
                 dev,
                 cmd,
@@ -281,7 +306,11 @@ impl VulkanRenderer {
                 extent,
                 clear,
                 pipelines,
+                damage_pass,
                 |cmd| {
+                    // Cache-served imports first: the mip pre-pass below samples
+                    // them, so their writes must be visible before it runs.
+                    this.record_pending_acquires(cmd, &acquires);
                     // Pre-pass: (re)generate the mip chain for each AA mip op.
                     if !mip_jobs.is_empty() {
                         if let Some(aa) = aa {
@@ -293,44 +322,59 @@ impl VulkanRenderer {
                     }
                 },
                 |cmd| {
+                    // Run each draw once per damage rect under a scissor, instead
+                    // of once over the whole target. On a full redraw, one
+                    // unscissored draw under `begin`'s full-extent scissor.
+                    let scissored = |scissors: &[vk::Rect2D], draw: &dyn Fn()| {
+                        if !damaged {
+                            draw();
+                            return;
+                        }
+                        for s in scissors {
+                            unsafe {
+                                dev.device.cmd_set_scissor(cmd, 0, std::slice::from_ref(s));
+                            }
+                            draw();
+                        }
+                    };
                     for (i, (op, set)) in ops.iter().zip(sets.iter()).enumerate() {
                         match op {
-                            DrawOp::Solid { quad } => {
-                                compositor_kernel_vulkan_element_solid_base::solid::draw(
-                                    dev, pipelines, cmd, *quad,
-                                );
+                            DrawOp::Solid { quad, scissors } => {
+                                scissored(scissors, &|| {
+                                    compositor_kernel_vulkan_element_solid_base::solid::draw(
+                                        dev, pipelines, cmd, *quad,
+                                    );
+                                });
                             }
-                            DrawOp::ShaderPass { sdr, hdr } => {
+                            DrawOp::ShaderPass { sdr, hdr, scissors } => {
                                 let v = if use_hdr { hdr.as_ref().unwrap_or(sdr) } else { sdr };
                                 if let Some(fp) = shader_passes.get(&(v.id, format)) {
-                                    fp.draw(dev, cmd, &v.push);
+                                    scissored(scissors, &|| fp.draw(dev, cmd, &v.push));
                                 }
                             }
-                            DrawOp::Textured { quad, tex_w, tex_h, .. } => {
+                            DrawOp::Textured { quad, tex_w, tex_h, scissors, .. } => {
                                 let set = set.expect("textured op has a set");
                                 if aa_op[i] {
                                     let aa = aa.expect("aa pipeline present for aa op");
-                                    aa.draw(
-                                        dev,
-                                        cmd,
-                                        set,
-                                        compositor_kernel_vulkan_pipeline_composite_base::composite::AaPush {
-                                            dst: quad.dst,
-                                            src: quad.src,
-                                            color: quad.color,
-                                            params: [aa_taps as f32, aa_spread, aa_sharpen, aa_lod_bias],
-                                            params2: [
-                                                if aa_easu { 1.0 } else { 0.0 },
-                                                if aa_rcas { aa_rcas_strength } else { 0.0 },
-                                                *tex_w as f32,
-                                                *tex_h as f32,
-                                            ],
-                                        },
-                                    );
+                                    let push = compositor_kernel_vulkan_pipeline_composite_base::composite::AaPush {
+                                        dst: quad.dst,
+                                        src: quad.src,
+                                        color: quad.color,
+                                        params: [aa_taps as f32, aa_spread, aa_sharpen, aa_lod_bias],
+                                        params2: [
+                                            if aa_easu { 1.0 } else { 0.0 },
+                                            if aa_rcas { aa_rcas_strength } else { 0.0 },
+                                            *tex_w as f32,
+                                            *tex_h as f32,
+                                        ],
+                                    };
+                                    scissored(scissors, &|| aa.draw(dev, cmd, set, push));
                                 } else {
-                                    compositor_kernel_vulkan_element_texture_base::texture::draw(
-                                        dev, pipelines, cmd, set, *quad,
-                                    );
+                                    scissored(scissors, &|| {
+                                        compositor_kernel_vulkan_element_texture_base::texture::draw(
+                                            dev, pipelines, cmd, set, *quad,
+                                        );
+                                    });
                                 }
                             }
                         }

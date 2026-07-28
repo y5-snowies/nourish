@@ -344,6 +344,9 @@ fn vulkan_self_test(display: &DisplayAssembly) -> String {
         (64, 64),
         [0.0, 0.0, 0.0, 1.0],
         &pipelines,
+        // Self-test: full-target clear, and no pre-pass.
+        None,
+        |_cmd| {},
         |cmd| {
             compositor_kernel_vulkan_element_solid_base::solid::draw(&device, &pipelines, cmd, solid);
         },
@@ -441,6 +444,9 @@ fn vulkan_self_test(display: &DisplayAssembly) -> String {
         (64, 64),
         [0.0, 0.0, 0.0, 1.0],
         &pipelines,
+        // Self-test: full-target clear, and no pre-pass.
+        None,
+        |_cmd| {},
         |cmd| {
             compositor_kernel_vulkan_element_texture_base::texture::draw(
                 &device,

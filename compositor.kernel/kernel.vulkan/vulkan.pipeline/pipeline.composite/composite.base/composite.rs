@@ -186,17 +186,23 @@ pub fn create(
 }
 
 /// Begin a dynamic-rendering composition pass into `target`.
+///
+/// `load` selects how the attachment starts: `CLEAR` (the always-on default —
+/// the whole target is wiped to `clear`) or `LOAD`, which preserves the previous
+/// frame's contents so the caller can clear only the damaged rects itself. `LOAD`
+/// is only sound when the target image was acquired content-preserving.
 pub fn begin(
     device: &VulkanDevice,
     cmd: vk::CommandBuffer,
     target: vk::ImageView,
     extent: (u32, u32),
     clear: [f32; 4],
+    load: vk::AttachmentLoadOp,
 ) {
     let attachment = vk::RenderingAttachmentInfo::default()
         .image_view(target)
         .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .load_op(load)
         .store_op(vk::AttachmentStoreOp::STORE)
         .clear_value(vk::ClearValue {
             color: vk::ClearColorValue { float32: clear },
