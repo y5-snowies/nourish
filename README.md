@@ -17,7 +17,7 @@
 
 https://github.com/user-attachments/assets/03d78832-c451-451f-a701-713710a20051
 
-**[nourish.snowies.com](https://nourish.snowies.com)**  ·  [Guide](https://nourish.snowies.com/guide)  ·  [Discord](https://discord.gg/kasec5bYb)
+**[nourish.snowies.com](https://nourish.snowies.com)**  ·  [Guide](https://nourish.snowies.com/guide)  ·  [Discord](https://discord.gg/94FJsB8dpY)
 
 </div>
 
