@@ -38,9 +38,9 @@ permissions:
 # alone: pushes still can't race a Pages deployment, but a superseded run finishes its
 # bundles and publishes them to the release.
 #
-# Two runs can therefore both reach the release jobs. That is already safe: both the
-# `release` and `bundles-publish` steps create-or-clobber `v<version>` rather than assuming
-# it is new.
+# Two runs can therefore both reach `release`. It create-or-clobbers `v<version>` rather
+# than assuming the tag is new, so the common case is safe; a genuine simultaneous race can
+# still have both take the create path and one fail with HTTP 422, which a re-run fixes.
 
 env:
   # Mirror ci.yml: keep sccache + cargo dirs in the workspace so actions/cache persists them
@@ -300,60 +300,22 @@ jobs:
   # installer fetches Pages /release/latest/fedora44/, bootstrap.sh defaults to bundles-rolling).
   # A rolling `latest` release-tag was also permanently burned by GitHub's immutable-releases
   # window (2026-07-03..06) and can never be recreated; the semantic Latest pointer covers it.
+  # ONE release, published once. `release` waits for the whole bundle matrix and attaches
+  # everything in a single call: the Fedora `package.tar.gz`, all thirteen
+  # `package-<distro>-<arch>.tar.gz`, one combined `SHA256SUMS`, and `bootstrap.sh`.
+  #
+  # This deliberately does NOT split into a fast Fedora release plus a later multi-arch
+  # top-up. That split published a release whose `SHA256SUMS` covered only `package.tar.gz`
+  # for however long the matrix ran — and if the second job failed, it stayed that way.
+  # `bootstrap.sh` refuses to install a bundle it cannot verify, so an incomplete
+  # `SHA256SUMS` breaks the one-liner for every non-Fedora distro. A release missing twelve
+  # of its thirteen bundles is not useful, so there is nothing to gain by publishing it
+  # early.
+  #
+  # Release latency is NOT the site's latency: `deploy` needs only [site, bundle, version],
+  # so the website and the Fedora Pages download still land in minutes.
   release:
-    needs: [bundle, version]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: install-bundle
-          path: dist
-      - name: Publish v<version>
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          common="\`package.tar.gz\` is the install bundle — prebuilt compositor + components
-          + the \`y5-install\` installer — the same artifact served under
-          https://nourish.snowies.com/release/. Extract it and run \`y5-install/install.sh\`."
-
-          # 1) Immutable, versioned release. The `v<version>` tag pins this commit; created
-          #    once, then re-runs of the same commit just refresh the attached assets.
-          if gh release view "v$VERSION" >/dev/null 2>&1; then
-            echo ">> release v$VERSION exists — refreshing assets"
-            gh release upload "v$VERSION" dist/package.tar.gz dist/SHA256SUMS --clobber
-          else
-            gh release create "v$VERSION" \
-              --target "$GITHUB_SHA" \
-              --title "v$VERSION" \
-              --latest \
-              --notes "Nourish v$VERSION — built from \`upstream\` @ ${GITHUB_SHA:0:7}.
-
-          $common" \
-              dist/package.tar.gz dist/SHA256SUMS
-          fi
-
-  # The multi-arch half of the release: attach every per-distro bundle to the SAME
-  # `v<version>` release the job above created.
-  #
-  # Split from `release` on purpose. That job publishes the Fedora bundle within minutes so the
-  # release (and GitHub's "Latest" pointer, which `bootstrap.sh` resolves through
-  # `releases/latest/download`) exists promptly; this one lands the other twelve whenever the
-  # native matrix finishes. `needs: release` only orders them — it does not make the fast path
-  # wait.
-  #
-  # SHA256SUMS is REWRITTEN here, not appended to, and that matters: `release` uploaded a
-  # SHA256SUMS covering `package.tar.gz` alone, while `bootstrap.sh` fetches one file by that
-  # name and greps it for `package-<distro>-<arch>.tar.gz`. So the combined file must list
-  # BOTH — the Fedora line (re-derived from the same artifact) and all thirteen combos — and
-  # `--clobber` replaces the narrower one. Publishing a SHA256SUMS that omitted the combos
-  # would make bootstrap fail closed on every distro, since an unverifiable bundle is never
-  # installed.
-  bundles-publish:
-    needs: [bundles, version, release]
+    needs: [bundle, bundles, version]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -361,33 +323,68 @@ jobs:
       - uses: actions/checkout@v4      # for compositor.installer/bootstrap.sh
       - uses: actions/download-artifact@v4
         with:
-          pattern: bundle-*
-          path: artifacts
-          merge-multiple: true         # flatten every combo's files into one dir
-      - uses: actions/download-artifact@v4
-        with:
           name: install-bundle
           path: fedora
-      - name: Consolidate assets + one combined SHA256SUMS
+      # `pattern:` matters — this workflow also produces `site-public` and `install-bundle`,
+      # and a pattern-less download would flatten those in beside the bundles.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bundle-*
+          path: artifacts
+          merge-multiple: true
+      - name: Assemble assets + one combined SHA256SUMS
         run: |
           mkdir -p release
-          cp artifacts/*.tar.gz release/
-          # The Fedora bundle keeps its historical asset name (`package.tar.gz`) — get.sh and
-          # the existing docs both reference it — so its checksum line is regenerated here
-          # rather than copied, guaranteeing it matches the bytes actually attached.
           cp fedora/package.tar.gz release/
+          cp artifacts/*.tar.gz release/
+          # Written once, over every asset. `bootstrap.sh` fetches exactly one file by this
+          # name and greps it for `package-<distro>-<arch>.tar.gz`, so it must list the
+          # per-distro bundles as well as the Fedora one. Checksums are re-derived from the
+          # bytes being attached rather than copied from the per-combo `.sha256` files, so
+          # they cannot disagree with what ships.
           ( cd release && sha256sum package.tar.gz package-*.tar.gz > SHA256SUMS )
-          echo ">> combined SHA256SUMS:"; cat release/SHA256SUMS
-      - name: Attach to v<version>
+          echo ">> $(ls release/*.tar.gz | wc -l) bundles"; cat release/SHA256SUMS
+      - name: Publish v<version>
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
-          # bootstrap.sh rides along as a release asset too, so a pinned download can fetch the
-          # exact installer that matches its bundles even if Pages is unreachable.
+          # Stamp the published bootstrap so it targets THIS repo. Left on its default
+          # channel — empty tag, i.e. `releases/latest/download` — so it tracks the newest
+          # STABLE release rather than `bundles-rolling`, which is candidate output.
           sed "s|\${Y5_RELEASE_REPO:-y5-snowies/nourish}|\${Y5_RELEASE_REPO:-$GITHUB_REPOSITORY}|" \
             compositor.installer/bootstrap.sh > release/bootstrap.sh
-          gh release upload "v$VERSION" \
-            release/package-*.tar.gz release/SHA256SUMS release/bootstrap.sh --clobber
-          echo ">> v$VERSION now carries $(ls release/package-*.tar.gz | wc -l) per-distro bundles"
+
+          notes="\`package.tar.gz\` is the Fedora install bundle — prebuilt compositor +
+          components + the \`y5-install\` installer — the same artifact served under
+          https://nourish.snowies.com/release/. Extract it and run \`y5-install/install.sh\`.
+
+          \`package-<distro>-<arch>.tar.gz\` is the same bundle built natively for each
+          supported distribution and CPU architecture. Each is dynamically linked to that
+          distro's own glibc / mesa / Vulkan / ffmpeg / webkit, so they are not portable
+          across distros. \`SHA256SUMS\` covers every asset here.
+
+          The easiest way in is the one-liner, which picks the right one for you:
+          \`\`\`
+          curl -fsSL https://nourish.snowies.com/install | bash
+          \`\`\`"
+
+          # The `v<version>` tag pins this commit; created once, then a re-run of the same
+          # commit just refreshes the assets.
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo ">> release v$VERSION exists — refreshing assets"
+            gh release upload "v$VERSION" \
+              release/package.tar.gz release/package-*.tar.gz \
+              release/SHA256SUMS release/bootstrap.sh --clobber
+          else
+            gh release create "v$VERSION" \
+              --target "$GITHUB_SHA" \
+              --title "v$VERSION" \
+              --latest \
+              --notes "Nourish v$VERSION — built from \`upstream\` @ ${GITHUB_SHA:0:7}.
+
+          $notes" \
+              release/package.tar.gz release/package-*.tar.gz \
+              release/SHA256SUMS release/bootstrap.sh
+          fi
