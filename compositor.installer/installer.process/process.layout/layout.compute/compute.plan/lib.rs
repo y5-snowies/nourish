@@ -8,7 +8,7 @@ use compositor_installer_process_config_parse_base::Preset;
 use compositor_installer_process_layout_compute_policy as policy;
 use compositor_installer_process_layout_compute_session as session;
 use compositor_installer_process_layout_compute_stage::{
-    Action, Source, Stage, home, place, user_systemd_dir,
+    Action, Source, Stage, home, place, settings_path, user_systemd_dir,
 };
 
 /// Actions to install the compositor binaries (system + dev) from the stage, plus the
@@ -52,15 +52,9 @@ pub fn settings_json(preset: &Preset) -> String {
     serde_json::to_string_pretty(&env).expect("Environment serializes to JSON")
 }
 
-/// Seed settings.json in the user config dir (root=false → the invoking user's $HOME, the
-/// reason the installer runs unprivileged). Editable later with `y5.compositor.settings`.
+/// Seed settings.json from the prompted config. Guard with [`settings_exists`].
 pub fn settings_action(preset: &Preset) -> Action {
-    place(
-        home().join(".config/y5.compositor/settings.json"),
-        Source::Text(settings_json(preset)),
-        0o644,
-        false,
-    )
+    place(settings_path(), Source::Text(settings_json(preset)), 0o644, false)
 }
 
 /// Actions for a single preset: wrapper script, systemd service + shutdown target,

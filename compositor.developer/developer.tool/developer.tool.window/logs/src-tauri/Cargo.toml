@@ -25,3 +25,19 @@ hyper-util = "0.1"
 
 [profile.dev]
 incremental = true
+
+# Release profile. Declared per-component because Cargo only honours `[profile.*]` at the
+# workspace root it is invoked from, and `prepare.sh` builds each component by cd-ing into
+# its own root — so nothing is inherited from the compositor's profile in
+# `compositor.kernel/kernel.loader/Cargo.toml`. Without this block a shipped binary gets
+# cargo's defaults: no LTO, 16 codegen units, unstripped.
+#
+# THIN rather than fat, unlike the other components: this is the largest dependency graph
+# in the bundle after the compositor, its fat-LTO link is serial and multi-minute, and the
+# multiarch pipeline pays that cost once per (distro × arch) leg — 13 times. Thin LTO plus
+# `strip` recovers most of the size for a fraction of the link, and a log viewer is not on
+# any hot path where the difference in codegen would be noticed.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

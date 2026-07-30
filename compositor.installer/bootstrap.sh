@@ -15,8 +15,9 @@
 #
 # Overridable via env:
 #   Y5_RELEASE_REPO  GitHub owner/repo         (default: y5-snowies/nourish)
-#   Y5_RELEASE_TAG   release tag               (default: bundles-rolling; pin e.g. bundles-v1.4.1-rc.2)
-#   Y5_RELEASE_BASE  full asset base URL       (default: https://github.com/<repo>/releases/download/<tag>)
+#   Y5_RELEASE_TAG   release tag to pin        (default: EMPTY = the newest stable release;
+#                                              e.g. v1.5.0, or bundles-rolling for the RC channel)
+#   Y5_RELEASE_BASE  full asset base URL       (default: derived from repo + tag, see below)
 #   Y5_DISTRO        force the distro dir       (e.g. debian-13; skips detection)
 #   Y5_ARCH          force the arch            (x86_64 | aarch64; skips uname)
 #   Y5_NIX_BUNDLE    glibc bundle to use on NixOS (default: fedora-44)
@@ -25,8 +26,23 @@
 set -euo pipefail
 
 REPO="${Y5_RELEASE_REPO:-y5-snowies/nourish}"
-TAG="${Y5_RELEASE_TAG:-bundles-rolling}"
-BASE="${Y5_RELEASE_BASE:-https://github.com/$REPO/releases/download/$TAG}"
+
+# The DEFAULT is the newest STABLE release, expressed as GitHub's `releases/latest/`
+# redirect rather than a tag: that pointer follows whatever release is marked "Latest"
+# (docs.yml passes `--latest` when it publishes `v<version>`), so it can never go stale and
+# needs no tag baked in here.
+#
+# It must NOT default to a rolling tag. `bundles-rolling` is recreated on every push to
+# `candidate` and holds release CANDIDATES — pointing the public one-liner at it would ship
+# every visitor an RC. Rolling stays opt-in: `Y5_RELEASE_TAG=bundles-rolling`.
+TAG="${Y5_RELEASE_TAG:-}"
+if [ -n "$TAG" ]; then
+    BASE="${Y5_RELEASE_BASE:-https://github.com/$REPO/releases/download/$TAG}"
+    CHANNEL="tag $TAG"
+else
+    BASE="${Y5_RELEASE_BASE:-https://github.com/$REPO/releases/latest/download}"
+    CHANNEL="latest stable"
+fi
 
 # The distro dirs the multiarch pipeline builds (must match .github/workflows/multiarch-publish.yml).
 KNOWN="fedora-43 fedora-44 debian-12 debian-13 ubuntu-24.04 ubuntu-26.04 arch"
@@ -99,7 +115,7 @@ fetch_bundle() {
     local combo="$1" asset="package-$1.tar.gz"
     say "downloading $asset  ($BASE)"
     curl -fSL --proto '=https' "$BASE/$asset" -o "$WORK/$asset" \
-        || die "download failed: $BASE/$asset  (does this distro/arch combo exist in $TAG?)"
+        || die "download failed: $BASE/$asset  (does this distro/arch combo exist in the $CHANNEL release?)"
 
     # Verify against SHA256SUMS at the same base. No override, no skip: a bundle we can't verify
     # is never installed. SHA256SUMS lists every combo; pick the line for OUR asset by name.
@@ -137,7 +153,7 @@ if [ "$DISTRO" = arch ] && [ "$ARCH" != x86_64 ]; then
     die "the arch bundle is x86_64-only (the official archlinux image has no arm64 build)."
 fi
 
-say "target: $DISTRO ($ARCH), release tag $TAG"
+say "target: $DISTRO ($ARCH), $CHANNEL"
 STAGE="$(fetch_bundle "$DISTRO-$ARCH")"
 [ -x "$STAGE/y5-install" ] || die "bundle is missing the installer ($STAGE/y5-install)."
 

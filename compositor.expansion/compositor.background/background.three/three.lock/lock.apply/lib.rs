@@ -52,7 +52,17 @@ pub fn apply_to_transform(
         0.0
     };
 
-    let new_rotation = transform.rotation * Quat::from_axis_angle(Vec3::Y, spin_increment);
+    // Renormalise. The spin accumulates by multiplying the PREVIOUS rotation
+    // every frame, and `Quat * Quat` does not renormalise, so the norm drifts
+    // with the number of multiplications — i.e. with FRAME COUNT, not with
+    // elapsed time. A non-unit quaternion scales the transform matrix it derives
+    // by |q|², so the drift shows up as the object slowly changing apparent
+    // size. The lock screen is the worst case: `Hero` is in the spinning set, so
+    // this runs continuously for as long as the lock screen is up, and an
+    // uncapped composite rate multiplies the frame count by an order of
+    // magnitude. One rsqrt per frame bounds the error instead of accumulating it.
+    let new_rotation =
+        (transform.rotation * Quat::from_axis_angle(Vec3::Y, spin_increment)).normalize();
     *transform = Transform {
         translation: pos,
         rotation: new_rotation,

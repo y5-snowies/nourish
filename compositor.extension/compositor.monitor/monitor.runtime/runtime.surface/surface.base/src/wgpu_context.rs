@@ -144,11 +144,20 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
     }
     let to_request = (required | optional) & available;
 
+    // Clamp the WebGPU defaults down to what this adapter actually allows,
+    // field by field and in each limit's own direction. `Limits::default()`
+    // alone is NOT universally available — it asks for 8 color attachments,
+    // and adapters that permit only 4 (the `downlevel_defaults` value) fail
+    // `request_device` outright, taking the whole iced UI with them. Nothing
+    // here draws to more than one attachment, so a lower ceiling costs us
+    // nothing.
+    let limits = wgpu::Limits::default().or_worse_values_from(&adapter.limits());
+
     let (device, queue) = pollster::block_on(adapter.request_device(&DeviceDescriptor {
         experimental_features: ExperimentalFeatures::disabled(),
         label: Some("y5_iced_dmabuf_wgpu_device"),
         required_features: to_request,
-        required_limits: wgpu::Limits::default(),
+        required_limits: limits,
         memory_hints: wgpu::MemoryHints::default(),
         trace: wgpu::Trace::Off,
     }))

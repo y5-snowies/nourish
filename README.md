@@ -17,7 +17,7 @@
 
 https://github.com/user-attachments/assets/03d78832-c451-451f-a701-713710a20051
 
-**[nourish.snowies.com](https://nourish.snowies.com)**  ·  [Guide](https://nourish.snowies.com/guide)  ·  [Discord](https://discord.gg/kasec5bYb)
+**[nourish.snowies.com](https://nourish.snowies.com)**  ·  [Guide](https://nourish.snowies.com/guide)  ·  [Discord](https://discord.gg/94FJsB8dpY)
 
 </div>
 
@@ -48,16 +48,27 @@ like and the full list of features.
 
 ## Install
 
-On Fedora 44, it's one command. You get a prebuilt build, so there's no toolchain to set up:
+It's one command. You get a prebuilt build, so there's no toolchain to set up — the
+script detects your distribution and CPU architecture, downloads the matching bundle,
+verifies its checksum, and runs the installer:
 
 > **Note for AMD users:** some have reported that Vulkan does not work on AMD. If
 > you're on an AMD card, set `renderer` to `gles` when the installer prompts for it.
 
 ```bash
-curl -fsSL https://nourish.snowies.com/release/latest/fedora44/package.tar.gz | tar -xz && y5-install/install.sh
+curl -fsSL https://nourish.snowies.com/install | bash
 ```
 
-The installer is interactive and safe to re-run. For the full walkthrough see
+**Fedora 44 is the recommended platform** — it's what the project is developed and CI'd
+on, so it's the best-tested target. Fedora 43, Debian 12/13, Ubuntu 24.04/26.04 and Arch
+are built too, on both x86_64 and aarch64 (so a Raspberry Pi works); on NixOS the script
+prints the `nix-ld` module to add instead of installing imperatively. Run
+`curl -fsSL https://nourish.snowies.com/install | bash -s -- --list` for the exact set.
+
+Once installed, `y5.compositor.update` re-runs that same script to move to the newest
+release, and `y5.compositor.uninstall` removes everything it placed. The installer
+itself is interactive and safe to re-run — it keeps an existing `settings.json` rather
+than resetting it. For the full walkthrough see
 [`https://nourish.snowies.com/guide.html`](https://nourish.snowies.com/guide.html).
 
 Prefer a pinned build? Every release is also published immutably under its version —

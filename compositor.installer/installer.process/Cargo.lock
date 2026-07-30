@@ -61,7 +61,9 @@ dependencies = [
  "compositor_installer_process_layout_compute_policy",
  "compositor_installer_process_layout_compute_session",
  "compositor_installer_process_layout_compute_stage",
+ "compositor_installer_process_layout_compute_uninstall",
  "compositor_installer_process_layout_compute_units",
+ "compositor_installer_process_layout_compute_update",
 ]
 
 [[package]]
@@ -92,11 +94,28 @@ name = "compositor_installer_process_layout_compute_stage"
 version = "0.1.0"
 
 [[package]]
+name = "compositor_installer_process_layout_compute_uninstall"
+version = "0.1.0"
+dependencies = [
+ "compositor_installer_process_config_parse_base",
+]
+
+[[package]]
 name = "compositor_installer_process_layout_compute_units"
 version = "0.1.0"
 dependencies = [
+ "compositor_installer_process_config_parse_base",
  "compositor_installer_process_layout_compute_policy",
  "compositor_installer_process_layout_compute_stage",
+ "compositor_installer_process_layout_compute_uninstall",
+ "compositor_installer_process_layout_compute_update",
+]
+
+[[package]]
+name = "compositor_installer_process_layout_compute_update"
+version = "0.1.0"
+dependencies = [
+ "compositor_installer_process_config_parse_base",
 ]
 
 [[package]]

@@ -78,7 +78,7 @@ pub fn record_composition(
             .dst_access_mask(
                 vk::AccessFlags2::COLOR_ATTACHMENT_WRITE | vk::AccessFlags2::COLOR_ATTACHMENT_READ,
             );
-        if compositor_kernel_vulkan_device_factory_base::factory::MULTIPLANE_SUPPORT {
+        if device.multiplane {
             to_attachment = to_attachment
                 .src_queue_family_index(vk::QUEUE_FAMILY_FOREIGN_EXT)
                 .dst_queue_family_index(device.queue_family_index);
@@ -127,7 +127,7 @@ pub fn record_composition(
     // COLOR_ATTACHMENT_OPTIMAL -> GENERAL, and RELEASE to the display engine
     // (VK_QUEUE_FAMILY_FOREIGN_EXT) so the driver flushes/decompresses tiled/DCC
     // framebuffers before KMS scans them out (else AMD white-screens). Mirror of
-    // the import-side acquire; MULTIPLANE_SUPPORT is what enables the extension.
+    // the import-side acquire; `VulkanDevice::multiplane` is what enables the extension.
     let mut to_external = vk::ImageMemoryBarrier2::default()
         .src_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
         .src_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
@@ -136,7 +136,7 @@ pub fn record_composition(
         .new_layout(vk::ImageLayout::GENERAL)
         .image(target_image)
         .subresource_range(subresource);
-    if compositor_kernel_vulkan_device_factory_base::factory::MULTIPLANE_SUPPORT {
+    if device.multiplane {
         to_external = to_external
             .src_queue_family_index(device.queue_family_index)
             .dst_queue_family_index(vk::QUEUE_FAMILY_FOREIGN_EXT);

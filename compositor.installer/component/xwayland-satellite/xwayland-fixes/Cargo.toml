@@ -71,3 +71,13 @@ inherits = "dev"
 # Shrink bloat in ./target which negatively affects build caching
 incremental = false
 debug = false
+
+# Release profile. Declared per-component because Cargo only honours `[profile.*]` at the
+# workspace root it is invoked from, and `prepare.sh` builds each component by cd-ing into
+# its own root — so nothing is inherited from the compositor's profile in
+# `compositor.kernel/kernel.loader/Cargo.toml`. Without this block a shipped binary gets
+# cargo's defaults: no LTO, 16 codegen units, unstripped.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"

@@ -172,6 +172,49 @@ fn assemble_gles(display: &mut DisplayAssembly) -> RendererAssembly {
     }
     let drm_output = slot.expect("try_chain returned Ok without an initialized output");
 
+    // Record what the swapchain ACTUALLY settled on, now the modeset has succeeded and
+    // smithay has chosen from the render formats we offered.
+    //
+    // `set_device_format` was previously called only for the bevy and monitor dmabuf
+    // allocations, so the one buffer that matters most for scanout cost — the framebuffer
+    // being flipped — never reached the Statistics tab. LINEAR versus a vendor tiled modifier
+    // is the difference between "this hardware is slow" and "we are scanning out
+    // uncompressed"; on a tiler (V3D) a linear render target is a structural cost, not a
+    // rounding error. Pairs with the `IN_FORMATS` dump in `assemble.display`: that reports
+    // what the plane WOULD accept, this reports what we took.
+    drm_output.with_compositor(|comp| {
+        let fourcc = comp.format();
+        let offered = comp.modifiers().len();
+        // The swapchain reports the modifier SET it may allocate from, not the single
+        // modifier of the live buffer. With one entry those coincide; with more, the first is
+        // what smithay ranks highest. The count is logged so an ambiguous case is visible
+        // instead of being reported as fact.
+        let modifier = comp
+            .modifiers()
+            .first()
+            .copied()
+            .unwrap_or(smithay::backend::allocator::Modifier::Invalid);
+        // Print the WHOLE offered set, not just the head. Logging only the first turned out
+        // to be useless in the one case that matters: `modifier=Invalid (2 offered)` says we
+        // are on the implicit/driver-negotiated path but hides what the alternative was, so it
+        // cannot distinguish "the driver had a tiled option and we let it choose" from "linear
+        // was the only other candidate".
+        let all: Vec<String> = comp.modifiers().iter().map(|m| format!("{m:?}")).collect();
+        info!(
+            "scanout swapchain: fourcc={fourcc:?} modifier={modifier:?} \
+             ({offered} offered: {})",
+            all.join(", ")
+        );
+        use compositor_kernel_graphic_bridge_negotiate_classify::classify;
+        compositor_model_stats_registry_base::base::set_device_format(
+            "scanout",
+            &format!("{fourcc:?}"),
+            modifier.into(),
+            classify::label(classify::classify(modifier)),
+            1,
+        );
+    });
+
     // M4: enable VRR / adaptive-sync on capable outputs (controlled by `vrr`).
     // smithay sets VRR_ENABLED on the CRTC; a no-op on fixed-refresh panels. With
     // VRR active and our damage-driven scheduling, the refresh rate tracks content.

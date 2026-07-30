@@ -1,6 +1,7 @@
 //! The field-by-field interactive flow. Takes the starting values (an existing
 //! file if present, else the template) and returns a fully-populated `Environment`.
 
+use crate::drm_probe;
 use crate::prompt::{ask, ask_u8, choose, yes_no};
 use crate::select::{select_list, Item};
 use crate::term::Nav;
@@ -12,7 +13,7 @@ use compositor_model_environment_config_base::base::{Environment, SCHEMA_VERSION
 /// "back" target mid-flow, so no field (including the GPU list) offers Escape.
 pub fn interactive(base: Environment) -> Environment {
     println!("y5.compositor.settings — every field is required; press Enter to keep the shown value.");
-    Environment {
+    let mut env = Environment {
         // Not prompted: the schema version this editor writes (migrations in
         // config.base lift older files on load).
         version: SCHEMA_VERSION,
@@ -74,6 +75,10 @@ pub fn interactive(base: Environment) -> Environment {
         ),
         vrr: yes_no("vrr", "Enable adaptive sync / VRR.", base.vrr),
         render_node: select_render_node(&base.render_node),
+        // Resolved after this literal, not here: the recommendation depends on the
+        // render node picked on the line above, and struct fields cannot read each
+        // other. Prompting it last also keeps every pre-existing prompt in place.
+        scanout_node: String::new(),
         desktop_name: ask(
             "desktop_name",
             "XDG desktop name advertised to clients.",
@@ -131,6 +136,70 @@ pub fn interactive(base: Environment) -> Environment {
         // Experimental window-sizing flags — always disabled, never prompted.
         window_client_size_fallback: false,
         window_subsurface_shrinks: false,
+    };
+    env.scanout_node = select_scanout_node(&base.scanout_node, &env.render_node);
+    env
+}
+
+/// Pick the scanout device. Empty — let the compositor choose — is ALWAYS the
+/// recommendation now, including where the render and display engines are separate
+/// devices.
+///
+/// That is a change. It used to recommend an explicit card on a split-device machine,
+/// because smithay's `primary_gpu` heuristic ranks "has a render node" above "has
+/// connectors" and so picks the render-only half, and assembly then died on a card with
+/// no CRTCs. The compositor now corrects that itself: `assemble.display` probes the
+/// heuristic's pick and moves to a device with a CONNECTED monitor when the pick has
+/// none. So the old advice ("automatic would pick the wrong device here") is no longer
+/// true, and telling a user to pin a card they do not need is worse than silence — a
+/// pinned path is one more thing to be wrong after a kernel or cable change.
+///
+/// The explicit entries stay, as an override for when the automatic choice is wrong on
+/// hardware we have not seen. They are offered, not advised.
+///
+/// Probing is read-only and needs no DRM master, but it CAN come back empty (no
+/// permission, no `/dev/dri`, headless install) — then this degrades to a free-text
+/// prompt rather than pretending to know, exactly as `select_render_node` does.
+fn select_scanout_node(current: &str, render_node: &str) -> String {
+    let monitors = drm_probe::probe();
+    let cards = drm_probe::scanout_candidates(&monitors);
+    if cards.is_empty() {
+        return ask(
+            "scanout_node",
+            "DRM device to scan out on. Empty = pick it automatically (recommended).",
+            current,
+        );
+    }
+
+    // Whether the render node's own card has a monitor is still worth SAYING — it tells the
+    // user their machine is a split-device one — but it no longer changes the advice.
+    let split = !cards.iter().any(|c| drm_probe::same_device(render_node, c));
+    let auto_detail = match split {
+        false => "recommended — render and display are the same device".to_string(),
+        true => format!("recommended — {render_node} has no outputs, so the compositor \
+                         picks a display device on its own"),
+    };
+    let mut items = vec![Item::new("Automatic (detect)", auto_detail)];
+    for card in &cards {
+        let outputs: Vec<&str> = monitors
+            .iter()
+            .filter(|m| &m.node == card)
+            .map(|m| m.label.as_str())
+            .collect();
+        items.push(Item::new(
+            format!("Scan out on {card}"),
+            format!("{card} — {}", outputs.join(", ")),
+        ));
+    }
+
+    // Mark what the file holds so Enter keeps it; an empty file marks Automatic, which is
+    // now the recommendation in every case.
+    let marked = cards.iter().position(|c| c == current).map_or(0, |i| i + 1);
+
+    match select_list("Scanout device (display)", &items, Some(marked), false) {
+        Nav::Selected(0) => String::new(),
+        Nav::Selected(i) => cards[i - 1].clone(),
+        Nav::Back => current.to_string(),
     }
 }
 

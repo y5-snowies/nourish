@@ -32,6 +32,23 @@ pub struct Environment {
     pub vrr: bool,
     /// DRM render node path, e.g. `/dev/dri/renderD128`.
     pub render_node: String,
+    /// DRM device to SCAN OUT on, e.g. `/dev/dri/card1`. Empty (the default) =
+    /// pick it with the udev heuristic, which is what every release before this
+    /// field did unconditionally.
+    ///
+    /// Set it when the heuristic picks the wrong device — notably where the
+    /// render engine and the display engine are SEPARATE DRM devices, so the
+    /// device holding [`Self::render_node`] has no connectors at all. A
+    /// Raspberry Pi 4/5 is the standard case: `v3d` owns `renderD128` and has no
+    /// CRTCs, `vc4` owns the HDMI connectors and has no render node, and
+    /// smithay's `primary_gpu()` prefers "the device that has a render node" —
+    /// so it selects `v3d` and assembly dies probing its (absent) resources.
+    ///
+    /// This is the SCANOUT half only. It does not move the renderer:
+    /// [`Self::render_node`] still drives the wgpu/bevy pin, and the GLES
+    /// `GpuManager` is still paired with the scanout device's GBM — a pairing
+    /// that is only correct while the two are the same device.
+    pub scanout_node: String,
     /// XDG desktop name advertised to clients, e.g. `Y5Compositor`.
     pub desktop_name: String,
     /// Developer-log level spec, e.g. `"info,warn,error"`.
@@ -91,7 +108,7 @@ pub struct Environment {
 
 /// Current settings-schema version. Bump when adding fields, and teach
 /// [`migrate`] to fill the new fields' defaults for older files.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// The stored [`Environment::renderer_sync`] for a fresh install. `"infence"`
 /// is the historical spelling and stays the canonical stored form;
@@ -180,6 +197,13 @@ pub fn migrate(root: &mut serde_json::Value) -> bool {
         let normalized = normalized_renderer_sync(raw);
         obj.insert("renderer_sync".into(), serde_json::Value::String(normalized));
     }
+    if version < 4 {
+        // v3 → v4: `scanout_node`, added at its default (empty = the udev
+        // heuristic), so an existing file keeps selecting the scanout device
+        // exactly as it did before the field existed.
+        obj.entry("scanout_node")
+            .or_insert_with(|| serde_json::Value::String(String::new()));
+    }
     obj.insert("version".into(), serde_json::Value::from(SCHEMA_VERSION));
     true
 }
@@ -265,6 +289,9 @@ pub fn default_settings() -> Environment {
         depth: 8,
         vrr: false,
         render_node: "/dev/dri/renderD128".to_string(),
+        // Empty = the udev heuristic, i.e. the behavior of every release before
+        // this field existed.
+        scanout_node: String::new(),
         desktop_name: "Y5Compositor".to_string(),
         log_level: "info,warn,error".to_string(),
         vk_diag: String::new(),
@@ -371,6 +398,27 @@ mod tests {
             let env: super::Environment = serde_json::from_value(v).unwrap();
             assert_eq!(env.renderer_sync, expected, "authored {authored:?}");
         }
+    }
+
+    /// v3 → v4 adds `scanout_node` at the empty default (= the udev heuristic),
+    /// and an authored value survives the step.
+    #[test]
+    fn migrates_v3_scanout_node() {
+        let mut v = serde_json::to_value(super::default_settings()).unwrap();
+        let obj = v.as_object_mut().unwrap();
+        obj.insert("version".into(), serde_json::Value::from(3));
+        obj.remove("scanout_node");
+        assert!(super::migrate(&mut v));
+        let env: super::Environment = serde_json::from_value(v).unwrap();
+        assert_eq!(env.scanout_node, "");
+
+        let mut v = serde_json::to_value(super::default_settings()).unwrap();
+        let obj = v.as_object_mut().unwrap();
+        obj.insert("version".into(), serde_json::Value::from(3));
+        obj.insert("scanout_node".into(), serde_json::Value::String("/dev/dri/card1".into()));
+        assert!(super::migrate(&mut v));
+        let env: super::Environment = serde_json::from_value(v).unwrap();
+        assert_eq!(env.scanout_node, "/dev/dri/card1");
     }
 
     /// The fence path is the default, so only the explicit opt-out leaves it —

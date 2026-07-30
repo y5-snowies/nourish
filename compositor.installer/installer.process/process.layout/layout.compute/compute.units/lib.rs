@@ -1,9 +1,12 @@
-//! Action-plan builders for the optional components: MX gesture daemon, polkit
-//! agent, and the developer tool window.
+//! Action-plan builders for the optional components (MX gesture daemon, polkit agent,
+//! developer tool window, Xwayland) plus the two always-installed maintenance commands.
 
 use std::path::PathBuf;
 
+use compositor_installer_process_config_parse_base::Preset;
 use compositor_installer_process_layout_compute_policy as policy;
+use compositor_installer_process_layout_compute_uninstall as uninstall;
+use compositor_installer_process_layout_compute_update as update;
 use compositor_installer_process_layout_compute_stage::{
     Action, Source, Stage, home, place, user_systemd_dir,
 };
@@ -28,6 +31,29 @@ pub fn polkit_actions(stage: &Stage) -> Vec<Action> {
         place(user_systemd_dir().join("y5-polkit-agent.service"), Source::Text(policy::polkit_service()), 0o644, false),
         Action::SystemctlUser(vec!["daemon-reload".into()]),
         Action::SystemctlUser(vec!["enable".into(), "y5-polkit-agent.service".into()]),
+    ]
+}
+
+/// The two maintenance commands: `y5.compositor.update` (re-run the published bootstrap)
+/// and `y5.compositor.uninstall` (remove what was placed). Placed unconditionally like
+/// the binaries, so every install refreshes them.
+///
+/// Both are generated from the FIRST preset: its binary is the marker `update` gates on,
+/// and its names are what `uninstall` removes.
+pub fn maintenance_actions(preset: &Preset) -> Vec<Action> {
+    vec![
+        place(
+            PathBuf::from("/usr/bin/y5.compositor.update"),
+            Source::Text(update::update_script(preset)),
+            0o755,
+            true,
+        ),
+        place(
+            PathBuf::from("/usr/bin/y5.compositor.uninstall"),
+            Source::Text(uninstall::uninstall_script(preset)),
+            0o755,
+            true,
+        ),
     ]
 }
 

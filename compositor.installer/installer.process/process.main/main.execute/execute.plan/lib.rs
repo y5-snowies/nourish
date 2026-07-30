@@ -21,9 +21,23 @@ pub fn build_and_apply(stage: &layout::Stage, presets: &[cfg::Preset], dry_run: 
 
     let mut plan: Vec<layout::Action> = Vec::new();
     plan.extend(layout::binary_actions(stage, presets));
-    // Seed settings.json from the prompted config (the wrappers no longer write it).
+    // Seed settings.json from the prompted config (the wrappers no longer write it) — but
+    // ONLY when the user has none. It is the single file in the plan that belongs to them,
+    // and every other action here is an unconditional overwrite. See
+    // `layout::settings_exists`.
     if let Some(p) = presets.first() {
-        plan.push(layout::settings_action(p));
+        match layout::settings_exists() {
+            false => plan.push(layout::settings_action(p)),
+            true => println!(
+                "\nsettings.json already exists — keeping it (edit with 'y5.compositor.settings')\n  {}",
+                layout::settings_path().display()
+            ),
+        }
+    }
+    // `y5.compositor.update` + `y5.compositor.uninstall`, keyed to the first preset's
+    // binary (the marker) and names (what uninstall removes).
+    if let Some(p) = presets.first() {
+        plan.extend(layout::maintenance_actions(p));
     }
     for p in presets {
         plan.extend(layout::preset_actions(p));

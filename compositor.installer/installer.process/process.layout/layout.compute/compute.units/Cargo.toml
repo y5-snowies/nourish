@@ -4,7 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+compositor_installer_process_config_parse_base = { path = "../../../process.config/config.parse/parse.base" }
 compositor_installer_process_layout_compute_policy = { path = "../compute.policy" }
+compositor_installer_process_layout_compute_uninstall = { path = "../compute.uninstall" }
+compositor_installer_process_layout_compute_update = { path = "../compute.update" }
 compositor_installer_process_layout_compute_stage = { path = "../compute.stage" }
 
 [lib]
