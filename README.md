@@ -60,10 +60,12 @@ curl -fsSL https://nourish.snowies.com/install | bash
 ```
 
 **Fedora 44 is the recommended platform** — it's what the project is developed and CI'd
-on, so it's the best-tested target. Fedora 43, Debian 12/13, Ubuntu 24.04/26.04 and Arch
+on, so it's the best-tested target. Fedora 43, Debian 13, Ubuntu 26.04 and Arch
 are built too, on both x86_64 and aarch64 (so a Raspberry Pi works); on NixOS the script
 prints the `nix-ld` module to add instead of installing imperatively. Run
 `curl -fsSL https://nourish.snowies.com/install | bash -s -- --list` for the exact set.
+Debian 12 and Ubuntu 24.04 are **not** supported: their libinput (1.22 / 1.25) predates the
+tablet-pad dial API the compositor links against, which needs libinput 1.26 or newer.
 
 Once installed, `y5.compositor.update` re-runs that same script to move to the newest
 release, and `y5.compositor.uninstall` removes everything it placed. The installer
