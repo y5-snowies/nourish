@@ -71,10 +71,15 @@
       version Nourish is built and tested on every day, so it's the smoothest
       ride. If you're picking a Linux to start from, pick that one.</p>
 
-      <p>Fedora 43, Debian 12 and 13, Ubuntu 24.04 and 26.04, and Arch are
+      <p>Fedora 43, Debian 13, Ubuntu 26.04, and Arch are
       covered as well, on both Intel/AMD (x86_64) and ARM (aarch64) — so a
       Raspberry Pi works too. On NixOS it prints the <code>nix-ld</code> setup
       to add rather than installing imperatively.</p>
+
+      <p>Debian 12 and Ubuntu 24.04 are not supported — their system input
+      library is older than the tablet-and-dial support Nourish is built
+      against. The installer tells you so rather than leaving you with a
+      build that won't start.</p>
 
       <p>Want to see exactly what it would do, changing nothing?</p>
       <pre class="code"><button class="copy" data-copy>Copy</button><code>curl -fsSL https://nourish.snowies.com/install | Y5_INSTALL_ARGS=--dry-run bash</code></pre>

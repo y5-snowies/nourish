@@ -44,8 +44,13 @@ else
     CHANNEL="latest stable"
 fi
 
-# The distro dirs the multiarch pipeline builds (must match .github/workflows/multiarch-publish.yml).
-KNOWN="fedora-43 fedora-44 debian-12 debian-13 ubuntu-24.04 ubuntu-26.04 arch"
+# The distro dirs the multiarch pipeline builds (must match the `bundles` matrix in
+# .github/workflows/docs.yml and the `build` matrix in .github/workflows/multiarch-publish.yml).
+#
+# ubuntu-24.04 and debian-12 are deliberately absent: they ship libinput 1.25.0 / 1.22.x and the
+# compositor needs >= 1.26 for the tablet-pad dial symbols, so it does not link there. Hosts on
+# those versions land in the fallback below.
+KNOWN="fedora-43 fedora-44 debian-13 ubuntu-26.04 arch"
 
 say()  { printf '\033[1;36m::\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$*" >&2; }
@@ -67,24 +72,53 @@ detect_arch() {
     esac
 }
 
+# Newest bundle of family $1 that is NOT NEWER than host version $2, or empty if the host
+# predates every bundle we ship for that family.
+#
+# Direction matters. A bundle is dynamically linked against its own distro's glibc, so a host
+# can run an OLDER bundle (its glibc is a superset) but never a NEWER one. Falling back to the
+# family's newest unconditionally — which is what this used to do — hands an Ubuntu 24.04 host
+# the 26.04 bundle, and every binary in it dies with `GLIBC_2.4x not found`. Now that
+# ubuntu-24.04 and debian-12 are no longer built (libinput < 1.26, see KNOWN), that fallback
+# is exactly the path those hosts take, so it has to pick downwards or not at all.
+family_fallback() {
+    local fam="$1" host="$2" best="" k v
+    for k in $KNOWN; do
+        case "$k" in "$fam"-*) v="${k#"$fam"-}" ;; *) continue ;; esac
+        # Skip anything newer than the host: min(v,host) != v means v > host.
+        if [ -n "$host" ] && [ "$(printf '%s\n%s\n' "$v" "$host" | sort -V | head -n1)" != "$v" ]; then
+            continue
+        fi
+        if [ -z "$best" ] || [ "$(printf '%s\n%s\n' "$v" "$best" | sort -V | tail -n1)" = "$v" ]; then
+            best="$v"
+        fi
+    done
+    [ -n "$best" ] && echo "$fam-$best"
+    # Always succeed: the caller assigns this in a command substitution, and under `set -e` a
+    # non-zero return would abort the script before it can report the real problem.
+    return 0
+}
+
 # /etc/os-release ID(+VERSION_ID) -> a <distro> dir from KNOWN. Exact match preferred; an
-# unrecognized version of a known family falls back to that family's NEWEST bundle (host glibc
-# is typically >= the bundle's, so forward-compat holds) with a warning. `nixos` is returned
-# verbatim for the special path. Empty when nothing matches (caller asks for Y5_DISTRO).
+# unrecognized version of a known family falls back to the newest bundle that is not newer
+# than the host (see family_fallback) with a warning, and dies if there is none. `nixos` is
+# returned verbatim for the special path. Empty when nothing matches (caller asks for Y5_DISTRO).
 detect_distro() {
     [ -r /etc/os-release ] || { echo ""; return; }
     . /etc/os-release
-    local id="${ID:-}" ver="${VERSION_ID:-}" like="${ID_LIKE:-}"
+    local id="${ID:-}" ver="${VERSION_ID:-}" like="${ID_LIKE:-}" pick=""
     # Try the exact <id>-<version> first for the versioned families.
     case "$id" in
         fedora|debian|ubuntu)
             if in_known "$id-$ver"; then echo "$id-$ver"; return; fi
+            pick="$(family_fallback "$id" "$ver")"
+            [ -n "$pick" ] || die "no bundle is compatible with $id $ver — every bundle we build for $id is newer, and its binaries need a newer glibc than your system provides. Upgrade $id, or build from source: https://github.com/$REPO"
+            warn "no $id-$ver bundle; using the closest older one ($pick)"
+            echo "$pick"
+            return
             ;;
     esac
     case "$id" in
-        fedora)  warn "no fedora-$ver bundle; using the newest (fedora-44)"; echo fedora-44 ;;
-        debian)  warn "no debian-$ver bundle; using the newest (debian-13)"; echo debian-13 ;;
-        ubuntu)  warn "no ubuntu-$ver bundle; using the newest (ubuntu-26.04)"; echo ubuntu-26.04 ;;
         arch|archarm|manjaro|endeavouros) echo arch ;;
         nixos)   echo nixos ;;
         *)

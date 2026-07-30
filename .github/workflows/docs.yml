@@ -171,17 +171,27 @@ jobs:
       matrix:
         # Keep this list in step with `multiarch-publish.yml` and with bootstrap.sh's KNOWN.
         # Arch is x86_64-only — the official archlinux image has no arm64 build.
+        #
+        # NO ubuntu-24.04 / debian-12. smithay enables the `input` crate's `libinput_1_26`
+        # feature (vendor/smithay/Cargo.toml) because the tablet-pad dial handling in
+        # kernel.native/native.wire/wire.input/input.base/input.rs calls `dial_v120()` /
+        # `Dial` / `number()`. Those bind libinput symbols that first exist in libinput 1.26:
+        #   libinput_tablet_pad_mode_group_has_dial
+        #   libinput_event_tablet_pad_get_dial_delta_v120
+        #   libinput_event_tablet_pad_get_dial_number
+        # Ubuntu 24.04 ships libinput 1.25.0 and Debian 12 ships 1.22.x, so `y5_compositor`
+        # fails to LINK there ("undefined reference to libinput_tablet_pad_mode_group_has_dial").
+        # Every distro below is on libinput >= 1.27. To put either back, the dial support has
+        # to become conditional (probe `pkg-config --modversion libinput`, select the cargo
+        # feature from it, and `#[cfg]` the `TabletPadEvent::Dial` arm) — dropping the feature
+        # outright would remove a shipped input feature from ALL distros.
         include:
           - { distro: fedora-43,    arch: x86_64,  runner: ubuntu-24.04 }
           - { distro: fedora-43,    arch: aarch64, runner: ubuntu-24.04-arm }
           - { distro: fedora-44,    arch: x86_64,  runner: ubuntu-24.04 }
           - { distro: fedora-44,    arch: aarch64, runner: ubuntu-24.04-arm }
-          - { distro: debian-12,    arch: x86_64,  runner: ubuntu-24.04 }
-          - { distro: debian-12,    arch: aarch64, runner: ubuntu-24.04-arm }
           - { distro: debian-13,    arch: x86_64,  runner: ubuntu-24.04 }
           - { distro: debian-13,    arch: aarch64, runner: ubuntu-24.04-arm }
-          - { distro: ubuntu-24.04, arch: x86_64,  runner: ubuntu-24.04 }
-          - { distro: ubuntu-24.04, arch: aarch64, runner: ubuntu-24.04-arm }
           - { distro: ubuntu-26.04, arch: x86_64,  runner: ubuntu-24.04 }
           - { distro: ubuntu-26.04, arch: aarch64, runner: ubuntu-24.04-arm }
           - { distro: arch,         arch: x86_64,  runner: ubuntu-24.04 }
@@ -189,8 +199,31 @@ jobs:
       - uses: actions/checkout@v4
         # A normal (non-worktree) checkout so distributions/prepare_source can `git clone .` it.
 
-      - name: Ensure podman is available
-        run: command -v podman >/dev/null || { sudo apt-get update && sudo apt-get install -y podman; }
+      # Podman + an OCI runtime that can actually start a container. The runner image is NOT a
+      # coherent set: images from 2026-07-26 (ubuntu24/20260726.254, ubuntu24-arm64/20260726.74)
+      # bumped Podman 4.9.3 -> 5.8.4 while leaving Ubuntu's crun at 1.14.1, which rejects the
+      # OCI spec version podman 5 emits:
+      #   error running container: from /usr/bin/crun creating container for [...]:
+      #   unknown version specified
+      # That kills the FIRST `RUN` of every Containerfile, so the leg dies in seconds with no
+      # build output. It is not cache-mount specific and a re-run does not help — it depends
+      # purely on which runner image the leg lands on, which is why the failing set moved
+      # around between attempts while the images rolled out.
+      #
+      # runc comes with the runner's Docker install and handles podman 5's spec, so pin it
+      # whenever it is present. That also keeps every matrix leg on ONE runtime regardless of
+      # the image version it happens to get, instead of flapping as new images roll out.
+      - name: Ensure podman + a working OCI runtime
+        run: |
+          command -v podman >/dev/null || { sudo apt-get update && sudo apt-get install -y podman; }
+          if command -v runc >/dev/null; then
+            mkdir -p ~/.config/containers
+            printf '[engine]\nruntime = "runc"\n' > ~/.config/containers/containers.conf
+            echo ">> pinned podman to runc (crun on this image may be too old for podman 5)"
+          else
+            echo ">> runc not found — leaving podman on its default runtime"
+          fi
+          podman info --format '>> podman {{.Version.Version}} / runtime {{.Host.OCIRuntime.Name}}' || true
 
       - name: Reclaim disk + stage heavy build dirs on /mnt
         run: |
@@ -304,18 +337,31 @@ jobs:
   # everything in a single call: the Fedora `package.tar.gz`, all thirteen
   # `package-<distro>-<arch>.tar.gz`, one combined `SHA256SUMS`, and `bootstrap.sh`.
   #
-  # This deliberately does NOT split into a fast Fedora release plus a later multi-arch
-  # top-up. That split published a release whose `SHA256SUMS` covered only `package.tar.gz`
-  # for however long the matrix ran — and if the second job failed, it stayed that way.
-  # `bootstrap.sh` refuses to install a bundle it cannot verify, so an incomplete
-  # `SHA256SUMS` breaks the one-liner for every non-Fedora distro. A release missing twelve
-  # of its thirteen bundles is not useful, so there is nothing to gain by publishing it
-  # early.
+  # PARTIAL PUBLISH IS ALLOWED. `release` runs on whatever the matrix managed to build — it
+  # is gated on `bundle` (the Fedora bundle Pages also serves) and `version`, NOT on every
+  # `bundles` leg succeeding. Blocking the whole release on 13-of-13 meant one flaky runner
+  # published nothing at all: run 30513595779 lost 7 legs — 4 to a real libinput mismatch and
+  # 3 to a podman/crun regression in a mid-run runner-image rollout — and shipped no release
+  # despite 6 good bundles and a good Fedora bundle.
+  #
+  # A short release is safe because `SHA256SUMS` is generated from the bytes actually being
+  # attached, never from a fixed list. `bootstrap.sh` downloads exactly one
+  # `package-<distro>-<arch>.tar.gz` and refuses to install anything it has no SHA256SUMS line
+  # for, so a distro missing from this release is a clean "does this distro/arch combo exist
+  # in the release?" failure at download time — never an unverified or mismatched install.
+  # That is the property the old all-or-nothing rule was protecting, and it holds per-asset.
+  #
+  # Topping up works: artifacts persist across attempts, so re-running the failed legs and
+  # then `release` re-downloads the FULL set, regenerates `SHA256SUMS` over it, and
+  # `--clobber`s the same `v<version>` tag.
   #
   # Release latency is NOT the site's latency: `deploy` needs only [site, bundle, version],
   # so the website and the Fedora Pages download still land in minutes.
   release:
     needs: [bundle, bundles, version]
+    # `!cancelled()` rather than `always()` — a cancelled run should not publish. `bundles` is
+    # intentionally absent from the guard: any subset of it (including none) is publishable.
+    if: ${{ !cancelled() && needs.bundle.result == 'success' && needs.version.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -327,56 +373,95 @@ jobs:
           path: fedora
       # `pattern:` matters — this workflow also produces `site-public` and `install-bundle`,
       # and a pattern-less download would flatten those in beside the bundles.
+      # `continue-on-error` because v4 errors when a pattern matches nothing: if every matrix
+      # leg failed we still publish the Fedora-only release rather than losing the run.
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           pattern: bundle-*
           path: artifacts
           merge-multiple: true
       - name: Assemble assets + one combined SHA256SUMS
         run: |
+          shopt -s nullglob
           mkdir -p release
           cp fedora/package.tar.gz release/
-          cp artifacts/*.tar.gz release/
-          # Written once, over every asset. `bootstrap.sh` fetches exactly one file by this
-          # name and greps it for `package-<distro>-<arch>.tar.gz`, so it must list the
-          # per-distro bundles as well as the Fedora one. Checksums are re-derived from the
-          # bytes being attached rather than copied from the per-combo `.sha256` files, so
-          # they cannot disagree with what ships.
+
+          # Whatever the matrix produced. `artifacts/` may be empty or absent entirely.
+          extra=(artifacts/*.tar.gz)
+          if [ "${#extra[@]}" -gt 0 ]; then cp "${extra[@]}" release/; fi
+
+          # Written once, over exactly the assets being attached — never a fixed list, so it
+          # can never promise a bundle this release does not carry. `bootstrap.sh` fetches
+          # this one file and greps it for `package-<distro>-<arch>.tar.gz`, so it must list
+          # the per-distro bundles as well as the Fedora one. Checksums are re-derived from
+          # the bytes being attached rather than copied from the per-combo `.sha256` files,
+          # so they cannot disagree with what ships.
           ( cd release && sha256sum package.tar.gz package-*.tar.gz > SHA256SUMS )
-          echo ">> $(ls release/*.tar.gz | wc -l) bundles"; cat release/SHA256SUMS
+          echo ">> ${#extra[@]} per-distro bundles + the Fedora bundle"; cat release/SHA256SUMS
       - name: Publish v<version>
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.version.outputs.version }}
+          BUNDLES_RESULT: ${{ needs.bundles.result }}
         run: |
+          # `release/package-*.tar.gz` legitimately matches nothing on a short matrix, so every
+          # glob in this step runs under nullglob and goes through an array — an unexpanded
+          # literal would end up in the release notes and, worse, as a filename argument to gh.
+          shopt -s nullglob
+          bundles=(release/package-*.tar.gz)
+
           # Stamp the published bootstrap so it targets THIS repo. Left on its default
           # channel — empty tag, i.e. `releases/latest/download` — so it tracks the newest
           # STABLE release rather than `bundles-rolling`, which is candidate output.
           sed "s|\${Y5_RELEASE_REPO:-y5-snowies/nourish}|\${Y5_RELEASE_REPO:-$GITHUB_REPOSITORY}|" \
             compositor.installer/bootstrap.sh > release/bootstrap.sh
 
-          notes="\`package.tar.gz\` is the Fedora install bundle — prebuilt compositor +
+          # The combos this release actually carries, straight off disk — so the notes can
+          # never claim a bundle that is not attached. When the matrix came up short, say so
+          # up front rather than letting a user discover it as a download failure.
+          shipped=""
+          for b in "${bundles[@]}"; do
+            b="${b##*/package-}"
+            shipped="$shipped  - \`${b%.tar.gz}\`"$'\n'
+          done
+          [ -n "$shipped" ] || shipped="  - _none — this release carries only the Fedora \`package.tar.gz\`_"
+          incomplete=""
+          if [ "$BUNDLES_RESULT" != "success" ]; then
+            incomplete="> ⚠ **Incomplete bundle set.** Some per-distro builds did not finish in
+          this run, so the distros listed below are all this release carries. The one-liner
+          fails cleanly (it verifies against \`SHA256SUMS\` before installing) on anything
+          absent — re-run the workflow to top this release up.
+          "
+          fi
+
+          notes="$incomplete
+          \`package.tar.gz\` is the Fedora install bundle — prebuilt compositor +
           components + the \`y5-install\` installer — the same artifact served under
           https://nourish.snowies.com/release/. Extract it and run \`y5-install/install.sh\`.
 
           \`package-<distro>-<arch>.tar.gz\` is the same bundle built natively for each
           supported distribution and CPU architecture. Each is dynamically linked to that
           distro's own glibc / mesa / Vulkan / ffmpeg / webkit, so they are not portable
-          across distros. \`SHA256SUMS\` covers every asset here.
+          across distros. \`SHA256SUMS\` covers every asset here — and only the assets here.
+
+          Bundles in this release:
+          $shipped
 
           The easiest way in is the one-liner, which picks the right one for you:
           \`\`\`
           curl -fsSL https://nourish.snowies.com/install | bash
           \`\`\`"
 
+          assets=(release/package.tar.gz "${bundles[@]}" release/SHA256SUMS release/bootstrap.sh)
+
           # The `v<version>` tag pins this commit; created once, then a re-run of the same
-          # commit just refreshes the assets.
+          # commit just refreshes the assets — which is also how a short release gets topped
+          # up once the missing legs are re-run.
           if gh release view "v$VERSION" >/dev/null 2>&1; then
             echo ">> release v$VERSION exists — refreshing assets"
-            gh release upload "v$VERSION" \
-              release/package.tar.gz release/package-*.tar.gz \
-              release/SHA256SUMS release/bootstrap.sh --clobber
+            gh release upload "v$VERSION" "${assets[@]}" --clobber
           else
             gh release create "v$VERSION" \
               --target "$GITHUB_SHA" \
@@ -385,6 +470,5 @@ jobs:
               --notes "Nourish v$VERSION — built from \`upstream\` @ ${GITHUB_SHA:0:7}.
 
           $notes" \
-              release/package.tar.gz release/package-*.tar.gz \
-              release/SHA256SUMS release/bootstrap.sh
+              "${assets[@]}"
           fi
