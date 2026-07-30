@@ -141,17 +141,21 @@ pub fn interactive(base: Environment) -> Environment {
     env
 }
 
-/// Pick the scanout device. Empty — let the udev heuristic choose — is the answer on
-/// every machine whose render and display engines are the same DRM device, so it leads
-/// the list and is what the recommendation says by default.
+/// Pick the scanout device. Empty — let the compositor choose — is ALWAYS the
+/// recommendation now, including where the render and display engines are separate
+/// devices.
 ///
-/// It stops being the answer when they are SEPARATE devices, because the heuristic
-/// smithay uses ranks "has a render node" above "has connectors" (`primary_gpu`, 2nd
-/// priority), so it picks the render-only device and assembly dies probing a card with
-/// no CRTCs. A Raspberry Pi is the standard case. So: when the card holding
-/// `render_node` is NOT among the cards that actually have a connected monitor, the
-/// heuristic is going to be wrong here and the recommendation moves to a card that
-/// provably can scan out.
+/// That is a change. It used to recommend an explicit card on a split-device machine,
+/// because smithay's `primary_gpu` heuristic ranks "has a render node" above "has
+/// connectors" and so picks the render-only half, and assembly then died on a card with
+/// no CRTCs. The compositor now corrects that itself: `assemble.display` probes the
+/// heuristic's pick and moves to a device with a CONNECTED monitor when the pick has
+/// none. So the old advice ("automatic would pick the wrong device here") is no longer
+/// true, and telling a user to pin a card they do not need is worse than silence — a
+/// pinned path is one more thing to be wrong after a kernel or cable change.
+///
+/// The explicit entries stay, as an override for when the automatic choice is wrong on
+/// hardware we have not seen. They are offered, not advised.
 ///
 /// Probing is read-only and needs no DRM master, but it CAN come back empty (no
 /// permission, no `/dev/dri`, headless install) — then this degrades to a free-text
@@ -167,16 +171,13 @@ fn select_scanout_node(current: &str, render_node: &str) -> String {
         );
     }
 
-    // Can the heuristic reach a card with a monitor on it from the chosen render node?
-    let render_card_scans_out = cards.iter().any(|c| drm_probe::same_device(render_node, c));
-    let recommended: Option<&str> = match render_card_scans_out {
-        true => None,                                 // empty is right
-        false => cards.first().map(String::as_str),   // name a card that works
-    };
-
-    let auto_detail = match recommended {
-        None => "recommended — render and display are the same device".to_string(),
-        Some(_) => format!("would pick the wrong device on this machine ({render_node} has no outputs)"),
+    // Whether the render node's own card has a monitor is still worth SAYING — it tells the
+    // user their machine is a split-device one — but it no longer changes the advice.
+    let split = !cards.iter().any(|c| drm_probe::same_device(render_node, c));
+    let auto_detail = match split {
+        false => "recommended — render and display are the same device".to_string(),
+        true => format!("recommended — {render_node} has no outputs, so the compositor \
+                         picks a display device on its own"),
     };
     let mut items = vec![Item::new("Automatic (detect)", auto_detail)];
     for card in &cards {
@@ -185,22 +186,15 @@ fn select_scanout_node(current: &str, render_node: &str) -> String {
             .filter(|m| &m.node == card)
             .map(|m| m.label.as_str())
             .collect();
-        let detail = match recommended == Some(card.as_str()) {
-            true => format!("{card} — recommended: {}", outputs.join(", ")),
-            false => format!("{card} — {}", outputs.join(", ")),
-        };
-        items.push(Item::new(format!("Scan out on {card}"), detail));
+        items.push(Item::new(
+            format!("Scan out on {card}"),
+            format!("{card} — {}", outputs.join(", ")),
+        ));
     }
 
-    // Mark what the file currently holds, so Enter keeps it; when it holds nothing,
-    // mark whatever is recommended so Enter takes the advice.
-    let marked = match cards.iter().position(|c| c == current) {
-        Some(i) => i + 1,
-        None if current.is_empty() => recommended
-            .and_then(|r| cards.iter().position(|c| c == r))
-            .map_or(0, |i| i + 1),
-        None => 0,
-    };
+    // Mark what the file holds so Enter keeps it; an empty file marks Automatic, which is
+    // now the recommendation in every case.
+    let marked = cards.iter().position(|c| c == current).map_or(0, |i| i + 1);
 
     match select_list("Scanout device (display)", &items, Some(marked), false) {
         Nav::Selected(0) => String::new(),
