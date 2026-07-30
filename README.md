@@ -24,20 +24,20 @@ https://github.com/user-attachments/assets/03d78832-c451-451f-a701-713710a20051
 ---
 Nourish is a Linux desktop that doesn't limit you to your screen size.
  
-It's free and open source, and stable enough to be a daily driver. It collects
+It's free and open source, and super stable. It collects
 no data whatsoever — no telemetry, no analytics, not even crash reports. Nothing
 ever leaves your machine.
  
 It's performant, and renders using Vulkan. Optionally, you can set an automatic
 fallback or explicitly select GLES on systems where Vulkan is not supported.
  
-It fully supports NVIDIA and cards that use Mesa drivers such as Intel and AMD.
+It fully supports NVIDIA,Intel and AMD, as well as supporting ARM-based devices such as the Raspberry PI.
 
 ## Features
  
 - A viewport you can zoom and pan, giving you an effectively infinite amount of
   space to work on.
-- Built on the Wayland protocol with fractional-scale support, so compliant
+- Comprehensive Wayland support with fractional-scale support, so compliant
   windows stay sharp at any zoom level instead of turning blurry.
 - Non-intrusive multitasking aids that make it easy to work ergonomically across
   many contexts at once.
@@ -53,20 +53,16 @@ script detects your distribution and CPU architecture, downloads the matching bu
 verifies its checksum, and runs the installer:
 
 > **Note on the renderer:** Vulkan is the default and is what you want on current
-> hardware, AMD included. `gles` is the fail-safe for older GPUs — set `renderer` to
+> hardware. `gles` is the fail-safe for older GPUs — set `renderer` to
 > `gles` when the installer prompts for it only if Vulkan gives you trouble.
 
 ```bash
 curl -fsSL https://nourish.snowies.com/install | bash
 ```
 
-**Fedora 44 is the recommended platform** — it's what the project is developed and CI'd
-on, so it's the best-tested target. Fedora 43, Debian 13, Ubuntu 26.04 and Arch
-are built too, on both x86_64 and aarch64 (so a Raspberry Pi works); on NixOS the script
-prints the `nix-ld` module to add instead of installing imperatively. Run
+**Fedora 44 is the recommended platform** — it's what the project is developed on, so it's the best-tested target. Fedora 43, Debian 13, Ubuntu 26.04 and Arch
+are built too, on both x86_64 and aarch64 (so a Raspberry Pi works). Run
 `curl -fsSL https://nourish.snowies.com/install | bash -s -- --list` for the exact set.
-Debian 12 and Ubuntu 24.04 are **not** supported: their libinput (1.22 / 1.25) predates the
-tablet-pad dial API the compositor links against, which needs libinput 1.26 or newer.
 
 Once installed, `y5.compositor.update` re-runs that same script to move to the newest
 release, and `y5.compositor.uninstall` removes everything it placed. The installer
@@ -98,10 +94,10 @@ A thorough guide is available [here](https://nourish.snowies.com/guide.html).
  
 ```bash
 # Build & run nested in your current Wayland session
-environment/run-host.sh winit release
+environment/run-host.sh winit release-fast # or release for fat LTO(optimized) build.
  
 # Build the binary for use
-environment/build-release.sh system
+environment/build-release.sh system fast # omit fast for a fat LTO build(optimized) build.
 ```
  
 If you get errors about missing libraries, these are system libraries that the
