@@ -225,13 +225,38 @@ jobs:
           fi
           podman info --format '>> podman {{.Version.Version}} / runtime {{.Host.OCIRuntime.Name}}' || true
 
-      - name: Reclaim disk + stage heavy build dirs on /mnt
+      - name: Reclaim disk + swap headroom + stage heavy build dirs on /mnt
         run: |
           sudo rm -rf /opt/hostedtoolcache /usr/local/lib/android /usr/share/dotnet \
                       /usr/local/.ghcup /opt/ghc || true
           sudo mkdir -p /mnt/y5
           sudo chown -R "$(id -u):$(id -g)" /mnt/y5
-          df -h / /mnt
+
+          # SWAP. `kernel.loader/Cargo.toml` builds the compositor with `lto = "fat"` +
+          # `codegen-units = 1`, so the whole ~1400-unit graph is optimized and linked in ONE
+          # serial rustc process. That link is the peak-memory moment of the entire build, and
+          # on the aarch64 runners it exceeds RAM: the OOM killer takes rustc out with
+          #   ... -C lto=fat -C codegen-units=1 ... (signal: 9, SIGKILL: kill)
+          # which is what killed both Fedora arm legs in runs 30513595779 and 30529911514
+          # (in the first of those it took the runner agent with it — the job recorded no steps
+          # at all). Hosted runners ship little or no swap, so give the link somewhere to page.
+          # Slower than RAM, but these legs already run 40+ minutes and the alternative is a
+          # dead leg. Deliberately NOT solved by dropping to thin LTO — the fat-LTO binary is
+          # what ships.
+          swap_mb="$(awk '/^SwapTotal:/{print int($2/1024)}' /proc/meminfo)"
+          if [ "${swap_mb:-0}" -lt 8192 ]; then
+            # Outside /mnt/y5 — that path is the cached cargo target dir.
+            sudo fallocate -l 16G /mnt/y5-swap \
+              || sudo dd if=/dev/zero of=/mnt/y5-swap bs=1M count=16384 status=none
+            sudo chmod 600 /mnt/y5-swap
+            sudo mkswap /mnt/y5-swap >/dev/null
+            sudo swapon /mnt/y5-swap
+            echo ">> added 16G swap (had ${swap_mb:-0} MiB)"
+          else
+            echo ">> ${swap_mb} MiB swap already present — leaving it alone"
+          fi
+
+          df -h / /mnt; free -h; swapon --show
 
       # Per-distro+arch cargo target cache. Keyed per combo — incompatible ABIs must never
       # share one.

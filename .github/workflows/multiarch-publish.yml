@@ -110,13 +110,28 @@ jobs:
           fi
           podman info --format '>> podman {{.Version.Version}} / runtime {{.Host.OCIRuntime.Name}}' || true
 
-      - name: Reclaim disk + stage heavy build dirs on /mnt
+      - name: Reclaim disk + swap headroom + stage heavy build dirs on /mnt
         run: |
           sudo rm -rf /opt/hostedtoolcache /usr/local/lib/android /usr/share/dotnet \
                       /usr/local/.ghcup /opt/ghc || true
           sudo mkdir -p /mnt/y5
           sudo chown -R "$(id -u):$(id -g)" /mnt/y5
-          df -h / /mnt
+
+          # Swap headroom for the serial fat-LTO link, which OOMs on the aarch64 runners
+          # without it — see the fuller note on the same step in docs.yml.
+          swap_mb="$(awk '/^SwapTotal:/{print int($2/1024)}' /proc/meminfo)"
+          if [ "${swap_mb:-0}" -lt 8192 ]; then
+            sudo fallocate -l 16G /mnt/y5-swap \
+              || sudo dd if=/dev/zero of=/mnt/y5-swap bs=1M count=16384 status=none
+            sudo chmod 600 /mnt/y5-swap
+            sudo mkswap /mnt/y5-swap >/dev/null
+            sudo swapon /mnt/y5-swap
+            echo ">> added 16G swap (had ${swap_mb:-0} MiB)"
+          else
+            echo ">> ${swap_mb} MiB swap already present — leaving it alone"
+          fi
+
+          df -h / /mnt; free -h; swapon --show
 
       # Warm the per-distro cargo target cache (the huge vendored graph). Keyed per distro+arch
       # — incompatible ABIs must never share a cache.
