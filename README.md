@@ -52,8 +52,9 @@ It's one command. You get a prebuilt build, so there's no toolchain to set up â€
 script detects your distribution and CPU architecture, downloads the matching bundle,
 verifies its checksum, and runs the installer:
 
-> **Note for AMD users:** some have reported that Vulkan does not work on AMD. If
-> you're on an AMD card, set `renderer` to `gles` when the installer prompts for it.
+> **Note on the renderer:** Vulkan is the default and is what you want on current
+> hardware, AMD included. `gles` is the fail-safe for older GPUs â€” set `renderer` to
+> `gles` when the installer prompts for it only if Vulkan gives you trouble.
 
 ```bash
 curl -fsSL https://nourish.snowies.com/install | bash

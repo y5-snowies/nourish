@@ -109,8 +109,10 @@ snippet) rather than being installed system-wide.
 The generic Mesa Vulkan driver (for AMD/Intel) ships in the required `runtime` group, so
 **Vulkan rendering works with no extra repos** on every distro.
 
-> **Note for AMD users:** some have reported that Vulkan does not work on AMD. If
-> you're on an AMD card, set `renderer` to `gles` when prompted.
+> **Note on the renderer:** Vulkan is the default and is what you want on current
+> hardware, AMD included. `gles` is the fail-safe for older GPUs — set `renderer` to
+> `gles` when prompted only if Vulkan gives you trouble. (`renderer_fallback` also
+> switches to GLES on its own if Vulkan fails to initialize.)
 
 **Hardware video acceleration (optional, opt-in):** the VA-API video driver
 (`mesa-va-drivers-freeworld`) is one Fedora can't ship, so it lives in RPM Fusion. The
