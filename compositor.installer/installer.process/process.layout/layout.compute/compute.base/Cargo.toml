@@ -10,7 +10,9 @@ compositor_installer_process_layout_compute_plan = { path = "../compute.plan" }
 compositor_installer_process_layout_compute_policy = { path = "../compute.policy" }
 compositor_installer_process_layout_compute_session = { path = "../compute.session" }
 compositor_installer_process_layout_compute_stage = { path = "../compute.stage" }
+compositor_installer_process_layout_compute_uninstall = { path = "../compute.uninstall" }
 compositor_installer_process_layout_compute_units = { path = "../compute.units" }
+compositor_installer_process_layout_compute_update = { path = "../compute.update" }
 
 [lib]
 path = "lib.rs"

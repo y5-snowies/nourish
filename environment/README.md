@@ -42,7 +42,7 @@ so the backend/profile logic still lives in exactly one place.
 The compositor reads **all** of its own configuration from a single JSON file,
 `~/.config/y5.compositor/settings.json` (override with `--config-file=<path>`) — a
 JSON object whose fields are all **required** (`renderer`, `renderer_fallback`,
-`renderer_sync`, `hdr`, `depth`, `vrr`, `render_node`, `desktop_name`, `log_level`,
+`renderer_sync`, `hdr`, `depth`, `vrr`, `render_node`, `scanout_node`, `desktop_name`, `log_level`,
 `vk_diag`, `capture_encoder`, `window_client_size_fallback`,
 `window_subsurface_shrinks`). It is parsed once at the top of `main()` and the
 process **panics** if the file is missing or any field is absent — there are no

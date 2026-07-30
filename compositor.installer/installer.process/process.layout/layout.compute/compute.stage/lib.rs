@@ -74,3 +74,22 @@ pub fn is_root() -> bool {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "0")
         .unwrap_or(false)
 }
+
+/// Where settings.json is seeded (root=false → the invoking user's $HOME, the reason the
+/// installer runs unprivileged).
+pub fn settings_path() -> PathBuf {
+    home().join(".config/y5.compositor/settings.json")
+}
+
+/// Whether the user already has a settings.json — callers SEED ONLY WHEN ABSENT.
+///
+/// Every other [`place`] in the plan is a binary, unit or desktop entry the installer
+/// owns and must refresh. This one file belongs to the USER, and `place` is an
+/// unconditional `install` + `mv -f`, so seeding it on a re-install would reset
+/// per-machine tuning (`scanout_node`, `renderer_sync`, the capture settings) to
+/// defaults. That was tolerable while re-installing was a deliberate act; it is not once
+/// `y5.compositor.update` re-runs the installer unattended. A file predating a schema
+/// bump needs no rewrite either: `config.base::migrate` lifts it in memory on load.
+pub fn settings_exists() -> bool {
+    settings_path().exists()
+}

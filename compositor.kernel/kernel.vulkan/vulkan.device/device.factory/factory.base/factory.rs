@@ -7,28 +7,60 @@ use ash::vk;
 use smithay::backend::vulkan::PhysicalDevice;
 use std::ffi::{CStr, c_char};
 
-/// MASTER GATE for Intel-CCS / multi-plane dmabuf support: disjoint multi-plane
-/// import + the VK_QUEUE_FAMILY_FOREIGN_EXT acquire that samples the compressed
-/// planes. Read across the vulkan import path. Off = single-plane-only import.
-pub const MULTIPLANE_SUPPORT: bool = true;
-
-/// Device extensions the render path requires.
+/// Device extensions the render path CANNOT work without — absence is fatal.
 pub fn required_extensions() -> Vec<&'static CStr> {
-    let mut ext = vec![
+    vec![
         ash::khr::external_memory_fd::NAME,
         ash::ext::external_memory_dma_buf::NAME,
         ash::ext::image_drm_format_modifier::NAME,
         ash::khr::external_semaphore_fd::NAME,
-    ];
-    if MULTIPLANE_SUPPORT {
-        ext.push(ash::ext::queue_family_foreign::NAME);
+    ]
+}
+
+/// Gate for Intel-CCS-style multi-plane dmabuf support: disjoint multi-plane import plus
+/// the `VK_QUEUE_FAMILY_FOREIGN_EXT` acquire that makes the driver flush/decompress the
+/// aux plane. Read across the vulkan import path via [`VulkanDevice::multiplane`].
+///
+/// This is PROBED, not assumed. It used to be a hardcoded `true` that pushed
+/// `VK_EXT_queue_family_foreign` into [`required_extensions`], which made a driver
+/// lacking that extension fail `create` outright — no Vulkan renderer at all, on hardware
+/// whose only shortcoming is that it has no compressed formats to import in the first
+/// place. Broadcom V3D (Raspberry Pi) is exactly that case. Probing turns a dead renderer
+/// into a working single-plane one and takes nothing away from devices that do have it.
+///
+/// `has_device_extension` is a direct `vkEnumerateDeviceExtensionProperties` answer — a
+/// definitive per-device fact, not a vendor heuristic. It settles only whether the
+/// EXTENSION exists; whether a given format is actually disjoint-importable stays a
+/// per-format question, answered where it already was (the `DISJOINT`/plane-count checks
+/// at the format-query and import layers).
+fn probe_multiplane(phd: &PhysicalDevice) -> bool {
+    let ok = phd.has_device_extension(ash::ext::queue_family_foreign::NAME);
+    match ok {
+        true => info!("vulkan: multi-plane (VK_EXT_queue_family_foreign) available"),
+        // WARN, not info: this branch is where probing is strictly worse than the old hard
+        // failure, and it should be visible. A disjoint import still fails loudly
+        // (`ImportError::Disjoint`), but the FOREIGN-QUEUE ACQUIRE is silently skipped — and
+        // that acquire is what makes a driver flush/decompress tiled or DCC content before we
+        // sample it. On a device that produces compressed buffers but somehow lacks this
+        // extension, the result would be wrong pixels rather than an error. No such driver is
+        // known (compression-capable drivers all expose it; the ones that don't, like
+        // Broadcom V3D, have nothing to decompress), so this is a warning about a
+        // hypothetical — but a silent wrong-pixels path deserves a line in the log.
+        false => warn!(
+            "vulkan: VK_EXT_queue_family_foreign absent — single-plane dmabuf import only, \
+             and foreign-queue acquires are skipped. Expected on drivers without compressed \
+             formats (e.g. V3D); on an AMD or Intel GPU this is unexpected — report it."
+        ),
     }
-    ext
+    ok
 }
 
 pub struct VulkanDevice {
     pub device: ash::Device,
     pub queue_family_index: u32,
+    /// Whether `VK_EXT_queue_family_foreign` was available and enabled — see
+    /// [`probe_multiplane`]. False means every import takes the single-plane path.
+    pub multiplane: bool,
     /// The owning `ash::Instance`, retained so device-level extension loaders
     /// (`ash::khr/ext::*::Device::new`) can be constructed — they need the
     /// instance to resolve `vkGetDeviceProcAddr`.
@@ -53,6 +85,7 @@ pub fn create(phd: &PhysicalDevice) -> Result<VulkanDevice, DeviceError> {
             ));
         }
     }
+    let multiplane = probe_multiplane(phd);
 
     let instance = phd.instance().handle();
     let queue_family_index = unsafe {
@@ -67,7 +100,13 @@ pub fn create(phd: &PhysicalDevice) -> Result<VulkanDevice, DeviceError> {
     let queue_info = vk::DeviceQueueCreateInfo::default()
         .queue_family_index(queue_family_index)
         .queue_priorities(&priorities);
-    let ext_ptrs: Vec<*const c_char> = required_extensions().iter().map(|e| e.as_ptr()).collect();
+    // Enable the optional extension only when the driver has it; requesting an absent
+    // extension is a `vkCreateDevice` failure, so this list must match the probe.
+    let mut enabled = required_extensions();
+    if multiplane {
+        enabled.push(ash::ext::queue_family_foreign::NAME);
+    }
+    let ext_ptrs: Vec<*const c_char> = enabled.iter().map(|e| e.as_ptr()).collect();
 
     let mut features12 =
         vk::PhysicalDeviceVulkan12Features::default().timeline_semaphore(true);
@@ -101,6 +140,7 @@ pub fn create(phd: &PhysicalDevice) -> Result<VulkanDevice, DeviceError> {
     Ok(VulkanDevice {
         device,
         queue_family_index,
+        multiplane,
         instance: instance.clone(),
     })
 }

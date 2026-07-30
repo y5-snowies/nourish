@@ -155,10 +155,11 @@ pub struct VulkanRenderer {
     pub(super) import_cache:
         HashMap<smithay::backend::allocator::dmabuf::WeakDmabuf, VulkanTexture>,
     /// Textures served from `import_cache` since the last submit. Their producer
-    /// (iced's wgpu, a client) may have written to the underlying dmabuf since we
-    /// last sampled it, so the frame that samples them opens with one batched
-    /// availability barrier — the in-command-buffer replacement for the
-    /// per-import `transition_to_sampled` submit+fence the cache skips.
+    /// (iced's or bevy's own wgpu device, a client) has written to the underlying
+    /// dmabuf since we last sampled it, so the frame that samples them opens with
+    /// one batched foreign-queue acquire — the in-command-buffer replacement for
+    /// the per-import `transition_to_sampled` the cache skips, minus only its
+    /// submit+fence.
     ///
     /// Holds `VulkanTexture` PINS, not bare `vk::Image`, and is deduped on push.
     /// Scene building imports even on frames that never submit (smithay's damage

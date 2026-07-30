@@ -549,7 +549,6 @@ dependencies = [
  "compositor_kernel_vulkan_texture_image_base",
  "compositor_model_debug_instance_record",
  "compositor_model_environment_config_base",
- "compositor_model_environment_experimental_runtime",
  "compositor_model_environment_graphics_base",
  "compositor_model_stats_registry_base",
  "compositor_orchestration_draw_dispatch_frame",
@@ -676,10 +675,6 @@ dependencies = [
  "serde",
  "serde_json",
 ]
-
-[[package]]
-name = "compositor_model_environment_experimental_runtime"
-version = "0.0.1"
 
 [[package]]
 name = "compositor_model_environment_graphics_base"

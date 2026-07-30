@@ -52,22 +52,37 @@
     <section class="tabpanel is-active" role="tabpanel"
              id="panel-install-quick" aria-labelledby="tab-install-quick">
       <h3>What you need</h3>
-      <p>Nourish ships today as a prebuilt package for <strong>Fedora 44</strong>
-      — a free, popular, beginner-friendly version of Linux. Don't want to commit
-      your whole machine yet? You can run Nourish in a
+      <p>Nourish ships as a prebuilt package for every mainstream Linux, and
+      <strong>Fedora 44</strong> is the one we recommend — a free, popular,
+      beginner-friendly version, and the one Nourish itself is built on. Don't
+      want to commit your whole machine yet? You can run Nourish in a
       <a href="#panel-install-source">window <em>inside</em> your existing Linux
       desktop to try it</a>.</p>
 
       <h3>The one-command install</h3>
-      <p>Open the Terminal app and paste this. It downloads the prebuilt
-      release, unpacks it, and launches a friendly interactive installer —
-      it only pulls the runtime libraries Nourish needs (no developer
-      toolchain), and it's safe to re-run. In fact, running it again later is
-      exactly how you <strong>update</strong> Nourish to the latest release.</p>
-      <pre class="code"><button class="copy" data-copy>Copy</button><code>curl -fsSL https://nourish.snowies.com/release/latest/fedora44/package.tar.gz | tar -xz && y5-install/install.sh</code></pre>
+      <p>Open the Terminal app and paste this. It works out which
+      distribution and processor you have, downloads the matching prebuilt
+      release, checks it hasn't been tampered with, and launches a friendly
+      interactive installer — it only pulls the runtime libraries Nourish
+      needs (no developer toolchain), and it's safe to re-run.</p>
+      <pre class="code"><button class="copy" data-copy>Copy</button><code>curl -fsSL https://nourish.snowies.com/install | bash</code></pre>
+
+      <p><strong>Fedora 44 is the recommended choice</strong> — it's the
+      version Nourish is built and tested on every day, so it's the smoothest
+      ride. If you're picking a Linux to start from, pick that one.</p>
+
+      <p>Fedora 43, Debian 12 and 13, Ubuntu 24.04 and 26.04, and Arch are
+      covered as well, on both Intel/AMD (x86_64) and ARM (aarch64) — so a
+      Raspberry Pi works too. On NixOS it prints the <code>nix-ld</code> setup
+      to add rather than installing imperatively.</p>
 
       <p>Want to see exactly what it would do, changing nothing?</p>
-      <pre class="code"><button class="copy" data-copy>Copy</button><code>curl -fsSL https://nourish.snowies.com/release/latest/fedora44/package.tar.gz | tar -xz && y5-install/install.sh --dry-run</code></pre>
+      <pre class="code"><button class="copy" data-copy>Copy</button><code>curl -fsSL https://nourish.snowies.com/install | Y5_INSTALL_ARGS=--dry-run bash</code></pre>
+
+      <p>Later on, <code>y5.compositor.update</code> re-runs this same script
+      to move to the newest release, and <code>y5.compositor.uninstall</code>
+      removes everything it installed. Your settings are kept either way —
+      add <code>--purge</code> to the uninstaller if you want those gone too.</p>
 
       <p>The installer detects your graphics card and pre-selects the right
       driver, installs the runtime packages with your permission (it uses

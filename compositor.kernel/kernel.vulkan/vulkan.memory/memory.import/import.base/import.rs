@@ -1,10 +1,10 @@
 //! dmabuf -> VkImage (client buffer import) — the vulkan implementation of the
 //! contract import capability. Single-memory (non-disjoint) plane layout is the
 //! always-on path; DISJOINT multi-plane import (Intel CCS-style aux plane on a
-//! separate fd) is gated behind the `MULTIPLANE_SUPPORT` master knob.
+//! separate fd) is gated behind the probed `VulkanDevice::multiplane` flag.
 
 use ash::vk;
-use compositor_kernel_vulkan_device_factory_base::factory::{VulkanDevice, MULTIPLANE_SUPPORT};
+use compositor_kernel_vulkan_device_factory_base::factory::VulkanDevice;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::allocator::Buffer;
 use smithay::backend::vulkan::PhysicalDevice;
@@ -69,7 +69,7 @@ pub fn import(
     // (metadata plane at an offset in the SAME memory) has different raw fds but
     // one memory object — it MUST take the non-disjoint bind_single path.
     let disjoint = is_disjoint(&fds);
-    if disjoint && !MULTIPLANE_SUPPORT {
+    if disjoint && !device.multiplane {
         return Err(ImportError::Disjoint);
     }
 

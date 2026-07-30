@@ -25,7 +25,7 @@ impl VulkanRenderer {
                 &vk::CommandBufferBeginInfo::default()
                     .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )?;
-            // With MULTIPLANE_SUPPORT, acquire the imported dmabuf from its
+            // When the device has multi-plane support, acquire the imported dmabuf from its
             // external producer (VK_QUEUE_FAMILY_FOREIGN_EXT) so the driver
             // interprets the existing DRM-modifier / CCS-compressed contents
             // rather than reinitializing them; oldLayout = UNDEFINED is the
@@ -45,7 +45,7 @@ impl VulkanRenderer {
                     base_array_layer: 0,
                     layer_count: 1,
                 });
-            if compositor_kernel_vulkan_device_factory_base::factory::MULTIPLANE_SUPPORT {
+            if self.dev.multiplane {
                 barrier = barrier
                     .src_queue_family_index(vk::QUEUE_FAMILY_FOREIGN_EXT)
                     .dst_queue_family_index(self.dev.queue_family_index);
@@ -70,13 +70,33 @@ impl VulkanRenderer {
         Ok(())
     }
 
-    /// Make external writes to every cache-served dmabuf visible to this frame's
-    /// sampling. Recorded into the frame's own command buffer — no extra submit
-    /// and no host wait, which is the whole point of the import cache — and
-    /// batched into ONE barrier covering every image, so the cost is O(1) API
-    /// calls regardless of how many surfaces are on screen. The layout is
-    /// unchanged: these images have been `SHADER_READ_ONLY_OPTIMAL` since their
-    /// one-time `transition_to_sampled` at first import.
+    /// Re-acquire every cache-served dmabuf from its external producer for this
+    /// frame's sampling. Recorded into the frame's own command buffer — no extra
+    /// submit and no host wait, which is the whole point of the import cache —
+    /// and batched into ONE barrier covering every image, so the cost is O(1)
+    /// API calls regardless of how many surfaces are on screen.
+    ///
+    /// This carries the queue-family ACQUIRE half of `transition_to_sampled`, and
+    /// it has to: these dmabufs are written by a producer on a device we do not
+    /// own (bevy and iced each hold their own `wgpu` Vulkan device), so every
+    /// frame their contents arrive from `VK_QUEUE_FAMILY_FOREIGN_EXT` again.
+    /// Acquiring is what makes the driver interpret the producer's DRM-modifier /
+    /// CCS-compressed layout rather than reading it as if we had written it; a
+    /// plain same-family barrier makes the writes *available* but skips that
+    /// re-interpretation, which a continuously redrawn surface notices.
+    ///
+    /// It does NOT copy that function's `oldLayout = UNDEFINED`, and the
+    /// difference matters. `UNDEFINED` is not "unknown" — it is permission for
+    /// the implementation to DISCARD the range's contents. At first import that
+    /// is both unavoidable (a fresh `VkImage` must start `UNDEFINED`) and
+    /// harmless (the image object has no contents of its own to lose). Here the
+    /// image is long-lived and the driver still tracks it as
+    /// `SHADER_READ_ONLY_OPTIMAL`, so naming that layout instead keeps the
+    /// acquire content-PRESERVING — the spec guarantees preservation for an
+    /// ownership acquire whose `oldLayout` is not `UNDEFINED` — and volunteers no
+    /// discard licence on pixels we are about to sample. There is no matching
+    /// release to stay consistent with either way: the foreign party is another
+    /// device that never performs Vulkan ownership transfers on our behalf.
     pub(super) fn record_pending_acquires(&self, cmd: vk::CommandBuffer, textures: &[VulkanTexture]) {
         if textures.is_empty() {
             return;
@@ -85,7 +105,7 @@ impl VulkanRenderer {
             .iter()
             .map(|t| &t.inner.image)
             .map(|image| {
-                vk::ImageMemoryBarrier2::default()
+                let mut barrier = vk::ImageMemoryBarrier2::default()
                     .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
                     .src_access_mask(vk::AccessFlags2::MEMORY_WRITE)
                     .dst_stage_mask(vk::PipelineStageFlags2::FRAGMENT_SHADER)
@@ -99,7 +119,13 @@ impl VulkanRenderer {
                         level_count: 1,
                         base_array_layer: 0,
                         layer_count: 1,
-                    })
+                    });
+                if self.dev.multiplane {
+                    barrier = barrier
+                        .src_queue_family_index(vk::QUEUE_FAMILY_FOREIGN_EXT)
+                        .dst_queue_family_index(self.dev.queue_family_index);
+                }
+                barrier
             })
             .collect();
         unsafe {
@@ -143,10 +169,14 @@ impl ImportDma for VulkanRenderer {
             // Skipping `transition_to_sampled` skips its queue submit AND its host
             // fence wait, which is the actual win: that wait sat on the same queue
             // as the composite, so it drained the in-flight frame once per surface.
-            // The producer may have redrawn into this dmabuf since, so the frame
-            // that samples it opens with a batched availability barrier instead
-            // (see `pending_acquires`). Deduped: a surface visible in several panes
-            // imports once per pane, and one barrier per image covers them all.
+            // What it must NOT skip is the barrier itself — the producer redraws
+            // into this dmabuf every frame, so its contents keep arriving from a
+            // foreign queue family and have to be acquired again each time. The
+            // frame that samples it re-records that same acquire, batched, into
+            // its own command buffer (see `pending_acquires` /
+            // `record_pending_acquires`) — same barrier, no submit, no host wait.
+            // Deduped: a surface visible in several panes imports once per pane,
+            // and one barrier per image covers them all.
             let tex = tex.clone();
             if !self
                 .pending_acquires

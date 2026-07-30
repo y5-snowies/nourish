@@ -55,17 +55,99 @@ pub fn assemble() -> DisplayAssembly {
         compositor_kernel_seat_session_factory_base::factory::create();
     let seat_name = session.seat();
 
-    // 2. Primary GPU: preference-aware selection over udev enumeration, with
-    //    smithay's heuristic as the default (behavior-preserving when the
-    //    preference is empty).
+    // 2. Primary GPU: an explicit `scanout_node` wins outright; otherwise
+    //    preference-aware selection over udev enumeration, with smithay's
+    //    heuristic as the default (behavior-preserving when the preference is
+    //    empty). The explicit path exists because the heuristic's second
+    //    priority is "the device that HAS a render node" — exactly backwards
+    //    where the render engine and the display engine are separate DRM
+    //    devices (Raspberry Pi: `v3d` has the render node and no CRTCs, `vc4`
+    //    has the connectors and no render node).
     let rank = compositor_kernel_graphic_preference_gpu_rank::rank::get();
     let candidates = compositor_kernel_udev_enumerate_gpu_base::gpu::all(&seat_name);
-    let heuristic = compositor_kernel_udev_enumerate_gpu_base::gpu::primary(&seat_name);
-    let selected_path = compositor_kernel_native_device_select_base::select::select_primary(
-        &candidates,
-        heuristic.as_ref(),
-        &rank,
-    );
+    let configured = compositor_model_environment_config_base::base::get()
+        .scanout_node
+        .clone();
+    let selected_path = if configured.is_empty() {
+        let heuristic = compositor_kernel_udev_enumerate_gpu_base::gpu::primary(&seat_name);
+        let picked = compositor_kernel_native_device_select_base::select::select_primary(
+            &candidates,
+            heuristic.as_ref(),
+            &rank,
+        );
+        // Correct the heuristic ONLY on proof. `probe_scanout` reports `capable: false`
+        // just for a device the kernel lists with no connectors AND no CRTCs, which no
+        // configuration can make scan out; `None` (unprobeable) and any capable device
+        // leave the pick untouched, so on every machine where the heuristic was already
+        // right — or where we cannot tell — behavior is unchanged.
+        //
+        // The replacement is chosen by CONNECTEDNESS first, then mere capability. "First
+        // capable" is not good enough: a Raspberry Pi 5 lists vc4's HDMI beside RP1's
+        // DSI/DPI/VEC, so several devices are capable and only one has the monitor —
+        // picking the first landed on a card that was then rejected at libseat open
+        // (EBUSY). Capable-but-unplugged is still accepted as a last resort so a
+        // legitimately headless boot behaves as before.
+        let probe = compositor_kernel_drm_device_node_base::node::probe_scanout;
+        let picked_caps = picked.as_deref().and_then(probe);
+        // Keep the pick when it has a monitor ON it. Testing only for capability was too
+        // weak: a Raspberry Pi 5 lists vc4's HDMI beside RP1's DSI/DPI/VEC, all of which
+        // have connectors and CRTCs, so the heuristic's pick passed a capability test and
+        // was kept — then failed at libseat open with EBUSY, because the device it named is
+        // not the one the display is attached to. Connectedness is the property that
+        // actually distinguishes them.
+        let keep = picked_caps.is_some_and(|s| s.capable && s.connected);
+        match keep {
+            true => picked,
+            false => {
+                let first = |want_connected: bool| {
+                    candidates
+                        .iter()
+                        .find(|c| {
+                            probe(c)
+                                .is_some_and(|s| s.capable && (!want_connected || s.connected))
+                        })
+                        .cloned()
+                };
+                // A device with a connected monitor always wins. Falling back to
+                // merely-capable is reserved for the pick being PROVEN incapable — on a
+                // legitimately headless boot nothing is connected and the heuristic's
+                // choice must stand, or this would reshuffle working setups.
+                let incapable = picked_caps.is_some_and(|s| !s.capable);
+                match first(true).or_else(|| incapable.then(|| first(false)).flatten()) {
+                    Some(better) if Some(&better) != picked.as_ref() => {
+                        warn!(
+                            "heuristic picked {:?} (capable={:?}); overriding with {better:?}, \
+                             which has a connected monitor (pin it via scanout_node in \
+                             settings.json)",
+                            picked.as_deref(),
+                            picked_caps.map(|s| s.capable)
+                        );
+                        Some(better)
+                    }
+                    _ => {
+                        info!(
+                            "heuristic pick {:?} kept (capable={:?}); no candidate proved a \
+                             connected monitor",
+                            picked.as_deref(),
+                            picked_caps.map(|s| s.capable)
+                        );
+                        picked
+                    }
+                }
+            }
+        }
+    } else {
+        let path = PathBuf::from(&configured);
+        // Fail here rather than let a typo surface as the generic "no usable DRM
+        // devices" panic four steps down, which names neither the setting nor
+        // the value. An explicitly configured device that cannot be used is a
+        // configuration error, not a reason to fall back to the heuristic.
+        if compositor_kernel_drm_device_node_base::node::render_node(&path).is_none() {
+            abort!("scanout_node={configured:?} (settings.json) is not a usable DRM device node");
+        }
+        info!("scanout_node={configured:?} configured; udev heuristic bypassed");
+        Some(path)
+    };
 
     let primary_gpu = selected_path
         .as_deref()
@@ -77,11 +159,33 @@ pub fn assemble() -> DisplayAssembly {
         })
         .expect("No GPU!");
 
-    // Record the gpu-topology decisions for the selected node (single-GPU
-    // era: render and scanout are the same node — `route` proves it).
+    // Record the gpu-topology decisions for the selected node.
+    //
+    // Report the render/scanout PAIR, not a route. `route()` infers `DmabufCopy` from
+    // `dev_id` inequality alone, which is right for a discrete GPU beside an integrated one
+    // and WRONG for a split-SoC: on a kmsro pair (Raspberry Pi v3d + vc4) Mesa hands out one
+    // shared allocation — scanout-capable on the display device, renderable by the 3D core —
+    // so nothing is copied even though the dev_ids differ. An earlier version of this line
+    // called `route()` and logged its verdict, which read as "this machine is paying for a
+    // blit" on hardware that is not. `route()` cannot tell the two topologies apart, and
+    // nothing branches on its result, so the honest thing to print is the fact we actually
+    // know: whether the two nodes are the same device.
     let role = compositor_kernel_gpu_topology_role_base::role::assign(primary_gpu, Some(primary_gpu));
-    let copy_route = compositor_kernel_gpu_topology_route_base::route::route(primary_gpu, primary_gpu);
-    info!("gpu topology for selected node: role={role:?} copy_route={copy_route:?}");
+    let render_side = compositor_kernel_drm_device_node_base::node::render_node(std::path::Path::new(
+        &compositor_model_environment_config_base::base::get().render_node,
+    ))
+    .unwrap_or(primary_gpu);
+    let split = render_side.dev_id() != primary_gpu.dev_id();
+    info!(
+        "gpu topology: role={role:?} render={:?} scanout={:?} split_device={split}{}",
+        render_side.dev_path(),
+        primary_gpu.dev_path(),
+        match split {
+            true => " (shared-allocation via kmsro, or a real cross-device copy — the \
+                     modifier set decides which)",
+            false => "",
+        }
+    );
 
     // 3. udev: find the device path whose dev_id matches the selected node.
     let primary_node = compositor_kernel_drm_device_node_base::node::primary_node(primary_gpu);
@@ -117,11 +221,29 @@ pub fn assemble() -> DisplayAssembly {
     let kind = compositor_kernel_drm_connector_kind_base::kind::classify(&connector);
     info!("selected connector classified: {kind:?}");
 
-    // 6. Pipe claim.
+    // 6. Pipe claim. Logged with the connector's routable set: an unroutable CRTC
+    //    fails every mode/format/modifier in the atomic test identically, and this
+    //    line is what tells the two apart.
     let pipe = compositor_kernel_scanout_pipe_claim_base::claim::claim(&drm, &connector, &res)
         .expect("no CRTC available");
+    use smithay::reexports::drm::control::Device as _;
+    let routable: Vec<_> = connector
+        .encoders()
+        .iter()
+        .filter_map(|e| drm.get_encoder(*e).ok())
+        .flat_map(|info| res.filter_crtcs(info.possible_crtcs()))
+        .collect();
+    info!(
+        "claimed pipe {pipe:?} for connector {:?}; routable={routable:?} all={:?}",
+        connector.handle(),
+        res.crtcs()
+    );
+    if !routable.is_empty() && !routable.contains(&pipe) {
+        warn!("claimed pipe {pipe:?} is NOT in the connector's routable set — modeset will fail");
+    }
     let _assignment =
         compositor_kernel_scanout_pipe_assign_base::assign::assign(connector.handle(), pipe);
+    log_plane_formats(&drm, pipe);
 
     // 7. Mode: profile request (advertised narrows; synthesis is the gated
     //    arm) -> default policy -> diagnostics -> fallback chain.
@@ -182,6 +304,46 @@ pub fn assemble() -> DisplayAssembly {
         output,
         identity,
         hdr,
+    }
+}
+
+/// Dump the primary plane's `IN_FORMATS` — what the DISPLAY engine will actually accept.
+///
+/// This set was previously never read anywhere in the tree. smithay parses the blob into
+/// `PlaneInfo::formats` and consumes it internally, so the compositor's own negotiation
+/// (`bridge.negotiate`, which intersects renderer ∩ wgpu) never met the plane's opinion.
+/// That is the gap behind every "why is scanout linear / why did the modeset fail" question:
+/// a modifier can be renderable and still be un-scanoutable, and without this line the only
+/// symptom is an atomic commit failing with `EINVAL` for reasons the log does not contain.
+///
+/// Logged once at assembly, grouped by fourcc so the output stays readable on drivers that
+/// advertise dozens of modifiers. Purely diagnostic — nothing consumes it yet.
+fn log_plane_formats(drm: &DrmDevice, pipe: crtc::Handle) {
+    let Ok(planes) = drm.planes(&pipe) else {
+        warn!("could not enumerate planes for {pipe:?} — IN_FORMATS unknown");
+        return;
+    };
+    let Some(primary) = planes.primary.first() else {
+        warn!("crtc {pipe:?} reports no primary plane");
+        return;
+    };
+    let mut by_fourcc: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for f in primary.formats.iter() {
+        by_fourcc
+            .entry(format!("{:?}", f.code))
+            .or_default()
+            .push(format!("{:?}", f.modifier));
+    }
+    info!(
+        "scanout plane {:?} (primary of {pipe:?}): {} fourcc x modifier pairs",
+        primary.handle,
+        primary.formats.iter().count()
+    );
+    for (code, mods) in &by_fourcc {
+        info!("  plane accepts {code}: {}", mods.join(", "));
+    }
+    if by_fourcc.is_empty() {
+        warn!("scanout plane advertises NO formats — every modeset will fail");
     }
 }
 

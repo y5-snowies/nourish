@@ -40,6 +40,13 @@ pub struct ProbedMonitor {
     pub identity_key: String,
     pub label: String,
     pub modes: Vec<ProbedMode>,
+    /// The card node this monitor hangs off, e.g. `/dev/dri/card2` — i.e. a device
+    /// that provably CAN scan out, which is what `scanout_node` wants. Kept because
+    /// the card a connector lives on is not always the card holding `render_node`:
+    /// where the render and display engines are separate DRM devices (Raspberry Pi:
+    /// `v3d` owns `renderD128` with no CRTCs, `vc4` owns the connectors with no
+    /// render node) they differ, and that is exactly when `scanout_node` must be set.
+    pub node: String,
 }
 
 /// Minimal newtype so the opened DRM file satisfies the `drm` crate's marker traits.
@@ -91,10 +98,39 @@ pub fn probe() -> Vec<ProbedMonitor> {
             let edid = read_edid(&card, &info).and_then(|raw| parse_identity(&raw));
             let identity_key = identity_key(edid.as_ref());
             let label = friendly_label(edid.as_ref(), &info);
-            out.push(ProbedMonitor { identity_key, label, modes });
+            out.push(ProbedMonitor { identity_key, label, modes, node: path.clone() });
         }
     }
     out
+}
+
+/// The distinct card nodes that have at least one connected monitor, sorted — the
+/// devices a `scanout_node` may legitimately name. Derived from [`probe`] rather than
+/// from sysfs so "can scan out" means "the kernel listed a connected connector on it",
+/// not a guess from path shape.
+pub fn scanout_candidates(monitors: &[ProbedMonitor]) -> Vec<String> {
+    let mut nodes: Vec<String> = monitors.iter().map(|m| m.node.clone()).collect();
+    nodes.sort();
+    nodes.dedup();
+    nodes
+}
+
+/// Does `render_node` (e.g. `/dev/dri/renderD128`) live on the same physical device as
+/// `card_node` (e.g. `/dev/dri/card2`)? Compares the sysfs `device` link both nodes
+/// point at, which is the authoritative sibling test — their `dev_t`s differ, so
+/// comparing paths or minor numbers would be wrong.
+///
+/// Pure `std::fs`: this only has to answer "same device", and canonicalizing
+/// `/sys/class/drm/<node>/device` does that without opening the DRM device at all.
+pub fn same_device(render_node: &str, card_node: &str) -> bool {
+    let sysfs = |dev: &str| {
+        let name = dev.rsplit('/').next()?;
+        fs::canonicalize(format!("/sys/class/drm/{name}/device")).ok()
+    };
+    match (sysfs(render_node), sysfs(card_node)) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    }
 }
 
 /// Collect, dedup (by w×h×refresh) and order a connector's advertised modes:

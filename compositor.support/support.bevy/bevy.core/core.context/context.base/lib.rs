@@ -82,11 +82,17 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
     }
     let to_request = (required | optional) & available;
 
+    // Same clamp as the iced context: `Limits::default()` asks for 8 color
+    // attachments and adapters that allow only 4 reject the device outright.
+    // Bevy takes this device as-is (`RenderCreation::Manual`), so it never gets
+    // to apply its own limit negotiation — this is the only place it happens.
+    let limits = wgpu::Limits::default().or_worse_values_from(&adapter.limits());
+
     let (device, queue) = pollster::block_on(adapter.request_device(&DeviceDescriptor {
         experimental_features: ExperimentalFeatures::disabled(),
         label: Some("y5_bevy_dmabuf_wgpu_device"),
         required_features: to_request,
-        required_limits: wgpu::Limits::default(),
+        required_limits: limits,
         memory_hints: wgpu::MemoryHints::default(),
         trace: wgpu::Trace::Off,
     }))

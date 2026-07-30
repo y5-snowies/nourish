@@ -1,3 +1,5 @@
+# NOT the shipped unit — prepare.sh installs xwayland-fixes/xwayland.service.
+# Kept as the upstream-flags reference; hardened only so nobody copies a broken one.
 [Unit]
 Description=X Wayland Satellite
 After=graphical-session.target
@@ -7,7 +9,8 @@ PartOf=graphical-session.target
 Type=simple
 ExecStartPre=/usr/bin/sleep 20
 ExecStart=/usr/bin/xwayland-satellite :12 --ignore-fractional-scale
-Restart=never
+Restart=on-failure
+RestartSec=2
 #Environment="XDG_SESSION_ID=2"
 
 [Install]
