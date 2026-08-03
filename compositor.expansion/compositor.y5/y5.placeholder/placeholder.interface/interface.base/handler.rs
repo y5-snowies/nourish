@@ -30,12 +30,19 @@ pub fn delegate(
             compositor_support_system_persist_mark_base::base::mark_world(_loop.inner.worlds.active_id(), true);
 
             if let Some(registry) = &mut _loop.inner.surface_mut().registry {
-                let handler_instance = registry.instance_mut(handle).unwrap();
-                handler_instance.runtime_mut().queue_message(
+                // Push the canonical plan back through the registry, NOT through
+                // `instance_mut(..).runtime_mut()`: with iced off-thread the
+                // instance lives on the worker and there is no local runtime to
+                // borrow, so the reach-through returns `None`. `dispatch_message`
+                // queues inline or ships the message to the worker as appropriate.
+                if let Err(e) = registry.dispatch_message(
+                    handle,
                     compositor_y5_placeholder_surface_base::PlaceholderMessage::UpdatePlan(
                         Box::new(record.launch.clone()),
                     ),
-                )
+                ) {
+                    warn!("placeholder save: plan push-back failed: {e}");
+                }
             }
         }
         PlaceholderAction::Erase() => {
