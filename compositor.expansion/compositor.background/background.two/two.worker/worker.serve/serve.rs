@@ -102,14 +102,32 @@ pub fn run(signal: Arc<Signal>, registry: Registry, tx: mpsc::Sender<Result<(), 
         // changes, and it must not busy-wait for that.
         let mut blocked = 0usize;
         let seen: HashSet<u64> = live.iter().map(|(k, _)| *k).collect();
-        // Every pane the live set says still exists. A pane of a live OUTPUT
-        // whose region index is past that output's current region count has been
-        // collapsed away, and is retired now rather than on the backstop.
-        let alive = |k: u64| {
-            seen.contains(&k)
-                || live.iter().any(|(o, r)| {
-                    key::key_output(*o) == key::key_output(k) && key::key_region(k) < r.regions
-                })
+        // A pane collapsed away by a viewport change, retired now rather than on
+        // the backstop.
+        //
+        // ONLY ASK AN OUTPUT ABOUT ITS OWN PANES. An output absent from `live`
+        // has told us nothing — it simply is not drawing this pass, which happens
+        // constantly: the picker owns the frame while the world behind it does
+        // not draw, a monitor's pass is skipped, an overlay takes over. Treating
+        // absence as "collapsed" freed a whole ring every time the active pass
+        // changed, and the compositor then had no published frame to sample, so
+        // the background VANISHED for the frames until the worker refilled it —
+        // which is a hole where a backdrop should be, not a slow backdrop.
+        //
+        // Absence is what the removal mailbox and the timeout backstop are for.
+        let collapsed = |k: u64| {
+            if seen.contains(&k) {
+                return false;
+            }
+            let mut this_output = live
+                .iter()
+                .filter(|(o, _)| key::key_output(*o) == key::key_output(k))
+                .peekable();
+            // Output not drawing at all: not our call to make.
+            if this_output.peek().is_none() {
+                return false;
+            }
+            this_output.all(|(_, r)| key::key_region(k) >= r.regions)
         };
         for (pane, req) in live.iter() {
             let (pane, req) = (*pane, req.clone());
@@ -155,8 +173,8 @@ pub fn run(signal: Arc<Signal>, registry: Registry, tx: mpsc::Sender<Result<(), 
                 free(&device, &mut panes, &registry, &mut absent, &mut failed, &gone, "output removed");
             }
         }
-        let collapsed: Vec<u64> = panes.keys().copied().filter(|k| !alive(*k)).collect();
-        free(&device, &mut panes, &registry, &mut absent, &mut failed, &collapsed, "region collapsed");
+        let gone: Vec<u64> = panes.keys().copied().filter(|k| collapsed(*k)).collect();
+        free(&device, &mut panes, &registry, &mut absent, &mut failed, &gone, "region collapsed");
         retire(&device, &mut panes, &registry, &mut absent, &mut failed, &seen);
         // Live entries are re-read, not consumed, so the loop must yield or spin.
         //
