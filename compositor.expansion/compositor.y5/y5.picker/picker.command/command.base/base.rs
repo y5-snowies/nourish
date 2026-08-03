@@ -38,7 +38,7 @@ pub fn push_transform(state: &mut Loop) {
         .get_mut(&PICKER_MUT)
         .active
         .as_ref()
-        .map(|a| (a.orientation, a.zoom));
+        .map(|a| (a.orientation.quat(), a.zoom));
     if let Some((orientation, zoom)) = t {
         dispatch(state, PickerCommand::SetTransform { orientation, zoom });
     }
@@ -58,8 +58,8 @@ pub fn set_selected(state: &mut Loop, cell: Option<usize>) {
         active.selected = cell;
         if let Some(c) = cell {
             // Animate (don't snap) toward facing the chosen cell.
-            active.target = compositor_y5_picker_three_orient::orient::face(c);
-            active.spin = compositor_y5_picker_three_orient::orient::IDENTITY;
+            active.target = compositor_y5_picker_three_orient::orient::face(c, active.orientation.yaw);
+            active.spin = compositor_y5_picker_three_orient::orient::Orient::ZERO;
         }
     }
     dispatch(state, PickerCommand::SetSelected(cell));

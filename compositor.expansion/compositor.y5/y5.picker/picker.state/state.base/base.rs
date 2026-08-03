@@ -3,12 +3,12 @@ use compositor_support_bevy_core_compositor_base::BevyHandle;
 use compositor_support_system_storage_token_base::base::{Token, TokenMut};
 use compositor_y5_graphic_capture_registry::{CaptureHandle, SnapshotHandle};
 use compositor_y5_picker_surface_view::PickerSurface;
+use compositor_y5_picker_three_orient::orient::Orient;
 use compositor_y5_picker_three_scene::PickerScene;
 use std::collections::HashMap;
 use std::time::Instant;
 
-/// Cube-sphere cell layout: 6 faces × `CELLS_PER_FACE²` = 54 cells (fixed grid;
-/// worlds created lazily as empty cells are entered).
+/// Cube-sphere layout: 6 faces × `CELLS_PER_FACE²` = 54 cells (fixed grid).
 pub const CELLS_PER_FACE: usize = 3;
 pub const CELL_COUNT: usize = 6 * CELLS_PER_FACE * CELLS_PER_FACE;
 
@@ -49,11 +49,11 @@ pub struct PickerActive {
     pub pointer: (f64, f64),
     /// `Some(press_pos)` while a left-drag is in progress (drag starts anywhere).
     pub drag: Option<(f64, f64)>,
-    /// Sphere orientation quaternion (xyzw) + the target it animates toward.
-    pub orientation: [f32; 4],
-    pub target: [f32; 4],
-    /// Per-frame trackball increment carried as drag-release momentum (decays).
-    pub spin: [f32; 4],
+    /// Sphere yaw/pitch + the target it animates toward (see `three.orient`).
+    pub orientation: Orient,
+    pub target: Orient,
+    /// Per-frame turntable increment carried as drag-release momentum (decays).
+    pub spin: Orient,
     /// Camera zoom (scroll); distance = base / zoom.
     pub zoom: f32,
     /// The bevy sphere instance (picker world's registry).

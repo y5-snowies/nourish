@@ -226,7 +226,17 @@ where
                 }
             }
             DrawNode::Background3D(e) => {
-                if !R::prefers_dmabuf() {
+                // A GLES pass samples the instance's own `GlesTexture` — but only
+                // an INLINE instance has one. Off-thread (ring-worker) slots carry
+                // no GLES view: building one needs `&mut GlesRenderer`, the one
+                // thing that cannot leave the compositor thread. `texture: None`
+                // makes `BevyRenderElement::draw` a no-op, so a GLES pass MUST
+                // import the dmabuf here or the scene silently draws nothing.
+                //
+                // Not hypothetical: winit composes its picker and lock passes
+                // through GLES even when the scene pass is on Vulkan, so with
+                // triple buffering on, the world picker opened to an empty screen.
+                if !R::prefers_dmabuf() && e.texture.is_some() {
                     return vec![SceneElement::Background3D(e)];
                 }
                 import_texture(renderer, &e.dmabuf, e.location, e.size, e.world_zoom, e.id, e.commit_counter).into_iter().collect()

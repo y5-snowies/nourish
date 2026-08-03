@@ -87,7 +87,7 @@ pub fn embed_button<I: InputBackend>(
 /// The cell under the picker pointer right now — `None` when the ray misses the
 /// sphere's silhouette (the pointer is outside the globe).
 fn picked(state: &mut Loop) -> Option<usize> {
-    let (pointer, orientation) = active(state).map(|a| (a.pointer, a.orientation))?;
+    let (pointer, orient, zoom) = active(state).map(|a| (a.pointer, a.orientation, a.zoom))?;
     let output = state.size_ctx_all().screen_size_physical;
-    compositor_y5_picker_pick_base::base::pick_cell(pointer, output, orientation)
+    compositor_y5_picker_pick_base::base::pick_cell(pointer, output, orient, zoom)
 }

@@ -1,5 +1,5 @@
 [package]
-name = "compositor_y5_picker_pick_base"
+name = "compositor_y5_picker_pick_navigate"
 version = "0.0.1"
 edition = "2024"
 

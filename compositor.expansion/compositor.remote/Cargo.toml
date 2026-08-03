@@ -755,6 +755,7 @@ compositor_y5_picker_interface_entry = { path = "../compositor.y5/y5.picker/pick
 compositor_y5_picker_name_pool = { path = "../compositor.y5/y5.picker/picker.name/name.pool" }
 compositor_y5_picker_persist_world = { path = "../compositor.y5/y5.picker/picker.persist/persist.world" }
 compositor_y5_picker_pick_base = { path = "../compositor.y5/y5.picker/picker.pick/pick.base" }
+compositor_y5_picker_pick_navigate = { path = "../compositor.y5/y5.picker/picker.pick/pick.navigate" }
 compositor_y5_picker_scene_create = { path = "../compositor.y5/y5.picker/picker.scene/scene.create" }
 compositor_y5_picker_scene_destroy = { path = "../compositor.y5/y5.picker/picker.scene/scene.destroy" }
 compositor_y5_picker_scene_fade = { path = "../compositor.y5/y5.picker/picker.scene/scene.fade" }

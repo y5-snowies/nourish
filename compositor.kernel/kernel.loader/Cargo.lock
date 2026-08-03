@@ -9908,6 +9908,7 @@ dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_support_system_persist_mark_base",
  "compositor_y5_picker_command_base",
+ "compositor_y5_picker_pick_navigate",
  "compositor_y5_picker_scene_destroy",
  "compositor_y5_picker_state_base",
  "compositor_y5_picker_system_base",
@@ -9955,6 +9956,18 @@ dependencies = [
  "compositor_model_debug_instance_record",
  "compositor_y5_picker_three_constant",
  "compositor_y5_picker_three_layout",
+ "compositor_y5_picker_three_orient",
+]
+
+[[package]]
+name = "compositor_y5_picker_pick_navigate"
+version = "0.0.1"
+dependencies = [
+ "bevy",
+ "compositor_model_debug_instance_record",
+ "compositor_y5_picker_three_constant",
+ "compositor_y5_picker_three_layout",
+ "compositor_y5_picker_three_orient",
 ]
 
 [[package]]
@@ -10102,10 +10115,10 @@ dependencies = [
  "compositor_support_smithay_dispatch_state_base",
  "compositor_y5_picker_command_base",
  "compositor_y5_picker_interface_base",
+ "compositor_y5_picker_pick_navigate",
  "compositor_y5_picker_seat_iced",
  "compositor_y5_picker_system_base",
  "compositor_y5_picker_three_constant",
- "compositor_y5_picker_three_orient",
  "compositor_y5_picker_world_base",
  "smithay",
 ]
@@ -10149,6 +10162,7 @@ dependencies = [
  "compositor_support_system_storage_token_base",
  "compositor_y5_graphic_capture_registry",
  "compositor_y5_picker_surface_view",
+ "compositor_y5_picker_three_orient",
  "compositor_y5_picker_three_scene",
  "uuid",
 ]

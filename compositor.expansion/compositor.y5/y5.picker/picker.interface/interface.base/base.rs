@@ -25,7 +25,7 @@ pub fn open(state: &mut Loop) {
     let picker = state.inner.worlds.get_mut(PICKER_WORLD).storage_mut().get_mut(&PICKER_MUT);
     let cell = picker.ensure_cell(origin);
     let selected = Some(cell);
-    let faced = compositor_y5_picker_three_orient::orient::face(cell);
+    let faced = compositor_y5_picker_three_orient::orient::face(cell, 0.0);
     picker.active = Some(PickerActive {
         origin,
         selected,
@@ -33,7 +33,7 @@ pub fn open(state: &mut Loop) {
         drag: None,
         orientation: faced,
         target: faced,
-        spin: compositor_y5_picker_three_orient::orient::IDENTITY,
+        spin: compositor_y5_picker_three_orient::orient::Orient::ZERO,
         zoom: 1.0,
         bevy: None,
         surface: None,

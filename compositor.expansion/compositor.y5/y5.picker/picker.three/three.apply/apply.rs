@@ -1,7 +1,7 @@
 //! Per-frame systems: static camera, sphere orientation, and selection visuals.
 
 use bevy::prelude::*;
-use compositor_y5_picker_three_constant::CAMERA_DISTANCE;
+use compositor_y5_picker_three_constant::camera_distance;
 use compositor_y5_picker_three_layout::cell_pose;
 use compositor_y5_picker_three_mesh::cell_border_points;
 use compositor_y5_picker_three_state::{
@@ -34,7 +34,7 @@ pub fn idle_camera(
     transform: Res<PickerTransform>,
     mut cam: Query<&mut Transform, With<PickerCamera>>,
 ) {
-    let distance = CAMERA_DISTANCE / transform.zoom.max(0.1);
+    let distance = camera_distance(transform.zoom);
     for mut tf in &mut cam {
         tf.translation = Vec3::new(0.0, 0.0, distance);
         tf.look_at(Vec3::ZERO, Vec3::Y);

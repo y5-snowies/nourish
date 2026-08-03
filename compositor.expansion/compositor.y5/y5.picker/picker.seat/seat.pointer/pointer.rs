@@ -9,7 +9,7 @@ use compositor_orchestration_core_state_base::Loop;
 use compositor_y5_picker_state_base::base::PickerActive;
 use compositor_y5_picker_system_base::base::{PICKER_MUT, PICKER_WORLD};
 use compositor_y5_picker_three_constant::{ROTATE_SENSITIVITY, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP};
-use compositor_y5_picker_three_orient::orient::IDENTITY;
+use compositor_y5_picker_three_orient::orient::Orient;
 
 const BTN_LEFT: u32 = 0x110;
 /// A press→release moving less than this (px) is a click, not a drag.
@@ -34,8 +34,8 @@ pub fn button<I: InputBackend>(event: &<I as InputBackend>::PointerButtonEvent, 
             && (pos.0 - start.0).hypot(pos.1 - start.1) < CLICK_PX
         {
             let (w, h) = output_size(state);
-            let q = active(state).map(|a| a.orientation).unwrap_or(IDENTITY);
-            if let Some(c) = compositor_y5_picker_pick_base::base::pick_cell(pos, (w, h), q) {
+            let (o, z) = active(state).map(|a| (a.orientation, a.zoom)).unwrap_or((Orient::ZERO, 1.0));
+            if let Some(c) = compositor_y5_picker_pick_base::base::pick_cell(pos, (w, h), o, z) {
                 if active(state).and_then(|a| a.selected) == Some(c) {
                     compositor_y5_picker_world_base::base::start(state);
                 } else {
@@ -47,7 +47,7 @@ pub fn button<I: InputBackend>(event: &<I as InputBackend>::PointerButtonEvent, 
     }
     if let Some(a) = active(state) {
         a.drag = Some(a.pointer);
-        a.spin = IDENTITY;
+        a.spin = Orient::ZERO;
     }
 }
 
