@@ -62,6 +62,9 @@ fn load_incoming_buffer(state: &mut Loop, x: &mut GlesRenderer, size: Size<i32, 
             SurfaceMessageType::TouchPane(touch_pane_message) => {
                 compositor_y5_touch_pane_handle::handle::delegate(state, touch_pane_message)
             }
+            SurfaceMessageType::Guide(guide_message) => {
+                compositor_y5_guide_interface_handle::handle::delegate(state, guide_message)
+            }
             SurfaceMessageType::Osk(osk_message) => {
                 compositor_y5_osk_board_handle::handle::delegate(state, osk_message)
             }

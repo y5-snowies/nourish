@@ -17,6 +17,7 @@ compositor_y5_canvas_system_base = { workspace = true }
 compositor_orchestration_driver_capture_base = { workspace = true }
 compositor_orchestration_driver_selection_base = { workspace = true }
 compositor_y5_osk_board_state = { workspace = true }
+compositor_y5_guide_state_base = { workspace = true }
 compositor_orchestration_driver_resume_base = { workspace = true }
 compositor_orchestration_driver_lid_base = { workspace = true }
 compositor_orchestration_driver_logind_base = { workspace = true }

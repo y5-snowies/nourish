@@ -5,6 +5,7 @@ edition = "2024"
 
 
 [dependencies]
+compositor_y5_guide_interface_base = { workspace = true }
 compositor_y5_lock_system_base = { workspace = true }
 compositor_y5_surface_system_base = { workspace = true }
 compositor_support_system_input_event_base = { workspace = true }

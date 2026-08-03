@@ -124,30 +124,31 @@ thread_local! {
     static SURF: RefCell<HashMap<(u128, String), Live>> = RefCell::new(HashMap::new());
 }
 
-/// OSK world-mode base size (logical); counter-scaled so it holds constant on-screen.
+/// OSK world-mode size, in SCREEN pixels. The surface is zoom-LOCKED, so this is
+/// both the texture size and the on-screen size at every zoom — rasterized once,
+/// never upscaled. (It used to be a `base/zoom` world footprint with a `1/zoom`
+/// iced factor, which held the on-screen size by shrinking the buffer: at 4× zoom
+/// a quarter-resolution keyboard stretched 4× across the screen.)
 const OSK_WORLD_W: f64 = 1000.0;
 const OSK_WORLD_H: f64 = 380.0;
-/// Zoom floor (mirrors the selection overlay's `MIN_ZOOM`) so the world dmabuf can't
-/// explode when zoomed far out.
+/// Zoom floor for the world-extent arithmetic, so a camera parked at a near-zero
+/// zoom can't send the keyboard off to infinity.
 const OSK_MIN_ZOOM: f64 = 0.15;
 
-/// World-mode surface size (base / zoom) so it keeps a constant on-screen size.
-fn world_size(zoom: f64, mult: f64) -> Size<i32, Physical> {
-    let z = zoom.max(OSK_MIN_ZOOM);
+/// World-mode surface size — fixed, independent of zoom (see `OSK_WORLD_W`).
+fn world_size(mult: f64) -> Size<i32, Physical> {
     Size::new(
-        (OSK_WORLD_W * mult / z).round().max(1.0) as i32,
-        (OSK_WORLD_H * mult / z).round().max(1.0) as i32,
+        (OSK_WORLD_W * mult).round().max(1.0) as i32,
+        (OSK_WORLD_H * mult).round().max(1.0) as i32,
     )
 }
 
-/// World-mode iced counter-scale (1 / zoom) so content lays out at native size.
-fn world_scale(zoom: f64) -> f32 {
-    (1.0 / zoom.max(OSK_MIN_ZOOM)) as f32
-}
-
 /// World-mode location (logical × scale, top-left), centred horizontally on the camera
-/// and low in the viewport — like a floating keyboard. Scales/pans with the world.
-fn world_loc(state: &Loop, wsize: Size<i32, Physical>) -> Point<i32, Physical> {
+/// and low in the viewport — like a floating keyboard. Pans with the world.
+///
+/// A fixed SCREEN width spans a zoom-dependent WORLD extent, so the half-width
+/// divides by zoom even though the size above does not.
+fn world_loc(state: &Loop, mult: f64) -> Point<i32, Physical> {
     let cam = state.inner.camera().transform.position;
     let zoom = state.inner.camera().transform.zoom.max(OSK_MIN_ZOOM);
     let scale = state.size_ctx_all().scale;
@@ -155,7 +156,7 @@ fn world_loc(state: &Loop, wsize: Size<i32, Physical>) -> Point<i32, Physical> {
     let vp_half_h = (screen_h * 0.5) / (scale * zoom);
     let top_world_y = cam.y + vp_half_h * 0.30;
     Point::new(
-        (cam.x * scale - wsize.w as f64 / 2.0).round() as i32,
+        (cam.x * scale - OSK_WORLD_W * mult / zoom / 2.0).round() as i32,
         (top_world_y * scale).round() as i32,
     )
 }
@@ -350,27 +351,24 @@ pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, 
                     }
                 });
             }
-            // World-mode: hold a constant on-screen size as the camera zoom changes.
+            // World-mode: the size is pinned, but the world anchor still moves.
             if want_world {
-                resize_world(state, l.id, osk_size);
+                reanchor_world(state, l.id, osk_size);
             }
         }
     }
 }
 
-/// Per-frame world-mode zoom tracking: recompute the counter-scaled size + re-centre
-/// so the world OSK keeps a constant on-screen size across zoom (mirrors the selection
-/// overlay's `resize_on_zoom`). Gated on a zoom change via `OSK.prev_zoom`.
-fn resize_world(state: &mut Loop, id: HandleId, osk_size: f64) {
+/// Per-frame world-mode zoom tracking. The surface is zoom-locked, so nothing is
+/// resized — only the world anchor is re-derived, because a fixed screen width
+/// covers fewer world units as the camera zooms in. Gated on `OSK.prev_zoom`.
+fn reanchor_world(state: &mut Loop, id: HandleId, osk_size: f64) {
     let zoom = state.inner.camera().transform.zoom;
     if state.inner.kernel.get(&OSK).prev_zoom == zoom {
         return;
     }
-    let new_size = world_size(zoom, osk_size);
-    let scale = world_scale(zoom);
-    let loc = world_loc(state, new_size);
+    let loc = world_loc(state, osk_size);
     if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-        reg.request_resize_scaled_by_id(id, new_size, scale);
         reg.set_location_by_id(id, loc);
     }
     state.inner.kernel.get_mut(&OSK_MUT).prev_zoom = zoom;
@@ -413,12 +411,11 @@ fn create(
     ui.logo = mods.3;
 
     // Screen mode: a bottom bar sized from the output. World mode: a floating
-    // keyboard centred on the camera, low in the viewport, counter-scaled so its
-    // on-screen size stays constant across zoom (mirrors the selection overlay).
+    // keyboard centred on the camera, low in the viewport, at a FIXED texture
+    // size that is zoom-locked to the same on-screen size (see `world_size`).
     let zoom = state.inner.camera().transform.zoom;
     let (rect, space) = if world {
-        let wsize = world_size(zoom, osk_size);
-        (Rectangle::new(world_loc(state, wsize), wsize), IcedSpace::World)
+        (Rectangle::new(world_loc(state, osk_size), world_size(osk_size)), IcedSpace::World)
     } else {
         (rect(size, osk_size), IcedSpace::Screen)
     };
@@ -432,15 +429,16 @@ fn create(
         compositor_orchestration_draw_layer_base::base::Layer::SCENE.bits(),
     );
 
-    // World-space: lift above every window (load registers it at CONTENT) and set
-    // the counter-scale iced factor so content lays out at native size.
+    // World-space: lift above every window (load registers it at CONTENT) and pin
+    // the on-screen size to the texture size, so the keyboard is rasterized once
+    // and never upscaled however far the canvas is zoomed.
     if world {
         state.inner.register_drawable(
             uuid::Uuid::from_u128(handle.id.0 as u128),
             DrawLayer::OVERLAY,
         );
         if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-            reg.request_resize_scaled_by_id(handle.id, world_size(zoom, osk_size), world_scale(zoom));
+            reg.set_zoom_lock_by_id(handle.id, Some(1.0));
         }
         state.inner.kernel.get_mut(&OSK_MUT).prev_zoom = zoom;
     }

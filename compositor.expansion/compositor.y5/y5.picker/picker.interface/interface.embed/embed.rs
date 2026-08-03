@@ -22,7 +22,7 @@ pub fn embed_open(state: &mut Loop) {
     let origin = state.inner.worlds.spawn_target();
     let picker = state.inner.worlds.get_mut(PICKER_WORLD).storage_mut().get_mut(&PICKER_MUT);
     let cell = picker.ensure_cell(origin);
-    let faced = compositor_y5_picker_three_orient::orient::face(cell);
+    let faced = compositor_y5_picker_three_orient::orient::face(cell, 0.0);
     picker.active = Some(PickerActive {
         origin,
         selected: Some(cell),
@@ -30,7 +30,7 @@ pub fn embed_open(state: &mut Loop) {
         drag: None,
         orientation: faced,
         target: faced,
-        spin: compositor_y5_picker_three_orient::orient::IDENTITY,
+        spin: compositor_y5_picker_three_orient::orient::Orient::ZERO,
         zoom: 1.0,
         bevy: None,
         surface: None,
@@ -52,8 +52,10 @@ pub fn embed_close(state: &mut Loop) {
     state.inner.worlds.get_mut(PICKER_WORLD).storage_mut().get_mut(&PICKER_MUT).active = None;
 }
 
-/// Move the focused cell to a grid neighbour (arrow-key navigation), reusing the
-/// picker's own neighbour + selection commands. No-op without an embed session.
+/// Move the focused cell one step in a SCREEN direction (arrow-key navigation),
+/// reusing the picker's own neighbour + selection commands. Stepped against
+/// `target` for the same reason as `seat.keyboard::navigate`. No-op without an
+/// embed session.
 pub fn select_direction(state: &mut Loop, du: i32, dv: i32) {
     let current = state
         .inner
@@ -63,9 +65,9 @@ pub fn select_direction(state: &mut Loop, du: i32, dv: i32) {
         .get_mut(&PICKER_MUT)
         .active
         .as_ref()
-        .and_then(|a| a.selected);
-    let Some(current) = current else { return };
-    let next = compositor_y5_picker_three_orient::orient::neighbor(current, du, dv);
+        .and_then(|a| a.selected.map(|c| (c, a.target)));
+    let Some((current, target)) = current else { return };
+    let next = compositor_y5_picker_pick_navigate::navigate::neighbor(current, du, dv, target);
     compositor_y5_picker_command_base::base::set_selected(state, Some(next));
 }
 

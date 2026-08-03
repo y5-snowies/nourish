@@ -1,6 +1,6 @@
 use compositor_support_system_storage_token_base::base::{Token, TokenMut};
 use compositor_monitor_compositor_iced_base::HandleId;
-use smithay::utils::{Physical, Point, Size};
+use smithay::utils::{Physical, Point};
 
 /// Selection-overlay driver data: the live iced toolbar instance (created when
 /// the selection becomes non-empty, destroyed when it empties) plus the
@@ -75,25 +75,23 @@ pub const TIP_GAP: i32 = 8;
 pub const SCREEN_BOTTOM_MARGIN: i32 = 100;
 /// On-screen gap below the cursor, in physical px (WorldAtCursor).
 pub const CURSOR_DY: f64 = 12.0;
-/// Lower bound on the zoom used for counter-scaling, so the world dmabuf
-/// (`BAR / zoom`) can't explode past GPU limits when zoomed far out. Below this
-/// the toolbar stops growing (and so begins to shrink on screen).
+/// Lower bound on the zoom the world half-extents are divided by, so a camera
+/// parked at a near-zero zoom can't send the toolbar off to infinity.
 pub const MIN_ZOOM: f64 = 0.15;
 
-/// World footprint that renders to ~`BAR_W`×`BAR_H` ON SCREEN at the given zoom
-/// (a World item's screen size = world size × zoom, so world size = base/zoom).
-pub fn world_size(zoom: f64) -> Size<i32, Physical> {
+/// The toolbar's half-width/half-height in WORLD units at a given zoom.
+///
+/// The surface is zoom-LOCKED (`set_zoom_locked_by_id`): `BAR_W`×`BAR_H` is a
+/// count of SCREEN pixels at every zoom, and the texture is rasterized at
+/// exactly that size once. So only the world-space EXTENT still varies with
+/// zoom, and only for placing the thing — nothing is ever re-rasterized.
+///
+/// It used to be the other way round: a world footprint of `BAR/zoom` with an
+/// iced factor of `1/zoom`, which held the on-screen size constant by shrinking
+/// the buffer — at 4× zoom a quarter-resolution toolbar upscaled 4× on screen.
+pub fn world_half(zoom: f64) -> (f64, f64) {
     let z = zoom.max(MIN_ZOOM);
-    Size::from((
-        ((BAR_W as f64) / z).round().max(1.0) as i32,
-        ((BAR_H as f64) / z).round().max(1.0) as i32,
-    ))
-}
-
-/// iced scale factor for the counter-scaled surface so the content lays out at
-/// the native `BAR` logical size and fills the (larger, when zoomed out) dmabuf.
-pub fn world_scale_factor(zoom: f64) -> f32 {
-    (1.0 / zoom.max(MIN_ZOOM)) as f32
+    ((BAR_W as f64) / z / 2.0, (BAR_H as f64) / z / 2.0)
 }
 
 /// World-physical top-left so the (on-screen constant `BAR_W`-wide) toolbar is
@@ -101,10 +99,10 @@ pub fn world_scale_factor(zoom: f64) -> f32 {
 /// world-logical cursor (seat `current_location`); `scale` the output scale;
 /// world iced stores location in `logical × scale` units (like placeholders).
 pub fn world_loc_under_cursor(cursor: (f64, f64), scale: f64, zoom: f64) -> Point<i32, Physical> {
-    let size = world_size(zoom);
+    let (half_w, _) = world_half(zoom);
     let z = zoom.max(MIN_ZOOM);
     Point::from((
-        (cursor.0 * scale - (size.w as f64) / 2.0).round() as i32,
+        (cursor.0 * scale - half_w).round() as i32,
         (cursor.1 * scale + CURSOR_DY / z).round() as i32,
     ))
 }

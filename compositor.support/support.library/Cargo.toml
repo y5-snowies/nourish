@@ -718,6 +718,17 @@ compositor_y5_group_surface_base = { path = "../../compositor.expansion/composit
 compositor_y5_group_system_base = { path = "../../compositor.expansion/compositor.y5/y5.group/group.system/system.base" }
 compositor_y5_group_system_invalidate = { path = "../../compositor.expansion/compositor.y5/y5.group/group.system/system.invalidate" }
 compositor_y5_group_system_resolve = { path = "../../compositor.expansion/compositor.y5/y5.group/group.system/system.resolve" }
+compositor_y5_guide_help_create = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.help/help.create" }
+compositor_y5_guide_help_row = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.help/help.row" }
+compositor_y5_guide_help_view = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.help/help.view" }
+compositor_y5_guide_interface_base = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.interface/interface.base" }
+compositor_y5_guide_interface_handle = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.interface/interface.handle" }
+compositor_y5_guide_interface_surface = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.interface/interface.surface" }
+compositor_y5_guide_menu_create = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.menu/menu.create" }
+compositor_y5_guide_menu_hover = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.menu/menu.hover" }
+compositor_y5_guide_menu_tip = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.menu/menu.tip" }
+compositor_y5_guide_menu_view = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.menu/menu.view" }
+compositor_y5_guide_state_base = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.state/state.base" }
 compositor_y5_launcher_draw_state = { path = "../../compositor.expansion/compositor.y5/y5.launcher/launcher.draw/draw.state" }
 compositor_y5_launcher_input_base = { path = "../../compositor.expansion/compositor.y5/y5.launcher/launcher.input/input.base" }
 compositor_y5_launcher_interface_base = { path = "../../compositor.expansion/compositor.y5/y5.launcher/launcher.interface/interface.base" }
@@ -774,6 +785,7 @@ compositor_y5_picker_interface_entry = { path = "../../compositor.expansion/comp
 compositor_y5_picker_name_pool = { path = "../../compositor.expansion/compositor.y5/y5.picker/picker.name/name.pool" }
 compositor_y5_picker_persist_world = { path = "../../compositor.expansion/compositor.y5/y5.picker/picker.persist/persist.world" }
 compositor_y5_picker_pick_base = { path = "../../compositor.expansion/compositor.y5/y5.picker/picker.pick/pick.base" }
+compositor_y5_picker_pick_navigate = { path = "../../compositor.expansion/compositor.y5/y5.picker/picker.pick/pick.navigate" }
 compositor_y5_picker_scene_create = { path = "../../compositor.expansion/compositor.y5/y5.picker/picker.scene/scene.create" }
 compositor_y5_picker_scene_destroy = { path = "../../compositor.expansion/compositor.y5/y5.picker/picker.scene/scene.destroy" }
 compositor_y5_picker_scene_fade = { path = "../../compositor.expansion/compositor.y5/y5.picker/picker.scene/scene.fade" }

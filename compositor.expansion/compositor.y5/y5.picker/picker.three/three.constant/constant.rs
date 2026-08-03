@@ -30,9 +30,20 @@ pub const SWAY_AMPLITUDE: f32 = 0.10;
 /// normalized pointer drag.
 pub const ROTATE_SENSITIVITY: f32 = 3.0;
 
-/// Pitch is clamped to ±PITCH_MAX (radians) so the sphere stays front-facing and
-/// "W"-aligned — no over-the-top tumbling. Yaw is free (spins around).
-pub const PITCH_MAX: f32 = 0.6;
+/// Arrow-key navigation turns the view in `NAV_STEP` radian increments, up to
+/// `NAV_REACH`, and takes the first cell that reaches the screen centre. One
+/// fixed step cannot do it — cube-sphere cells subtend different angles by where
+/// on their face they sit, so a single size both skips and stalls. `NAV_REACH`
+/// is generous because the sweep stops the moment the centred cell changes: a
+/// few iterations on an ordinary press, and it only matters near a pole, where
+/// a yaw turn is foreshortened by `cos(pitch)`.
+pub const NAV_STEP: f32 = 0.02;
+pub const NAV_REACH: f32 = std::f32::consts::PI;
+
+/// Pitch is clamped to ±PITCH_MAX (radians) so the globe never tumbles over a
+/// pole and screen-up stays sphere-up; yaw is free. A quarter turn, exactly
+/// enough to bring the polar faces to the camera — less would strand cells.
+pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2;
 
 /// The refresh rate the two rates below are quoted against. They are applied
 /// per SECOND via this exponent (`orient::approach`/`momentum`), so the globe
@@ -55,6 +66,14 @@ pub const ZOOM_STEP: f32 = 0.12;
 pub const ZOOM_MIN: f32 = 0.6;
 pub const ZOOM_MAX: f32 = 2.0;
 
+/// The camera's distance from the origin at a given zoom. The ONE definition:
+/// the render camera (`three.apply/idle_camera`) and the compositor-side ray
+/// cast (`pick.base`) must agree, or clicks land on the cell the sphere shows at
+/// some OTHER zoom (they did — picking assumed the un-zoomed distance).
+pub fn camera_distance(zoom: f32) -> f32 {
+    CAMERA_DISTANCE / zoom.max(0.1)
+}
+
 /// Cell square edge as a fraction of the per-face cell pitch (rest is gap).
 pub const CELL_FILL: f32 = 0.86;
 
@@ -72,13 +91,3 @@ pub const OCCUPIED_COLOR: [f32; 4] = [0.30, 0.38, 0.50, 0.70];
 /// cell edge.
 pub const PLUS_LEN: f32 = 0.5;
 pub const PLUS_THICK: f32 = 0.10;
-
-/// Approximate screen-space radius (pixels) of the sphere silhouette for an
-/// output of the given height. A sphere's silhouette is rotation-invariant, so
-/// this is constant regardless of drag rotation — used compositor-side to detect
-/// "the pointer is outside the sphere" for drag-to-rotate.
-pub fn sphere_screen_radius(output_height: f32) -> f32 {
-    let alpha = (SPHERE_RADIUS / CAMERA_DISTANCE).asin();
-    let frac = alpha.tan() / (CAMERA_FOV_RAD * 0.5).tan();
-    frac * (output_height * 0.5)
-}

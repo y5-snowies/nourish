@@ -5491,6 +5491,7 @@ dependencies = [
  "compositor_y5_graphic_capture_registry",
  "compositor_y5_graphic_capture_session",
  "compositor_y5_group_state_base",
+ "compositor_y5_guide_state_base",
  "compositor_y5_launcher_draw_state",
  "compositor_y5_launcher_system_base",
  "compositor_y5_lock_state_base",
@@ -5622,6 +5623,9 @@ dependencies = [
  "compositor_y5_camera_transform_translate",
  "compositor_y5_canvas_draw_scene",
  "compositor_y5_graphic_capture_interface",
+ "compositor_y5_guide_help_create",
+ "compositor_y5_guide_menu_create",
+ "compositor_y5_guide_menu_hover",
  "compositor_y5_lock_interface_base",
  "compositor_y5_lock_system_base",
  "compositor_y5_navigator_state_base",
@@ -5891,6 +5895,7 @@ dependencies = [
  "compositor_support_iced_core_engine_base",
  "compositor_support_system_input_event_base",
  "compositor_y5_canvas_input_keyboard",
+ "compositor_y5_guide_interface_base",
  "compositor_y5_launcher_input_base",
  "compositor_y5_lock_system_base",
  "compositor_y5_overlay_interface_keyboard",
@@ -5963,6 +5968,7 @@ dependencies = [
  "compositor_y5_canvas_input_keyboard",
  "compositor_y5_canvas_input_state",
  "compositor_y5_canvas_system_base",
+ "compositor_y5_guide_interface_base",
  "compositor_y5_launcher_interface_base",
  "compositor_y5_lock_system_base",
  "compositor_y5_overview_input_pointer",
@@ -9095,6 +9101,132 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_y5_guide_help_create"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_compositor_iced_base",
+ "compositor_orchestration_core_state_base",
+ "compositor_orchestration_draw_layer_base",
+ "compositor_y5_guide_help_row",
+ "compositor_y5_guide_help_view",
+ "compositor_y5_guide_interface_surface",
+ "compositor_y5_guide_state_base",
+ "compositor_y5_surface_draw_handle",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_y5_guide_help_row"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_keybinding_base",
+ "compositor_y5_canvas_input_keyboard",
+ "compositor_y5_guide_help_view",
+]
+
+[[package]]
+name = "compositor_y5_guide_help_view"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_selection_font_base",
+ "compositor_support_iced_core_engine_base",
+ "compositor_y5_guide_menu_view",
+ "iced_core",
+ "iced_widget",
+]
+
+[[package]]
+name = "compositor_y5_guide_interface_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_orchestration_core_state_base",
+ "compositor_y5_guide_state_base",
+ "compositor_y5_surface_interface_base",
+ "compositor_y5_window_interface_draw",
+]
+
+[[package]]
+name = "compositor_y5_guide_interface_handle"
+version = "0.0.1"
+dependencies = [
+ "compositor_orchestration_core_state_base",
+ "compositor_y5_guide_interface_base",
+ "compositor_y5_guide_menu_view",
+ "compositor_y5_overview_interface_base",
+ "compositor_y5_overview_state_base",
+]
+
+[[package]]
+name = "compositor_y5_guide_interface_surface"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_compositor_iced_base",
+ "compositor_monitor_selection_font_base",
+ "compositor_orchestration_core_state_base",
+ "compositor_y5_guide_menu_view",
+ "compositor_y5_guide_state_base",
+ "compositor_y5_surface_protocol_base",
+]
+
+[[package]]
+name = "compositor_y5_guide_menu_create"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_compositor_iced_base",
+ "compositor_orchestration_core_state_base",
+ "compositor_orchestration_draw_layer_base",
+ "compositor_support_world_order_track_base",
+ "compositor_y5_guide_help_row",
+ "compositor_y5_guide_interface_surface",
+ "compositor_y5_guide_menu_tip",
+ "compositor_y5_guide_menu_view",
+ "compositor_y5_guide_state_base",
+ "compositor_y5_surface_draw_handle",
+ "smithay",
+ "uuid",
+]
+
+[[package]]
+name = "compositor_y5_guide_menu_hover"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_compositor_iced_base",
+ "compositor_orchestration_core_state_base",
+ "compositor_y5_guide_menu_tip",
+ "compositor_y5_guide_menu_view",
+ "compositor_y5_guide_state_base",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_y5_guide_menu_tip"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
+]
+
+[[package]]
+name = "compositor_y5_guide_menu_view"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_selection_font_base",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
+]
+
+[[package]]
+name = "compositor_y5_guide_state_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_compositor_iced_base",
+ "compositor_support_system_storage_token_base",
+ "smithay",
+]
+
+[[package]]
 name = "compositor_y5_launcher_draw_state"
 version = "0.0.1"
 dependencies = [
@@ -9908,6 +10040,7 @@ dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_support_system_persist_mark_base",
  "compositor_y5_picker_command_base",
+ "compositor_y5_picker_pick_navigate",
  "compositor_y5_picker_scene_destroy",
  "compositor_y5_picker_state_base",
  "compositor_y5_picker_system_base",
@@ -9955,6 +10088,18 @@ dependencies = [
  "compositor_model_debug_instance_record",
  "compositor_y5_picker_three_constant",
  "compositor_y5_picker_three_layout",
+ "compositor_y5_picker_three_orient",
+]
+
+[[package]]
+name = "compositor_y5_picker_pick_navigate"
+version = "0.0.1"
+dependencies = [
+ "bevy",
+ "compositor_model_debug_instance_record",
+ "compositor_y5_picker_three_constant",
+ "compositor_y5_picker_three_layout",
+ "compositor_y5_picker_three_orient",
 ]
 
 [[package]]
@@ -10102,10 +10247,10 @@ dependencies = [
  "compositor_support_smithay_dispatch_state_base",
  "compositor_y5_picker_command_base",
  "compositor_y5_picker_interface_base",
+ "compositor_y5_picker_pick_navigate",
  "compositor_y5_picker_seat_iced",
  "compositor_y5_picker_system_base",
  "compositor_y5_picker_three_constant",
- "compositor_y5_picker_three_orient",
  "compositor_y5_picker_world_base",
  "smithay",
 ]
@@ -10149,6 +10294,7 @@ dependencies = [
  "compositor_support_system_storage_token_base",
  "compositor_y5_graphic_capture_registry",
  "compositor_y5_picker_surface_view",
+ "compositor_y5_picker_three_orient",
  "compositor_y5_picker_three_scene",
  "uuid",
 ]
@@ -10646,6 +10792,7 @@ dependencies = [
  "compositor_support_iced_core_engine_base",
  "compositor_y5_graphic_capture_interface",
  "compositor_y5_group_interface_base",
+ "compositor_y5_guide_interface_handle",
  "compositor_y5_launcher_protocol_interface",
  "compositor_y5_lock_protocol_base",
  "compositor_y5_lock_system_base",
@@ -10745,6 +10892,7 @@ dependencies = [
  "compositor_y5_graphic_capture_session",
  "compositor_y5_group_protocol_base",
  "compositor_y5_group_surface_base",
+ "compositor_y5_guide_menu_view",
  "compositor_y5_launcher_protocol_message",
  "compositor_y5_lock_interface_surface",
  "compositor_y5_osk_board_view",

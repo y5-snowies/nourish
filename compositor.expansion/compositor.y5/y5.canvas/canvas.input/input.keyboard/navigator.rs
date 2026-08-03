@@ -371,20 +371,25 @@ pub fn registry(overrides: &KeyBindings) -> Vec<KeyRow> {
 
 /// Built-in, NON-rebindable shortcuts surfaced read-only in the Keys tab: the
 /// Super-held canvas grab tools (modifier-only combos in `input::input_received`).
+///
+/// These carry a stable `id` even though they are `editable: false` — the Keys
+/// tab ignores the id of a read-only row, but the guide's help panel keys its
+/// curated list off it, and matching on the display label instead would break
+/// the moment one is reworded.
 pub fn fixed() -> Vec<KeyRow> {
-    let mk = |label: &str, logo: bool, ctrl: bool, alt: bool, shift: bool| {
+    let mk = |id: &str, label: &str, logo: bool, ctrl: bool, alt: bool, shift: bool| {
         let c = KeyCombo {
             modifiers: ModifiersState { logo, ctrl, alt, shift, ..ModifiersState::default() },
             key: None,
         };
         let s = format::combo_string(&c);
-        KeyRow { id: String::new(), label: label.to_string(), default: s.clone(), combo: s, editable: false }
+        KeyRow { id: id.to_string(), label: label.to_string(), default: s.clone(), combo: s, editable: false }
     };
     vec![
-        mk("Move / pan window (hold + drag)", true, false, false, false),
-        mk("Scale window (hold + drag)", true, false, false, true),
-        mk("Select box (hold + drag)", true, false, true, false),
-        mk("Select box, add (hold + drag)", true, false, true, true),
-        mk("Hand tool", true, true, true, false),
+        mk("grab_move", "Move / pan window (hold + drag)", true, false, false, false),
+        mk("grab_scale", "Scale window (hold + drag)", true, false, false, true),
+        mk("grab_select", "Select box (hold + drag)", true, false, true, false),
+        mk("grab_select_add", "Select box, add (hold + drag)", true, false, true, true),
+        mk("grab_hand", "Hand tool", true, true, true, false),
     ]
 }

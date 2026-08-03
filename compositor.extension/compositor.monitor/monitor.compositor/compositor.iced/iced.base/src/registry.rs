@@ -564,10 +564,27 @@ impl IcedRegistry {
         }
     }
 
-    /// Resize with an explicit per-instance iced scale factor. Used by a
-    /// world-space surface that counter-scales with zoom: `new_size = base/zoom`
-    /// keeps the on-screen size constant, and `scale_factor = 1/zoom` keeps the
-    /// content laid out at the native `base` logical size (so it fills).
+    /// Pin a WORLD item's on-screen size to `buffer / ss`, so it neither grows
+    /// with the camera zoom nor has to be re-rasterized smaller to stay put. See
+    /// `IcedItem::zoom_lock` — `Some(1.0)` is a plain 1:1 pin, `Some(2.0)` asks
+    /// for a double-resolution buffer that is downscaled on the way to screen.
+    pub fn set_zoom_lock_by_id(&mut self, id: HandleId, lock: Option<f32>) -> bool {
+        match self.get_mut(id) {
+            Some(item) => {
+                item.set_zoom_lock(lock);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Resize with an explicit per-instance iced scale factor.
+    ///
+    /// This was how world-space chrome held a constant on-screen size —
+    /// `new_size = base/zoom` with `scale_factor = 1/zoom`. Do NOT reach for that
+    /// pattern for new overlays: it holds the size by shrinking the TEXTURE, so
+    /// zooming in rasterizes a smaller buffer and the compositor upscales it.
+    /// `set_zoom_locked_by_id` above does the same job at a fixed resolution.
     pub fn request_resize_scaled_by_id(
         &mut self,
         id: HandleId,

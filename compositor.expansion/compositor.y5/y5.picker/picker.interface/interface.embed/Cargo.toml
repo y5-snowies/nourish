@@ -9,6 +9,7 @@ compositor_orchestration_core_state_base = { workspace = true }
 compositor_y5_picker_state_base = { workspace = true }
 compositor_y5_picker_system_base = { workspace = true }
 compositor_y5_picker_scene_destroy = { workspace = true }
+compositor_y5_picker_pick_navigate = { workspace = true }
 compositor_y5_picker_three_orient = { workspace = true }
 compositor_y5_picker_command_base = { workspace = true }
 compositor_y5_picker_world_base = { workspace = true }

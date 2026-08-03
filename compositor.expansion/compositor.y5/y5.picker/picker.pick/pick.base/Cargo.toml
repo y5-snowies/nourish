@@ -7,6 +7,7 @@ edition = "2024"
 compositor_model_debug_instance_record = { workspace = true }
 compositor_y5_picker_three_constant = { workspace = true }
 compositor_y5_picker_three_layout = { workspace = true }
+compositor_y5_picker_three_orient = { workspace = true }
 bevy = { workspace = true }
 
 [lib]

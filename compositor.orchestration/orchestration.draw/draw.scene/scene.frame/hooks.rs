@@ -18,6 +18,11 @@ pub fn hooks(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Phys
     compositor_y5_touch_pane_create::create::per_frame(state, renderer, size);
     // Reconcile the on-screen keyboard against `OSK.open`.
     compositor_y5_osk_board_create::create::per_frame(state, renderer, size);
+    // Reconcile the empty-canvas guide popups (context menu + help panel) against
+    // `GuideState` — the input rim only writes the desire, this builds it.
+    compositor_y5_guide_menu_create::create::per_frame(state, renderer);
+    compositor_y5_guide_menu_hover::hover::per_frame(state, size);
+    compositor_y5_guide_help_create::create::per_frame(state, renderer, size);
     // Per-frame screen context for systems (KernelData). Background systems read
     // physical output size from here (SCREEN) — the former background.shared
     // OUTPUT_SIZE world token is gone.

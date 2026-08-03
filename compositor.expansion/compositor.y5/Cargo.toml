@@ -821,6 +821,17 @@ compositor_y5_group_surface_base = { path = "y5.group/group.surface/surface.base
 compositor_y5_group_system_base = { path = "y5.group/group.system/system.base" }
 compositor_y5_group_system_invalidate = { path = "y5.group/group.system/system.invalidate" }
 compositor_y5_group_system_resolve = { path = "y5.group/group.system/system.resolve" }
+compositor_y5_guide_help_create = { path = "y5.guide/guide.help/help.create" }
+compositor_y5_guide_help_row = { path = "y5.guide/guide.help/help.row" }
+compositor_y5_guide_help_view = { path = "y5.guide/guide.help/help.view" }
+compositor_y5_guide_interface_base = { path = "y5.guide/guide.interface/interface.base" }
+compositor_y5_guide_interface_handle = { path = "y5.guide/guide.interface/interface.handle" }
+compositor_y5_guide_interface_surface = { path = "y5.guide/guide.interface/interface.surface" }
+compositor_y5_guide_menu_create = { path = "y5.guide/guide.menu/menu.create" }
+compositor_y5_guide_menu_hover = { path = "y5.guide/guide.menu/menu.hover" }
+compositor_y5_guide_menu_tip = { path = "y5.guide/guide.menu/menu.tip" }
+compositor_y5_guide_menu_view = { path = "y5.guide/guide.menu/menu.view" }
+compositor_y5_guide_state_base = { path = "y5.guide/guide.state/state.base" }
 compositor_y5_launcher_draw_state = { path = "y5.launcher/launcher.draw/draw.state" }
 compositor_y5_launcher_input_base = { path = "y5.launcher/launcher.input/input.base" }
 compositor_y5_launcher_interface_base = { path = "y5.launcher/launcher.interface/interface.base" }
@@ -877,6 +888,7 @@ compositor_y5_picker_interface_entry = { path = "y5.picker/picker.interface/inte
 compositor_y5_picker_name_pool = { path = "y5.picker/picker.name/name.pool" }
 compositor_y5_picker_persist_world = { path = "y5.picker/picker.persist/persist.world" }
 compositor_y5_picker_pick_base = { path = "y5.picker/picker.pick/pick.base" }
+compositor_y5_picker_pick_navigate = { path = "y5.picker/picker.pick/pick.navigate" }
 compositor_y5_picker_scene_create = { path = "y5.picker/picker.scene/scene.create" }
 compositor_y5_picker_scene_destroy = { path = "y5.picker/picker.scene/scene.destroy" }
 compositor_y5_picker_scene_fade = { path = "y5.picker/picker.scene/scene.fade" }

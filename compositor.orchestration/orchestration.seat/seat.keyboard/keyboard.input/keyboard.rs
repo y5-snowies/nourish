@@ -156,6 +156,18 @@ pub fn input_received<I: InputBackend>(event: &I::KeyboardKeyEvent, _loop: &mut 
         return;
     }
 
+    // Any keystroke dismisses an open guide popup — it is an overlay on the
+    // canvas, not a mode, so the moment the user does something else it should be
+    // gone. NOT swallowed: the key still does whatever it does.
+    //
+    // Bare modifiers are exempt on purpose. Every shortcut the help panel teaches
+    // is a modifier hold (Super-drag, Super+Ctrl+Alt); dismissing on the Super
+    // press would tear the panel away the instant someone tried what it just told
+    // them to, before the combo was even complete.
+    if key_state == KeyState::Pressed && !is_modifier_keysym(shortcut_sym.raw()) {
+        compositor_y5_guide_interface_base::base::on_key(_loop);
+    }
+
     if should_forward::<I>(_loop, keysym, shortcut_sym, key_state, &modifiers) {
         keyboard.input_forward(&mut _loop.state, key_code, key_state, serial, time, mods_changed);
     }

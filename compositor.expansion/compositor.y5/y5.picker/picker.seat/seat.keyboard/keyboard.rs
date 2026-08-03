@@ -54,10 +54,14 @@ pub fn input_received<I: InputBackend>(event: &I::KeyboardKeyEvent, state: &mut 
     }
 }
 
-/// Move the focused cell to its real grid neighbour (`du`: +right/-left,
-/// `dv`: +up/-down on the cell's own face), then animate to face it.
+/// Move the focused cell one step in a SCREEN direction (`du`: +right/-left,
+/// `dv`: +up/-down as drawn), then animate to face it.
+///
+/// Stepped against `target`, not the live orientation: a chain of arrow presses
+/// would otherwise each measure a sphere still gliding toward the last one, and
+/// the same key would land differently depending on how fast it was pressed.
 fn navigate(state: &mut Loop, du: i32, dv: i32) {
-    let current = state
+    let (current, target) = state
         .inner
         .worlds
         .get_mut(PICKER_WORLD)
@@ -65,8 +69,8 @@ fn navigate(state: &mut Loop, du: i32, dv: i32) {
         .get_mut(&PICKER_MUT)
         .active
         .as_ref()
-        .and_then(|a| a.selected)
-        .unwrap_or(0);
-    let next = compositor_y5_picker_three_orient::orient::neighbor(current, du, dv);
+        .map(|a| (a.selected.unwrap_or(0), a.target))
+        .unwrap_or_default();
+    let next = compositor_y5_picker_pick_navigate::navigate::neighbor(current, du, dv, target);
     compositor_y5_picker_command_base::base::set_selected(state, Some(next));
 }

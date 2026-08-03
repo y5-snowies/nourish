@@ -159,7 +159,11 @@ where
     R: Renderer + ImportAll + ImportDma + ImportMem + SceneDispatch,
     R::TextureId: Texture + Clone + Send + 'static,
 {
-    if !R::prefers_dmabuf() {
+    // `texture.is_some()` = an inline instance with its own GLES view. An
+    // off-thread (ring-worker) one has none, and drawing it would be a silent
+    // no-op — import the dmabuf instead. See `draw.node`'s Background3D arm:
+    // winit's lock pass is GLES even when the scene pass is Vulkan.
+    if !R::prefers_dmabuf() && e.texture.is_some() {
         return Some(LockSceneElement::Background3D(e));
     }
     match renderer.import_dmabuf(&e.dmabuf, None) {

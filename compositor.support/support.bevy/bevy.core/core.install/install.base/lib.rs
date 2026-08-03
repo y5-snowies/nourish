@@ -7,7 +7,7 @@ use bevy::render::{
     texture::GpuImage,
 };
 use compositor_support_bevy_core_bridge_base::{BridgeDirection, BridgeRegistry};
-use compositor_model_debug_instance_record::info;
+use compositor_model_debug_instance_record::trace;
 
 pub struct BridgeRegistryPlugin;
 
@@ -93,6 +93,8 @@ fn install_bridges(
         };
 
         *installed = true;
-        info!("bridge installed ({:?}, {})", entry.direction, entry.label);
+        // Per FRAME, not per session, on any ring deeper than one slot: rotating
+        // it re-points this entry (`set_output_texture` clears `installed`).
+        trace!("bridge installed ({:?}, {})", entry.direction, entry.label);
     }
 }

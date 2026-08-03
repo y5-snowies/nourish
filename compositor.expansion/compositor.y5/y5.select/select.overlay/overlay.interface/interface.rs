@@ -29,8 +29,8 @@ use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_orchestration_driver_selection_base::base::{
     BAR_H, BAR_W, Placement, SCREEN_BOTTOM_MARGIN, SELECTION_OVERLAY, SELECTION_OVERLAY_MUT,
-    SELECTION_OVERLAY_PLACEMENT, SELECTION_REANCHOR_MUT, TIP_GAP, TIP_H, TIP_W, world_loc_under_cursor,
-    world_scale_factor, world_size,
+    SELECTION_OVERLAY_PLACEMENT, SELECTION_REANCHOR_MUT, TIP_GAP, TIP_H, TIP_W, world_half,
+    world_loc_under_cursor,
 };
 use compositor_orchestration_draw_layer_base::base::Layer;
 use compositor_support_world_order_track_base::base::DrawLayer;
@@ -95,8 +95,8 @@ pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, 
 
     // Apply a re-anchor requested by the selection-change event (system-driven).
     reanchor_if_pending(state);
-    // Keep the on-screen size constant as the camera zoom changes.
-    resize_on_zoom(state);
+    // Keep the world anchor honest as the camera zoom changes (size is pinned).
+    reanchor_on_zoom(state);
     // Show/hide/position the hover tooltip for the currently-hovered button.
     drive_tooltip(state, size);
 }
@@ -174,10 +174,12 @@ fn drive_tooltip(state: &mut Loop, size: Size<i32, Physical>) {
     state.inner.kernel.get_mut(&SELECTION_OVERLAY_MUT).last_tip = new_last_tip;
 }
 
-/// Counter-scale the world toolbar when zoom changes so it keeps a constant
-/// on-screen size (and stays clearly visible when zoomed out). Re-centers on the
-/// current world center so it scales in place rather than from its top-left.
-fn resize_on_zoom(state: &mut Loop) {
+/// The toolbar is zoom-LOCKED — its texture and its on-screen size never change
+/// — but it is anchored by a WORLD top-left, and a fixed screen width spans a
+/// zoom-dependent world extent. So on a zoom change the top-left is shifted to
+/// hold the same world CENTRE, which is what makes it scale in place instead of
+/// sliding out from under the cursor. Location only: nothing is re-rasterized.
+fn reanchor_on_zoom(state: &mut Loop) {
     if placement_mode(state) != Placement::WorldAtCursor {
         return;
     }
@@ -185,22 +187,21 @@ fn resize_on_zoom(state: &mut Loop) {
         return;
     };
     let zoom = state.inner.camera().transform.zoom;
-    if state.inner.kernel.get(&SELECTION_OVERLAY).prev_zoom == zoom {
+    let prev = state.inner.kernel.get(&SELECTION_OVERLAY).prev_zoom;
+    if prev == zoom {
         return;
     }
-    let new_size = world_size(zoom);
-    let scale = world_scale_factor(zoom);
-    if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-        let recentered = match (reg.location_of(id), reg.size_of(id)) {
-            (Some(loc), Some(old)) => Some(Point::from((
-                loc.x + old.w / 2 - new_size.w / 2,
-                loc.y + old.h / 2 - new_size.h / 2,
-            ))),
-            _ => None,
-        };
-        reg.request_resize_scaled_by_id(id, new_size, scale);
-        if let Some(loc) = recentered {
-            reg.set_location_by_id(id, loc);
+    if prev.is_finite() {
+        let (old_w, old_h) = world_half(prev);
+        let (new_w, new_h) = world_half(zoom);
+        if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
+            if let Some(loc) = reg.location_of(id) {
+                let moved = Point::from((
+                    loc.x + (old_w - new_w).round() as i32,
+                    loc.y + (old_h - new_h).round() as i32,
+                ));
+                reg.set_location_by_id(id, moved);
+            }
         }
     }
     state.inner.kernel.get_mut(&SELECTION_OVERLAY_MUT).prev_zoom = zoom;
@@ -267,12 +268,13 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     // mirrors the old layer-shell overlay's on-demand keyboard grab.
     grab_keyboard_to_overlay(state);
 
-    // World placement: set the counter-scale iced factor so content fills the
-    // (zoom-counter-scaled) surface. `placement` already sized it for this zoom.
+    // World placement: pin the on-screen size to the texture size, so the bar is
+    // rasterized once at BAR_W×BAR_H and drawn at exactly that many pixels
+    // however far the canvas is zoomed (see `world_half`).
     let zoom = state.inner.camera().transform.zoom;
     if let IcedSpace::World = space {
         if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-            reg.request_resize_scaled_by_id(untyped, world_size(zoom), world_scale_factor(zoom));
+            reg.set_zoom_lock_by_id(untyped, Some(1.0));
         }
     }
 
@@ -495,11 +497,9 @@ fn placement(
             (Point::from((x, y)), Size::from((BAR_W, BAR_H)), IcedSpace::Screen)
         }
         Placement::WorldAtCursor => {
-            // Counter-scaled so the ON-SCREEN size stays constant as zoom changes
-            // (a World item's screen size = world size × zoom). The matching iced
-            // scale factor (set in `create`/`resize_on_zoom`) keeps content filling.
-            let zoom = state.inner.camera().transform.zoom;
-            (world_loc(state), world_size(zoom), IcedSpace::World)
+            // Fixed texture size; `create` zoom-locks it so this is also its
+            // on-screen size at every zoom. Only the anchor tracks the camera.
+            (world_loc(state), Size::from((BAR_W, BAR_H)), IcedSpace::World)
         }
     }
 }
