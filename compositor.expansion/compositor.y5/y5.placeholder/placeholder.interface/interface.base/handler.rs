@@ -61,17 +61,28 @@ pub fn delegate(
         PlaceholderAction::Launch() => {
             let synt = _loop.inner.placeholder_mut().synthesizer_registry.clone();
 
-            let mut was_launch = false;
-            let record = _loop.inner.placeholder_mut()
-                .modify_visible(&message.uuid, move |placeholder| {
-                    was_launch = placeholder.launching;
-                    placeholder.launching = true
-                });
+            // Read the re-entrancy flag BEFORE the mutation, not inside the
+            // closure: a `move` closure copies a `bool` capture, so writing the
+            // previous value out through it left `was_launch` false forever and
+            // the guard never fired — every press re-launched the app and minted
+            // a fresh token, orphaning the token the first window will carry.
+            let was_launch = _loop
+                .inner
+                .placeholder()
+                .visible
+                .iter()
+                .any(|(ph, _)| ph.uuid == message.uuid && ph.launching);
 
             if was_launch {
                 info!("ERR: Launch called while launching");
                 return;
             }
+
+            let record = _loop.inner.placeholder_mut()
+                .modify_visible(&message.uuid, |placeholder| {
+                    placeholder.launching = true
+                });
+
             let Some((record, _handle)) = record else { return; };
             let record = record.clone();
 
