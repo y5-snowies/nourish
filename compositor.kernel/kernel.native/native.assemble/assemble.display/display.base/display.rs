@@ -245,16 +245,9 @@ pub fn assemble() -> DisplayAssembly {
         compositor_kernel_scanout_pipe_assign_base::assign::assign(connector.handle(), pipe);
     log_plane_formats(&drm, pipe);
 
-    // 7. Mode: profile request (advertised narrows; synthesis is the gated
-    //    arm) -> default policy -> diagnostics -> fallback chain.
-    let drm_mode = resolve_mode(&connector, profiles.first());
-    compositor_kernel_drm_mode_select_base::select::log_selected(&drm_mode);
-    compositor_kernel_drm_mode_enumerate_base::enumerate::dump(&connector);
-    let mode_chain =
-        compositor_kernel_scanout_commit_test_base::test::fallback_chain(&connector, drm_mode);
-
-    // 8. EDID identity (placeholder identity when unreadable — behavior-
-    //    preserving) + orientation + Output.
+    // 7. EDID identity (placeholder identity when unreadable — behavior-
+    //    preserving). BEFORE the mode, because the mode is resolved from THIS
+    //    monitor's profile and nothing else can say which that is.
     let raw = compositor_kernel_drm_edid_parse_base::parse::read(&drm, &connector);
     let parsed = raw
         .as_ref()
@@ -263,6 +256,31 @@ pub fn assemble() -> DisplayAssembly {
         parsed.as_ref(),
         &format!("{:?}-{}", connector.interface(), connector.interface_id()),
     );
+
+    // 8. Mode: profile request (advertised narrows; synthesis is the gated
+    //    arm) -> default policy -> diagnostics -> fallback chain.
+    //
+    // The profile is matched on the SELECTED connector's EDID identity, the same
+    // way the hotplug path's `pref_mode` does it. It used to be `profiles.first()`
+    // — the first entry in preferences, whichever monitor that describes and
+    // whether or not it is even plugged in. That is right only in the case where
+    // the preferred monitor is present, because then it is also the one
+    // `connector::select` picked; with it absent, the compositor brought the
+    // monitor it DID pick up at some other monitor's advertised mode. A 5120x1440
+    // panel came up at the 1280x1024 of a display that was not connected, and
+    // plugging that display back in "fixed" it only by making first-in-prefs and
+    // selected-connector agree again.
+    let profile = profiles
+        .iter()
+        .find(|p| p.identity.as_deref() == Some(identity.key().as_str()))
+        .or_else(|| profiles.iter().find(|p| p.identity.is_none()));
+    let drm_mode = resolve_mode(&connector, profile);
+    compositor_kernel_drm_mode_select_base::select::log_selected(&drm_mode);
+    compositor_kernel_drm_mode_enumerate_base::enumerate::dump(&connector);
+    let mode_chain =
+        compositor_kernel_scanout_commit_test_base::test::fallback_chain(&connector, drm_mode);
+
+    // 9. Orientation + Output.
     let hdr = raw
         .as_ref()
         .map(compositor_kernel_drm_edid_parse_base::parse::parse_hdr)
