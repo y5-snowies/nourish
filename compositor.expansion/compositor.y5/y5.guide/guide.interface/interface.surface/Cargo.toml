@@ -1,0 +1,15 @@
+[package]
+name = "compositor_y5_guide_interface_surface"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_monitor_compositor_iced_base = { workspace = true }
+compositor_monitor_selection_font_base = { workspace = true }
+compositor_orchestration_core_state_base = { workspace = true }
+compositor_y5_guide_menu_view = { workspace = true }
+compositor_y5_guide_state_base = { workspace = true }
+compositor_y5_surface_protocol_base = { workspace = true }
+
+[lib]
+path = "lib.rs"

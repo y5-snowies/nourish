@@ -1,0 +1,15 @@
+[package]
+name = "compositor_y5_guide_menu_hover"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_monitor_compositor_iced_base = { workspace = true }
+compositor_orchestration_core_state_base = { workspace = true }
+compositor_y5_guide_menu_tip = { workspace = true }
+compositor_y5_guide_menu_view = { workspace = true }
+compositor_y5_guide_state_base = { workspace = true }
+smithay = { workspace = true }
+
+[lib]
+path = "lib.rs"

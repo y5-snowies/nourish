@@ -5,6 +5,7 @@ use compositor_y5_lock_interface_surface::message::LockMessage;
 use compositor_y5_placeholder_protocol_base::message::PlaceholderMessage;
 use compositor_y5_picker_surface_view::PickerSurfaceMessage;
 use compositor_y5_touch_pane_view::TouchPaneMessage;
+use compositor_y5_guide_menu_view::GuideMessage;
 use compositor_y5_osk_board_view::view::OskMessage;
 use compositor_configurator_settings_surface_message::message::SettingsMessage;
 use compositor_monitor_selection_scene_base::selection::{CloseMode, ScaleToFitOption, SelectionAction};
@@ -38,6 +39,8 @@ pub enum SurfaceMessageType {
     Capture(CaptureMessage),
     Picker(PickerSurfaceMessage),
     TouchPane(TouchPaneMessage),
+    /// A click on the empty-canvas guide menu (Settings / Help).
+    Guide(GuideMessage),
     Osk(OskMessage),
     Selection(SelectionForward),
     Overview(compositor_y5_overview_state_base::base::OverviewSurfaceMessage),

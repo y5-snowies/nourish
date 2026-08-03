@@ -819,6 +819,17 @@ compositor_y5_group_surface_base = { path = "../../compositor.expansion/composit
 compositor_y5_group_system_base = { path = "../../compositor.expansion/compositor.y5/y5.group/group.system/system.base" }
 compositor_y5_group_system_invalidate = { path = "../../compositor.expansion/compositor.y5/y5.group/group.system/system.invalidate" }
 compositor_y5_group_system_resolve = { path = "../../compositor.expansion/compositor.y5/y5.group/group.system/system.resolve" }
+compositor_y5_guide_help_create = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.help/help.create" }
+compositor_y5_guide_help_row = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.help/help.row" }
+compositor_y5_guide_help_view = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.help/help.view" }
+compositor_y5_guide_interface_base = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.interface/interface.base" }
+compositor_y5_guide_interface_handle = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.interface/interface.handle" }
+compositor_y5_guide_interface_surface = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.interface/interface.surface" }
+compositor_y5_guide_menu_create = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.menu/menu.create" }
+compositor_y5_guide_menu_hover = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.menu/menu.hover" }
+compositor_y5_guide_menu_tip = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.menu/menu.tip" }
+compositor_y5_guide_menu_view = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.menu/menu.view" }
+compositor_y5_guide_state_base = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.state/state.base" }
 compositor_y5_launcher_draw_state = { path = "../../compositor.expansion/compositor.y5/y5.launcher/launcher.draw/draw.state" }
 compositor_y5_launcher_input_base = { path = "../../compositor.expansion/compositor.y5/y5.launcher/launcher.input/input.base" }
 compositor_y5_launcher_interface_base = { path = "../../compositor.expansion/compositor.y5/y5.launcher/launcher.interface/interface.base" }

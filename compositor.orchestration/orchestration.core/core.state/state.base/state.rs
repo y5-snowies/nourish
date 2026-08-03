@@ -284,6 +284,10 @@ impl Orchestrator {
         // On-screen-keyboard driver state (shown/pinned/mods/placement).
         kernel_data.insert(&compositor_y5_osk_board_state::state::OSK, Default::default());
 
+        // Empty-canvas guide popups (context menu + help panel): the DESIRE the
+        // input rim writes and the render path reconciles.
+        kernel_data.insert(&compositor_y5_guide_state_base::state::GUIDE, Default::default());
+
         // Output-mode driver: rim-issued mode request + kernel-written advertised
         // modes snapshot and apply result (settings window ↔ DRM, like the lid).
         kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUT_MODE_REQUEST, None);

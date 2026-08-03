@@ -95,6 +95,21 @@ pub fn button<I: InputBackend>(event: &<I as InputBackend>::PointerButtonEvent, 
         _loop.inner.viewports_mut().active = under_cursor;
     }
 
+    // The empty-canvas guide popups. Sits above the world bus so a press outside
+    // one always dismisses it — the bus below hands presses over windows straight
+    // to the client, which would leave the popup stranded on screen. Consumes
+    // only the press that SUMMONS the menu (right-click / double-click on bare
+    // canvas), which would otherwise also start a canvas pan underneath it.
+    if event.state() == ButtonState::Pressed
+        && compositor_y5_guide_interface_base::base::on_press(
+            _loop,
+            event.button_code(),
+            event.time_msec(),
+        )
+    {
+        return;
+    }
+
     let pointer = &_loop.state.seat.seat.get_pointer().unwrap();
     {
         // World input bus first (phase 3); Pass falls through to legacy routing.

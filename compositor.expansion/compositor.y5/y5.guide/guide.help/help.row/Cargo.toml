@@ -1,0 +1,12 @@
+[package]
+name = "compositor_y5_guide_help_row"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_model_environment_keybinding_base = { workspace = true }
+compositor_y5_canvas_input_keyboard = { workspace = true }
+compositor_y5_guide_help_view = { workspace = true }
+
+[lib]
+path = "lib.rs"
