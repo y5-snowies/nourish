@@ -43,6 +43,7 @@ It fully supports NVIDIA,Intel and AMD, as well as supporting ARM-based devices 
   many contexts at once.
 - Carefully designed for stability, with attention to avoiding faults and
   performance issues.
+- Multi monitor, Touch, Pen, tablet and touchpad-- all the regular benefits are included and fully supported.
 - Extensive support for latency demanding applications-- directly run steam games and the games will drive the composite cadence. Enable pacing manually for an always-on minimal-latency compositing.
 > [!TIP]
 > While manually enabling pacing may introduce tearing(and games love it), I am using it as a daily driver for lowest latency as tearing is rarely visible on high refresh rate displays(eg. rendering 400fps of composite on 120hz display). you can enable it inside the 'Settings' screen at the 'Graphics' tab.
