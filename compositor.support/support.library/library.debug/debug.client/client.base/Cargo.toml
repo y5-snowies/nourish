@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+compositor_support_library_process_child_hygiene = { workspace = true }
 tracing = {workspace = true}
 tracing-subscriber = { workspace = true}
 bitflags = {workspace = true}

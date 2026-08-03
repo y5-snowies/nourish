@@ -19,6 +19,8 @@
 use std::process::Command;
 use std::sync::Once;
 
+use compositor_support_library_process_child_hygiene::hygiene::install as child_hygiene;
+
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::desktop::Window;
 use smithay::reexports::wayland_server::{DisplayHandle, Resource};
@@ -479,7 +481,8 @@ fn user_scope_of(pid: i32) -> Option<String> {
 
 /// Spawn a killer command and detach; failures are logged, never fatal.
 fn spawn_detached(cmd: &mut Command) {
-    if let Err(e) = cmd.spawn() {
+    // Even a one-shot `kill` must not inherit our fds or CPU-priority boost.
+    if let Err(e) = child_hygiene(cmd).spawn() {
         warn!("close: failed to spawn killer: {e}");
     }
 }
