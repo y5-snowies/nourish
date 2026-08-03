@@ -20,6 +20,7 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::utils::CommitCounter;
 use smithay::utils::{Physical, Point, Rectangle, Size};
 use compositor_support_iced_core_engine_base::{IcedRuntime, IcedUi};
+use compositor_kernel_graphic_bridge_publish_attempt::attempt::Attempt;
 use compositor_monitor_runtime_surface_base::{IcedSurface, SurfaceError, WgpuVulkanContext};
 
 use crate::element::IcedRenderElement;
@@ -38,6 +39,10 @@ pub struct IcedInstance<U: IcedUi> {
 
     pub(crate) runtime: IcedRuntime<U>,
     pub(crate) pending_resize: Option<(Size<i32, Physical>, f32)>,
+    /// Last ring generation reflected in `commit`. Damage follows the ring, not
+    /// the render call: a frame the ring did not publish is pixels the compositor
+    /// already has, and reporting damage for it repaints the rect for nothing.
+    pub(crate) generation: u64,
 }
 
 impl<U: IcedUi> IcedInstance<U> {
@@ -89,6 +94,11 @@ pub(crate) trait IcedInstanceAny: Any {
     /// mid-animation. Drives the host's "keep scheduling frames" decision.
     fn wants_frame(&self) -> bool;
     fn render(&mut self);
+    /// Retire a pipelined frame if the GPU finished it, WITHOUT rasterizing, and
+    /// bump the commit when one becomes visible. Must run every frame for every
+    /// item: iced rasterizes only when dirty, so a deferred publish has no render
+    /// call of its own to ride along with and would otherwise never land.
+    fn poll_publish(&mut self);
     /// Whether the GPU backing is currently allocated. Off-screen surfaces are
     /// released to reclaim memory while their runtime keeps ticking.
     fn is_resident(&self) -> bool;
@@ -102,12 +112,31 @@ pub(crate) trait IcedInstanceAny: Any {
         wgpu_ctx: &WgpuVulkanContext,
         gles: &mut GlesRenderer,
     ) -> Result<(), SurfaceError>;
-    fn texture_handle(&self) -> &smithay::backend::renderer::gles::GlesTexture;
+    /// Match the ring to the live setting. Per-frame, so the knob applies
+    /// without a restart; a no-op while released or once the depth matches.
+    fn sync_depth(
+        &mut self,
+        render_node: &str,
+        wgpu_ctx: &WgpuVulkanContext,
+        gles: &mut GlesRenderer,
+        want: usize,
+    ) -> Result<(), SurfaceError>;
+    /// The GLES view, or `None` on the off-thread path — that path is Vulkan-only
+    /// and the compositor imports the dmabuf natively there, so the worker never
+    /// builds a GLES texture (which would need `&mut GlesRenderer`).
+    fn texture_handle(&self) -> Option<&smithay::backend::renderer::gles::GlesTexture>;
     /// Strict read-only accessor for the surface's underlying dmabuf, so a
     /// non-GLES renderer (Vulkan) can import the iced output natively. (iced
     /// renders via wgpu-Vulkan into this dmabuf; GLES samples the imported
     /// texture above. Native Vulkan iced output supersedes this later.)
-    fn dmabuf(&self) -> &smithay::backend::allocator::dmabuf::Dmabuf;
+    fn dmabuf(&self) -> Option<smithay::backend::allocator::dmabuf::Dmabuf>;
+    /// The size actually rendered, when it can differ from the requested one (a
+    /// resize still in flight on the worker). `None` means "same as `size()`".
+    fn rendered_size(&self) -> Option<Size<i32, Physical>> { None }
+    /// The world location the published frame was rendered for, when it can
+    /// differ from the requested one. `None` = use `location()`, which is what
+    /// the inline path does — there the frame is always the current geometry.
+    fn rendered_location(&self) -> Option<Point<i32, Physical>> { None }
     fn apply_pending_resize(
         &mut self,
         render_node: &str,
@@ -164,13 +193,27 @@ impl<U: IcedUi> IcedInstanceAny for IcedInstance<U> {
         self.runtime.acknowledge_frame();
     }
     fn wants_frame(&self) -> bool {
-        self.runtime.is_dirty()
+        // `has_pending` is what keeps a pipelined publish reachable: the runtime
+        // goes clean the moment it rasterizes, so without this the frame that
+        // would retire the buffer is never scheduled.
+        self.runtime.is_dirty() || self.surface.has_pending()
     }
     fn render(&mut self) {
         // No-op while the backing is released; the registry re-`ensure`s an
         // on-screen surface before calling this, so the view is present then.
-        if let Some(view) = self.surface.create_render_view() {
+        self.poll_publish();
+        if let Some(view) = self.surface.begin_render_view() {
             self.runtime.render_into(&view);
+            self.surface.submitted(compositor_model_environment_interface_base::base::get().pipeline);
+        }
+        // `submitted` publishes inline when the ring cannot defer, so this is
+        // what carries the commit bump on the non-pipelined path.
+        self.poll_publish();
+    }
+    fn poll_publish(&mut self) {
+        self.surface.poll();
+        if self.generation != self.surface.generation() {
+            self.generation = self.surface.generation();
             self.commit.increment();
         }
     }
@@ -188,15 +231,20 @@ impl<U: IcedUi> IcedInstanceAny for IcedInstance<U> {
     ) -> Result<(), SurfaceError> {
         self.surface.ensure(render_node, wgpu_ctx, gles)
     }
-    fn texture_handle(&self) -> &smithay::backend::renderer::gles::GlesTexture {
-        self.surface
-            .gles_texture()
-            .expect("texture_handle() on a released iced surface")
+    fn sync_depth(
+        &mut self,
+        render_node: &str,
+        wgpu_ctx: &WgpuVulkanContext,
+        gles: &mut GlesRenderer,
+        want: usize,
+    ) -> Result<(), SurfaceError> {
+        self.surface.sync_depth(render_node, wgpu_ctx, gles, want)
     }
-    fn dmabuf(&self) -> &smithay::backend::allocator::dmabuf::Dmabuf {
-        self.surface
-            .dmabuf()
-            .expect("dmabuf() on a released iced surface")
+    fn texture_handle(&self) -> Option<&smithay::backend::renderer::gles::GlesTexture> {
+        self.surface.gles_texture()
+    }
+    fn dmabuf(&self) -> Option<smithay::backend::allocator::dmabuf::Dmabuf> {
+        self.surface.dmabuf().cloned()
     }
     fn apply_pending_resize(
         &mut self,
@@ -290,9 +338,41 @@ pub struct IcedItem {
     /// candidate; the registry batches all pending candidates and flushes them
     /// together (debounced). Cleared when it becomes visible again or is released.
     release_pending: bool,
+    /// The two GPU allocations re-attempted every frame until they succeed — the
+    /// backing re-allocation on reveal and the ring depth sync. Neither input
+    /// changes when the allocation fails, so without a gate a standing refusal
+    /// (out of GPU memory, a size the driver will not take) is re-issued once per
+    /// surface per composite with a log line each time. Keyed on the request, so
+    /// the next attempt waits for a resize or a depth change rather than a clock:
+    /// a driver's "no" to a specific allocation is not a transient condition.
+    backing_failed: Attempt<Size<i32, Physical>>,
+    depth_failed: Attempt<(usize, Size<i32, Physical>)>,
 }
 
 impl IcedItem {
+    /// An instance whose runtime lives on the worker thread. Its `type_id` is the
+    /// stand-in's, not `IcedInstance<U>`'s, so `get::<U>()` correctly returns
+    /// `None`: there is no local runtime to hand out, and messages must go
+    /// through the registry's channel rather than a direct borrow.
+    pub(crate) fn remote(inst: crate::remote::RemoteInstance, space: IcedSpace, layer: u64) -> Self {
+        Self {
+            type_id: TypeId::of::<crate::remote::RemoteInstance>(),
+            inner: Box::new(inst),
+            space,
+            layer,
+            visible: true,
+            passthrough: false,
+            keyboard_transparent: false,
+            output: None,
+            render_stale: false,
+            opaque_occluder: false,
+            last_on_screen: Instant::now(),
+            release_pending: false,
+            backing_failed: Attempt::new(),
+            depth_failed: Attempt::new(),
+        }
+    }
+
     pub(crate) fn new<U: IcedUi>(inst: IcedInstance<U>, space: IcedSpace, layer: u64) -> Self {
         Self {
             type_id: TypeId::of::<IcedInstance<U>>(),
@@ -307,6 +387,8 @@ impl IcedItem {
             opaque_occluder: false,
             last_on_screen: Instant::now(),
             release_pending: false,
+            backing_failed: Attempt::new(),
+            depth_failed: Attempt::new(),
         }
     }
 
@@ -417,7 +499,11 @@ impl IcedItem {
         match self.space {
             IcedSpace::Screen => self.inner.location(),
             IcedSpace::World => {
-                let world = self.inner.location();
+                // The origin the PUBLISHED frame was laid out for, so the rect
+                // agrees with itself; projected through the LIVE camera, so zoom
+                // and pan stay immediate. Inline returns `None` and this is the
+                // plain location, exactly as before.
+                let world = self.inner.rendered_location().unwrap_or_else(|| self.inner.location());
                 let s = transform
                     .world_to_screen(output_size, Point::from((world.x as f64, world.y as f64)));
                 Point::from((s.x as i32, s.y as i32))
@@ -562,6 +648,11 @@ impl IcedItem {
         self.inner.render();
         self.render_stale = false;
     }
+    /// Retire a pipelined frame without rasterizing. Runs for every item every
+    /// frame — see [`IcedInstanceAny::poll_publish`].
+    pub(crate) fn poll_publish(&mut self) {
+        self.inner.poll_publish();
+    }
     /// Advance frame bookkeeping without rasterizing (off-screen path) and mark
     /// the texture stale so the next on-screen frame re-renders it.
     pub(crate) fn skip_render(&mut self) {
@@ -602,13 +693,64 @@ impl IcedItem {
         self.release_pending = false;
     }
     /// Re-allocate the backing at the current size if it was released.
+    ///
+    /// Returns whether the item is usable this frame. `false` means the
+    /// allocation failed OR is being backed off after a failure, and the caller
+    /// must skip the item — same handling either way, which is why this reports
+    /// a bool rather than the error: the error is logged here, rate-limited, so
+    /// a standing failure cannot flood the log at the composite rate.
     pub(crate) fn ensure_backing(
         &mut self,
         render_node: &str,
         wgpu_ctx: &WgpuVulkanContext,
         gles: &mut GlesRenderer,
-    ) -> Result<(), SurfaceError> {
-        self.inner.ensure_backing(render_node, wgpu_ctx, gles)
+    ) -> bool {
+        if self.inner.is_resident() {
+            self.backing_failed.succeeded();
+            return true;
+        }
+        let request = self.inner.size();
+        if !self.backing_failed.worth_trying(&request) {
+            return false;
+        }
+        match self.inner.ensure_backing(render_node, wgpu_ctx, gles) {
+            Ok(()) => {
+                self.backing_failed.succeeded();
+                true
+            }
+            Err(e) => {
+                if self.backing_failed.failed(request) {
+                    warn!("iced backing alloc failed handle={:?} at {request:?}: {e:?}; \
+                           not retried until the surface is resized",
+                          self.inner.handle_id());
+                }
+                false
+            }
+        }
+    }
+    /// Match the ring to the live setting — see [`IcedInstanceAny::sync_depth`].
+    /// Gated on the request, for the same reason as `ensure_backing`.
+    pub(crate) fn sync_depth(
+        &mut self,
+        render_node: &str,
+        wgpu_ctx: &WgpuVulkanContext,
+        gles: &mut GlesRenderer,
+        want: usize,
+    ) {
+        let request = (want, self.inner.size());
+        if !self.depth_failed.worth_trying(&request) {
+            return;
+        }
+        match self.inner.sync_depth(render_node, wgpu_ctx, gles, want) {
+            Ok(()) => self.depth_failed.succeeded(),
+            Err(e) => {
+                if self.depth_failed.failed(request) {
+                    warn!("iced ring resize failed handle={:?} to {request:?}: {e:?}; \
+                           not retried until the depth or size changes",
+                          self.inner.handle_id());
+                }
+            }
+        }
     }
 
     /// True if the item is visible AND its on-screen rect intersects the given
@@ -636,32 +778,58 @@ impl IcedItem {
         &self,
         transform: &Transform,
         output_size: Size<f64, Physical>,
-    ) -> IcedRenderElement {
+    ) -> Option<IcedRenderElement> {
+        // `None` when there is nothing to show yet: the backing may be released,
+        // or the off-thread path may not have published its first frame. Drawing
+        // an unwritten buffer would flash garbage.
+        let dmabuf = self.inner.dmabuf()?;
         let location = self.screen_location(transform, output_size);
         let world_zoom = match self.space {
             IcedSpace::Screen => 1.0,
             IcedSpace::World => transform.zoom,
         };
-        IcedRenderElement {
-            texture: self.inner.texture_handle().clone(),
-            dmabuf: self.inner.dmabuf().clone(),
+        Some(IcedRenderElement {
+            texture: self.inner.texture_handle().cloned(),
+            dmabuf,
             space: self.space,
             location,
-            size: self.inner.size(),
+            // What the buffer actually holds, which lags a resize already applied
+            // compositor-side. Using the requested size would sample past it.
+            size: self.inner.rendered_size().unwrap_or_else(|| self.inner.size()),
             world_zoom,
             id: self.inner.smithay_id().clone(),
             commit_counter: self.inner.commit(),
             output: self.output.clone(),
-        }
+        })
     }
 
+    /// Apply a pending resize, and MARK THE ITEM STALE when one landed.
+    ///
+    /// A resize replaces every slot in the ring, so the buffer the compositor
+    /// samples is a fresh allocation whose contents are undefined. The surface
+    /// must therefore re-render, and saying so here is the only way it is
+    /// guaranteed: a World surface is rasterized by `manage_backings`, which
+    /// renders only `is_stale()` items, and nothing else in that path knows the
+    /// buffer was swapped.
+    ///
+    /// It happened to work by a chain of side effects — `IcedRuntime::resize`
+    /// calls `invalidate_layout`, which sets `dirty`, which `tick` reports as
+    /// due, which the World branch of `process_frame` turns into `skip_render`,
+    /// which sets stale. Four hops, any of which could stop being true, to
+    /// express something this function already knows for certain. The off-thread
+    /// worker states it directly (`Job::Resize` sets `h.stale = true`); this is
+    /// the same statement on the inline path.
     pub(crate) fn apply_pending_resize(
         &mut self,
         render_node: &str,
         wgpu_ctx: &WgpuVulkanContext,
         gles: &mut GlesRenderer,
     ) -> Result<bool, SurfaceError> {
-        self.inner.apply_pending_resize(render_node, wgpu_ctx, gles)
+        let resized = self.inner.apply_pending_resize(render_node, wgpu_ctx, gles)?;
+        if resized {
+            self.render_stale = true;
+        }
+        Ok(resized)
     }
 }
 
@@ -695,5 +863,6 @@ pub(crate) fn build_instance<U: IcedUi>(
         surface,
         runtime,
         pending_resize: None,
+        generation: 0,
     }
 }

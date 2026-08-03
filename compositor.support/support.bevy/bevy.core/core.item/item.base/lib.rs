@@ -9,6 +9,8 @@ use compositor_support_bevy_core_handle_base::HandleId;
 use compositor_support_bevy_core_instance_base::{BevyInstance, BevyInstanceAny};
 use compositor_support_bevy_core_scene_base::BevyScene;
 use compositor_support_bevy_core_space_base::{BevySpace, Transform, item_screen_location, item_screen_size};
+use compositor_kernel_graphic_bridge_publish_attempt::attempt::Attempt;
+use compositor_support_bevy_core_worker_instance::WorkerInstance;
 use smithay::backend::renderer::element::Id;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::utils::CommitCounter;
@@ -19,12 +21,26 @@ pub struct BevyItem {
     pub layer: u64,
     type_id: TypeId,
     space: BevySpace,
+    /// The ring-depth request that failed, if any. The wanted depth does not
+    /// change when the allocation fails, so an ungated retry runs once per
+    /// instance per composite. Keyed on `(depth, size)`: those are the only two
+    /// inputs whose change could make the driver answer differently.
+    depth_failed: Attempt<(usize, Size<i32, Physical>)>,
 }
 
 impl BevyItem {
     #[doc(hidden)]
     pub fn new<S: BevyScene>(inst: BevyInstance<S>, space: BevySpace, layer: u64) -> Self {
-        Self { type_id: TypeId::of::<BevyInstance<S>>(), inner: Box::new(inst), space, layer }
+        Self { type_id: TypeId::of::<BevyInstance<S>>(), inner: Box::new(inst), space, layer, depth_failed: Attempt::new() }
+    }
+
+    /// An instance whose `App` lives on the worker thread. Its `type_id` is the
+    /// stand-in's, not `BevyInstance<S>`'s, so `get::<S>()` correctly returns
+    /// `None`: there is no local runtime to hand out, and commands must go
+    /// through the registry's channel rather than a direct borrow.
+    #[doc(hidden)]
+    pub fn remote(inst: WorkerInstance, space: BevySpace, layer: u64) -> Self {
+        Self { type_id: TypeId::of::<WorkerInstance>(), inner: Box::new(inst), space, layer, depth_failed: Attempt::new() }
     }
 
     pub fn handle_id(&self) -> HandleId { self.inner.handle_id() }
@@ -72,21 +88,52 @@ impl BevyItem {
     #[doc(hidden)] pub fn bump_commit(&mut self) { self.inner.bump_commit(); }
 
     #[doc(hidden)]
-    pub fn element_in(&self, transform: &Transform, output_size: Size<f64, Physical>) -> BevyRenderElement {
+    /// `None` when there is nothing to show yet — the off-thread path has no
+    /// buffer until the worker publishes its first frame, and drawing an
+    /// unwritten one would flash garbage.
+    pub fn element_in(&self, transform: &Transform, output_size: Size<f64, Physical>) -> Option<BevyRenderElement> {
+        let dmabuf = self.inner.dmabuf()?;
         let location = self.screen_location(transform, output_size);
         let world_zoom = match self.space { BevySpace::Screen => 1.0, BevySpace::World => transform.zoom };
-        BevyRenderElement {
-            texture: self.inner.texture_handle().clone(),
-            dmabuf: self.inner.dmabuf().clone(),
+        Some(BevyRenderElement {
+            texture: self.inner.texture_handle().cloned(),
+            dmabuf,
             space: self.space,
-            location, size: self.inner.size(), world_zoom,
+            location,
+            // What the buffer actually holds, which lags a resize the compositor
+            // has already applied. Using the requested size would sample past it.
+            size: self.inner.rendered_size().unwrap_or_else(|| self.inner.size()),
+            world_zoom,
             id: self.inner.smithay_id().clone(), commit_counter: self.inner.commit(),
-        }
+        })
     }
 
     #[doc(hidden)]
     pub fn apply_pending_resize(&mut self, render_node: &str, wgpu_ctx: &WgpuVulkanContext, gles: &mut GlesRenderer) -> Result<bool, SurfaceError> {
         self.inner.apply_pending_resize(render_node, wgpu_ctx, gles)
+    }
+
+    /// Match the ring to the live setting.
+    ///
+    /// Gated on the REQUEST, not on a clock — see `depth_failed`. Returns the
+    /// error only for a request that has not already been refused, so a wedged
+    /// instance logs once instead of once per composite.
+    #[doc(hidden)]
+    pub fn sync_depth(&mut self, node: &str, ctx: &WgpuVulkanContext, gles: &mut GlesRenderer, want: usize) -> Result<(), SurfaceError> {
+        let request = (want, self.inner.size());
+        if !self.depth_failed.worth_trying(&request) {
+            return Ok(());
+        }
+        match self.inner.sync_depth(node, ctx, gles, want) {
+            Ok(()) => {
+                self.depth_failed.succeeded();
+                Ok(())
+            }
+            Err(e) => match self.depth_failed.failed(request) {
+                true => Err(e),
+                false => Ok(()),
+            },
+        }
     }
 }
 

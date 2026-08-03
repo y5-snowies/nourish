@@ -8,7 +8,7 @@
 
 use smithay::backend::renderer::element::solid::SolidColorRenderElement;
 use smithay::backend::renderer::element::surface::{render_elements_from_surface_tree, WaylandSurfaceRenderElement};
-use smithay::backend::renderer::element::Kind;
+use smithay::backend::renderer::element::{Element, Kind};
 use smithay::utils::{Physical, Point, Scale};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::backend::renderer::{ImportAll, ImportDma, ImportMem, Renderer, Texture};
@@ -49,11 +49,12 @@ pub enum DrawNode<R: Renderer> {
     Background3D(Bevy),
     Background2D(compositor_background_two_draw_element::element::ParallaxBackground),
     /// Parallax background clipped to a viewport pane rect (floating panes).
-    Background2DCropped(
-        smithay::backend::renderer::element::utils::CropRenderElement<
-            compositor_background_two_draw_element::element::ParallaxBackground,
-        >,
-    ),
+    /// Carried unwrapped (like `IcedCropped`) so the off-thread path can swap the
+    /// shader element for the worker's texture before the crop is applied.
+    Background2DCropped {
+        elem: compositor_background_two_draw_element::element::ParallaxBackground,
+        crop: smithay::utils::Rectangle<i32, Physical>,
+    },
     /// A texture already imported into `R`.
     Texture(PreImported<R>),
     Solid(SolidColorRenderElement),
@@ -144,8 +145,47 @@ where
             DrawNode::Pointer(e) => vec![SceneElement::Pointer(e)],
             DrawNode::Layershell(e) => vec![SceneElement::Layershell(e)],
             DrawNode::Canvas(e) => vec![SceneElement::Canvas(e)],
-            DrawNode::Background2D(e) => vec![SceneElement::Background2D(e)],
-            DrawNode::Background2DCropped(e) => vec![SceneElement::Background2DCropped(e)],
+            // Off-thread background: the worker already rendered this pane, so
+            // sample its dmabuf instead of running the shader inside the
+            // compositor's own command buffer. `worker_frame` is `None` both when
+            // no worker is configured (inline path below) and before this pane's
+            // first frame lands — in the latter case we draw nothing at all
+            // rather than sample a buffer that was never written.
+            DrawNode::Background2D(e) => {
+                if R::prefers_dmabuf() && e.offthread {
+                    let Some((dmabuf, generation)) = e.worker_frame() else { return vec![] };
+                    // Commit from the worker's publish generation, NOT the
+                    // element's own per-frame counter: unchanged generation ⇒ no
+                    // damage ⇒ smithay skips the region instead of re-reading and
+                    // re-blending an identical full-screen buffer every frame.
+                    return import_texture(
+                        renderer, &dmabuf, e.location(Scale::from(1.0)),
+                        e.geometry(Scale::from(1.0)).size, 1.0, e.id().clone(), generation.into(),
+                    )
+                    .into_iter()
+                    .collect();
+                }
+                vec![SceneElement::Background2D(e)]
+            }
+            DrawNode::Background2DCropped { elem, crop } => {
+                use smithay::backend::renderer::element::utils::CropRenderElement;
+                if R::prefers_dmabuf() && elem.offthread {
+                    let Some((dmabuf, generation)) = elem.worker_frame() else { return vec![] };
+                    let Some(pre) = import_pre(
+                        renderer, &dmabuf, elem.location(Scale::from(1.0)),
+                        elem.geometry(Scale::from(1.0)).size, 1.0,
+                        elem.id().clone(), generation.into(),
+                    ) else { return vec![] };
+                    return CropRenderElement::from_element(pre, Scale::from(1.0), crop)
+                        .map(SceneElement::TextureCropped)
+                        .into_iter()
+                        .collect();
+                }
+                CropRenderElement::from_element(elem, Scale::from(1.0), crop)
+                    .map(SceneElement::Background2DCropped)
+                    .into_iter()
+                    .collect()
+            }
             DrawNode::Texture(e) => vec![SceneElement::Texture(e)],
             DrawNode::Solid(e) => vec![SceneElement::Sentinel(e)],
             DrawNode::Iced(e) => {
@@ -191,6 +231,30 @@ where
                 }
                 import_texture(renderer, &e.dmabuf, e.location, e.size, e.world_zoom, e.id, e.commit_counter).into_iter().collect()
             }
+        }
+    }
+}
+
+/// Import a dmabuf into a `PreImported` (drops the node on failure).
+#[allow(clippy::too_many_arguments)]
+fn import_pre<R>(
+    renderer: &mut R,
+    dmabuf: &smithay::backend::allocator::dmabuf::Dmabuf,
+    location: smithay::utils::Point<i32, smithay::utils::Physical>,
+    size: smithay::utils::Size<i32, smithay::utils::Physical>,
+    world_zoom: f64,
+    id: smithay::backend::renderer::element::Id,
+    commit: smithay::backend::renderer::utils::CommitCounter,
+) -> Option<PreImported<R>>
+where
+    R: Renderer + ImportAll + ImportDma + ImportMem + SceneDispatch,
+    R::TextureId: Texture + Clone + Send + 'static,
+{
+    match renderer.import_dmabuf(dmabuf, None) {
+        Ok(texture) => Some(PreImported { texture, location, size, world_zoom, id, commit }),
+        Err(err) => {
+            error!("draw.node: dmabuf import into the active renderer failed: {err}");
+            None
         }
     }
 }

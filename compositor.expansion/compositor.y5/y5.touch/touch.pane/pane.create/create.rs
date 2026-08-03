@@ -160,10 +160,7 @@ fn create(
     if !out.is_empty() {
         registry.set_output_affinity_by_id(handle.id, Some(out.to_string()));
     }
-    registry
-        .instance_mut(handle)?
-        .runtime_mut()
-        .set_message_handler(move |m: &TouchPaneMessage| dispatch(m, &tx));
+    registry.set_message_handler(handle, move |m: &TouchPaneMessage| dispatch(m, &tx));
     Some(handle)
 }
 

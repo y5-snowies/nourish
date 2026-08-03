@@ -64,3 +64,27 @@ pub enum PaceMode {
 impl PaceMode {
     pub const ALL: [PaceMode; 2] = [Self::Fixed, Self::Adaptive];
 }
+
+/// What a [`Rate`] is counted against.
+///
+/// The distinction is invisible at 60fps and decisive above it: a compositor that
+/// tears or runs nested builds scenes far faster than the panel retraces, so
+/// "one per scene build" and "one per refresh" stop meaning the same thing.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Cadence {
+    /// Count the compositor's SCENE BUILDS. On the native path that is one per
+    /// retrace, so the producer stays phase-locked behind the frame that shows it.
+    /// On a tearing or nested host it is the composite rate, which can be far
+    /// above the panel — `Multiplier(1.0)` then means one per composite, NOT 60/s.
+    #[default]
+    Vblank,
+    /// Sleep a WALL-CLOCK interval derived from the monitor's mode refresh.
+    /// `Multiplier(1.0)` means the panel's rate whatever the composite rate is, so
+    /// this is the one to pick when the host runs far above the display. On real
+    /// hardware it drifts against the retrace instead of phase-locking to it.
+    Timer,
+}
+
+impl Cadence {
+    pub const ALL: [Cadence; 2] = [Self::Vblank, Self::Timer];
+}

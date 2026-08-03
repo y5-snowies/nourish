@@ -472,6 +472,20 @@ where
     // to the renderer's element list at the single backend seam. Layering is
     // explicit (BACKGROUND..POINTER); contributors no longer rely on push order.
     let mut plan: Plan<R> = Plan::new();
+    // This output's retrace count + refresh, for the off-thread background's
+    // per-pane pacing. Bumped once per output per scene build, which on the
+    // native path is once per vblank.
+    let frame_serial = state.inner.next_frame_serial();
+    let refresh = state.inner.current_refresh();
+    // Publish the FASTEST panel for the off-thread UI worker, which has no output
+    // of its own to ask. Deliberately not `refresh` (this output's): `scene` runs
+    // once per output, so publishing the drawing output's value made the global
+    // whatever monitor drew last, alternating every frame on a mixed-refresh
+    // desktop. Fastest rather than slowest because bevy elements are not gated
+    // per output — see `Orchestrator::fastest_refresh`.
+    compositor_model_environment_interface_base::base::set_refresh(
+        state.inner.fastest_refresh(),
+    );
 
     // Screen-space overlays (the cursor, layer-shell, and screen iced like the
     // launcher / settings window) belong to ONE output — the one under the cursor
@@ -480,6 +494,9 @@ where
     // monitor. `render_output == None` = a non-loop pass (winit / single) → draw all.
     let surfaces_screen = prepared.surfaces_screen;
     let render_key = state.inner.render_output.clone();
+    // Hoisted: the background pane key is derived from it once per output pass,
+    // not once per pane per frame.
+    let pane_output = render_key.clone().unwrap_or_default();
     let draw_screen = match &render_key {
         None => true,
         Some(key) => {
@@ -611,18 +628,37 @@ where
                         (pan_x, pan_y),
                         zoom,
                         background_id(region_index),
+                        // OUTPUT + region, never the region index alone. Element
+                        // ids may repeat across monitors because smithay's damage
+                        // tracker is per-output, but the worker's pane map is
+                        // process-global — and regions are numbered per output,
+                        // restarting at 0 on each. Keyed on the index alone, every
+                        // monitor's root pane collided on 0: one buffer, one
+                        // camera, one size for all of them, and on mixed
+                        // resolutions `ensure` reallocated the ring twice a frame
+                        // as the two sizes fought over it.
+                        compositor_background_two_draw_element::element::pane_key(
+                            &pane_output,
+                            region_index,
+                        ),
+                        // This monitor's refresh + retrace count: the worker paces
+                        // each pane against the display it is actually shown on.
+                        refresh,
+                        frame_serial,
+                        // Region count, so a viewport collapse retires the panes it
+                        // left behind at once instead of on a liveness timeout.
+                        computed.regions.len(),
                     );
                     if is_floating {
                         // Hard-clip to the pane rect: the parallax shader's clear
                         // follows the damage and would otherwise leak beyond a
                         // floating pane. Full-output root panes need no clip.
-                        if let Some(cropped) = smithay::backend::renderer::element::utils::CropRenderElement::from_element(
-                            bg,
-                            Scale::from(1.0),
-                            region.rect,
-                        ) {
-                            plan.push(bg_layer, DrawNode::Background2DCropped(cropped));
-                        }
+                        // The crop is applied at lower() time, so the off-thread
+                        // path can substitute its texture first.
+                        plan.push(
+                            bg_layer,
+                            DrawNode::Background2DCropped { elem: bg, crop: region.rect },
+                        );
                     } else {
                         plan.push(bg_layer, DrawNode::Background2D(bg));
                     }

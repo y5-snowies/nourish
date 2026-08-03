@@ -47,7 +47,7 @@ use compositor_y5_surface_draw_capture::encodialog::EncodingDialog;
 use compositor_y5_surface_draw_capture::errordialog::ErrorDialog;
 use compositor_y5_surface_draw_capture::savedialog::SaveDialog;
 use compositor_y5_surface_draw_capture::setup::SetupOverlay;
-use compositor_y5_surface_draw_handle::handle::{IcedSpace, load};
+use compositor_y5_surface_draw_handle::handle::{IcedSpace, load, load_snapshot};
 use compositor_y5_surface_protocol_base::protocol::{SurfaceMessage, SurfaceMessageType};
 use compositor_y5_window_interface_record::window::LoopWindow;
 use compositor_monitor_compositor_iced_base::{HandleId, IcedHandle};
@@ -210,7 +210,7 @@ fn start_setup(state: &mut Loop, renderer: &mut GlesRenderer) {
     };
 
     let overlay = SetupOverlay::new(sw, sh, CaptureMedia::Screenshot, kind, preselect);
-    let handle = load(
+    let handle = load_snapshot(
         state,
         renderer,
         overlay,
@@ -240,15 +240,13 @@ fn begin_active(state: &mut Loop, renderer: &mut GlesRenderer) {
         let Some(reg) = state.inner.surface_mut().registry.as_ref() else {
             return;
         };
-        let Some(inst) = reg.instance::<SetupOverlay>(IcedHandle::from_id(setup_id)) else {
+        // Read the published copy, not the UI: off-thread the runtime lives on
+        // the worker and cannot be borrowed from here. Inline this reads the
+        // live UI, so both paths see the same values.
+        let Some(s) = reg.snapshot::<SetupOverlay>(IcedHandle::from_id(setup_id)) else {
             return;
         };
-        (
-            inst.ui().kind(),
-            inst.ui().media(),
-            inst.ui().draft(),
-            inst.ui().no_background(),
-        )
+        (s.kind, s.media, s.draft, s.no_background)
     };
 
     let target = match kind {
@@ -713,7 +711,7 @@ fn begin_saving(state: &mut Loop, renderer: &mut GlesRenderer) {
         CaptureMedia::Video => "Video",
         CaptureMedia::Screenshot => "Screenshot",
     };
-    let dlg = load(
+    let dlg = load_snapshot(
         state,
         renderer,
         // Offer the "Optimized encoding" checkbox only in manual mode (auto runs
@@ -975,7 +973,7 @@ fn respawn_save_dialog(state: &mut Loop, renderer: &mut GlesRenderer, lossless: 
         Point::from(((sw - DIALOG_W) / 2, (sh - DIALOG_H) / 2)),
         Size::from((DIALOG_W, DIALOG_H)),
     );
-    let dlg = load(
+    let dlg = load_snapshot(
         state,
         renderer,
         SaveDialog::new("Video", !capture_background_auto()),
@@ -1013,9 +1011,7 @@ fn save_dialog_optimized(state: &mut Loop) -> bool {
     let Some(reg) = state.inner.surface_mut().registry.as_ref() else {
         return false;
     };
-    reg.instance::<SaveDialog>(IcedHandle::from_id(id))
-        .map(|inst| inst.ui().optimized())
-        .unwrap_or(false)
+    reg.snapshot::<SaveDialog>(IcedHandle::from_id(id)).unwrap_or(false)
 }
 
 /// Destroy the save/encoding dialog and clear its handle. Leaves the phase as-is.
@@ -1439,9 +1435,8 @@ where
 {
     let tx = state.inner.surface_mut().surface_message_buffer_channel.0.clone();
     if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-        if let Some(inst) = reg.instance_mut(handle) {
-            inst.runtime_mut()
-                .set_message_handler(move |m: &CaptureMessage| {
+        {
+            reg.set_message_handler(handle, move |m: &CaptureMessage| {
                     let _ = tx.send(SurfaceMessage {
                         message: SurfaceMessageType::Capture(m.clone()),
                     });

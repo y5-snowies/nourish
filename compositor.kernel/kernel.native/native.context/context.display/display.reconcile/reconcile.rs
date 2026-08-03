@@ -339,6 +339,14 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
                     .remove_global::<compositor_support_smithay_dispatch_state_base::state::Dispatch>(gid);
             }
             info!("reconcile: removed output {:?} (disconnected or deactivated)", removed.connector);
+            // Tell the off-thread producers, which key their buffers by output:
+            // this is the deterministic signal that a monitor's panes are gone,
+            // so their rings are freed here rather than inferred from a lapse in
+            // draw requests. Not the eviction path below — that hands the SAME
+            // monitor to another pipe, so its panes stay valid.
+            compositor_kernel_graphic_bridge_publish_retire::retire::retire_output(
+                &compositor_orchestration_core_state_base::state::output_key(&removed.output),
+            );
             // `removed.drm_output` drops here → frees its CRTC.
         } else {
             i += 1;

@@ -47,11 +47,23 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
         let node = compositor_model_environment_config_base::base::get().render_node.clone();
         compositor_kernel_graphic_bridge_negotiate_wgpu::query::pick_adapter(&instance, &node)
     });
-    let adapter = match pinned.flatten() {
-        Some(a) => {
-            info!("pinned wgpu adapter to render node");
+    // NO SILENT FALLBACK when pinning was asked for. Every buffer this context
+    // produces is imported by the compositor's renderer on the configured node;
+    // an adapter on a different GPU renders fine and then imports slowly or not
+    // at all, surfacing as a blank or stuttering surface rather than as the
+    // configuration error it is. `request_adapter`'s HighPerformance preference
+    // is exactly the wrong tiebreak on a hybrid laptop, where the discrete GPU
+    // is the one the compositor is NOT on. Reaching the generic adapter now
+    // requires having explicitly opted out of pinning.
+    let adapter = match pinned {
+        Some(Some(a)) => {
+            compositor_kernel_graphic_bridge_negotiate_report::report::node(
+                "bevy wgpu (render_node pin)",
+                &format!("{} ({:?})", a.get_info().name, a.get_info().device_type),
+            );
             a
         }
+        Some(None) => return Err(WgpuContextError::NoAdapter),
         None => pollster::block_on(instance.request_adapter(&RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             force_fallback_adapter: false,

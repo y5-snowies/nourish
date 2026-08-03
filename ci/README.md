@@ -75,7 +75,6 @@ feature → upstream-integration ──(CI green)──▶ auto PR →upstream �
       `/release/latest/fedora44/` (the URL `compositor.installer/get.sh` fetches).
     - **GitHub Release `latest`**: the same `package.tar.gz` + `SHA256SUMS` as assets, with the
       `latest` tag moved to the merged commit each time — tag + binaries together, no manual step.
-  Live host deploy (`environment/build-release.sh remote`) remains a separate, optional, manual job.
 
 ### RC channel (release candidates)
 
@@ -132,7 +131,6 @@ CI is why the image carries the dev-tool window's GTK/WebKit `-devel` deps.
 | `ANTHROPIC_API_KEY` | both | doc-review | masked; without it doc-review skips cleanly |
 | `CI_REGISTRY_*` | GitLab | image | auto-provided |
 | `GITLAB_TOKEN` | GitLab | doc-review, promote | project access token, `api` scope, masked |
-| `Y5_DEPLOY_SSH_KEY` | GitLab (optional) | deploy-remote | masked SSH key for `yrd.local` |
 
 ## Notes / decisions
 

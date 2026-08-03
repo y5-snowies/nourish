@@ -64,10 +64,7 @@ pub fn start(_loop: &mut Loop, renderer: &mut GlesRenderer) {
         .registry
         .as_mut()
         .unwrap()
-        .instance_mut(handle)
-        .unwrap()
-        .runtime_mut()
-        .set_message_handler(move |message: &LauncherMessage| __dispatch(message, &tx));
+        .set_message_handler(handle, move |message: &LauncherMessage| __dispatch(message, &tx));
 }
 
 fn __dispatch(p1: &LauncherMessage, p2: &Sender<SurfaceMessage>) {

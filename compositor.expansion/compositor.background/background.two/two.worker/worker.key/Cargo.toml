@@ -1,0 +1,9 @@
+[package]
+name = "compositor_background_two_worker_key"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+
+[lib]
+path = "lib.rs"

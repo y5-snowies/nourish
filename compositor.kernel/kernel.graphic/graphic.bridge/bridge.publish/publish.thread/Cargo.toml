@@ -1,0 +1,11 @@
+[package]
+name = "compositor_kernel_graphic_bridge_publish_thread"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+libc = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
+
+[lib]
+path = "lib.rs"

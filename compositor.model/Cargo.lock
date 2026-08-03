@@ -125,6 +125,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_model_environment_background_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_tearing_rate",
+ "compositor_model_stats_registry_counter",
+ "serde",
+]
+
+[[package]]
+name = "compositor_model_environment_background_preset"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_background_base",
+ "serde",
+]
+
+[[package]]
 name = "compositor_model_environment_config_base"
 version = "0.0.1"
 dependencies = [
@@ -150,6 +167,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_model_environment_interface_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_tearing_rate",
+ "compositor_model_stats_registry_counter",
+ "serde",
+]
+
+[[package]]
+name = "compositor_model_environment_interface_preset"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_interface_base",
+ "serde",
+]
+
+[[package]]
 name = "compositor_model_environment_keybinding_base"
 version = "0.0.1"
 dependencies = [
@@ -162,9 +196,13 @@ dependencies = [
 name = "compositor_model_environment_preference_base"
 version = "0.0.1"
 dependencies = [
+ "compositor_model_debug_instance_record",
+ "compositor_model_environment_background_base",
  "compositor_model_environment_config_base",
  "compositor_model_environment_graphics_base",
+ "compositor_model_environment_interface_base",
  "compositor_model_environment_tearing_config",
+ "compositor_model_stats_registry_base",
  "serde",
  "serde_json",
 ]
@@ -297,6 +335,9 @@ version = "0.0.1"
 [[package]]
 name = "compositor_model_stats_registry_shader"
 version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_background_base",
+]
 
 [[package]]
 name = "compositor_model_stats_registry_snapshot"

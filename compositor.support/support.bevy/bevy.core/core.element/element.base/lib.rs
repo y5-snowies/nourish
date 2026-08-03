@@ -15,7 +15,9 @@ use smithay::utils::{
 
 #[derive(Clone)]
 pub struct BevyRenderElement {
-    pub texture: GlesTexture,
+    /// `None` on the off-thread path, which is Vulkan-only: `node.rs`'s
+    /// `Background3D` arm imports `dmabuf` natively there and never reads this.
+    pub texture: Option<GlesTexture>,
     /// The surface's underlying dmabuf (strict accessor) for native (Vulkan)
     /// import; GLES samples `texture`.
     pub dmabuf: smithay::backend::allocator::dmabuf::Dmabuf,
@@ -94,6 +96,12 @@ impl<R: SceneDispatch> RenderElement<R> for BevyRenderElement {
         _opaque_regions: &[Rectangle<i32, Physical>],
         _cache: Option<&UserDataMap>,
     ) -> Result<(), <R as RendererSuper>::Error> {
-        R::draw_prerendered_texture(frame, &self.texture, src, dst, damage, 1.0)
+        // No GLES view means the off-thread (Vulkan) path, where the compositor
+        // composites the imported dmabuf instead and this element is never asked
+        // to draw itself. Nothing to do rather than an error.
+        match &self.texture {
+            Some(t) => R::draw_prerendered_texture(frame, t, src, dst, damage, 1.0),
+            None => Ok(()),
+        }
     }
 }

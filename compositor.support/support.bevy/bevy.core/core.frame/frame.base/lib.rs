@@ -18,11 +18,19 @@ pub fn apply_pending_resizes(
     gles: &mut GlesRenderer,
 ) -> Result<usize, ResizeError> {
     let mut applied = 0;
+    // Read ONCE for the whole pass, not once per item: the value cannot change
+    // mid-frame, and the global is behind an `RwLock`.
+    let want = compositor_model_environment_interface_base::base::get().depth();
     for item in items.iter_mut() {
         match item.apply_pending_resize(render_node, wgpu_ctx, gles) {
             Ok(true) => applied += 1,
             Ok(false) => {}
             Err(e) => warn!("resize failed handle={:?} error={e:?}", item.handle_id()),
+        }
+        // Ring depth tracks the live setting. After the resize, so a frame that
+        // does both reallocates once at the new size rather than twice.
+        if let Err(e) = item.sync_depth(render_node, wgpu_ctx, gles, want) {
+            warn!("ring resize failed handle={:?} error={e:?}", item.handle_id());
         }
     }
     Ok(applied)
@@ -77,7 +85,7 @@ pub fn elements(
                 return None;
             }
 
-            Some(i.element_in(transform, output_size))
+            i.element_in(transform, output_size)
         })
         .collect()
 }

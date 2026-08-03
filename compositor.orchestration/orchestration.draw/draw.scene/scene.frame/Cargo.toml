@@ -5,6 +5,7 @@ edition = "2024"
 
 
 [dependencies]
+compositor_model_environment_interface_base = { workspace = true }
 compositor_y5_placeholder_interface_base = { workspace = true }
 compositor_orchestration_driver_remote_base = { workspace = true }
 compositor_orchestration_driver_capture_base = { workspace = true }

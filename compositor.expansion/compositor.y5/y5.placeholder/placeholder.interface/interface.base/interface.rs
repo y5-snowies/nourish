@@ -319,10 +319,7 @@ pub fn spawn_visible(
         .registry
         .as_mut()
         .unwrap()
-        .instance_mut(handle)
-        .unwrap()
-        .runtime_mut()
-        .set_message_handler(move |message: &PlaceholderMessage| __dispatch(ph_uuid, message, &tx));
+        .set_message_handler(handle, move |message: &PlaceholderMessage| __dispatch(ph_uuid, message, &tx));
 
     state.inner.placeholder_mut().push_visible(ph, handle);
 }

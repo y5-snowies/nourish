@@ -6,6 +6,7 @@ use std::sync::Arc;
 use bevy::asset::Handle;
 use bevy::image::Image;
 use bevy::prelude::{App, World};
+use compositor_support_bevy_core_bridge_base::{BridgeRegistry, OUTPUT_LABEL};
 use compositor_support_bevy_core_scene_base::BevyScene;
 use compositor_support_bevy_core_shared_base::SharedContext;
 
@@ -72,6 +73,14 @@ impl<S: BevyScene> BevyRuntime<S> {
     pub fn clear_command_handler(&mut self) { self.command_handler = None; }
     pub fn queue_command(&mut self, command: S::Command) { self.queued_commands.push(command); }
 
+    /// Point the render graph's output at a different texture — the surface ring
+    /// having rotated. Must be called BEFORE `update()`: the bridge installs the
+    /// swap in the render world's Prepare phase, so after would draw into the
+    /// slot the ring just left.
+    pub fn set_output_texture(&mut self, texture: Arc<wgpu::Texture>) {
+        self.app.world().resource::<BridgeRegistry>().clone().replace_texture(OUTPUT_LABEL, texture);
+    }
+
     pub fn update(&mut self) {
         let commands = std::mem::take(&mut self.queued_commands);
         for command in commands {
@@ -95,4 +104,30 @@ impl<S: BevyScene> BevyRuntime<S> {
     pub fn world_mut(&mut self) -> &mut World { self.app.world_mut() }
     pub fn scene(&self) -> &S { &self.scene }
     pub fn scene_mut(&mut self) -> &mut S { &mut self.scene }
+}
+
+/// Erase the scene type so the worker can hold a heterogeneous instance set.
+///
+/// The downcast in `apply` is the one place the type system stops helping: the
+/// registry boxes `S::Command` and only this impl knows what `S` was. A mismatch
+/// means the registry routed a command to the wrong instance — a bug worth a log,
+/// not worth killing the worker thread over.
+impl<S: BevyScene> compositor_support_bevy_core_worker_base::AnyRuntime for BevyRuntime<S> {
+    fn update(&mut self) {
+        BevyRuntime::update(self);
+    }
+    fn set_output_texture(&mut self, texture: Arc<wgpu::Texture>) {
+        BevyRuntime::set_output_texture(self, texture);
+    }
+    fn resize(&mut self, size: (u32, u32), scale: f32) {
+        BevyRuntime::resize(self, size, scale);
+    }
+    fn apply(&mut self, command: Box<dyn std::any::Any + Send>) {
+        match command.downcast::<S::Command>() {
+            Ok(c) => self.queue_command(*c),
+            Err(_) => compositor_model_debug_instance_record::warn!(
+                "bevy runtime: command type mismatch; dropped"
+            ),
+        }
+    }
 }

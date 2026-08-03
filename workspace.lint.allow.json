@@ -437,5 +437,62 @@
   ],
   "compositor.orchestration/orchestration.draw/draw.dispatch/dispatch.uniforms": [
     "size"
+  ],
+  "compositor.kernel/kernel.graphic/graphic.bridge/bridge.publish/publish.ring": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.host/host.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.instance/instance.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.item/item.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.surface/surface.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.element/element.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.lifecycle/lifecycle.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.registry/registry.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.worker/worker.instance": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.worker/worker.serve": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.surface/surface.draw/draw.handle": [
+    "size"
+  ],
+  "compositor.model/model.environment/environment.interface/interface.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.pace": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.buffers": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.serve": [
+    "size"
+  ],
+  "compositor.model/model.environment/environment.background/background.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.signal": [
+    "size"
+  ],
+  "compositor.model/model.environment/environment.tearing/tearing.rate": [
+    "size"
+  ],
+  "compositor.model/model.environment/environment.experimental/experimental.base": [
+    "size"
   ]
 }

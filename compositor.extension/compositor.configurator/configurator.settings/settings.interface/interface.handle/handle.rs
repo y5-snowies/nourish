@@ -100,6 +100,34 @@ fn set_world_srgb(state: &mut Loop, on: bool) {
     }
 }
 
+/// Set the active world's optimized background variant: persist it on the world's
+/// `Two` slot, then get the change on screen the cheapest way that works.
+///
+/// The stock parallax has both variants compiled in and re-picks per draw, so it
+/// flips in place. A runtime-loaded shader baked the flag into its SPIR-V when it
+/// was compiled, so it has to be cleared for `TwoSystem` to rebuild it next frame
+/// — flipping the bool alone would leave the old module rendering, and because the
+/// renderer's pipeline cache is keyed on `(id, format)` and ignores the bytes on a
+/// hit, it would stay stale until restart.
+fn set_world_optimized(state: &mut Loop, on: bool) {
+    let world = state.inner.worlds.active_id();
+    if let Some(two) = state
+        .inner
+        .worlds
+        .active_mut()
+        .storage_mut()
+        .try_get_mut(&compositor_background_two_storage_base::base::BG_TWO_MUT)
+    {
+        two.optimized = on;
+        match two.instance.as_mut() {
+            Some(i) if i.uses_loaded_shader() => two.instance = None,
+            Some(i) => i.optimized = on,
+            None => {}
+        }
+        compositor_support_system_persist_mark_base::base::mark_world(world, true);
+    }
+}
+
 pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage) {
     match m {
         SettingsMessage::Cursor(v) => {
@@ -161,6 +189,20 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
         }
         SettingsMessage::SetReleaseHidden(b) => {
             state.inner.preference.release_hidden_surfaces = b;
+            let _ = pref::save(&state.inner.preference);
+        }
+        SettingsMessage::SetTripleBuffer(tb) => {
+            // Live: `pref::save` republishes into the process-global the worker
+            // re-reads each pass, so the knobs apply without a restart. Only
+            // `enabled` waits for the next start.
+            state.inner.preference.background_triple_buffer = tb;
+            let _ = pref::save(&state.inner.preference);
+        }
+        SettingsMessage::SetInterfaceBuffer(s) => {
+            // `slots` and `pipeline` are live — the surfaces re-read the published
+            // setting each frame. `enabled` is not: on Vulkan it also decides
+            // whether bevy's worker thread exists, so it takes effect next start.
+            state.inner.preference.interface_triple_buffer = s.normalized();
             let _ = pref::save(&state.inner.preference);
         }
         SettingsMessage::SetFractionalInvisible(v) => {
@@ -341,6 +383,7 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
         SettingsMessage::SetWorldInvertPanX(v) => set_world_invert(state, Some(v), None),
         SettingsMessage::SetWorldInvertPanY(v) => set_world_invert(state, None, Some(v)),
         SettingsMessage::SetWorldSrgb(v) => set_world_srgb(state, v),
+        SettingsMessage::SetWorldOptimized(v) => set_world_optimized(state, v),
         SettingsMessage::Close => {
             state.inner.kernel.get_mut(&SETTINGS_MUT).open = false;
         }
@@ -453,6 +496,7 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
         | SettingsMessage::SyncShaderStatus(..)
         | SettingsMessage::SyncWorldInvert(..)
         | SettingsMessage::SyncWorldSrgb(..)
+        | SettingsMessage::SyncWorldOptimized(..)
         | SettingsMessage::SelectDisplay(_)
         | SettingsMessage::SelectMode(_)
         | SettingsMessage::SelectInactive

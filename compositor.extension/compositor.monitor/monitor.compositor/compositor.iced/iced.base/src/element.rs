@@ -31,7 +31,9 @@ use crate::IcedSpace;
 
 #[derive(Clone)]
 pub struct IcedRenderElement {
-    pub texture: GlesTexture,
+    /// `None` on the off-thread path, which is Vulkan-only: the compositor
+    /// imports `dmabuf` natively there and never reads this.
+    pub texture: Option<GlesTexture>,
     /// The surface's underlying dmabuf (strict accessor), for renderers that
     /// import the iced output natively instead of sampling `texture`.
     pub dmabuf: smithay::backend::allocator::dmabuf::Dmabuf,
@@ -140,6 +142,11 @@ impl<R: SceneDispatch> RenderElement<R> for IcedRenderElement {
         _opaque_regions: &[Rectangle<i32, Physical>],
         _cache: Option<&UserDataMap>,
     ) -> Result<(), <R as RendererSuper>::Error> {
-        R::draw_prerendered_texture(frame, &self.texture, src, dst, damage, 1.0)
+        // No GLES view means the off-thread (Vulkan) path, where the compositor
+        // composites the imported dmabuf and never asks this element to draw.
+        match &self.texture {
+            Some(t) => R::draw_prerendered_texture(frame, t, src, dst, damage, 1.0),
+            None => Ok(()),
+        }
     }
 }

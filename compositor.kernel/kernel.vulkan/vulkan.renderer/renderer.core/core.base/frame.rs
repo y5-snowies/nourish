@@ -139,12 +139,16 @@ impl Drop for VulkanFramebuffer<'_> {
 /// specifics; the renderer just runs it.
 pub(crate) struct ShaderVariant {
     pub id: u64,
-    pub spv: Vec<u8>,
+    /// Shared with the producing element rather than copied: `ensure_shader_pass`
+    /// only reads these on a pipeline-cache miss, but the op is built on every
+    /// draw call of every frame.
+    pub spv: std::sync::Arc<[u8]>,
     /// Separate vertex-stage module (set when the fragment was compiled alone,
     /// e.g. a `glsl/` bundle paired with a fullscreen vertex).
-    pub vert_spv: Option<Vec<u8>>,
-    pub vert_entry: String,
-    pub frag_entry: String,
+    pub vert_spv: Option<std::sync::Arc<[u8]>>,
+    pub vert_entry: std::sync::Arc<str>,
+    pub frag_entry: std::sync::Arc<str>,
+    /// Genuinely per-draw (~112 bytes), so this one is owned.
     pub push: Vec<u8>,
 }
 

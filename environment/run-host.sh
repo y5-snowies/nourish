@@ -31,7 +31,7 @@ WRITE_SETTINGS=0
 for arg in "$@"; do
     case "$arg" in
         winit | udev | native) BACKEND="$arg" ;;
-        debug | release) PROFILE="$arg" ;;
+        debug | release | release-fast) PROFILE="$arg" ;;
         --it | -i) INTERACTIVE=1 ;;
         --env=*) ENV_FILE="${arg#--env=}" ;;
         --write-settings) WRITE_SETTINGS=1 ;;

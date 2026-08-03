@@ -15,15 +15,18 @@ use crate::error::VulkanError;
 use crate::frame::{DrawOp, ShaderVariant, VulkanFrame};
 use crate::renderer::VulkanRenderer;
 
-/// Copy a seam shader variant into an owned `DrawOp` variant (the push bytes
-/// must outlive this dispatch call, so they're copied into the queued op).
+/// Move a seam shader variant into an owned `DrawOp` variant. Only `push` is
+/// copied — it must outlive this dispatch call and is ~112 bytes. The SPIR-V
+/// modules and entry names are `Arc`s shared with the producing element, so
+/// this is a refcount bump: they are read at most once, on the first
+/// `ensure_shader_pass` cache miss, but this runs on every draw of every frame.
 fn own_variant(v: SeamVariant<'_>) -> ShaderVariant {
     ShaderVariant {
         id: v.id,
-        spv: v.spv.into_owned(),
-        vert_spv: v.vert_spv.map(|s| s.into_owned()),
-        vert_entry: v.vert_entry.into_owned(),
-        frag_entry: v.frag_entry.into_owned(),
+        spv: v.spv,
+        vert_spv: v.vert_spv,
+        vert_entry: v.vert_entry,
+        frag_entry: v.frag_entry,
         push: v.push.into_owned(),
     }
 }

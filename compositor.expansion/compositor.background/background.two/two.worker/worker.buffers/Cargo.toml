@@ -1,0 +1,11 @@
+[package]
+name = "compositor_background_two_worker_buffers"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+smithay = { workspace = true }
+compositor_kernel_graphic_bridge_publish_wake = { workspace = true }
+
+[lib]
+path = "lib.rs"

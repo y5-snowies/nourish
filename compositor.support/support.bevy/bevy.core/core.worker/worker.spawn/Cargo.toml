@@ -1,0 +1,16 @@
+[package]
+name = "compositor_support_bevy_core_worker_spawn"
+version = "0.0.1"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+compositor_model_debug_instance_record = { workspace = true }
+compositor_model_environment_config_base = { workspace = true }
+compositor_support_bevy_core_context_base = { workspace = true }
+compositor_support_bevy_core_publish_base = { workspace = true }
+compositor_support_bevy_core_shared_base = { workspace = true }
+compositor_support_bevy_core_worker_base = { workspace = true }
+compositor_support_bevy_core_worker_serve = { workspace = true }

@@ -9,6 +9,9 @@ path = "lib.rs"
 [dependencies]
 bevy = { workspace = true }
 compositor_support_bevy_core_boot_base = { workspace = true }
+compositor_support_bevy_core_bridge_base = { workspace = true }
+compositor_support_bevy_core_worker_base = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 compositor_support_bevy_core_scene_base = { workspace = true }
 compositor_support_bevy_core_shared_base = { workspace = true }
 wgpu = { workspace = true }

@@ -68,7 +68,16 @@ fn ensure_distant_parallax(state: &mut Loop, renderer: &mut GlesRenderer) {
         let inst = two
             .instance
             .get_or_insert_with(|| {
-                ParallaxBackground::new(renderer, (w as f32, h as f32), sel.as_deref(), &[])
+                // `optimized: false` deliberately: the picker is its own world with
+                // its own `Two` slot and no settings UI, so it renders the reference.
+                let mut i = ParallaxBackground::new(renderer, (w as f32, h as f32), sel.as_deref(), &[], false);
+                // The picker fills this slot itself, synchronously, during the
+                // render pass — so `TwoSystem`'s rebuild (which only fires on an
+                // empty slot) never runs for this world. Without this the picker's
+                // full-screen shader rendered inline on the compositor thread
+                // whatever `background_triple_buffer` said.
+                i.attach_worker();
+                i
             });
         // Snap, don't ramp: the picker owns its own entry transition, and the
         // 1s `lock_amount` fade in `Motion::tick` ran as a second, competing

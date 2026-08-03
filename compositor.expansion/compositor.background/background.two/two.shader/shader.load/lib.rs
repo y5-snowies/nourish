@@ -7,7 +7,7 @@
 extern crate compositor_model_debug_instance_record;
 
 use compositor_background_two_shader_locate::{Format, order, resolve_ref, source_path};
-use compositor_background_two_shader_property::{Property, parse_props};
+use compositor_background_two_shader_property::{Property, apply_optimized, has_optimized, parse_props};
 use compositor_background_two_shader_spirv::{VulkanModule, build_glsl, build_wgsl};
 use smithay::backend::renderer::gles::{GlesPixelProgram, GlesRenderer};
 use std::path::Path;
@@ -23,10 +23,16 @@ pub struct LoadedShader {
 /// Load the bundle named (or absolute-pathed) by `value` for the active renderer.
 /// Returns the compiled shader (or `None` → built-in) plus the compile error
 /// when a source for this renderer existed but failed (for the settings status).
+///
+/// `optimized` asks for the shader's cheap variant. It only bites when the source
+/// actually declares `@optimized` knobs; for anything else the reference source
+/// compiles and the flag is dropped, so the id keeps matching the reference and no
+/// duplicate pipeline is built for identical SPIR-V.
 pub fn load(
     renderer: &mut GlesRenderer,
     prefers_dmabuf: bool,
     value: &str,
+    optimized: bool,
 ) -> (Option<LoadedShader>, Option<String>) {
     // A `builtin:` world compiles from an embedded WGSL source — no disk access.
     // It runs only on the Vulkan (dmabuf) path; on GLES there is no built-in
@@ -36,7 +42,9 @@ pub fn load(
             return (None, None);
         }
         let properties = parse_props(src);
-        return match build_wgsl(src, builtin_id(value)) {
+        let opt = optimized && has_optimized(src);
+        let src = if opt { apply_optimized(src) } else { src.to_string() };
+        return match build_wgsl(&src, variant(builtin_id(value), opt)) {
             Ok(m) => (Some(LoadedShader { properties, gles: None, vulkan: Some(m) }), None),
             Err(e) => {
                 error!("background.shader: builtin {value}: {e}");
@@ -57,7 +65,12 @@ pub fn load(
             }
         };
         let properties = parse_props(&src);
-        let id = hash_path(&path);
+        // Same deal as the built-in path: a bundle that declares `@optimized`
+        // knobs gets its cheap variant here, which is how a user shader lights up
+        // the same toggle without any per-bundle plumbing.
+        let opt = optimized && has_optimized(&src);
+        let src = if opt { apply_optimized(&src) } else { src };
+        let id = variant(hash_path(&path), opt);
         let result = match fmt {
             Format::GlesFrag => compile_gles(renderer, &src).map(|p| LoadedShader {
                 properties: properties.clone(),
@@ -97,9 +110,12 @@ fn compile_gles(r: &mut GlesRenderer, src: &str) -> Result<GlesPixelProgram, Str
 /// format AND that source compiles (the settings preview feeds it straight to
 /// wgpu, where an invalid module is a fatal error, not a fallback). `None` for
 /// GLSL/GLES-only or broken bundles, so the preview uses the built-in shader.
-pub fn preview_wgsl(value: &str) -> Option<String> {
+/// `optimized` applies the same `@optimized` rewrite the runtime path uses, so the
+/// panel previews the variant actually on screen rather than the reference.
+pub fn preview_wgsl(value: &str, optimized: bool) -> Option<String> {
+    let opt = |s: &str| if optimized { apply_optimized(s) } else { s.to_string() };
     if let Some(src) = compositor_background_two_shader_builtin::source(value) {
-        return Some(src.to_string());
+        return Some(opt(src));
     }
     let bundle = resolve_ref(value);
     // WGSL bundles: use directly (validated so the wgpu preview never crashes).
@@ -107,7 +123,7 @@ pub fn preview_wgsl(value: &str) -> Option<String> {
         if let Some(path) = source_path(&bundle, fmt) {
             if let Ok(src) = std::fs::read_to_string(&path) {
                 if build_wgsl(&src, 0).is_ok() {
-                    return Some(src);
+                    return Some(opt(&src));
                 }
             }
         }
@@ -121,6 +137,24 @@ pub fn preview_wgsl(value: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Whether this selection ships an optimized variant — i.e. whether its source
+/// declares any `@optimized` knob. Drives whether the settings toggle is live or
+/// greyed out; a toggle that silently did nothing would be a lie.
+pub fn supports_optimized(value: &str) -> bool {
+    if let Some(src) = compositor_background_two_shader_builtin::source(value) {
+        return has_optimized(src);
+    }
+    let bundle = resolve_ref(value);
+    for fmt in [Format::VulkanWgsl, Format::Wgsl, Format::Glsl, Format::GlesFrag] {
+        if let Some(path) = source_path(&bundle, fmt) {
+            if let Ok(src) = std::fs::read_to_string(&path) {
+                return has_optimized(&src);
+            }
+        }
+    }
+    false
 }
 
 /// Parse the `@prop` properties for a bundle selection (any format file carries
@@ -146,6 +180,17 @@ fn hash_path(p: &Path) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     p.hash(&mut h);
     h.finish() | 0xF000_0000_0000_0000
+}
+
+/// The optimized twin's pipeline-cache id.
+///
+/// It MUST differ from the reference's. The renderer's cache is keyed on
+/// `(id, format)` alone and a hit ignores the SPIR-V bytes entirely, so sharing
+/// an id would keep drawing the reference pipeline until the compositor restarts.
+/// XOR of a bit inside the payload keeps the top nibble — and therefore the
+/// built-in / bundle id-space split — intact.
+fn variant(id: u64, optimized: bool) -> u64 {
+    if optimized { id ^ 0x0800_0000_0000_0000 } else { id }
 }
 
 /// A stable pipeline-cache id for a built-in world, in a range distinct from the

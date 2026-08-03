@@ -58,6 +58,10 @@ pub mod error;
 pub mod handle;
 pub mod input;
 pub mod instance;
+pub mod publish;
+pub mod worker;
+pub mod erase;
+pub mod remote;
 pub mod registry;
 pub mod space;
 

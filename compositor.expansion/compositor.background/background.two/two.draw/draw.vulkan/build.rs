@@ -3,8 +3,10 @@
 //! Compiles the WGSL parallax shaders to SPIR-V via naga at build time; `vulkan.rs`
 //! embeds the results with `include_bytes!`. Both modules expose `vs_main` +
 //! `fs_main`:
-//! - parallax.wgsl:     SDR parallax background
-//! - parallax_hdr.wgsl: HDR-graded (BT.2020 + PQ) parallax background
+//! - parallax.wgsl:           SDR parallax background
+//! - parallax_hdr.wgsl:       HDR-graded (BT.2020 + PQ) parallax background
+//! - parallax_optimized.wgsl: the cheap SDR variant, for the per-world
+//!   "Optimized" toggle — same scene and same 112-byte push, far less noise
 
 use std::path::Path;
 
@@ -36,4 +38,5 @@ fn compile(name: &str) {
 fn main() {
     compile("parallax");
     compile("parallax_hdr");
+    compile("parallax_optimized");
 }

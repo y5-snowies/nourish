@@ -148,6 +148,13 @@ pub enum SettingsMessage {
     SetReleaseHidden(bool),
     /// Fractional-scale strategy for invisible windows: "off" | "optimized" | "full".
     SetFractionalInvisible(String),
+    /// Background triple buffering (forwarded; persisted). Carries the whole
+    /// struct like `SetFlip`, so the enable, the presets and the individual knobs
+    /// share one variant. Knobs apply live; `enabled` takes effect on RESTART.
+    SetTripleBuffer(compositor_model_environment_background_base::base::TripleBufferBackground),
+    /// UI (iced + bevy) triple buffering. Separate from `SetTripleBuffer`: they
+    /// are different subsystems with different knobs, and only the name is shared.
+    SetInterfaceBuffer(compositor_model_environment_interface_base::base::TripleBufferUI),
     /// Page-flip policy — tearing plus its pacing fallback (forwarded; persisted
     /// to preferences.json and mirrored live into the scanout global, no reboot).
     /// Carries the whole struct like `Env`/`Ime`, so all eight fields across both
@@ -219,11 +226,20 @@ pub enum SettingsMessage {
     /// Gamma-encode the current world's background to sRGB (forwarded: persists +
     /// flips the live background, no rebuild). On = brighter, preview-matching output.
     SetWorldSrgb(bool),
+    /// Render the current world's background with the built-in parallax's cheap
+    /// variant (forwarded: persists + swaps the live background's SPIR-V, no
+    /// rebuild). Only the built-in has one, so the toggle is disabled when the
+    /// world has a shader selected.
+    SetWorldOptimized(bool),
     /// The current world's pan-inversion state (invert X, invert Y), pushed by the
     /// embed (NOT forwarded): sets the toggles when the panel opens / the world switches.
     SyncWorldInvert(bool, bool),
     /// The current world's sRGB-output state, pushed by the embed (NOT forwarded).
     SyncWorldSrgb(bool),
+    /// The current world's optimized-variant state, pushed by the embed (NOT
+    /// forwarded): `(on, available)`. `available` is false when the selected shader
+    /// declares no `@optimized` knobs, which greys the toggle out.
+    SyncWorldOptimized(bool, bool),
     /// Audio (forwarded): make a sink default / set a sink's volume / mute a sink.
     SetDefaultSink(String),
     SetSinkVolume(String, f32),

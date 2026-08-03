@@ -11,7 +11,9 @@ use bevy::render::{
     },
     settings::{RenderCreation, RenderResources},
 };
-use compositor_support_bevy_core_bridge_base::{BridgeDirection, BridgeEntry, BridgeRegistry};
+use compositor_support_bevy_core_bridge_base::{
+    BridgeDirection, BridgeEntry, BridgeRegistry, OUTPUT_LABEL,
+};
 use compositor_support_bevy_core_install_base::BridgeRegistryPlugin;
 use compositor_support_bevy_core_placeholder_base::create_output_placeholder;
 use compositor_support_bevy_core_scene_base::BevyScene;
@@ -45,7 +47,7 @@ pub fn build_app<S: BevyScene>(
             handle: output_handle.clone(),
             installed: Arc::new(Mutex::new(false)),
             direction: BridgeDirection::Output,
-            label: "bevy_output",
+            label: OUTPUT_LABEL,
         });
     }
 

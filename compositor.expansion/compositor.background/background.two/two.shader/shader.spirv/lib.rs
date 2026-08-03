@@ -9,16 +9,23 @@
 use naga::back::spv;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use naga::{Module, ShaderStage};
+use std::sync::Arc;
 
 /// A compiled Vulkan shader ready for the renderer's fullscreen pass. When
 /// `vert_spv` is `Some`, the vertex stage lives in that separate module;
 /// otherwise `spv` holds both stages.
+///
+/// The module bytes are `Arc` rather than `Vec`/`String` because the draw seam
+/// hands a variant to the renderer on EVERY draw call of EVERY frame, while the
+/// renderer only reads the bytes once (on the pipeline-cache miss). Owning them
+/// behind an `Arc` makes that per-frame hand-off a refcount bump instead of a
+/// deep copy of the whole SPIR-V blob.
 pub struct VulkanModule {
     pub id: u64,
-    pub spv: Vec<u8>,
-    pub vert_spv: Option<Vec<u8>>,
-    pub vert_entry: String,
-    pub frag_entry: String,
+    pub spv: Arc<[u8]>,
+    pub vert_spv: Option<Arc<[u8]>>,
+    pub vert_entry: Arc<str>,
+    pub frag_entry: Arc<str>,
 }
 
 /// A fullscreen-triangle vertex stage (clip-space), used as the separate vertex
@@ -75,16 +82,16 @@ pub fn glsl_to_preview_wgsl(src: &str) -> Result<String, String> {
     Ok(format!("{FULLSCREEN_VS}\n{}", wgsl.replace("fn main(", "fn fs_main(")))
 }
 
-fn entry(m: &Module, stage: ShaderStage) -> Option<String> {
-    m.entry_points.iter().find(|e| e.stage == stage).map(|e| e.name.clone())
+fn entry(m: &Module, stage: ShaderStage) -> Option<Arc<str>> {
+    m.entry_points.iter().find(|e| e.stage == stage).map(|e| e.name.as_str().into())
 }
 
-fn to_spirv(module: &Module) -> Result<Vec<u8>, String> {
+fn to_spirv(module: &Module) -> Result<Arc<[u8]>, String> {
     let info = Validator::new(ValidationFlags::all(), Capabilities::all())
         .validate(module)
         .map_err(|e| format!("validate: {e:?}"))?;
     let mut opts = spv::Options::default();
     opts.flags.remove(spv::WriterFlags::ADJUST_COORDINATE_SPACE);
     let words = spv::write_vec(module, &info, &opts, None).map_err(|e| format!("spv: {e:?}"))?;
-    Ok(words.iter().flat_map(|w| w.to_le_bytes()).collect())
+    Ok(words.iter().flat_map(|w| w.to_le_bytes()).collect::<Vec<u8>>().into())
 }

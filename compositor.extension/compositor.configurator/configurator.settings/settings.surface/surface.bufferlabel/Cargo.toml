@@ -1,0 +1,11 @@
+[package]
+name = "compositor_configurator_settings_surface_bufferlabel"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_model_environment_background_preset = { workspace = true }
+compositor_model_environment_interface_preset = { workspace = true }
+
+[lib]
+path = "lib.rs"

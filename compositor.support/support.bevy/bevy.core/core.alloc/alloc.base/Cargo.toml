@@ -7,6 +7,7 @@ edition = "2024"
 path = "lib.rs"
 
 [dependencies]
+compositor_kernel_graphic_bridge_negotiate_report = { workspace = true }
 compositor_support_bevy_core_fault_base = { workspace = true }
 compositor_model_debug_instance_record = { workspace = true }
 compositor_model_stats_registry_gpu = { workspace = true }

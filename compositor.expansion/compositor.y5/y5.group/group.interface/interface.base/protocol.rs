@@ -75,10 +75,7 @@ fn handle_ice(_loop: &mut Loop, renderer: &mut GlesRenderer, message: GroupBuffe
             .registry
             .as_mut()
             .unwrap()
-            .instance_mut(handle)
-            .unwrap()
-            .runtime_mut()
-            .set_message_handler(move |message: &GroupMessage| __dispatch(group_id, message, &tx));
+            .set_message_handler(handle, move |message: &GroupMessage| __dispatch(group_id, message, &tx));
     }
 }
 

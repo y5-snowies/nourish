@@ -69,18 +69,31 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
     return o;
 }
 
+// `hash` is a pure function of two fract lanes: the vec3's z lane always
+// duplicates x, since both are `fract(p.x * 0.1031)`. Splitting the lane setup
+// out lets `noise` compute its four corner lanes once and share them across all
+// four taps. Every operand and operation order below is unchanged, so the output
+// is bit-identical to the vec3 form this replaced.
+fn hash_lane(x: f32, y: f32) -> f32 {
+    let p3 = vec3<f32>(x, y, x);
+    let d = dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + vec3<f32>(33.33));
+    return fract(((x + d) + (y + d)) * (x + d));
+}
 fn hash(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 = p3 + dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + vec3<f32>(33.33));
-    return fract((p3.x + p3.y) * p3.z);
+    let q = fract(p * 0.1031);
+    return hash_lane(q.x, q.y);
 }
 fn noise(p: vec2<f32>) -> f32 {
     let i = floor(p);
     var f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
+    // One vec4 mul+fract for all four corner lanes, each still computed exactly as
+    // the four separate `hash` calls did: fract(i.x*K), fract((i.x+1)*K),
+    // fract(i.y*K), fract((i.y+1)*K).
+    let q = fract(vec4<f32>(i.x, i.x + 1.0, i.y, i.y + 1.0) * 0.1031);
     return mix(
-        mix(hash(i), hash(i + vec2<f32>(1.0, 0.0)), f.x),
-        mix(hash(i + vec2<f32>(0.0, 1.0)), hash(i + vec2<f32>(1.0, 1.0)), f.x),
+        mix(hash_lane(q.x, q.z), hash_lane(q.y, q.z), f.x),
+        mix(hash_lane(q.x, q.w), hash_lane(q.y, q.w), f.x),
         f.y,
     );
 }
@@ -155,7 +168,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var wcol = vec3<f32>(0.010, 0.016, 0.022) * (0.65 + 0.7 * wave);
     wcol = mix(wcol, vec3<f32>(0.040, 0.050, 0.064), fogd * 0.8);
     // Crests catch a little pale light; a slope tap gives moonlit facets.
-    let crest = pow(clamp(wave * 1.4 - 0.35, 0.0, 1.0), 2.0);
+    let cw = clamp(wave * 1.4 - 0.35, 0.0, 1.0);
+    let crest = cw * cw;
     wcol = wcol + vec3<f32>(0.50, 0.60, 0.75) * crest * 0.05 * (0.4 + 0.6 * moonlight) * det;
     let w2b = noise(vec2<f32>(wx * 4.2 + 7.0, wzs * 6.0 - 0.30));
     let facet = clamp((w2 - w2b) * 3.0, 0.0, 1.0);
@@ -185,7 +199,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Glade: a sparkling column under the moon, widening as the mist thickens.
     let glade = exp(-abs(p.x - mp.x * 0.85) * (6.0 - 2.5 * fog))
               * exp(-max(dyp, 0.0) * 1.6) * step(0.0, dyp);
-    col = col + mc * glade * (0.04 + 0.28 * pow(w2, 6.0)) * moonlight;
+    let w2_3 = w2 * w2 * w2;
+    col = col + mc * glade * (0.04 + 0.28 * (w2_3 * w2_3)) * moonlight;
 
     // ---- Far shore: glow band plus a string of bokeh lights -----------------
     let glowc = mix(vec3<f32>(0.20, 0.28, 0.42), vec3<f32>(0.44, 0.28, 0.15), warmth);
@@ -484,7 +499,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     for (var side = 0; side < 2; side = side + 1) {
         let s = select(1.0, -1.0, side == 1);
         for (var k = 0; k < 4; k = k + 1) {
-            let zk = 0.35 * pow(2.0, f32(k)) * (1.0 + f32(side) * 0.35);
+            // exp2, not pow(2, k) — one SFU op instead of a log2/exp2 pair.
+            let zk = 0.35 * exp2(f32(k)) * (1.0 + f32(side) * 0.35);
             let dy = K / zk;
             let h = hash(vec2<f32>(f32(k) * 7.0 + f32(side), 91.0));
             if (h > 1.0 - 0.45 * buoys) {
@@ -592,10 +608,23 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     l = l * l * (3.0 - 2.0 * l);
     col = mix(col, col * 0.5 + vec3<f32>(0.004, 0.006, 0.010), l);
 
-    let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
-    col = col * mix(1.0, vig, clamp(vignette, 0.0, 1.0));
+    // Guarded because the default is off: the length() and the smoothstep would
+    // otherwise run on every pixel only to be multiplied by 1.0. The guard also
+    // makes a 0 softness safe — that smoothstep divides by zero, and
+    // mix(1.0, NaN, 0.0) is NaN, not 1.0.
+    let vig_amount = clamp(vignette, 0.0, 1.0);
+    if (vig_amount > 0.0) {
+        let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
+        col = col * mix(1.0, vig, vig_amount);
+    }
     // Per-world sRGB flag (push lock_alpha.z): gamma-encode for the brighter,
     // preview-matching look on a non-sRGB scanout buffer. Off = raw values.
-    let outc = select(col, pow(max(col, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)), pc.lock_alpha.z > 0.5);
+    var outc = col;
+    // An `if`, not `select` — `select` evaluates both arms, so these three
+    // pow()s ran on every pixel even with the flag off (the default). The branch is
+    // on a push constant, so it is uniform across the whole draw.
+    if (pc.lock_alpha.z > 0.5) {
+        outc = pow(max(outc, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
+    }
     return vec4<f32>(outc, 1.0) * (alpha * 0.75);
 }

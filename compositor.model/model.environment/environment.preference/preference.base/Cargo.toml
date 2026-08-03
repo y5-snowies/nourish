@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_model_debug_instance_record = { workspace = true }
 # Live, inline-reloaded user preferences (cursor speed, touch natural-scroll,
 # per-EDID output modes), persisted to ~/.config/y5.compositor/preferences.json.
 # Distinct from the read-once `environment.config` (settings.json); reuses that
@@ -11,6 +12,9 @@ edition = "2024"
 compositor_model_environment_config_base = { workspace = true }
 compositor_model_environment_graphics_base = { workspace = true }
 compositor_model_environment_tearing_config = { workspace = true }
+compositor_model_environment_background_base = { workspace = true }
+compositor_model_environment_interface_base = { workspace = true }
+compositor_model_stats_registry_base = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

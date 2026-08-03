@@ -35,9 +35,7 @@ pub fn create(
     let tx = state.inner.surface_mut().surface_message_buffer_channel.0.clone();
     let registry = state.inner.surface_mut().registry.as_mut()?;
     registry
-        .instance_mut(handle)?
-        .runtime_mut()
-        .set_message_handler(move |m: &PickerSurfaceMessage| dispatch(m, &tx));
+        .set_message_handler(handle, move |m: &PickerSurfaceMessage| dispatch(m, &tx));
     Some(handle)
 }
 

@@ -138,12 +138,31 @@ impl VulkanRenderer {
 }
 
 impl ImportDma for VulkanRenderer {
+    /// EVERY fourcc `query::vk_format` maps, not just the 8-bit ones.
+    ///
+    /// This list is what `import_dmabuf` will accept, and that function decides
+    /// by calling `vk_format` — so any code the map handles but this list omits
+    /// is a format the renderer can import while claiming it cannot. The 10-bit
+    /// codes were the omission: `vk_format` has mapped them all along, the
+    /// scanout ladder offers them when deep colour is on, and the background
+    /// worker now renders `Argb2101010` — while this said 8-bit only.
+    ///
+    /// Nothing here is asserted. `render_formats` drops any code the device
+    /// cannot colour-attach and any that reports no DRM modifier, so on hardware
+    /// without 10-bit support the set comes back exactly as before.
+    ///
+    /// Keep in step with `vk_format`: a code added there and not here is
+    /// invisible; a code here and not there is filtered out harmlessly.
     fn dmabuf_formats(&self) -> smithay::backend::allocator::format::FormatSet {
         const FOURCCS: &[Fourcc] = &[
             Fourcc::Argb8888,
             Fourcc::Xrgb8888,
             Fourcc::Abgr8888,
             Fourcc::Xbgr8888,
+            Fourcc::Argb2101010,
+            Fourcc::Xrgb2101010,
+            Fourcc::Abgr2101010,
+            Fourcc::Xbgr2101010,
         ];
         compositor_kernel_vulkan_format_modifier_base::modifier::render_formats(&self.phd, FOURCCS)
     }

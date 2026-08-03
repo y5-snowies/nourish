@@ -28,18 +28,31 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
     return o;
 }
 
+// `hash` is a pure function of two fract lanes: the vec3's z lane always
+// duplicates x, since both are `fract(p.x * 0.1031)`. Splitting the lane setup
+// out lets `noise` compute its four corner lanes once and share them across all
+// four taps. Every operand and operation order below is unchanged, so the output
+// is bit-identical to the vec3 form this replaced.
+fn hash_lane(x: f32, y: f32) -> f32 {
+    let p3 = vec3<f32>(x, y, x);
+    let d = dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + vec3<f32>(33.33));
+    return fract(((x + d) + (y + d)) * (x + d));
+}
 fn hash(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 = p3 + dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + vec3<f32>(33.33));
-    return fract((p3.x + p3.y) * p3.z);
+    let q = fract(p * 0.1031);
+    return hash_lane(q.x, q.y);
 }
 fn noise(p: vec2<f32>) -> f32 {
     let i = floor(p);
     var f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
+    // One vec4 mul+fract for all four corner lanes, each still computed exactly as
+    // the four separate `hash` calls did: fract(i.x*K), fract((i.x+1)*K),
+    // fract(i.y*K), fract((i.y+1)*K).
+    let q = fract(vec4<f32>(i.x, i.x + 1.0, i.y, i.y + 1.0) * 0.1031);
     return mix(
-        mix(hash(i), hash(i + vec2<f32>(1.0, 0.0)), f.x),
-        mix(hash(i + vec2<f32>(0.0, 1.0)), hash(i + vec2<f32>(1.0, 1.0)), f.x),
+        mix(hash_lane(q.x, q.z), hash_lane(q.y, q.z), f.x),
+        mix(hash_lane(q.x, q.w), hash_lane(q.y, q.w), f.x),
         f.y,
     );
 }
@@ -59,18 +72,26 @@ fn draw_planet(col: vec3<f32>, uv: vec2<f32>, center: vec2<f32>, radius: f32,
                light_side: vec3<f32>, dark_side: vec3<f32>, light_dir: vec2<f32>,
                band_freq: f32) -> vec3<f32> {
     let pp = uv - center;
-    let d = length(pp) - radius;
+    // Bail on the SQUARED distance. Almost every pixel on screen is outside every
+    // planet, and this way those pixels pay one dot and one compare instead of a
+    // sqrt, a subtract and a smoothstep — three times over, once per planet. `r`
+    // and `lit_dot` are then only paid by pixels that actually touch the disc, and
+    // the `mask <= 0.0` test this replaces is subsumed by the same bound.
+    let outer = radius + 0.004;
+    if (dot(pp, pp) > outer * outer) { return col; }
+    let r = length(pp);
+    let d = r - radius;
     let mask = smoothstep(0.004, -0.004, d);
-    if (mask <= 0.0) { return col; }
-    let lit = smoothstep(-radius * 0.6, radius * 0.6, dot(pp, light_dir));
+    let lit_dot = dot(pp, light_dir);
+    let lit = smoothstep(-radius * 0.6, radius * 0.6, lit_dot);
     var base = mix(dark_side, light_side, lit);
     if (band_freq > 0.0) {
         let band = sin(pp.y * band_freq + center.x * 3.0) * 0.5 + 0.5;
         let band_noise = fbm(pp * 15.0) * 0.15;
         base = mix(base, base * 0.75, smoothstep(0.2, 0.8, band + band_noise));
     }
-    let rim = smoothstep(radius * 0.5, radius, length(pp));
-    let rim_lit = smoothstep(-radius * 0.2, radius, dot(pp, light_dir));
+    let rim = smoothstep(radius * 0.5, radius, r);
+    let rim_lit = smoothstep(-radius * 0.2, radius, lit_dot);
     let atmosphere = light_side * rim * rim_lit * 0.5;
     return mix(col, base + atmosphere, mask);
 }
@@ -115,24 +136,36 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     var col = mix(vec3<f32>(0.01, 0.015, 0.04), vec3<f32>(0.04, 0.02, 0.09), frag.y / res.y);
 
-    let neb_uv = uv * 1.5 + pan * 0.0002 + flow * 0.0003 + vec2<f32>(time * 0.01, time * 0.005) * drift_speed;
-    let n = fbm(neb_uv);
-    let n2 = fbm(neb_uv * 2.5 - vec2<f32>(time * 0.015, time * 0.015) * drift_speed);
-    col = col + mix(vec3<f32>(0.25, 0.05, 0.35), vec3<f32>(0.05, 0.20, 0.45), n) * pow(n, 1.8) * 0.5 * nebula;
-    col = col + vec3<f32>(0.1, 0.3, 0.4) * pow(n2, 3.0) * 0.25 * nebula;
+    // The two 5-octave fbm calls are this shader's dominant cost — 40 hash
+    // evaluations per pixel — and both terms are scaled by `nebula`, so at 0 the
+    // whole block is wasted work. The branch is on a push constant, so it is
+    // uniform across the draw and costs nothing at the default of 1.
+    if (nebula > 0.0) {
+        let neb_uv = uv * 1.5 + pan * 0.0002 + flow * 0.0003 + vec2<f32>(time * 0.01, time * 0.005) * drift_speed;
+        let n = fbm(neb_uv);
+        let n2 = fbm(neb_uv * 2.5 - vec2<f32>(time * 0.015, time * 0.015) * drift_speed);
+        col = col + mix(vec3<f32>(0.25, 0.05, 0.35), vec3<f32>(0.05, 0.20, 0.45), n) * pow(n, 1.8) * 0.5 * nebula;
+        // n2*n2*n2, not pow(n2, 3.0): two multiplies instead of a log2/exp2 pair,
+        // and more accurate for it.
+        col = col + vec3<f32>(0.1, 0.3, 0.4) * (n2 * n2 * n2) * 0.25 * nebula;
+    }
 
-    for (var i = 1; i <= 3; i = i + 1) {
-        let depth = f32(i) * 0.5;
-        let sp = uv * (45.0 / depth) + pan * 0.001 * depth;
-        let id = floor(sp);
-        let fp = fract(sp) - 0.5;
-        let h = hash(id);
-        if (h > 1.0 - 0.04 * star_density) {
-            let twink = 0.5 + 0.5 * sin(time * 1.5 + h * 50.0);
-            let dd = length(fp);
-            let star_col = mix(vec3<f32>(0.7, 0.9, 1.0), vec3<f32>(1.0, 0.85, 0.7), fract(h * 133.7));
-            let glow = smoothstep(0.06, 0.0, dd) + smoothstep(0.2, 0.0, dd) * 0.3;
-            col = col + star_col * glow * twink / depth;
+    // At `star_density` 0 the threshold sits at 1.0, which `hash` never exceeds —
+    // the three layers would hash and discard. Skip them outright.
+    if (star_density > 0.0) {
+        for (var i = 1; i <= 3; i = i + 1) {
+            let depth = f32(i) * 0.5;
+            let sp = uv * (45.0 / depth) + pan * 0.001 * depth;
+            let id = floor(sp);
+            let fp = fract(sp) - 0.5;
+            let h = hash(id);
+            if (h > 1.0 - 0.04 * star_density) {
+                let twink = 0.5 + 0.5 * sin(time * 1.5 + h * 50.0);
+                let dd = length(fp);
+                let star_col = mix(vec3<f32>(0.7, 0.9, 1.0), vec3<f32>(1.0, 0.85, 0.7), fract(h * 133.7));
+                let glow = smoothstep(0.06, 0.0, dd) + smoothstep(0.2, 0.0, dd) * 0.3;
+                col = col + star_col * glow * twink / depth;
+            }
         }
     }
 
@@ -197,11 +230,22 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     // Optional vignette (slots 3..5): darken toward the edges when amount > 0.
     // Evaluated in screen space (zoom-independent) with knob-driven radius /
-    // softness so the framing stays consistent as the world zooms.
-    let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
-    col = col * mix(1.0, vig, clamp(vignette, 0.0, 1.0));
+    // softness so the framing stays consistent as the world zooms. Guarded because
+    // the default is off, and the `length()` + `smoothstep` would otherwise run per
+    // pixel only to be multiplied by 1.0. The guard also keeps a 0 softness safe:
+    // that smoothstep divides by zero, and `mix(1.0, NaN, 0.0)` is NaN, not 1.0.
+    let vig_amount = clamp(vignette, 0.0, 1.0);
+    if (vig_amount > 0.0) {
+        let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
+        col = col * mix(1.0, vig, vig_amount);
+    }
     // Per-world sRGB flag (push lock_alpha.z): gamma-encode so a non-sRGB scanout
-    // buffer shows the brighter, preview-matching look. Off = raw values.
-    let outc = select(col, pow(max(col, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)), pc.lock_alpha.z > 0.5);
-    return vec4<f32>(outc, 1.0) * (alpha * 0.75);
+    // buffer shows the brighter, preview-matching look. Off = raw values. An `if`,
+    // not `select` — `select` evaluates both arms, so the three `pow`s ran on every
+    // pixel even with the flag off (the default). The branch is on a push constant,
+    // so it is uniform across the draw.
+    if (pc.lock_alpha.z > 0.5) {
+        col = pow(max(col, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
+    }
+    return vec4<f32>(col, 1.0) * (alpha * 0.75);
 }

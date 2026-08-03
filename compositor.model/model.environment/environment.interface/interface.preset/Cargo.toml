@@ -1,0 +1,11 @@
+[package]
+name = "compositor_model_environment_interface_preset"
+version = "0.0.1"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+compositor_model_environment_interface_base = { workspace = true }
+serde = { workspace = true }

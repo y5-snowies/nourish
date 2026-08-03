@@ -24,11 +24,10 @@ workspace-lint gate first. Always prefer them.
 environment/build-release.sh system    # udev release build → sudo mv → /usr/bin/y5.compositor
 ```
 
-`build-release.sh <dev|system|remote>` always builds the **udev backend in
-release** (deploys target real hardware), then:
+`build-release.sh <dev|system>` always builds the **udev backend in
+release** (installs target real hardware), then:
 - `dev`    → `sudo cp` to `/usr/bin/y5.compositor.dev`
 - `system` → `sudo mv` to `/usr/bin/y5.compositor`
-- `remote` → `scp` to `y5@yrd.local:/home/y5/compositor`
 
 ## Compile only (no install), pick backend + profile
 

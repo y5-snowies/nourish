@@ -10,17 +10,22 @@ use std::sync::Arc;
 /// Resolve the active background shader for `selection` (a bundle name/path):
 /// a runtime-loaded GLES program or Vulkan module for the active renderer,
 /// falling back to the built-in `spacev3` (GLES) / native parallax (Vulkan).
+/// `optimized` picks the source's cheap variant when it declares one — unlike the
+/// stock parallax (whose two variants are both compiled in and chosen per draw),
+/// a runtime shader bakes the flag into its SPIR-V, so it is resolved HERE and a
+/// change of the flag has to come back through a rebuild.
 /// Also returns the effective `@prop` params: the shader's declared defaults,
 /// with `params_override` (the per-world edited values) overlaid slot-for-slot.
 pub fn build(
     renderer: &mut GlesRenderer,
     selection: Option<&str>,
     params_override: &[(String, f32)],
+    optimized: bool,
 ) -> (Option<GlesPixelProgram>, Option<Arc<VulkanModule>>, [f32; 16], Option<String>) {
     let prefers_dmabuf =
         compositor_model_stats_registry_base::base::compositor_prefers_dmabuf();
     let (loaded, error) = match selection {
-        Some(s) => compositor_background_two_shader_load::load(renderer, prefers_dmabuf, s),
+        Some(s) => compositor_background_two_shader_load::load(renderer, prefers_dmabuf, s, optimized),
         None => (None, None),
     };
     // Effective params: the shader's declared defaults, then this world's overrides
@@ -61,10 +66,10 @@ pub fn loaded_pass<'a>(
     NativeShaderPass {
         sdr: ShaderVariant {
             id: m.id,
-            spv: Cow::Borrowed(&m.spv),
-            vert_spv: m.vert_spv.as_deref().map(Cow::Borrowed),
-            vert_entry: Cow::Borrowed(&m.vert_entry),
-            frag_entry: Cow::Borrowed(&m.frag_entry),
+            spv: Arc::clone(&m.spv),
+            vert_spv: m.vert_spv.clone(),
+            vert_entry: Arc::clone(&m.vert_entry),
+            frag_entry: Arc::clone(&m.frag_entry),
             push: Cow::Owned(
                 compositor_background_two_draw_vulkan::vulkan::engine_push(u, params).to_vec(),
             ),

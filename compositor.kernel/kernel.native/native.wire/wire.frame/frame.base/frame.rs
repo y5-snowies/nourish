@@ -47,7 +47,25 @@ pub fn register(
 
     // ---- Redraw ping: fired by schedule_redraw while the vblank cycle is idle.
     let (redraw_ping, redraw_ping_source) = make_ping().unwrap();
-    state.state.redraw_ping = Some(redraw_ping);
+    state.state.redraw_ping = Some(redraw_ping.clone());
+    // The off-thread background wakes the compositor through this: an undamaged
+    // frame queues no flip, so no vblank arrives and the loop stops. While the
+    // background is the only thing animating, its publish is the only event that
+    // can restart it.
+    compositor_kernel_graphic_bridge_publish_wake::wake::set_offthread_waker(std::sync::Arc::new(
+        move || redraw_ping.ping(),
+    ));
+
+    // Last-resort unfreeze, independent of every producer's own rescue. Acts only
+    // after a full window with no flip at all, so it can never touch pacing.
+    let ctx_rescue = ctx_rc.clone();
+    compositor_kernel_native_wire_watchdog_idle::idle::arm(&event_loop.handle(), move || {
+        for pipe in ctx_rescue.borrow_mut().outputs.iter_mut() {
+            if let Some(o) = pipe.drm_output.as_mut() {
+                o.reset_buffers();
+            }
+        }
+    });
 
     let context_ping = ctx_rc.clone();
     let loop_handle_ping = event_loop.handle();
@@ -60,7 +78,17 @@ pub fn register(
         .insert_source(redraw_ping_source, move |_, _, state| {
             // We were pinged because something called schedule_redraw while
             // the VBlank cycle was idle. Run the executor to restart the cycle.
-            if state.take_needs_redraw() {
+            // The background publishing counts as needing a redraw: it is a
+            // producer the damage tracker cannot see until we sample it.
+            //
+            // GATED like `schedule_redraw_post_vblank`, and for the same reason:
+            // under exclusive pacing the tagged client is the sole continuation
+            // source, and the background sustaining the loop is precisely what
+            // that gate exists to stop. Short-circuited, so the flag survives the
+            // gate and the publish is not lost when exclusivity lifts.
+            let published = !compositor_support_smithay_state_tearing_gate::gate::engaged()
+                && compositor_kernel_graphic_bridge_publish_wake::wake::take_offthread_published();
+            if state.take_needs_redraw() || published {
                 // Sampled BEFORE execute, and that ordering is the whole point.
                 // `execute` SETS `in_flight` on every pipe it queues, so sampling
                 // afterwards cannot tell "a pipe was already flying and got

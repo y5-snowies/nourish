@@ -311,3 +311,27 @@ fn toggle_button<'a>(
     .style(style::button_with(bg))
     .into()
 }
+
+/// What the capture driver reads off this overlay when the user commits.
+#[derive(Clone, Debug)]
+pub struct SetupSnapshot {
+    pub kind: TargetKind,
+    pub media: CaptureMedia,
+    pub draft: Option<OverlayRect>,
+    pub no_background: bool,
+}
+
+/// These fields only move on a click, which has already been through a full
+/// update+render cycle by the time the driver reads them, so the one frame of
+/// staleness an off-thread snapshot carries is not observable.
+impl compositor_support_iced_core_engine_base::IcedSnapshot for SetupOverlay {
+    type Snapshot = SetupSnapshot;
+    fn snapshot(&self) -> SetupSnapshot {
+        SetupSnapshot {
+            kind: self.kind,
+            media: self.media,
+            draft: self.draft,
+            no_background: self.no_background,
+        }
+    }
+}

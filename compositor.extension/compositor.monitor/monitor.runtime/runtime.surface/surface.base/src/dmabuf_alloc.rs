@@ -78,12 +78,6 @@ pub fn allocate_dmabuf_on(
         .map_err(AllocError::OpenDrm)?;
     let drm_fd: OwnedFd = drm_file.into();
 
-    info!(
-        "Opened DRM render node {} (fd={})",
-        render_node.display(),
-        drm_fd.as_raw_fd()
-    );
-
     // 2. Wrap in a gbm device.
     let gbm = GbmDevice::new(drm_fd).map_err(AllocError::GbmInit)?;
 
@@ -97,11 +91,8 @@ pub fn allocate_dmabuf_on(
         )
         .map_err(AllocError::CreateBo)?;
 
-    info!(
-        "Allocated gbm BO {}x{}, format=ARGB8888, modifier={:?}",
-        width,
-        height,
-        bo.modifier(),
+    compositor_kernel_graphic_bridge_negotiate_report::report::allocation(
+        "iced surface", &render_node.display().to_string(), Fourcc::Argb8888, 0, bo.modifier(),
     );
 
     // 4. Export plane(s) as a Smithay Dmabuf.
@@ -127,13 +118,7 @@ pub fn allocate_dmabuf_on(
 
     let dmabuf = builder.build().ok_or(AllocError::BuildDmabuf)?;
 
-    info!(
-        "Built Dmabuf: size={:?}, format={:?}, num_planes={}, modifier={:?}",
-        dmabuf.size(),
-        dmabuf.format(),
-        dmabuf.num_planes(),
-        modifier,
-    );
+
 
     Ok(AllocatedDmabuf {
         dmabuf,
@@ -202,9 +187,8 @@ fn allocate_with_modifiers(
     let bo = gbm
         .create_buffer_object_with_modifiers2::<()>(width, height, gbm_fmt, gbm_mods, BufferObjectFlags::RENDERING)
         .map_err(AllocError::CreateBo)?;
-    trace!(
-        "negotiated BO {}x{} fourcc={:?} modifier={:?} planes={}",
-        width, height, fourcc, bo.modifier(), bo.plane_count()
+    compositor_kernel_graphic_bridge_negotiate_report::report::allocation(
+        "iced surface", &render_node.display().to_string(), fourcc, modifiers.len(), bo.modifier(),
     );
 
     let plane_count = bo.plane_count();

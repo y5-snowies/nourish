@@ -91,7 +91,43 @@ pub fn bridge_modifiers(
     fourcc: Fourcc,
 ) -> Vec<Modifier> {
     use compositor_model_environment_experimental_base::base as ex;
-    BridgeFormats::intersect(&[renderer, wgpu_importable]).modifiers_for(fourcc, ex::get(), ex::raw())
+    let (had_renderer, had_wgpu) = (renderer.iter().count(), wgpu_importable.iter().count());
+    let mods = BridgeFormats::intersect(&[renderer, wgpu_importable])
+        .modifiers_for(fourcc, ex::get(), ex::raw());
+    report(fourcc, had_renderer, had_wgpu, &mods);
+    mods
+}
+
+/// Say so, ONCE, when two non-empty format sets share nothing.
+///
+/// This is the split-device signature and it is otherwise completely silent: an
+/// empty list is the allocator's documented "use the implicit path", which is
+/// also what a single-GPU machine with the negotiation flag off produces. The
+/// difference is that here it was not asked for — the two ends are on different
+/// GPUs and their vendor tiled modifiers (`I915_FORMAT_MOD_*` against
+/// `AMD_FMT_MOD_*` or NVIDIA block-linear) simply share no values, so the exact
+/// `(fourcc, modifier)` intersection empties out. The implicit allocation that
+/// follows can report modifier INVALID, which is the wgpu-import failure the
+/// negotiated path exists to prevent.
+///
+/// Latched, because this is a property of the machine's configuration, not of
+/// the call — and the call happens per slot per surface per resize.
+fn report(fourcc: Fourcc, renderer: usize, wgpu: usize, mods: &[Modifier]) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static SAID: AtomicBool = AtomicBool::new(false);
+    if !mods.is_empty() || renderer == 0 || wgpu == 0 {
+        return;
+    }
+    if SAID.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    warn!(
+        "bridge: no shared modifier for {fourcc:?} — the renderer offers {renderer} format(s) \
+         and wgpu {wgpu}, and they intersect in none. Falling back to implicit allocation, \
+         which can yield modifier INVALID and be refused on import. This is what a \
+         render_node on a different GPU from the scanout device looks like; check \
+         `gpu topology:` above."
+    );
 }
 
 /// Resolve FORCE_LINEAR / FORCE_TILED; when both are set, last-in-`raw` wins.

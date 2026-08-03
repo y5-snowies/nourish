@@ -64,6 +64,7 @@ impl System for TwoSystem {
         let invert_pan_x = state.invert_pan_x;
         let invert_pan_y = state.invert_pan_y;
         let srgb = state.srgb;
+        let optimized = state.optimized;
         if rebuild {
             if let Some(renderer) = cx
                 .platform
@@ -74,10 +75,18 @@ impl System for TwoSystem {
                 let sel = override_sel.or_else(
                     compositor_model_stats_registry_base::base::background_shader_default,
                 );
-                let mut instance = ParallaxBackground::new(renderer, size, sel.as_deref(), &params);
+                // `optimized` goes IN to `new` (a runtime shader resolves its
+                // variant at compile time) as well as onto the instance (the stock
+                // parallax re-picks per draw).
+                let mut instance =
+                    ParallaxBackground::new(renderer, size, sel.as_deref(), &params, optimized);
                 instance.invert_pan_x = invert_pan_x;
                 instance.invert_pan_y = invert_pan_y;
                 instance.srgb = srgb;
+                // Off-thread background (Vulkan only; the GLES path never takes
+                // it). Shared with every other construction site — see
+                // `ParallaxBackground::attach_worker`.
+                instance.attach_worker();
                 cx.write(&TWO_BUF, TwoCmd::SetInstance(instance));
             }
             return;

@@ -201,7 +201,7 @@ pub fn assemble() -> DisplayAssembly {
         .map(|(_, path)| path)
         .expect("Could not find any usable DRM devices! Check seat configuration.");
 
-    info!("Selected render node: {:?}", primary_gpu.dev_path());
+    compositor_kernel_graphic_bridge_negotiate_report::report::node("scanout + client import (GLES GpuManager, GBM)", &format!("{:?}", primary_gpu.dev_path()));
 
     // 4. Open through the seat; wrap; DRM + GBM devices.
     let fd = compositor_kernel_seat_interface_open_base::open::open(&mut session, &device_path);

@@ -130,7 +130,7 @@ Build/run/deploy the actual compositor go through the scripts in **`environment/
 build/run + release) and **`environment.container/`** (the containerized dev loop under nested
 Wayland). See **`environment/README.md`** for the full list; the common ones are
 `environment/run-host.sh [winit|udev] [debug|release]` and
-`environment/build-release.sh <dev|system|remote>` on the host, and
+`environment/build-release.sh <dev|system>` on the host, and
 `environment.container/run.sh [debug|release]` + `environment.container/image.sh` for the
 container loop. These scripts discover the entry crate and the workspace set themselves, so
 they don't need editing when names change.

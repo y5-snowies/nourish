@@ -63,10 +63,7 @@ pub fn open(state: &mut Loop, renderer: &mut GlesRenderer) {
         .registry
         .as_mut()
         .unwrap_or_else(|| abort!("surface registry"))
-        .instance_mut(handle)
-        .unwrap_or_else(|| abort!("overview menu instance"))
-        .runtime_mut()
-        .set_message_handler(move |message: &OverviewMessage| dispatch(message, &tx));
+        .set_message_handler(handle, move |message: &OverviewMessage| dispatch(message, &tx));
 
     state.inner.overview_mut().menu = Some(handle.id);
 
@@ -111,10 +108,7 @@ pub fn open_logout(state: &mut Loop, renderer: &mut GlesRenderer) {
         .registry
         .as_mut()
         .unwrap_or_else(|| abort!("surface registry"))
-        .instance_mut(handle)
-        .unwrap_or_else(|| abort!("logout popup instance"))
-        .runtime_mut()
-        .set_message_handler(move |message: &LogoutMessage| dispatch_logout(message, &tx));
+        .set_message_handler(handle, move |message: &LogoutMessage| dispatch_logout(message, &tx));
 
     state.inner.overview_mut().logout = Some(handle.id);
     // Draw on top of the menu bar / overlay content.

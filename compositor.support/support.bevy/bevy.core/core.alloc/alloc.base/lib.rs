@@ -55,7 +55,6 @@ pub fn allocate_dmabuf_on(
         .map_err(AllocError::OpenDrm)?;
     let drm_fd: OwnedFd = drm_file.into();
 
-    info!("Opened DRM render node {} (fd={})", render_node.display(), drm_fd.as_raw_fd());
 
     let gbm = GbmDevice::new(drm_fd).map_err(AllocError::GbmInit)?;
 
@@ -68,7 +67,9 @@ pub fn allocate_dmabuf_on(
         )
         .map_err(AllocError::CreateBo)?;
 
-    info!("Allocated gbm BO {}x{}, format=ARGB8888, modifier={:?}", width, height, bo.modifier());
+    compositor_kernel_graphic_bridge_negotiate_report::report::allocation(
+        "bevy/iced surface", &render_node.display().to_string(), Fourcc::Argb8888, 0, bo.modifier(),
+    );
 
     let plane_count = bo.plane_count();
     let modifier = bo.modifier();
@@ -157,9 +158,8 @@ fn allocate_with_modifiers(
     let bo = gbm
         .create_buffer_object_with_modifiers2::<()>(width, height, gbm_fmt, gbm_mods, BufferObjectFlags::RENDERING)
         .map_err(AllocError::CreateBo)?;
-    info!(
-        "negotiated BO {}x{} fourcc={:?} modifier={:?} planes={}",
-        width, height, fourcc, bo.modifier(), bo.plane_count()
+    compositor_kernel_graphic_bridge_negotiate_report::report::allocation(
+        "bevy/iced surface", &render_node.display().to_string(), fourcc, modifiers.len(), bo.modifier(),
     );
 
     let plane_count = bo.plane_count();

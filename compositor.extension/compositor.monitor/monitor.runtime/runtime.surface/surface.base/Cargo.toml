@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+compositor_kernel_graphic_bridge_negotiate_report = { workspace = true }
+compositor_kernel_graphic_bridge_negotiate_compositor = { workspace = true }
 compositor_model_debug_instance_record = { workspace = true }
 smithay = { workspace = true }
 wgpu = { workspace = true }
@@ -17,3 +19,5 @@ compositor_model_stats_registry_gpu = { workspace = true }
 compositor_kernel_graphic_bridge_negotiate_wgpu = { workspace = true }
 compositor_kernel_graphic_bridge_negotiate_base = { workspace = true }
 compositor_kernel_graphic_bridge_negotiate_classify = { workspace = true }
+compositor_kernel_graphic_bridge_publish_ring = { workspace = true }
+compositor_model_environment_interface_base = { workspace = true }

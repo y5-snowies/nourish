@@ -2,6 +2,7 @@ use smithay::backend::renderer::gles::{GlesFrame, GlesPixelProgram, GlesRenderer
 use smithay::backend::renderer::{Frame, Renderer, RendererSuper};
 use smithay::utils::{Buffer as BufferCoord, Physical, Rectangle, Size};
 use std::borrow::Cow;
+use std::sync::Arc;
 
 /// Renderer-agnostic uniform values for the parallax background shader. The GLES
 /// path ignores these (it uses named `Uniform`s + its compiled `GlesPixelProgram`);
@@ -29,19 +30,25 @@ pub struct ParallaxUniforms {
 /// builds/caches a pipeline keyed by `id` and draws it with `push`; renderers
 /// without that path ignore it. The producing scene element owns the shader
 /// bytes and the push layout, so no shader-specific knowledge leaks into the
-/// renderer. `Cow` so both built-in (`'static`) and runtime-compiled (owned)
-/// shader bytes flow through the same seam.
+/// renderer.
+///
+/// The module bytes are `Arc`, not `Cow`: this seam is crossed on every draw
+/// call of every frame, but the renderer only reads the bytes once, when its
+/// pipeline cache misses. `Arc` lets both built-in (`'static`) and
+/// runtime-compiled shaders flow through the same seam while making the
+/// per-frame hand-off a refcount bump rather than a deep copy of the blob.
+/// `push` stays a `Cow` — it is ~112 bytes and genuinely differs per draw.
 #[derive(Clone)]
 pub struct ShaderVariant<'a> {
     /// Stable per-shader id, used as the renderer's pipeline-cache key.
     pub id: u64,
     /// SPIR-V module bytes. Holds both entry points unless `vert_spv` is set.
-    pub spv: Cow<'a, [u8]>,
+    pub spv: Arc<[u8]>,
     /// Separate vertex-stage SPIR-V module (set when the fragment was compiled
     /// alone, e.g. a `glsl/` bundle paired with a fullscreen vertex).
-    pub vert_spv: Option<Cow<'a, [u8]>>,
-    pub vert_entry: Cow<'a, str>,
-    pub frag_entry: Cow<'a, str>,
+    pub vert_spv: Option<Arc<[u8]>>,
+    pub vert_entry: Arc<str>,
+    pub frag_entry: Arc<str>,
     /// Push-constant bytes for this draw (already packed by the producer).
     pub push: Cow<'a, [u8]>,
 }

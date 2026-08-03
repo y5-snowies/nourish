@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_model_debug_instance_record = { workspace = true }
 smithay = { workspace = true }
 compositor_model_environment_experimental_base = { workspace = true }
 compositor_kernel_graphic_bridge_negotiate_classify = { workspace = true }
