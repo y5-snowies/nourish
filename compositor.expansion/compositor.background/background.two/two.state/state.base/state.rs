@@ -22,6 +22,12 @@ pub struct Two {
     /// colour so the non-sRGB scanout buffer shows the brighter, preview-matching
     /// look (default off = raw values). Persisted per world.
     pub srgb: bool,
+    /// Per-world "Optimized" shader variant: render the built-in parallax with its
+    /// cheap twin (`parallax_optimized.wgsl`) instead of the reference — same scene,
+    /// far less value noise, for a GPU that cannot afford the real one. Default off,
+    /// persisted per world. Only the built-in has an optimized variant today, so a
+    /// world with a shader override ignores it (and the settings toggle is disabled).
+    pub optimized: bool,
 }
 
 impl Two {
@@ -34,6 +40,7 @@ impl Two {
             invert_pan_x: false,
             invert_pan_y: false,
             srgb: false,
+            optimized: false,
         }
     }
 }

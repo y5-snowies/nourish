@@ -29,6 +29,10 @@ pub struct Settings {
     pub osk_world_position: bool,
     pub show_fps: bool,
     pub release_hidden: bool,
+    /// Background triple buffering. Only `enabled` needs a restart; the knobs are live.
+    pub background_triple_buffer: compositor_model_environment_background_base::base::TripleBufferBackground,
+    /// UI (iced + bevy) triple buffering. Fully live, `enabled` included.
+    pub interface_triple_buffer: compositor_model_environment_interface_base::base::TripleBufferUI,
     /// Fractional-scale strategy for invisible windows (Performance tab):
     /// "off" / "optimized" / "full". Persisted + read live.
     pub fractional_invisible: String,
@@ -101,6 +105,10 @@ pub struct Settings {
     pub invert_pan_y: bool,
     /// The active world's sRGB-output toggle (pushed via `SyncWorldSrgb`).
     pub srgb: bool,
+    /// The active world's optimized-shader toggle (pushed via `SyncWorldOptimized`).
+    pub optimized: bool,
+    /// Whether the selected shader HAS an optimized variant; false greys the toggle.
+    pub can_optimize: bool,
     /// The cursor-teleport layout squares (Display tab canvas, multi-monitor). Each
     /// is a monitor (`identity`) placed at an abstract `(x,y)` with side `size`.
     pub layout: Vec<LayoutPlacement>,
@@ -160,7 +168,7 @@ fn default_mode(d: &DisplayInfo) -> Option<ModeInfo> {
 
 impl Settings {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(env: Environment, cursor: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, fractional_invisible: String, flip: compositor_model_environment_tearing_config::config::Config, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool, pen: compositor_model_environment_preference_base::base::PenConfig) -> Self {
+    pub fn new(env: Environment, cursor: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, fractional_invisible: String, background_triple_buffer: compositor_model_environment_background_base::base::TripleBufferBackground, interface_triple_buffer: compositor_model_environment_interface_base::base::TripleBufferUI, flip: compositor_model_environment_tearing_config::config::Config, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool, pen: compositor_model_environment_preference_base::base::PenConfig) -> Self {
         let active = snap.displays.iter().find(|d| d.active).cloned();
         let active_edid = active.as_ref().map(|d| d.edid_key.clone()).unwrap_or_default();
         let selected_mode = active.as_ref().and_then(default_mode);
@@ -175,6 +183,8 @@ impl Settings {
             osk_world_position,
             show_fps,
             release_hidden,
+            background_triple_buffer,
+            interface_triple_buffer,
             fractional_invisible,
             flip,
             env,
@@ -212,6 +222,8 @@ impl Settings {
             invert_pan_x: false,
             invert_pan_y: false,
             srgb: false,
+            optimized: false,
+            can_optimize: true,
             layout,
             selected_placement: None,
             next_placement_id,
@@ -304,6 +316,8 @@ impl IcedUi for Settings {
             SettingsMessage::OskWorldPosition(b) => self.osk_world_position = b,
             SettingsMessage::SetShowFps(b) => self.show_fps = b,
             SettingsMessage::SetReleaseHidden(b) => self.release_hidden = b,
+            SettingsMessage::SetTripleBuffer(tb) => self.background_triple_buffer = tb,
+            SettingsMessage::SetInterfaceBuffer(s) => self.interface_triple_buffer = s.normalized(),
             SettingsMessage::SetFractionalInvisible(s) => self.fractional_invisible = s,
             SettingsMessage::SetFlip(c) => self.flip = c,
             SettingsMessage::Env(e) => {
@@ -413,6 +427,8 @@ impl IcedUi for Settings {
             SettingsMessage::SetWorldInvertPanY(v) => self.invert_pan_y = v,
             SettingsMessage::SyncWorldSrgb(v) => self.srgb = v,
             SettingsMessage::SetWorldSrgb(v) => self.srgb = v,
+            SettingsMessage::SyncWorldOptimized(v, avail) => { self.optimized = v; self.can_optimize = avail; }
+            SettingsMessage::SetWorldOptimized(v) => self.optimized = v,
             // UI mirror of an edit; also forwarded to persist + drive the shader.
             SettingsMessage::SetWorldShaderParams(values) => {
                 for p in &mut self.shader_props {
@@ -520,6 +536,8 @@ impl IcedUi for Settings {
             self.show_fps,
             self.release_hidden,
             &self.fractional_invisible,
+            self.background_triple_buffer,
+            self.interface_triple_buffer,
             self.flip,
             &self.env,
             &self.displays,
@@ -557,6 +575,8 @@ impl IcedUi for Settings {
             self.invert_pan_x,
             self.invert_pan_y,
             self.srgb,
+            self.optimized,
+            self.can_optimize,
             &self.graphics,
             &self.pen,
             self.pen_capturing,

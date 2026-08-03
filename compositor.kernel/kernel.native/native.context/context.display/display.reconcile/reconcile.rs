@@ -13,6 +13,7 @@ use compositor_kernel_native_context_render_base::render::NativeRenderContext;
 use compositor_kernel_graphic_preference_output_profile::profile::{self, ModeRequest};
 use compositor_orchestration_event_output_base::output::OutputChange;
 use compositor_orchestration_core_state_base::Loop;
+use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_orchestration_driver_lid_base::base::{DISPLAY_OFF_MUT, DISPLAY_SNAPSHOT_MUT};
 use compositor_orchestration_driver_output_base::base::{
     ModeInfo, OutputModesSnapshot, OutputsSnapshot, OUTPUTS_SNAPSHOT_MUT, OUTPUT_MODES_SNAPSHOT_MUT,
@@ -72,19 +73,64 @@ fn find_target(drm: &DrmDevice, key: &str) -> Option<connector::Info> {
 }
 
 /// Tear down the current pipe (freeing its CRTC) and bring `target` up as the primary
-/// output, reusing the smithay `Output`. `busy` lists CRTCs held by OTHER live pipes
+/// output. The smithay `Output` is reused only while `target` is the SAME monitor the
+/// pipe already drove; across a change of monitor it is replaced, because the identity
+/// everything keys on is baked into it at construction (see the note in the body).
+/// `busy` lists CRTCs held by OTHER live pipes
 /// (surviving secondaries) so the rebuild can't claim a CRTC one of them is scanning
 /// out. On success the context reflects the new connector/mode. On failure
 /// `ctx.pipe().drm_output` is left `None` — the caller must rebuild a working output
 /// (render frames skip while it is `None`).
-fn bring_up(ctx: &mut NativeRenderContext, target: &connector::Info, requested: Option<ModeInfo>, busy: &[crtc::Handle]) -> Result<(), String> {
+fn bring_up(state: &mut Loop, ctx: &mut NativeRenderContext, target: &connector::Info, requested: Option<ModeInfo>, busy: &[crtc::Handle]) -> Result<(), String> {
+    // A smithay `Output` may NOT be carried across a change of MONITOR.
+    //
+    // `output_key` — the identity every per-output map keys on: the viewport trees
+    // and so the size everything is laid out and rendered at, the preference
+    // profiles, the background worker's panes, the teleport placements — is
+    // "{make} {model} {serial}" read from `PhysicalProperties`, and smithay fixes
+    // those at `Output::new` with no setter. So failing the anchor over to a
+    // different connector while reusing its `Output` hands the new monitor the
+    // departed one's identity wholesale. The DRM modeset is correct (it is chosen
+    // from `target`'s own EDID), but the compositor goes on laying out through the
+    // unplugged monitor's viewport tree — a 5120x1440 panel drawn as the 1280x1024
+    // that just went away. Reconnecting the old monitor appeared to fix it only
+    // because the survivor then came back through `add_output`, which mints a
+    // fresh `Output`.
+    let identity = {
+        let mgr = ctx.drm_output_manager.borrow();
+        let drm = mgr.device();
+        let raw = compositor_kernel_drm_edid_parse_base::parse::read(drm, target);
+        let parsed = raw.as_ref().and_then(compositor_kernel_drm_edid_parse_base::parse::parse);
+        compositor_kernel_drm_edid_identity_base::identity::identity(
+            parsed.as_ref(),
+            &format!("{:?}-{}", target.interface(), target.interface_id()),
+        )
+    };
+    let replace = identity.key()
+        != compositor_orchestration_core_state_base::state::output_key(&ctx.pipe().output);
+    // Keep the anchor where it already sat: a fail-over must not shuffle the
+    // placement out from under a surviving secondary.
+    let position = state
+        .inner
+        .space_state()
+        .state
+        .output_geometry(&ctx.pipe().output)
+        .map(|g| g.loc)
+        .unwrap_or_default();
+
     // Drop the current output FIRST so its CRTC/bandwidth is free for the target
     // (the atomic modeset of a second simultaneous pipe is rejected).
     ctx.pipe_mut().drm_output = None;
+    // Built against the `Output` this pipe will actually keep — `build` sizes the
+    // primary plane from it to pass the atomic test.
+    let output = match replace {
+        true => compositor_kernel_drm_output_physical_base::physical::create(target, &identity),
+        false => ctx.pipe().output.clone(),
+    };
     let built = compositor_kernel_native_context_display_build::build::build(
         &ctx.drm_output_manager,
         &ctx.gpu_binding,
-        &ctx.pipe().output,
+        &output,
         busy,
         target,
         requested,
@@ -92,6 +138,39 @@ fn bring_up(ctx: &mut NativeRenderContext, target: &connector::Info, requested: 
     let env = compositor_model_environment_config_base::base::get();
     let new_hdr_active = env.hdr && built.hdr.hdr_capable() && ctx.vulkan_mode;
     let new_mode = Mode::from(built.drm_mode);
+    if replace {
+        // Swap the pipe onto the new `Output`. Only reached once `build` has
+        // succeeded, so a failed fail-over leaves the old identity in place rather
+        // than half-migrating.
+        let old = std::mem::replace(&mut ctx.pipe_mut().output, output.clone());
+        state.inner.space_state_mut().state.unmap_output(&old);
+        // Hand back the departed monitor's `wl_output` before advertising the new
+        // one, or clients see two globals for one pipe.
+        let stale = ctx.pipe_mut().global.take();
+        if let Some(gid) = stale {
+            ctx.display_handle
+                .remove_global::<compositor_support_smithay_dispatch_state_base::state::Dispatch>(gid);
+        }
+        compositor_kernel_drm_output_physical_base::physical::apply_initial_state(
+            &output,
+            new_mode,
+            None,
+            (position.x, position.y),
+        );
+        let global = output
+            .create_global::<compositor_support_smithay_dispatch_state_base::state::Dispatch>(
+                &ctx.display_handle,
+            );
+        ctx.pipe_mut().global = Some(global);
+        state.inner.space_state_mut().state.map_output(&output, (position.x, position.y));
+        // Bound to the output it was made from, so it cannot outlive the swap.
+        ctx.pipe_mut().damage_tracker =
+            smithay::backend::renderer::damage::OutputDamageTracker::from_output(&output);
+        info!(
+            "reconcile: primary failed over to a different monitor; output identity is now {}",
+            identity.key()
+        );
+    }
     ctx.pipe_mut().drm_output = Some(built.drm_output);
     // The fail-over may land the primary on a DIFFERENT CRTC than it held before.
     // `crtc` is the vblank routing key (frame.rs) AND the `busy` exclusion key that
@@ -339,6 +418,14 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
                     .remove_global::<compositor_support_smithay_dispatch_state_base::state::Dispatch>(gid);
             }
             info!("reconcile: removed output {:?} (disconnected or deactivated)", removed.connector);
+            // Tell the off-thread producers, which key their buffers by output:
+            // this is the deterministic signal that a monitor's panes are gone,
+            // so their rings are freed here rather than inferred from a lapse in
+            // draw requests. Not the eviction path below — that hands the SAME
+            // monitor to another pipe, so its panes stay valid.
+            compositor_kernel_graphic_bridge_publish_retire::retire::retire_output(
+                &compositor_orchestration_core_state_base::state::output_key(&removed.output),
+            );
             // `removed.drm_output` drops here → frees its CRTC.
         } else {
             i += 1;
@@ -394,7 +481,7 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
                     .filter(|p| p.drm_output.is_some())
                     .map(|p| p.crtc)
                     .collect();
-                if let Err(e) = bring_up(&mut ctx, &t, requested, &busy) {
+                if let Err(e) = bring_up(state, &mut ctx, &t, requested, &busy) {
                     warn!("reconcile primary bring-up failed: {e}; going dark");
                     go_dark_primary(state, &mut ctx);
                 } else {
@@ -443,6 +530,49 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
     let layout = compositor_orchestration_driver_output_base::base::build_teleport(&state.inner.preference, &connected_keys);
     *state.inner.kernel.get_mut(&compositor_orchestration_driver_output_base::base::TELEPORT_LAYOUT_MUT) = layout;
     *state.inner.kernel.get_mut(&compositor_orchestration_driver_output_base::base::CURSOR_PLACEMENT_MUT) = None;
+    // The cursor's monitor may be the one that just went away.
+    //
+    // Nothing else clears `cursor_output`: the motion path only SEEDS it while it
+    // is `None`, so a key naming a removed output survives every later event. Then
+    // `current_output_key()` — and with it `camera()`, `viewports()` and the
+    // per-output view map the input systems read — keeps resolving to a monitor
+    // that no longer exists, while `current_output()` silently falls back to the
+    // first mapped one for the SIZE. The cursor is then clamped against a
+    // surviving output's bounds whilst panning a phantom output's viewport, which
+    // is what leaves it stranded on the unplugged screen with no way back.
+    //
+    // Re-pointed at a real output rather than set to `None`: the empty-string
+    // default that `current_output_key()` falls back to is itself a key, and
+    // `views()` would mint a second phantom viewport tree under it.
+    let cursor_mapped = state.inner.cursor_output.as_ref().is_some_and(|k| {
+        state
+            .inner
+            .space_state()
+            .state
+            .outputs()
+            .any(|o| compositor_orchestration_core_state_base::state::output_key(o) == *k)
+    });
+    if !cursor_mapped {
+        let survivor = state
+            .inner
+            .space_state()
+            .state
+            .outputs()
+            .next()
+            .map(compositor_orchestration_core_state_base::state::output_key);
+        state.inner.cursor_output = survivor.clone();
+        if let Some(key) = survivor {
+            state.inner.output_views_mut().set_current(&key);
+            // Park the pointer inside the surviving output NOW. The relative-motion
+            // clamp would do it on the next event, but until one arrives a click
+            // hit-tests at a coordinate that is off the only screen there is.
+            let (pw, ph) = state.size_ctx_all().screen_size_physical;
+            let motion = &mut state.inner.pointer_mut().motion;
+            motion.x = motion.x.clamp(0.0, pw);
+            motion.y = motion.y.clamp(0.0, ph);
+            info!("reconcile: cursor output was removed; moved to {key}");
+        }
+    }
     // A pipe brought up in this reconcile has never flipped, so the per-CRTC vblank path
     // (`RenderScope::Crtc`) will never render it. FORCE the redraw ping (which runs
     // `execute(RenderScope::All)`) so the new pipe gets its first frame and starts its own

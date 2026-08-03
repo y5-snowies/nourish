@@ -30,7 +30,7 @@ thread_local! {
     static LAST_TOUCH: RefCell<Option<Vec<TouchDeviceInfo>>> = const { RefCell::new(None) };
     /// Last (bundles, selection, variables, preview source) pushed to the panel.
     #[allow(clippy::type_complexity)]
-    static LAST_SHADERS: RefCell<Option<(Vec<String>, Option<String>, Vec<ShaderProp>, String, Option<String>, bool, bool, bool)>> = const { RefCell::new(None) };
+    static LAST_SHADERS: RefCell<Option<(Vec<String>, Option<String>, Vec<ShaderProp>, String, Option<String>, bool, bool, bool, bool, bool)>> = const { RefCell::new(None) };
     /// Output size the surface was last sized to. The settings surface is
     /// screen-space and spans the output, so a mode/resolution change invalidates
     /// its rect — re-size only when this drifts (resizes reallocate a texture).
@@ -47,7 +47,7 @@ fn settings_rect(size: Size<i32, Physical>) -> Rectangle<i32, Physical> {
 /// selected shader's editable variables (with current values), for the picker
 /// + the variable controls. Resolution: world override → preference default.
 #[allow(clippy::type_complexity)]
-fn shader_state(state: &Loop) -> (Vec<String>, Option<String>, Vec<ShaderProp>, String, Option<String>, bool, bool, bool) {
+fn shader_state(state: &Loop) -> (Vec<String>, Option<String>, Vec<ShaderProp>, String, Option<String>, bool, bool, bool, bool, bool) {
     // The compiled-in built-in worlds first, then every user bundle on disk.
     let mut options: Vec<String> = compositor_background_two_shader_builtin::builtins()
         .iter()
@@ -69,6 +69,9 @@ fn shader_state(state: &Loop) -> (Vec<String>, Option<String>, Vec<ShaderProp>, 
     // This world's per-axis background pan inversion + sRGB output (default off).
     let (invert_x, invert_y) = two.map(|t| (t.invert_pan_x, t.invert_pan_y)).unwrap_or((false, false));
     let srgb = two.map(|t| t.srgb).unwrap_or(false);
+    // The built-in parallax's cheap variant. Only meaningful with no selection —
+    // any selected shader loads its own module and has no optimized twin.
+    let optimized = two.map(|t| t.optimized).unwrap_or(false);
 
     // Properties for the resolved shader (user source, or the built-in list).
     let props = match &current {
@@ -103,14 +106,25 @@ fn shader_state(state: &Loop) -> (Vec<String>, Option<String>, Vec<ShaderProp>, 
         })
         .collect();
     // Preview source: the selected shader's WGSL (vulkan/ or wgsl/ bundle), else
-    // the built-in parallax WGSL so the preview always renders something valid.
+    // the built-in parallax WGSL so the preview always renders something valid —
+    // the optimized twin when this world is on it, so the panel shows what is
+    // actually on screen rather than the reference it no longer runs.
     let preview = current
         .as_deref()
-        .and_then(compositor_background_two_shader_load::preview_wgsl)
+        .and_then(|s| compositor_background_two_shader_load::preview_wgsl(s, optimized))
         .unwrap_or_else(|| {
-            compositor_background_two_draw_vulkan::vulkan::PARALLAX_WGSL.to_string()
+            match optimized {
+                true => compositor_background_two_draw_vulkan::vulkan::PARALLAX_OPTIMIZED_WGSL,
+                false => compositor_background_two_draw_vulkan::vulkan::PARALLAX_WGSL,
+            }
+            .to_string()
         });
-    (options, current, dtos, preview, status, invert_x, invert_y, srgb)
+    // Is there anything to optimize? The stock parallax (no selection) always has
+    // its twin; a selected shader only does if its source declares `@optimized`.
+    let can_optimize = current
+        .as_deref()
+        .map_or(true, compositor_background_two_shader_load::supports_optimized);
+    (options, current, dtos, preview, status, invert_x, invert_y, srgb, optimized, can_optimize)
 }
 
 pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physical>) {
@@ -229,7 +243,7 @@ fn sync(state: &mut Loop, id: HandleId, size: Size<i32, Physical>) {
     let shaders_changed = LAST_SHADERS.with(|l| { let mut l = l.borrow_mut(); if l.as_ref() != Some(&shaders) { *l = Some(shaders.clone()); true } else { false } });
     if shaders_changed {
         if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-            let (options, current, props, preview, status, invert_x, invert_y, srgb) = shaders;
+            let (options, current, props, preview, status, invert_x, invert_y, srgb, optimized, can_optimize) = shaders;
             let handle = IcedHandle::<Settings>::from_id(id);
             let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaders(options, current));
             let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaderProps(props));
@@ -237,6 +251,7 @@ fn sync(state: &mut Loop, id: HandleId, size: Size<i32, Physical>) {
             let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaderStatus(status));
             let _ = reg.dispatch_message(handle, SettingsMessage::SyncWorldInvert(invert_x, invert_y));
             let _ = reg.dispatch_message(handle, SettingsMessage::SyncWorldSrgb(srgb));
+            let _ = reg.dispatch_message(handle, SettingsMessage::SyncWorldOptimized(optimized, can_optimize));
         }
     }
     // Animate the live preview: while the Current-World tab is open, dispatch a
@@ -273,6 +288,8 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     let osk_world_position = state.inner.preference.osk_world_position;
     let show_fps = state.inner.preference.show_fps;
     let release_hidden = state.inner.preference.release_hidden_surfaces;
+    let background_triple_buffer = state.inner.preference.background_triple_buffer;
+    let interface_triple_buffer = state.inner.preference.interface_triple_buffer;
     let fractional_invisible = state.inner.preference.fractional_invisible.clone();
     let flip = state.inner.preference.flip;
     let snap = state.inner.kernel.get(&OUTPUTS_SNAPSHOT).clone();
@@ -288,7 +305,7 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     let protocol_foreign = state.inner.preference.protocol_foreign.clone();
     let protocol_foreign_all_worlds = state.inner.preference.protocol_foreign_all_worlds;
     let pen = state.inner.preference.pen.clone();
-    let ui = Settings::new(env, cursor, natural, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, show_fps, release_hidden, fractional_invisible, flip, snap, keys, tab, layout, cyclic, ime, keyboard, protocol_foreign, protocol_foreign_all_worlds, pen);
+    let ui = Settings::new(env, cursor, natural, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, show_fps, release_hidden, fractional_invisible, background_triple_buffer, interface_triple_buffer, flip, snap, keys, tab, layout, cyclic, ime, keyboard, protocol_foreign, protocol_foreign_all_worlds, pen);
     let handle = load(state, renderer, ui, rect, IcedSpace::Screen, Layer::SCENE.bits());
     install_handler(state, handle);
     let untyped = handle.untyped();
@@ -322,8 +339,8 @@ fn destroy(state: &mut Loop, id: HandleId) {
 fn install_handler(state: &mut Loop, handle: IcedHandle<Settings>) {
     let tx = state.inner.surface_mut().surface_message_buffer_channel.0.clone();
     if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-        if let Some(inst) = reg.instance_mut(handle) {
-            inst.runtime_mut().set_message_handler(move |m: &SettingsMessage| {
+        {
+            reg.set_message_handler(handle, move |m: &SettingsMessage| {
                 // `StageActive` IS forwarded now — CHECK CHANGES applies an
                 // activate/deactivate live-provisionally through the handler (arming the
                 // auto-revert gate), so it must reach `interface.handle`. The rest here

@@ -22,13 +22,15 @@ pub fn build<'a>(
     invert_pan_x: bool,
     invert_pan_y: bool,
     srgb: bool,
+    optimized: bool,
+    can_optimize: bool,
 ) -> El<'a> {
     column![
         text("CURRENT WORLD").size(16).color(style::ACCENT),
         text("The parallax shader rendered behind your workspace. Reacts to zoom & pan.")
             .size(11).color(style::MUTED),
         preview_or_error(props, preview_source, status),
-        display_row(invert_pan_x, invert_pan_y, srgb),
+        display_row(invert_pan_x, invert_pan_y, srgb, optimized, can_optimize),
         row![
             container(shader_list(shaders, current)).width(Length::FillPortion(1)).height(Length::Fill),
             container(variables(props)).width(Length::FillPortion(1)).height(Length::Fill),
@@ -37,21 +39,41 @@ pub fn build<'a>(
 }
 
 /// Per-world display toggles (persisted per world): flip the background parallax on
-/// either axis (handy when a scene reads reversed relative to the pan), and gamma-
-/// encode the output to sRGB for the brighter, preview-matching look on the display.
-fn display_row<'a>(invert_pan_x: bool, invert_pan_y: bool, srgb: bool) -> El<'a> {
+/// either axis (handy when a scene reads reversed relative to the pan), gamma-encode
+/// the output to sRGB for the brighter, preview-matching look on the display, and
+/// pick the cheap variant of the shader for a GPU that cannot afford the real one.
+/// `optimize_available` is false when the selected shader declares no `@optimized`
+/// knobs — it has no cheap twin, and a toggle that silently did nothing would be a
+/// lie, so it renders disabled (a `toggler` with no `on_toggle`).
+fn display_row<'a>(
+    invert_pan_x: bool,
+    invert_pan_y: bool,
+    srgb: bool,
+    optimized: bool,
+    optimize_available: bool,
+) -> El<'a> {
     let toggle = |label: &'a str, on: bool, msg: fn(bool) -> SettingsMessage| -> El<'a> {
         row![
             text(label).size(12),
             toggler(on).on_toggle(msg).style(control::toggler),
         ].spacing(8).align_y(Alignment::Center).into()
     };
+    let optimize: El<'a> = row![
+        text("Optimized")
+            .size(12)
+            .color(if optimize_available { style::TEXT } else { style::MUTED }),
+        match optimize_available {
+            true => toggler(optimized).on_toggle(SettingsMessage::SetWorldOptimized).style(control::toggler),
+            false => toggler(false).style(control::toggler),
+        },
+    ].spacing(8).align_y(Alignment::Center).into();
     container(
         row![
             text("DISPLAY").size(10).color(style::MUTED).width(Length::Fill),
             toggle("Invert pan X", invert_pan_x, SettingsMessage::SetWorldInvertPanX),
             toggle("Invert pan Y", invert_pan_y, SettingsMessage::SetWorldInvertPanY),
             toggle("sRGB colour", srgb, SettingsMessage::SetWorldSrgb),
+            optimize,
         ].spacing(20).align_y(Alignment::Center).padding(12),
     ).style(style::card).width(Length::Fill).into()
 }

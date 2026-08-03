@@ -1,0 +1,11 @@
+# Downloaded rpms — reused across sysroot.sh runs, re-fetchable at any time.
+.rpm.cache/
+
+# Generated linker/cc shim (build.sh rewrites it every run).
+.shim/
+
+# The populated sysroot (~690 MB). Regenerate with ./sysroot.sh 44 — it is a
+# pure function of the package list in that script plus the Fedora release.
+# DELETE THE LINE BELOW if you would rather commit the sysroot so a fresh clone
+# can cross-compile with no network access.
+fedora44/

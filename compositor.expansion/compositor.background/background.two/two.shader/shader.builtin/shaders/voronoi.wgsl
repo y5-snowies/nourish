@@ -60,10 +60,19 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
     return o;
 }
 
+// `hash` is a pure function of two fract lanes: the vec3's z lane always
+// duplicates x, since both are `fract(p.x * 0.1031)`. Splitting the lane setup
+// out lets `noise` compute its four corner lanes once and share them across all
+// four taps. Every operand and operation order below is unchanged, so the output
+// is bit-identical to the vec3 form this replaced.
+fn hash_lane(x: f32, y: f32) -> f32 {
+    let p3 = vec3<f32>(x, y, x);
+    let d = dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + vec3<f32>(33.33));
+    return fract(((x + d) + (y + d)) * (x + d));
+}
 fn hash(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 = p3 + dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + vec3<f32>(33.33));
-    return fract((p3.x + p3.y) * p3.z);
+    let q = fract(p * 0.1031);
+    return hash_lane(q.x, q.y);
 }
 // A 2D cell-seed offset in [0,1)^2 for the cell at integer coord `c`.
 fn hash2(c: vec2<f32>) -> vec2<f32> {
@@ -166,10 +175,23 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     col = mix(col, col * 0.5 + vec3<f32>(0.004, 0.010, 0.012), l);
 
     // Optional edge vignette in zoom-independent screen space.
-    let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
-    col = col * mix(1.0, vig, clamp(vignette, 0.0, 1.0));
+    // Guarded because the default is off: the length() and the smoothstep would
+    // otherwise run on every pixel only to be multiplied by 1.0. The guard also
+    // makes a 0 softness safe — that smoothstep divides by zero, and
+    // mix(1.0, NaN, 0.0) is NaN, not 1.0.
+    let vig_amount = clamp(vignette, 0.0, 1.0);
+    if (vig_amount > 0.0) {
+        let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
+        col = col * mix(1.0, vig, vig_amount);
+    }
     // Per-world sRGB flag (push lock_alpha.z): gamma-encode for the brighter,
     // preview-matching look on a non-sRGB scanout buffer. Off = raw values.
-    let outc = select(col, pow(max(col, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)), pc.lock_alpha.z > 0.5);
+    var outc = col;
+    // An `if`, not `select` — `select` evaluates both arms, so these three
+    // pow()s ran on every pixel even with the flag off (the default). The branch is
+    // on a push constant, so it is uniform across the whole draw.
+    if (pc.lock_alpha.z > 0.5) {
+        outc = pow(max(outc, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
+    }
     return vec4<f32>(outc, 1.0) * alpha;
 }

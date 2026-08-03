@@ -104,3 +104,13 @@ impl IcedUi for SaveDialog {
             .into()
     }
 }
+
+/// Read back by the capture driver when the dialog is dismissed. One frame of
+/// staleness is invisible here: the value only changes on a click, which has
+/// already been through a full update+render cycle by the time it is read.
+impl compositor_support_iced_core_engine_base::IcedSnapshot for SaveDialog {
+    type Snapshot = bool;
+    fn snapshot(&self) -> bool {
+        self.optimized
+    }
+}

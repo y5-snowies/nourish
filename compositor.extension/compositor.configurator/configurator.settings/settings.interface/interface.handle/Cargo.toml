@@ -4,6 +4,8 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_model_environment_background_base = { workspace = true }
+compositor_model_environment_background_preset = { workspace = true }
 smithay = { workspace = true }
 compositor_orchestration_core_state_base = { workspace = true }
 compositor_support_smithay_state_seat_xkb = { workspace = true }

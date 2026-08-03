@@ -1,0 +1,28 @@
+[package]
+name = "compositor_background_two_worker_serve"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_background_two_worker_format = { workspace = true }
+compositor_kernel_graphic_bridge_publish_thread = { workspace = true }
+smithay = { workspace = true }
+compositor_background_two_draw_select = { workspace = true }
+compositor_background_two_draw_vulkan = { workspace = true }
+compositor_background_two_worker_ensure = { workspace = true }
+compositor_background_two_worker_pace = { workspace = true }
+compositor_model_environment_background_base = { workspace = true }
+compositor_kernel_graphic_bridge_publish_attempt = { workspace = true }
+compositor_background_two_worker_key = { workspace = true }
+compositor_kernel_graphic_bridge_publish_retire = { workspace = true }
+compositor_background_two_worker_buffers = { workspace = true }
+compositor_background_two_worker_device = { workspace = true }
+compositor_background_two_worker_pane = { workspace = true }
+compositor_background_two_worker_pipeline = { workspace = true }
+compositor_background_two_worker_render = { workspace = true }
+compositor_background_two_worker_signal = { workspace = true }
+compositor_background_two_worker_target = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
+
+[lib]
+path = "lib.rs"

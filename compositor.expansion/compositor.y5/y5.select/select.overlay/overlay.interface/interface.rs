@@ -38,7 +38,7 @@ use compositor_monitor_compositor_iced_base::{HandleId, IcedHandle, IcedSpace, T
 use compositor_monitor_selection_scene_base::selection::{CloseMode, SelectionAction};
 use compositor_monitor_selection_scene_base::tip::{TipMessage, TipUi};
 use compositor_monitor_selection_scene_base::ui::{Message, Overlay};
-use compositor_y5_surface_draw_handle::handle::load;
+use compositor_y5_surface_draw_handle::handle::{load, load_snapshot};
 use compositor_y5_surface_protocol_base::protocol::{
     SelectionForward, SurfaceMessage, SurfaceMessageType,
 };
@@ -126,10 +126,10 @@ fn drive_tooltip(state: &mut Loop, size: Size<i32, Physical>) {
 
     if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
         // Visible only while an actual button is hovered (`hovered_tip` is Some).
+        // Published copy rather than a borrow — see `IcedSnapshot`.
         let tip = reg
-            .get(toolbar_id)
-            .and_then(|it| it.get::<Overlay>())
-            .and_then(|inst| inst.ui().hovered_tip());
+            .snapshot::<Overlay>(IcedHandle::from_id(toolbar_id))
+            .flatten();
 
         match tip {
             Some((text, alt, shift)) => {
@@ -238,7 +238,7 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     ensure_font();
 
     let (loc, sz, space) = placement(state, size);
-    let handle = load(
+    let handle = load_snapshot(
         state,
         renderer,
         Overlay::with_count(count),
@@ -533,8 +533,8 @@ fn ensure_font() {
 fn install_handler(state: &mut Loop, handle: IcedHandle<Overlay>) {
     let tx = state.inner.surface_mut().surface_message_buffer_channel.0.clone();
     if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-        if let Some(inst) = reg.instance_mut(handle) {
-            inst.runtime_mut().set_message_handler(move |m: &Message| {
+        {
+            reg.set_message_handler(handle, move |m: &Message| {
                 let forward = match m {
                     Message::ExecuteSelection(actions, alt) => {
                         Some(SelectionForward::Execute(actions.clone(), *alt))

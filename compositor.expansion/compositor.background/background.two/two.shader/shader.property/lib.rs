@@ -74,6 +74,53 @@ pub fn parse_props(src: &str) -> Vec<Property> {
     }
     props
 }
+/// Rewrite a shader's `@optimized` quality knobs to their cheap values.
+///
+/// A shader opts into the per-world Optimized toggle by annotating a module
+/// constant with the value to use when the toggle is on:
+///
+/// ```wgsl
+/// const FBM_OCTAVES: i32 = 5;   // @optimized 2
+/// ```
+///
+/// Only the literal changes, so the reference source stays the single definition
+/// of the shader — there is no second file to keep in step — and naga folds the
+/// constant through loop bounds and branches when it compiles the variant.
+///
+/// This is the one textual preprocessing step in the runtime shader path, and it
+/// is deliberately dumb: a line whose annotation is not a bare number is left
+/// exactly as written, so prose mentioning `@optimized` cannot corrupt a
+/// constant.
+pub fn apply_optimized(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    for line in src.lines() {
+        match rewrite_optimized(line) {
+            Some(l) => out.push_str(&l),
+            None => out.push_str(line),
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Whether `src` declares at least one `@optimized` knob — i.e. whether this
+/// shader HAS a cheap variant, and so whether the settings toggle should be live
+/// for it rather than greyed out.
+pub fn has_optimized(src: &str) -> bool {
+    src.lines().any(|l| rewrite_optimized(l).is_some())
+}
+
+/// One line: `const NAME: T = <lit>;` + `@optimized <value>` → the same line with
+/// `<lit>` replaced. `None` when the line is not a well-formed annotation.
+fn rewrite_optimized(line: &str) -> Option<String> {
+    let at = line.find("@optimized")?;
+    let value = line[at + "@optimized".len()..].split_whitespace().next()?;
+    value.parse::<f64>().ok()?; // prose, not a knob — leave the line alone
+    let eq = line[..at].find('=')?;
+    let semi = eq + line[eq..at].find(';')?;
+    Some(format!("{}= {}{}", &line[..eq], value, &line[semi..]))
+}
+
 /// Split on whitespace, keeping `"double quoted"` spans intact (quotes stripped).
 fn tokenize(s: &str) -> Vec<String> {
     let (mut out, mut cur, mut quoted) = (Vec::new(), String::new(), false);

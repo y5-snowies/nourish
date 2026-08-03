@@ -16,6 +16,7 @@ compositor_kernel_drm_edid_parse_base = { workspace = true }
 compositor_kernel_drm_edid_identity_base = { workspace = true }
 compositor_kernel_graphic_preference_output_profile = { workspace = true }
 compositor_orchestration_core_state_base = { workspace = true }
+compositor_kernel_graphic_bridge_publish_retire = { workspace = true }
 compositor_orchestration_driver_output_base = { workspace = true }
 compositor_orchestration_driver_lid_base = { workspace = true }
 compositor_orchestration_event_output_base = { workspace = true }

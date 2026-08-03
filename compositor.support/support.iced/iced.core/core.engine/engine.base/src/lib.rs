@@ -55,7 +55,7 @@ pub use error::EngineInitError;
 pub use notifier::{DirtyFlags, RuntimeNotifier};
 pub use runtime::{IcedRuntime, MessageHandler};
 pub use shared::{EngineSettings, SharedEngine};
-pub use ui::IcedUi;
+pub use ui::{IcedSnapshot, IcedUi};
 
 // Re-export iced types callers commonly need so they can avoid pulling
 // iced_core in directly (especially convenient for the compositor crate).

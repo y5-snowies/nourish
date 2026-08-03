@@ -42,31 +42,55 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
     return o;
 }
 
+// `hash` is a pure function of two fract lanes: the vec3's z lane always
+// duplicates x, since both are `fract(p.x * 0.1031)`. Splitting the lane setup
+// out lets `noise` compute its four corner lanes once and share them across all
+// four taps. Every operand and operation order below is unchanged, so the output
+// is bit-identical to the vec3 form this replaced.
+fn hash_lane(x: f32, y: f32) -> f32 {
+    let p3 = vec3<f32>(x, y, x);
+    let d = dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + vec3<f32>(33.33));
+    return fract(((x + d) + (y + d)) * (x + d));
+}
 fn hash(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 = p3 + dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + vec3<f32>(33.33));
-    return fract((p3.x + p3.y) * p3.z);
+    let q = fract(p * 0.1031);
+    return hash_lane(q.x, q.y);
 }
 fn noise(p: vec2<f32>) -> f32 {
     let i = floor(p);
     var f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
+    // One vec4 mul+fract for all four corner lanes, each still computed exactly as
+    // the four separate `hash` calls did: fract(i.x*K), fract((i.x+1)*K),
+    // fract(i.y*K), fract((i.y+1)*K).
+    let q = fract(vec4<f32>(i.x, i.x + 1.0, i.y, i.y + 1.0) * 0.1031);
     return mix(
-        mix(hash(i), hash(i + vec2<f32>(1.0, 0.0)), f.x),
-        mix(hash(i + vec2<f32>(0.0, 1.0)), hash(i + vec2<f32>(1.0, 1.0)), f.x),
+        mix(hash_lane(q.x, q.z), hash_lane(q.y, q.z), f.x),
+        mix(hash_lane(q.x, q.w), hash_lane(q.y, q.w), f.x),
         f.y,
     );
 }
+// Octave count for `fbm`. The loader rewrites this literal to the `@optimized`
+// value when the world's Optimized toggle is on, and naga folds it through the
+// loop below — one source, two compiled variants, nothing to keep in step.
+const FBM_OCTAVES: i32 = 4;   // @optimized 2
+// The reference walk's amplitude sum. `fbm` renormalises to it so a shortened
+// walk keeps this scene's brightness instead of coming out dim. At the reference
+// count the factor is exactly 1.0 — both values are exact binary fractions — so
+// the reference output is bit-identical to the fixed-4-octave version.
+const FBM_REF_SUM: f32 = 0.9375;
 fn fbm(p_in: vec2<f32>) -> f32 {
     var v = 0.0;
     var a = 0.5;
+    var norm = 0.0;
     var p = p_in;
-    for (var i = 0; i < 4; i = i + 1) {
+    for (var i = 0; i < FBM_OCTAVES; i = i + 1) {
         v = v + a * noise(p);
+        norm = norm + a;
         p = p * 2.0;
         a = a * 0.5;
     }
-    return v;
+    return v * (FBM_REF_SUM / norm);
 }
 
 // Signed distance-ish field of a leaf silhouette in local space: points along
@@ -94,8 +118,14 @@ fn leaf_layer(col_in: vec3<f32>, uv: vec2<f32>, pan: vec2<f32>, flow: vec2<f32>,
     let gust = 1.0 + 0.4 * sin(time * 0.3 + f32(i) * 1.7);
     // Wind carries leaves down-and-across; near layers move (and pan) the most.
     let wdir = vec2<f32>(0.9, -0.45);
-    let wvel = wind * gust * 0.06 / depth;
-    let move_ = wdir * time * wvel
+    let wvel = wind * 0.06 / depth;
+    // Gusting is INTEGRATED, not multiplied into the clock. Writing the offset as
+    // `time * gust` makes the velocity `gust + time * gust'` — a term that grows
+    // without bound, so the leaves accelerate the longer the session runs. The
+    // antiderivative of `1 + 0.4*sin(0.3t + φ)` is `t - (0.4/0.3)*cos(0.3t + φ)`,
+    // which gusts the speed by ±40% around `wvel` and never drifts.
+    let carry = time - 1.3333333 * cos(time * 0.3 + f32(i) * 1.7);
+    let move_ = wdir * (carry * wvel)
               + pan * (0.0022 / depth)
               + flow * (0.0028 / depth);
     let scale = 4.6 * depth;                                  // far cells are smaller
@@ -105,7 +135,9 @@ fn leaf_layer(col_in: vec3<f32>, uv: vec2<f32>, pan: vec2<f32>, flow: vec2<f32>,
     let cellpx = px * scale;
     // A gust cants every leaf the same way when the canvas is thrown.
     let tilt = clamp((flow.x - flow.y) * 0.0008, -0.8, 0.8);
-    let wang = atan2(wdir.y, wdir.x);
+    // atan2(-0.45, 0.9) — `wdir` is a literal, but naga does not fold atan2, so
+    // spelling the constant saves one transcendental per layer per pixel.
+    let wang = -0.4636476;
 
     // Leaves are jittered off their cell centers, so scan the 3×3 neighbourhood
     // (same idea as the snowfall treeline) to let them cross cell borders.
@@ -120,8 +152,10 @@ fn leaf_layer(col_in: vec3<f32>, uv: vec2<f32>, pan: vec2<f32>, flow: vec2<f32>,
             let size = 0.32 + 0.18 * fract(h * 7.77);
             // Jittered anchor + a slow positional flutter on the breeze.
             let jitter = (vec2<f32>(hash(c + 7.7), hash(c + 13.1)) - 0.5) * 0.55;
-            let sway = vec2<f32>(sin(time * 0.8 * gust + h * 21.0),
-                                 cos(time * 1.1 + h * 33.0)) * 0.04;
+            // Gust rides the AMPLITUDE, not the clock — `time * gust` would ramp
+            // this flutter's frequency without bound (see `carry` above).
+            let sway = vec2<f32>(sin(time * 0.8 + h * 21.0),
+                                 cos(time * 1.1 + h * 33.0)) * (0.04 * gust);
             let f = coord - (c + 0.5 + jitter) - sway;
             if (dot(f, f) > (size + 0.1) * (size + 0.1)) { continue; }
 
@@ -129,7 +163,7 @@ fn leaf_layer(col_in: vec3<f32>, uv: vec2<f32>, pan: vec2<f32>, flow: vec2<f32>,
             // spin, a flutter, and the gust tilt.
             let ang = wang + (ph - 0.5) * 2.4
                     + time * 0.3 * (ph2 - 0.5)
-                    + sin(time * 1.4 * gust + h * 25.0) * 0.35
+                    + sin(time * 1.4 + h * 25.0) * (0.35 * gust)
                     + tilt;
             let ca = cos(-ang);
             let sa = sin(-ang);
@@ -138,7 +172,14 @@ fn leaf_layer(col_in: vec3<f32>, uv: vec2<f32>, pan: vec2<f32>, flow: vec2<f32>,
             // 3D tumble: the leaf turns over as it drifts, foreshortening its
             // width and catching the light when it faces us.
             let tum = time * (0.35 + 0.5 * ph2) / depth + h * 40.0;
-            let facing = 0.34 + 0.66 * abs(cos(tum));
+            // `abs(cos)` has a CUSP wherever the leaf turns edge-on: the width
+            // stops shrinking and starts growing in a single frame, which reads as
+            // a snap. `sqrt(c² + k)` is the same curve with that corner rounded
+            // over a window of ~sqrt(k); the two constants renormalise it back to
+            // exactly [0, 1] so the widest and narrowest leaves are unchanged.
+            let ct = cos(tum);
+            let turn = (sqrt(ct * ct + 0.02) - 0.1414214) * 1.1513666;
+            let facing = 0.34 + 0.66 * turn;
             lp.x = lp.x / facing;
 
             // Foreshorten the spine curve with the width, or edge-on leaves
@@ -218,26 +259,43 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let sdir = normalize(vec2<f32>(-0.55, 0.83));
     let sx = dot(uv + pan * 0.0002, vec2<f32>(-sdir.y, sdir.x));
     let shafts = fbm(vec2<f32>(sx * 3.0 - time * 0.02 * (0.5 + 0.5 * wind), 1.7));
-    col = col + vec3<f32>(0.045, 0.08, 0.04) * pow(shafts, 2.0) * glow * (0.5 + 0.5 * lush);
+    col = col + vec3<f32>(0.045, 0.08, 0.04) * (shafts * shafts) * glow * (0.5 + 0.5 * lush);
     // A very soft canopy dapple so the empty air isn't flat.
     col = col + vec3<f32>(0.03, 0.06, 0.03) * fbm(uv * 1.4 + pan * 0.0003 + vec2<f32>(time * 0.02 * wind, 0.0)) * 0.4;
 
-    // Leaves, far → near (near layer drawn last, on top).
-    col = leaf_layer(col, uv, pan, flow, time, 3, wind, density, lush, px);
-    col = leaf_layer(col, uv, pan, flow, time, 2, wind, density, lush, px);
-    col = leaf_layer(col, uv, pan, flow, time, 1, wind, density, lush, px);
-    col = leaf_layer(col, uv, pan, flow, time, 0, wind, density, lush, px);
+    // Leaves, far → near (near layer drawn last, on top). At density 0 every cell
+    // fails its `h <= 1.0` test, so all four layers would hash 9 cells apiece and
+    // discard every one — 36 wasted hashes per pixel. Skip them outright.
+    if (density > 0.0) {
+        col = leaf_layer(col, uv, pan, flow, time, 3, wind, density, lush, px);
+        col = leaf_layer(col, uv, pan, flow, time, 2, wind, density, lush, px);
+        col = leaf_layer(col, uv, pan, flow, time, 1, wind, density, lush, px);
+        col = leaf_layer(col, uv, pan, flow, time, 0, wind, density, lush, px);
+    }
 
     // Lock-screen ease: still the air and deepen the green toward dusk.
     var l = clamp(lock_amount, 0.0, 1.0);
     l = l * l * (3.0 - 2.0 * l);
     col = mix(col, col * 0.5 + vec3<f32>(0.006, 0.016, 0.01), l);
 
-    let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
-    col = col * mix(1.0, vig, clamp(vignette, 0.0, 1.0));
+    // Guarded because the default is off: the length() and the smoothstep would
+    // otherwise run on every pixel only to be multiplied by 1.0. The guard also
+    // makes a 0 softness safe — that smoothstep divides by zero, and
+    // mix(1.0, NaN, 0.0) is NaN, not 1.0.
+    let vig_amount = clamp(vignette, 0.0, 1.0);
+    if (vig_amount > 0.0) {
+        let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
+        col = col * mix(1.0, vig, vig_amount);
+    }
     // Per-world sRGB flag (push lock_alpha.z): gamma-encode for the brighter,
     // preview-matching look on a non-sRGB scanout buffer. Off = raw values.
-    var outc = select(col, pow(max(col, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)), pc.lock_alpha.z > 0.5);
+    var outc = col;
+    // An `if`, not `select` — `select` evaluates both arms, so these three
+    // pow()s ran on every pixel even with the flag off (the default). The branch is
+    // on a push constant, so it is uniform across the whole draw.
+    if (pc.lock_alpha.z > 0.5) {
+        outc = pow(max(outc, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
+    }
     // Ordered-noise dither hides banding in the smooth gradients (8-bit target);
     // applied post-encode, where the quantisation actually happens.
     outc = outc + (hash(frag) - 0.5) * (1.5 / 255.0);

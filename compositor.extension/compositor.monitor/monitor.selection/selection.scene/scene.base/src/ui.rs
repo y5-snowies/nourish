@@ -159,3 +159,13 @@ impl IcedUi for Overlay {
             .into()
     }
 }
+
+/// The hovered toolbar tip, read by the compositor to place the tooltip. Already
+/// a frame-latent thing visually — you hover, the next frame shows the tip — so
+/// reading a one-frame-old snapshot only moves it by that same frame.
+impl compositor_support_iced_core_engine_base::IcedSnapshot for Overlay {
+    type Snapshot = Option<(String, bool, bool)>;
+    fn snapshot(&self) -> Self::Snapshot {
+        self.hovered_tip()
+    }
+}

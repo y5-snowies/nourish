@@ -5,6 +5,8 @@
 //! the settings window re-reads on open (so terminal edits show) and writes back
 //! with [`save`]; applied live, no reboot.
 
+use compositor_model_environment_background_base::base::TripleBufferBackground;
+use compositor_model_environment_interface_base::base::TripleBufferUI;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -154,6 +156,19 @@ pub struct Preference {
     /// count as visible and keep updating.
     #[serde(default = "default_fractional_invisible")]
     pub fractional_invisible: String,
+    /// Background triple buffering: run the background shader on its own thread
+    /// and `VkDevice`, into three dmabufs the compositor samples. Vulkan only —
+    /// the GLES path never takes it. Applied live; only `enabled` needs a restart.
+    #[serde(default)]
+    pub background_triple_buffer: TripleBufferBackground,
+    /// UI triple buffering: give the iced and bevy surfaces a ring of dmabufs
+    /// instead of the single one the compositor samples in the same frame it was
+    /// written, and on Vulkan run bevy's scenes on their own thread. `slots` and
+    /// `pipeline` apply live; `enabled` needs a restart, since it also decides
+    /// whether the worker thread exists. Opt-in (default off) until it has run on
+    /// real hardware.
+    #[serde(default)]
+    pub interface_triple_buffer: TripleBufferUI,
     /// Per-output mode preferences, priority-ordered: the FIRST entry is the
     /// default/preferred output (see `display.base`'s `profiles.first()`).
     pub outputs: Vec<OutputProfile>,
@@ -516,6 +531,8 @@ impl Default for Preference {
             show_fps: false,
             release_hidden_surfaces: true,
             fractional_invisible: default_fractional_invisible(),
+            background_triple_buffer: TripleBufferBackground::default(),
+            interface_triple_buffer: TripleBufferUI::default(),
             outputs: Vec::new(),
             outputs_default_mode: None,
             outputs_layout: Vec::new(),
@@ -540,6 +557,9 @@ const MIN_DEFAULT_REFRESH_MHZ: u32 = 20_000;
 /// up to 30 Hz so a hand-edited file can't drive a monitor at a garbage rate, and
 /// migrate a legacy single-layout keyboard preference into the ordered list.
 pub fn normalize(mut p: Preference) -> Preference {
+    // Clamp the ring depth in the struct itself, not only where it is published,
+    // so the settings UI edits an already-valid value and a save round-trips it.
+    p.interface_triple_buffer = p.interface_triple_buffer.normalized();
     if let Some(m) = p.outputs_default_mode.as_mut() {
         if m.refresh_mhz < MIN_DEFAULT_REFRESH_MHZ {
             m.refresh_mhz = 30_000;
@@ -588,14 +608,43 @@ fn path() -> PathBuf {
 /// Load the preferences fresh from disk. A missing or invalid file yields the
 /// defaults (so the compositor and the settings window always have sane values).
 pub fn load() -> Preference {
-    let prefs = std::fs::read_to_string(path())
-        .ok()
-        .and_then(|raw| serde_json::from_str::<Preference>(&raw).ok())
-        .map(normalize)
-        .unwrap_or_default();
+    // Falling back to defaults on a parse failure is DELIBERATE — including
+    // background triple buffering, which defaults on. A file we cannot read gets
+    // the same treatment as a machine that has none.
+    //
+    // The log is the point: without it, an unreadable file looks identical to one
+    // whose settings simply had no effect, and every value in it vanishes with no
+    // trace of why.
+    let prefs = match std::fs::read_to_string(path()) {
+        Err(_) => Preference::default(),
+        Ok(raw) => match serde_json::from_str::<Preference>(&raw) {
+            Ok(p) => normalize(p),
+            Err(e) => {
+                error!(
+                    "preferences.json failed to parse ({e}); every setting in it is \
+                     ignored and defaults used instead. Fix the file at {}",
+                    path().display()
+                );
+                Preference::default()
+            }
+        },
+    };
     // Mirror the graphics config into the kernel-readable global.
     compositor_model_environment_graphics_base::base::set(prefs.graphics);
     compositor_model_environment_tearing_config::config::set(prefs.flip);
+    // Background triple buffering: the worker re-reads this every pass, so
+    // publishing here is what makes the knobs apply live. `enabled` still needs a
+    // restart — it decides whether the worker thread and its device exist at all.
+    compositor_model_environment_background_base::base::set(
+        prefs.background_triple_buffer.normalized(),
+    );
+    // UI triple buffering: the iced/bevy surfaces re-read this each frame and
+    // grow or collapse their ring to match, so `slots` and `pipeline` apply live.
+    // `enabled` does not: on Vulkan it also decides whether bevy's worker thread
+    // exists, and instances are bound to the backend they were created on.
+    compositor_model_environment_interface_base::base::set(
+        prefs.interface_triple_buffer.normalized(),
+    );
     prefs
 }
 
@@ -605,6 +654,18 @@ pub fn save(prefs: &Preference) -> Result<(), String> {
     // Keep the kernel-readable global in sync with every live edit.
     compositor_model_environment_graphics_base::base::set(prefs.graphics);
     compositor_model_environment_tearing_config::config::set(prefs.flip);
+    // Background triple buffering: the worker re-reads this every pass, so
+    // publishing here is what makes the knobs apply live. `enabled` still needs a
+    // restart — it decides whether the worker thread and its device exist at all.
+    compositor_model_environment_background_base::base::set(
+        prefs.background_triple_buffer.normalized(),
+    );
+    // UI triple buffering: the iced/bevy surfaces re-read this each frame and
+    // grow or collapse their ring to match, so even `enabled` applies live here —
+    // unlike the background, there is no worker thread whose existence it decides.
+    compositor_model_environment_interface_base::base::set(
+        prefs.interface_triple_buffer.normalized(),
+    );
     let p = path();
     if let Some(dir) = p.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;

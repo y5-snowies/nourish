@@ -8,6 +8,11 @@ use bevy::image::Image;
 use bevy::prelude::Resource;
 use compositor_model_debug_instance_record::trace;
 
+/// Label of the entry carrying the instance's render target. Named once because
+/// two crates must agree on it: `boot.base` registers it, and the surface ring
+/// re-points it at a different slot as it rotates.
+pub const OUTPUT_LABEL: &str = "bevy_output";
+
 #[derive(Clone)]
 pub struct BridgeEntry {
     pub texture: Arc<wgpu::Texture>,

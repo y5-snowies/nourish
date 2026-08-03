@@ -13,6 +13,7 @@ use smithay::utils::{Rectangle, Size, Transform};
 use std::collections::HashMap;
 use compositor_model_stats_registry_base::base as stats;
 
+use smithay::backend::drm::DrmNode;
 use crate::error::VulkanError;
 use super::VulkanRenderer;
 
@@ -98,8 +99,37 @@ impl VulkanRenderer {
         })
     }
 
-    /// Build a renderer on the first available vulkan physical device. Used by
-    /// the env-gated winit Vulkan present path and the `validate()` self-test.
+    /// Build a renderer on the physical device backing `node`.
+    ///
+    /// THE entry point for the native path, and the doc comment on `new` has
+    /// always described this — but nothing called it. `new_default` was used
+    /// instead, so the compositing renderer landed on whatever Vulkan enumerated
+    /// FIRST. On a single-GPU machine that is the right device by luck; on a
+    /// hybrid laptop Mesa generally enumerates in PCI order, so it was routinely
+    /// the iGPU regardless of any configuration.
+    ///
+    /// That matters because this renderer does not get to choose its buffers. It
+    /// binds composite targets allocated from the SCANOUT device's GBM and
+    /// imports client dmabufs the GLES `GpuManager` is paired to the same device
+    /// for — so it has to be on that device, not on a plausible-looking one.
+    ///
+    /// NO FALLBACK, for the same reason `worker.physical` has none: a renderer
+    /// silently built on the wrong GPU turns every import into a cross-device
+    /// one, which surfaces as slow or blank output rather than as the
+    /// configuration error it is.
+    pub fn for_node(node: DrmNode) -> Result<Self, VulkanError> {
+        let instance = compositor_kernel_vulkan_instance_factory_base::factory::create()
+            .map_err(|e| VulkanError::Vk(format!("instance: {e:?}")))?;
+        let phd = compositor_kernel_vulkan_instance_physical_base::physical::for_node(&instance, node)
+            .map_err(VulkanError::Vk)?
+            .ok_or(VulkanError::Unimplemented("no vulkan physical device for the selected node"))?;
+        info!("vulkan renderer: physical device '{}' for {:?}", phd.name(), node.dev_path());
+        Self::new(phd)
+    }
+
+    /// Build a renderer on the first available vulkan physical device. The
+    /// nested (winit) path and the `validate()` self-test only — neither has a
+    /// scanout device to match. Never the native path: see [`Self::for_node`].
     pub fn new_default() -> Result<Self, VulkanError> {
         let instance = compositor_kernel_vulkan_instance_factory_base::factory::create()
             .map_err(|e| VulkanError::Vk(format!("instance: {e:?}")))?;

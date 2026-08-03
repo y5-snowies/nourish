@@ -48,6 +48,10 @@ use crate::error::{CreateError, DispatchError, ResizeError};
 use crate::handle::{HandleId, IcedHandle};
 use crate::instance::{IcedInstance, IcedItem, build_instance};
 use crate::space::{IcedSpace, Transform};
+use crate::erase::Erased;
+use crate::remote::RemoteInstance;
+use crate::worker::{Job, Worker};
+use compositor_support_iced_core_engine_base::IcedSnapshot;
 use iced_core::keyboard::Modifiers as IcedMods;
 
 /// How long a surface must stay continuously hidden (off-screen or occluded)
@@ -178,6 +182,10 @@ pub struct IcedRegistry {
     /// (`RELEASE_MAX` since `batch_first`) — see `manage_backings`.
     batch_first: Option<Instant>,
     batch_touch: Option<Instant>,
+
+    /// The off-thread host, when this registry runs its instances there.
+    /// `None` = the inline path, which is also what GLES always gets.
+    worker: Option<Worker>,
 }
 
 impl std::fmt::Debug for IcedRegistry {
@@ -191,7 +199,22 @@ impl std::fmt::Debug for IcedRegistry {
 
 impl IcedRegistry {
     pub fn new(engine: SharedEngine, wgpu_ctx: Arc<WgpuVulkanContext>) -> Self {
+        // Vulkan-only, deliberately: the worker's ring slots carry no GLES view,
+        // because building one needs `&mut GlesRenderer` — the single thing that
+        // cannot leave the compositor thread. On GLES this stays inline and
+        // behaves exactly as it always has.
+        let vulkan = compositor_model_stats_registry_base::base::compositor_prefers_dmabuf();
+        let wanted = compositor_model_environment_interface_base::base::get().enabled;
+        let node = compositor_model_environment_config_base::base::get().render_node.clone();
+        let worker = compositor_model_environment_interface_base::base::get()
+            .engaged()
+            .then(|| crate::worker::spawn(&wgpu_ctx, node))
+            .flatten();
+        if wanted && !vulkan {
+            info!("iced: triple buffering requested but the compositor is on GLES; staying inline");
+        }
         Self {
+            worker,
             effective_modifiers: IcedMods::empty(),
             engine,
             wgpu_ctx,
@@ -314,6 +337,25 @@ impl IcedRegistry {
         )
     }
 
+    /// Like [`create_in_space`](Self::create_in_space), for a UI the compositor
+    /// reads back synchronously via [`snapshot`](Self::snapshot). Identical
+    /// otherwise; the only difference is that the worker publishes a copy of the
+    /// UI's state each tick, which costs nothing for the UIs that never opt in.
+    pub fn create_in_space_snapshot<U: IcedSnapshot>(
+        &mut self,
+        render_node: &str,
+        ui: U,
+        gles: &mut GlesRenderer,
+        location: Point<i32, Physical>,
+        size: Size<i32, Physical>,
+        space: IcedSpace,
+        layer: u64,
+    ) -> Result<IcedHandle<U>, CreateError> {
+        self.create_with(render_node, ui, gles, location, size, space, layer, |rt| {
+            Box::new(Erased::with_snapshot(rt))
+        })
+    }
+
     pub fn create_in_space<U: IcedUi>(
         &mut self,
         render_node: &str,
@@ -324,8 +366,64 @@ impl IcedRegistry {
         space: IcedSpace,
         layer: u64,
     ) -> Result<IcedHandle<U>, CreateError> {
+        self.create_with(render_node, ui, gles, location, size, space, layer, |rt| {
+            Box::new(Erased::new(rt))
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_with<U: IcedUi>(
+        &mut self,
+        render_node: &str,
+        ui: U,
+        gles: &mut GlesRenderer,
+        location: Point<i32, Physical>,
+        size: Size<i32, Physical>,
+        space: IcedSpace,
+        layer: u64,
+        erase: impl FnOnce(compositor_support_iced_core_engine_base::IcedRuntime<U>) -> Box<dyn crate::worker::AnyUi>
+            + Send
+            + 'static,
+    ) -> Result<IcedHandle<U>, CreateError> {
         let id = HandleId(self.next_id);
         self.next_id += 1;
+
+        // Off-thread path. Construction is OPTIMISTIC: the handle comes back now
+        // and the worker builds the runtime on its own thread, so a backing
+        // failure surfaces as a log rather than an `Err` here. That is the trade
+        // for getting iced's layout, shaping and submit off the input thread.
+        if let Some(worker) = self.worker.as_ref() {
+            let factory: crate::worker::Factory = Box::new(move |engine, size_px, scale| {
+                erase(compositor_support_iced_core_engine_base::IcedRuntime::new(
+                    ui, engine.clone(), size_px, scale,
+                ))
+            });
+            worker.send(Job::Create { id, size, scale: self.instance_scale, location, factory });
+            let item = IcedItem::remote(
+                RemoteInstance {
+                    id,
+                    smithay_id: smithay::backend::renderer::element::Id::new(),
+                    commit: Default::default(),
+                    location,
+                    size,
+                    scale_factor: self.instance_scale,
+                    pending_resize: None,
+                    // Seeded to the spawn location: the first frame is rendered
+                    // for exactly this geometry, so there is no lag to correct.
+                    resize_location: location,
+                    generation: 0,
+                    worker: worker.clone(),
+                    published: None,
+                    resident: true,
+                },
+                space,
+                layer,
+            );
+            let idx = self.items.len();
+            self.items.push(item);
+            self.index.insert(id, idx);
+            return Ok(IcedHandle::new(id));
+        }
 
         let surface = IcedSurface::allocate(render_node, &self.wgpu_ctx, gles, size)?;
         let instance = build_instance(
@@ -513,12 +611,62 @@ impl IcedRegistry {
         handle: IcedHandle<U>,
         message: U::Message,
     ) -> Result<(), DispatchError> {
+        if let Some(worker) = self.worker.as_ref() {
+            if !self.index.contains_key(&handle.id) {
+                return Err(DispatchError::UnknownHandle(handle.id));
+            }
+            worker.send(Job::Message { id: handle.id, payload: Box::new(message) });
+            return Ok(());
+        }
         let item = self
             .get_mut(handle.id)
             .ok_or(DispatchError::UnknownHandle(handle.id))?;
         let typed = item.get_mut::<U>().ok_or(DispatchError::TypeMismatch)?;
         typed.runtime_mut().queue_message(message);
         Ok(())
+    }
+
+    /// Install the compositor's observer for an instance's messages.
+    ///
+    /// Replaces reaching through `instance_mut(..).runtime_mut()`, which only
+    /// works inline: off-thread there is no local runtime to borrow, and the
+    /// handler has to be shipped to the worker instead. The handler itself is
+    /// unchanged either way — they already dispatch onto compositor channels.
+    pub fn set_message_handler<U: IcedUi>(
+        &mut self,
+        handle: IcedHandle<U>,
+        mut handler: impl FnMut(&U::Message) + Send + 'static,
+    ) -> bool {
+        if let Some(worker) = self.worker.as_ref() {
+            if !self.index.contains_key(&handle.id) {
+                return false;
+            }
+            let erased = Box::new(move |m: &dyn std::any::Any| {
+                if let Some(t) = m.downcast_ref::<U::Message>() {
+                    handler(t);
+                }
+            });
+            return worker.send(Job::Handler { id: handle.id, handler: erased });
+        }
+        match self.instance_mut(handle) {
+            Some(inst) => {
+                inst.runtime_mut().set_message_handler(handler);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Read a UI's published state without borrowing it.
+    ///
+    /// Inline this reads the live UI; off-thread it reads the copy the worker
+    /// published on its last tick, which is one frame old. See `IcedSnapshot`.
+    pub fn snapshot<U: IcedSnapshot>(&self, handle: IcedHandle<U>) -> Option<U::Snapshot> {
+        if let Some(worker) = self.worker.as_ref() {
+            let any = worker.board().snapshot(handle.id)?;
+            return any.downcast_ref::<U::Snapshot>().cloned();
+        }
+        self.instance(handle).map(|i| i.ui().snapshot())
     }
 
     pub fn instance_mut<U: IcedUi>(
@@ -804,16 +952,27 @@ impl IcedRegistry {
     /// they don't pin the redraw loop); [`manage_backings`] does their render.
     pub fn process_frame(&mut self, render_node: &str, gles: &mut GlesRenderer) {
         let wgpu = self.wgpu_ctx.clone();
+        // Read ONCE for the whole pass; it cannot change mid-frame and the global
+        // is behind an `RwLock`, so per-item reads were N acquisitions for one value.
+        let want_depth = compositor_model_environment_interface_base::base::get().depth();
+        // Off-thread the worker owns ticking and rasterizing; the compositor only
+        // nudges it once per frame and picks up what it finished. Visibility and
+        // backing lifecycle still run below, and reach the worker as `Job::Visible`.
+        if let Some(worker) = self.worker.as_ref() {
+            worker.send(Job::Tick);
+        }
 
         // Feature OFF: no visibility compute at all — tick and render dirty items
         // exactly as before the de-alloc pass (recovering any surface released
         // while it was on, so a mid-session toggle can't leave a blank surface).
         if !self.dealloc_enabled {
             for item in &mut self.items {
+                item.poll_publish();
                 let due = item.tick();
-                if !item.is_resident() {
-                    let _ = item.ensure_backing(render_node, &wgpu, gles);
+                if !item.ensure_backing(render_node, &wgpu, gles) {
+                    continue;
                 }
+                item.sync_depth(render_node, &wgpu, gles, want_depth);
                 if due || item.is_stale() {
                     item.render();
                 }
@@ -829,6 +988,9 @@ impl IcedRegistry {
         let now = Instant::now();
 
         for item in &mut self.items {
+            // Before anything else, and for EVERY item regardless of space or
+            // visibility: a deferred publish is retired here or not at all.
+            item.poll_publish();
             let due = item.tick();
 
             if item.space() != IcedSpace::Screen {
@@ -844,12 +1006,13 @@ impl IcedRegistry {
             let on_screen = !has_viewport || item.intersects_viewport(&transform, output_size);
             if on_screen {
                 item.mark_on_screen(now);
-                if !item.is_resident() {
-                    if let Err(e) = item.ensure_backing(render_node, &wgpu, gles) {
-                        warn!("iced backing re-alloc failed handle={:?}: {e:?}", item.handle_id());
-                        continue;
-                    }
+                // Both are rate-limited inside `IcedItem`: neither input changes
+                // when the allocation fails, so an ungated retry would run once
+                // per surface per composite.
+                if !item.ensure_backing(render_node, &wgpu, gles) {
+                    continue;
                 }
+                item.sync_depth(render_node, &wgpu, gles, want_depth);
                 if due || item.is_stale() {
                     item.render();
                 }
@@ -965,14 +1128,9 @@ impl IcedRegistry {
                 // Reveal is immediate: ensure + render this frame, cancel pending.
                 self.items[idx].mark_on_screen(now);
                 self.items[idx].set_release_pending(false);
-                if !self.items[idx].is_resident() {
-                    if let Err(e) = self.items[idx].ensure_backing(render_node, &wgpu, gles) {
-                        warn!(
-                            "iced backing re-alloc failed handle={:?}: {e:?}",
-                            self.items[idx].handle_id()
-                        );
-                        continue;
-                    }
+                // Rate-limited inside `IcedItem` — see `process_frame`.
+                if !self.items[idx].ensure_backing(render_node, &wgpu, gles) {
+                    continue;
                 }
                 if self.items[idx].is_stale() {
                     self.items[idx].render();
@@ -1038,7 +1196,7 @@ impl IcedRegistry {
                     return None;
                 }
 
-                Some(i.element_in(transform, output_size))
+                i.element_in(transform, output_size)
             })
             .collect()
     }
@@ -1109,7 +1267,7 @@ impl IcedRegistry {
         if covered {
             return None;
         }
-        Some(item.element_in(transform, output_size))
+        item.element_in(transform, output_size)
     }
 
     // ── Visibility & passthrough ──────────────────────────────────

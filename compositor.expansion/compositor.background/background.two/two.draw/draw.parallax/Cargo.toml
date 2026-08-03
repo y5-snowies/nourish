@@ -7,7 +7,13 @@ edition = "2024"
 path = "lib.rs"
 
 [dependencies]
+compositor_background_two_worker_key = { workspace = true }
+compositor_model_environment_background_base = { workspace = true }
 compositor_background_two_draw_motion = { workspace = true }
+compositor_background_two_worker_base = { workspace = true }
+compositor_background_two_worker_signal = { workspace = true }
+compositor_background_two_worker_shared = { workspace = true }
+compositor_model_stats_registry_base = { workspace = true }
 compositor_background_two_draw_select = { workspace = true }
 compositor_background_two_draw_vulkan = { workspace = true }
 compositor_background_two_shader_spirv = { workspace = true }

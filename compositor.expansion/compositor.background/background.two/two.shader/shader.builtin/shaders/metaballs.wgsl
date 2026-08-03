@@ -74,10 +74,19 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
 
 // Driver-stable integer/bit-mix value hash (Dave Hoskins) — no `fract(sin)`, so
 // the field stays box-free across Vulkan drivers (see the stock parallax note).
+// `hash` is a pure function of two fract lanes: the vec3's z lane always
+// duplicates x, since both are `fract(p.x * 0.1031)`. Splitting the lane setup
+// out lets `noise` compute its four corner lanes once and share them across all
+// four taps. Every operand and operation order below is unchanged, so the output
+// is bit-identical to the vec3 form this replaced.
+fn hash_lane(x: f32, y: f32) -> f32 {
+    let p3 = vec3<f32>(x, y, x);
+    let d = dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + vec3<f32>(33.33));
+    return fract(((x + d) + (y + d)) * (x + d));
+}
 fn hash(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 = p3 + dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + vec3<f32>(33.33));
-    return fract((p3.x + p3.y) * p3.z);
+    let q = fract(p * 0.1031);
+    return hash_lane(q.x, q.y);
 }
 
 // Two independent hashes → a per-cell random vec2 (blob phase + radius jitter).
@@ -155,8 +164,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let R = 0.82;
     let inv_r2 = 1.0 / (R * R);
     var field = 0.0;
-    for (var dy = -2; dy <= 2; dy = dy + 1) {
-        for (var dx = -2; dx <= 2; dx = dx + 1) {
+    // Neighbourhood radius: 2 sweeps 5x5 = 25 cells per pixel, the whole cost of
+    // this shader. The falloff above is already ~0 at the radius-2 ring (that is
+    // the point of the finite kernel), so the cheap variant walks 3x3 = 9 and the
+    // difference is a hair of weight on the widest blobs.
+    const MB_RADIUS: i32 = 2;   // @optimized 1
+    for (var dy = -MB_RADIUS; dy <= MB_RADIUS; dy = dy + 1) {
+        for (var dx = -MB_RADIUS; dx <= MB_RADIUS; dx = dx + 1) {
             let cell = gi + vec2<f32>(f32(dx), f32(dy));
             let rnd = hash2(cell + vec2<f32>(1.3, 2.7));
             let wob = vec2<f32>(
@@ -201,10 +215,23 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     col = mix(col, col * 0.45 + vec3<f32>(0.004, 0.010, 0.014), l);
 
     // Optional edge vignette in zoom-independent screen space.
-    let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
-    col = col * mix(1.0, vig, clamp(vignette, 0.0, 1.0));
+    // Guarded because the default is off: the length() and the smoothstep would
+    // otherwise run on every pixel only to be multiplied by 1.0. The guard also
+    // makes a 0 softness safe — that smoothstep divides by zero, and
+    // mix(1.0, NaN, 0.0) is NaN, not 1.0.
+    let vig_amount = clamp(vignette, 0.0, 1.0);
+    if (vig_amount > 0.0) {
+        let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
+        col = col * mix(1.0, vig, vig_amount);
+    }
     // Per-world sRGB flag (push lock_alpha.z): gamma-encode for the brighter,
     // preview-matching look on a non-sRGB scanout buffer. Off = raw values.
-    let outc = select(col, pow(max(col, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)), pc.lock_alpha.z > 0.5);
+    var outc = col;
+    // An `if`, not `select` — `select` evaluates both arms, so these three
+    // pow()s ran on every pixel even with the flag off (the default). The branch is
+    // on a push constant, so it is uniform across the whole draw.
+    if (pc.lock_alpha.z > 0.5) {
+        outc = pow(max(outc, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
+    }
     return vec4<f32>(outc, 1.0) * (alpha * 0.75);
 }

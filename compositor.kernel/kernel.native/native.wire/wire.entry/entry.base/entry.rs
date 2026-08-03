@@ -111,7 +111,40 @@ pub fn wire(
     let mut vulkan_mode = !env.renderer.eq_ignore_ascii_case("gles");
     let vulkan_fallback = env.renderer_fallback;
     let mut vulkan = if vulkan_mode {
-        match compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::new_default() {
+        // COMPOSITE ON `render_node`. That is what the setting is called and what
+        // anyone setting it expects; before this, it moved only the off-thread
+        // producers and the composite silently stayed on whatever Vulkan
+        // enumerated first — so a deliberately chosen dGPU was ignored for the
+        // one thing it was chosen for.
+        //
+        // On a split machine this is an ATTEMPT, and deliberately so: the
+        // composite targets come from the scanout device's GBM, so binding them
+        // here needs the two GPUs to be mutually importable. A laptop
+        // iGPU/dGPU pair usually is; a genuinely incompatible pair is not, and
+        // that is the configuration's own answer rather than something to
+        // second-guess. It is logged either way.
+        //
+        // Falls back to the scanout device only when `render_node` has no Vulkan
+        // device at all — a configuration error, so it is loud, but landing on a
+        // known-good device beats refusing to start.
+        let composite_node = compositor_kernel_graphic_bridge_negotiate_compositor::compositor::composite_node(display.primary_gpu);
+        compositor_kernel_graphic_bridge_negotiate_report::report::node("composite (vulkan renderer)", &format!("{:?}", composite_node.dev_path()));
+        match compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::for_node(
+            composite_node,
+        )
+        .or_else(|e| {
+            if composite_node.dev_id() == display.primary_gpu.dev_id() {
+                return Err(e);
+            }
+            warn!(
+                "renderer: render_node {:?} has no vulkan device ({e}); compositing on the \
+                 scanout device {:?} instead. Fix `render_node` in settings.json.",
+                composite_node.dev_path(), display.primary_gpu.dev_path()
+            );
+            compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::for_node(
+                display.primary_gpu,
+            )
+        }) {
             Ok(mut vk) => {
                 // Hand the renderer the display's DRM fd; with it, finish()
                 // takes the KMS IN_FENCE path (render-completion sync_file via
@@ -140,6 +173,51 @@ pub fn wire(
     // Record the active renderer once (after any GLES fallback). Producers skip
     // GLES-path-only resources (per-surface GlesTexture) when this is true.
     compositor_model_stats_registry_base::base::set_compositor_prefers_dmabuf(vulkan_mode);
+    // And WHAT it can import. The off-thread producers allocate their own
+    // dmabufs and hand them here to be sampled, so they have to negotiate a
+    // modifier this renderer accepts — and they cannot ask it directly, since it
+    // lives behind a `&mut` on this thread and staying off it is the point.
+    // Published once, here, where the fallback has already been resolved.
+    {
+        let formats = match vulkan.as_ref() {
+            Some(vk) => smithay::backend::renderer::ImportDma::dmabuf_formats(vk),
+            None => {
+                let mut binding = renderer.gpu_binding.borrow_mut();
+                let compositor_orchestration_core_state_base::state::StateDRMBinding {
+                    gpus,
+                    primary,
+                } = &mut *binding;
+                let primary = *primary;
+                compositor_kernel_gles_multigpu_bind_base::bind::texture_formats(gpus, &primary)
+            }
+        };
+        compositor_kernel_graphic_bridge_negotiate_compositor::compositor::set_compositor_importable(
+            formats,
+        );
+    }
+    // A split configuration is legal but only half-supported, and it is invisible
+    // from the client side: what gets advertised is the SCANOUT device, while the
+    // off-thread producers allocate on `render_node`. Their modifier sets then
+    // have to intersect for the bridge to negotiate anything, and across vendors
+    // they do not. Say it once, here, next to the topology line.
+    {
+        let cfg = compositor_model_environment_config_base::base::get();
+        if let Some(rn) = compositor_kernel_drm_device_node_base::node::render_node(
+            std::path::Path::new(&cfg.render_node),
+        ) {
+            if rn.dev_id() != display.primary_gpu.dev_id() {
+                warn!(
+                    "render_node {:?} is a DIFFERENT device from the scanout node {:?}. dmabuf \
+                     feedback advertises the scanout device (correct — it is what composites), \
+                     but the off-thread producers allocate on render_node, so every buffer they \
+                     hand over crosses devices and their modifier sets may not intersect at all. \
+                     Full multi-GPU is not yet supported; expect linear or implicit allocation.",
+                    rn.dev_path(),
+                    display.primary_gpu.dev_path(),
+                );
+            }
+        }
+    }
 
     // HDR (M5): opt-in via COMPOSITOR_HDR, Vulkan-only, and only on a
     // PQ-capable display. Until the full pipeline lands the path is incomplete;

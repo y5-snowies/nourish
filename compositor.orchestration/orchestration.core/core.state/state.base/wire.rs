@@ -238,7 +238,16 @@ impl WireTrait for Orchestrator {
         // because field accesses are disjoint.
         let StateDRMBinding { gpus, primary, .. } = &mut *binding;
 
-        let mut renderer = match gpus.single_renderer(primary) {
+        // Validate on the device that will DRAW this buffer, not on the scanout
+        // device. They are the same until `render_node` moves the composite, and
+        // then validating on the wrong one accepts a buffer the draw path cannot
+        // import — blank windows with a success reported to the client.
+        //
+        // `single_renderer` enumerates on demand and returns `NoDevice` for a node
+        // it cannot reach, which falls through to the default import below. So a
+        // node without a usable GL driver degrades rather than rejecting clients.
+        let node = compositor_kernel_graphic_bridge_negotiate_compositor::compositor::composite_node(*primary);
+        let mut renderer = match gpus.single_renderer(&node) {
             Ok(r) => r,
             Err(err) => {
                 warn!(

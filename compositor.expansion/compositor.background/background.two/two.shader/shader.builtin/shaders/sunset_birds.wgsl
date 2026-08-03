@@ -62,10 +62,19 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
     return o;
 }
 
+// `hash` is a pure function of two fract lanes: the vec3's z lane always
+// duplicates x, since both are `fract(p.x * 0.1031)`. Splitting the lane setup
+// out lets `noise` compute its four corner lanes once and share them across all
+// four taps. Every operand and operation order below is unchanged, so the output
+// is bit-identical to the vec3 form this replaced.
+fn hash_lane(x: f32, y: f32) -> f32 {
+    let p3 = vec3<f32>(x, y, x);
+    let d = dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + vec3<f32>(33.33));
+    return fract(((x + d) + (y + d)) * (x + d));
+}
 fn hash(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 = p3 + dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + vec3<f32>(33.33));
-    return fract((p3.x + p3.y) * p3.z);
+    let q = fract(p * 0.1031);
+    return hash_lane(q.x, q.y);
 }
 
 // Distance from point `p` to the segment a→b (for the two wing strokes).
@@ -136,11 +145,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let sun_col = mix(vec3<f32>(1.0, 0.85, 0.55), vec3<f32>(1.0, 0.95, 0.80), warmth);
     col = col + sun_col * (glow * 0.4 + disc * 0.8);
     // Horizon glare: a soft bright band centred on the sun's column.
-    let glare = exp(-pow((screen_uv.y - sun_pos.y) * 3.0, 2.0)) * smoothstep(0.9, 0.0, abs(screen_uv.x - sun_pos.x));
+    let gy = (screen_uv.y - sun_pos.y) * 3.0;
+    let glare = exp(-(gy * gy)) * smoothstep(0.9, 0.0, abs(screen_uv.x - sun_pos.x));
     col = col + sun_col * glare * 0.2;
 
     // Horizon haze so the sun melts into the skyline.
-    let hz = exp(-pow((screen_uv.y + 0.15) * 4.5, 2.0));
+    let hy = (screen_uv.y + 0.15) * 4.5;
+    let hz = exp(-(hy * hy));
     col = mix(col, mix(col, sun_col, 0.35), hz * 0.5 * haze);
 
     // Birds: a sparse scrolling grid high in the sky. Each drifts sideways and flaps
@@ -171,7 +182,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     l = l * l * (3.0 - 2.0 * l);
     col = mix(col, col * 0.45 + vec3<f32>(0.02, 0.02, 0.05), l);
 
-    let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
-    col = col * mix(1.0, vig, clamp(vignette, 0.0, 1.0));
+    // Guarded because the default is off: the length() and the smoothstep would
+    // otherwise run on every pixel only to be multiplied by 1.0. The guard also
+    // makes a 0 softness safe — that smoothstep divides by zero, and
+    // mix(1.0, NaN, 0.0) is NaN, not 1.0.
+    let vig_amount = clamp(vignette, 0.0, 1.0);
+    if (vig_amount > 0.0) {
+        let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
+        col = col * mix(1.0, vig, vig_amount);
+    }
     return vec4<f32>(col, 1.0) * (alpha * 0.75);
 }

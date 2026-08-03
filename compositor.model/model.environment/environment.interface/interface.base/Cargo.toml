@@ -1,0 +1,12 @@
+[package]
+name = "compositor_model_environment_interface_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+serde = { workspace = true }
+compositor_model_environment_tearing_rate = { workspace = true }
+compositor_model_stats_registry_counter = { workspace = true }
+
+[lib]
+path = "lib.rs"

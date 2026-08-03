@@ -82,6 +82,8 @@ pub struct Orchestrator {
     /// where the resolver falls back to the sole output. The shared `Viewports`
     /// view state is unchanged — this only selects which output's geometry is used.
     pub render_output: Option<compositor_orchestration_driver_output_base::base::OutputKey>,
+    /// Per-output monotonic scene-build counter — see [`Orchestrator::next_frame_serial`].
+    pub frame_serial: std::collections::HashMap<compositor_orchestration_driver_output_base::base::OutputKey, u64>,
     /// The physical output currently under the cursor, by [`output_key`]. Updated by
     /// the pointer path as the cursor crosses between monitors (teleport). Selects
     /// which output's size/scale the input-path contexts use. `None` until the first
@@ -234,6 +236,11 @@ impl Orchestrator {
         compositor_model_stats_registry_base::base::set_background_shader_default(
             prefs.background_shader.clone(),
         );
+        // Same seam: the background triple-buffer settings. Re-published on every
+        // settings save (see `pref::save`), so the knobs apply live.
+        compositor_model_environment_background_base::base::set(
+            prefs.background_triple_buffer.normalized(),
+        );
         // Keyboard-shortcut overrides loaded fresh from keybinding.json.
         let keybinding = compositor_model_environment_keybinding_base::base::load();
 
@@ -307,6 +314,7 @@ impl Orchestrator {
             environment,
             render_target: None,
             render_output: None,
+            frame_serial: Default::default(),
             cursor_output: None,
             saved_cursor: None,
             finger_scroll_ramp: FingerScrollRamp::default(),
@@ -440,6 +448,64 @@ impl Orchestrator {
     /// (`render_output`, inside the per-output render loop), else the one under the
     /// cursor (`cursor_output`), else `""` (the sole / not-yet-identified output,
     /// whose bootstrap view tree is always present).
+    /// Bump and return this output's monotonic scene-build counter.
+    ///
+    /// On the native path `execute()` runs once per vblank per output, so this is
+    /// a retrace count — which is what the off-thread background's vblank cadence
+    /// paces on. Per output, not global: with two monitors a single counter would
+    /// advance once per output per retrace and silently halve every divisor.
+    /// Under winit it degrades to a plain frame counter, as that cadence expects.
+    pub fn next_frame_serial(&mut self) -> u64 {
+        let key = self.current_output_key();
+        let slot = self.frame_serial.entry(key).or_default();
+        *slot = slot.wrapping_add(1);
+        *slot
+    }
+
+    /// Refresh interval of the output being drawn. Falls back to 30Hz before a
+    /// mode is known; `Rate::Multiplier` is relative to this. The fallback is
+    /// deliberately SLOW: consumers turn it into a minimum interval, so a high
+    /// guess would uncap them until the real mode arrives.
+    pub fn current_refresh(&self) -> std::time::Duration {
+        self.current_output()
+            .current_mode()
+            .filter(|m| m.refresh > 0)
+            .map(|m| std::time::Duration::from_secs_f64(1000.0 / m.refresh as f64))
+            .unwrap_or_else(|| std::time::Duration::from_micros(33_333))
+    }
+
+    /// The SHORTEST refresh interval among mapped outputs — the fastest panel.
+    ///
+    /// For the UI pacing global, which is one value for the whole desktop
+    /// because the worker has no output of its own to ask.
+    ///
+    /// Fastest, and this is not a compromise — it follows from where bevy
+    /// elements are drawn. They are pushed at `layer::WORLD_3D` and are NOT
+    /// gated by `draw_screen`, so a bevy instance is composited on EVERY mapped
+    /// output. A surface genuinely shown on a 144Hz panel must not be paced to
+    /// 60 because a second monitor is slower; that is visible stutter on the
+    /// monitor the user is looking at.
+    ///
+    /// And it costs nothing on the slow panel, because the ceiling is not what
+    /// bounds it there — the compositor composites each output at that output's
+    /// own rate, so the 60Hz monitor sees 60 frames whatever this says. The
+    /// ceiling's job is only to stop the producer outrunning what ANY panel can
+    /// show, and the fastest panel is exactly that bound.
+    ///
+    /// If bevy elements are ever gated per output, this stops being right and
+    /// the fix is a per-instance refresh rather than a different reduction here:
+    /// the correct value is the fastest among the outputs showing THAT instance.
+    pub fn fastest_refresh(&self) -> std::time::Duration {
+        self.space_state()
+            .state
+            .outputs()
+            .filter_map(|o| o.current_mode())
+            .filter(|m| m.refresh > 0)
+            .map(|m| std::time::Duration::from_secs_f64(1000.0 / m.refresh as f64))
+            .min()
+            .unwrap_or_else(|| std::time::Duration::from_micros(33_333))
+    }
+
     pub fn current_output_key(&self) -> compositor_orchestration_driver_output_base::base::OutputKey {
         self.render_output
             .clone()

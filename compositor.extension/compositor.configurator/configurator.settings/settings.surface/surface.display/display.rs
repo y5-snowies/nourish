@@ -199,6 +199,8 @@ pub fn build<'a>(
 
     col.push(Column::with_children(monitors).spacing(6))
         .push(actions)
-        .push(scrollable(Column::with_children(modes).spacing(6)).height(Length::Fill))
+        // Bounded, not Fill: the tab now scrolls as a whole, and a Fill child
+        // inside a scrollable has no defined height.
+        .push(scrollable(Column::with_children(modes).spacing(6)).height(Length::Fixed(280.0)))
         .into()
 }

@@ -6,6 +6,8 @@
 //! here so callers never have to think about drop ordering across the three
 //! views.
 
+use compositor_kernel_graphic_bridge_publish_ring::ring::Ring;
+use compositor_model_environment_interface_base::base as interface;
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::utils::{Physical, Size};
 
@@ -28,12 +30,16 @@ use crate::wgpu_import::{TEXTURE_FORMAT, import_dmabuf_to_wgpu};
 ///
 /// Do not reorder these without re-doing the lifetime analysis.
 pub struct IcedSurface {
-    /// GPU backing (dmabuf + both imports). `None` when the surface has been
-    /// **released** to reclaim memory while it isn't visible — its `IcedRuntime`
-    /// keeps running; `ensure` re-allocates on demand before the next render.
-    /// The three imports are kept together so they drop in the required order
-    /// (gles → wgpu → allocation) on both release and resize.
-    backing: Option<Backing>,
+    /// GPU backing: a ring of dmabufs, each with both imports. `None` when the
+    /// surface has been **released** to reclaim memory while it isn't visible —
+    /// its `IcedRuntime` keeps running; `ensure` re-allocates on demand before
+    /// the next render. The imports are kept together per slot so they drop in
+    /// the required order (gles → wgpu → allocation) on release and resize alike.
+    ///
+    /// Ring depth is the live `Surfaces` setting. One slot is the disabled path
+    /// and behaves exactly as the single backing did: iced draws into the very
+    /// buffer the compositor samples this frame.
+    backing: Option<Ring<Backing>>,
     /// The logical size of the surface, retained across release so a released
     /// surface can be re-allocated at the same size without the caller re-stating it.
     pub size: Size<i32, Physical>,
@@ -42,7 +48,7 @@ pub struct IcedSurface {
 /// The three views of one dmabuf, grouped so field-drop order is guaranteed:
 /// `gles_texture` (EGLImage) → `wgpu_texture` (Vulkan external-mem binding) →
 /// `allocated` (owns the BO). See the type-level note on `IcedSurface`.
-struct Backing {
+pub struct Backing {
     gles_texture: GlesTexture,
     wgpu_texture: wgpu::Texture,
     allocated: AllocatedDmabuf,
@@ -68,8 +74,9 @@ impl IcedSurface {
         b: f64,
         a: f64,
     ) {
-        // DEBUG ONLY: no-op when the backing has been released.
-        let Some(backing) = self.backing.as_ref() else { return };
+        // DEBUG ONLY: no-op when the backing has been released. Clears the
+        // published slot, which is the one the compositor is showing.
+        let Some(backing) = self.backing.as_ref().map(|r| r.published()) else { return };
         // Step 1: Clear to color.
         let view = backing.wgpu_texture.create_view(&wgpu::TextureViewDescriptor {
             label: Some("y5_iced_dmabuf_render_view"),
@@ -184,19 +191,81 @@ impl IcedSurface {
         drop(data);
         staging.unmap();
     }
-    /// Allocate a fresh dmabuf at the given size and import it as both a
-    /// wgpu texture and a GLES texture. Starts out resident.
+    /// Allocate the ring at the depth the live setting asks for, each slot a
+    /// dmabuf imported as both a wgpu texture and a GLES texture. Starts resident.
     pub fn allocate(
         render_node: &str,
         wgpu_ctx: &WgpuVulkanContext,
         gles: &mut GlesRenderer,
         size: Size<i32, Physical>,
     ) -> Result<Self, SurfaceError> {
-        let backing = Backing::allocate(render_node, wgpu_ctx, gles, size)?;
         Ok(Self {
-            backing: Some(backing),
+            backing: Some(Self::ring(render_node, wgpu_ctx, gles, size)?),
             size,
         })
+    }
+
+    fn ring(
+        render_node: &str,
+        wgpu_ctx: &WgpuVulkanContext,
+        gles: &mut GlesRenderer,
+        size: Size<i32, Physical>,
+    ) -> Result<Ring<Backing>, SurfaceError> {
+        let depth = interface::get().depth();
+        let mut slots = Vec::with_capacity(depth);
+        for _ in 0..depth {
+            slots.push(Backing::allocate(render_node, wgpu_ctx, gles, size)?);
+        }
+        Ok(Ring::new(slots, wgpu_ctx.device.clone(), wgpu_ctx.queue.clone()))
+    }
+
+    /// Match the ring to the live setting, allocating or dropping slots. Called
+    /// per frame, so the knob applies without a restart; a no-op while released
+    /// or once the depth already matches.
+    pub fn sync_depth(
+        &mut self,
+        render_node: &str,
+        wgpu_ctx: &WgpuVulkanContext,
+        gles: &mut GlesRenderer,
+        want: usize,
+    ) -> Result<(), SurfaceError> {
+        let size = self.size;
+        let Some(ring) = self.backing.as_mut() else { return Ok(()) };
+        if want == ring.len() {
+            return Ok(());
+        }
+        trace!("IcedSurface ring {} -> {want} slots", ring.len());
+        ring.set_depth(want, || Backing::allocate(render_node, wgpu_ctx, gles, size))
+    }
+
+    /// Retire finished frames. Returns whether a new buffer became visible, which
+    /// is what the instance's commit counter — and so its damage — follows.
+    pub fn poll(&mut self) -> bool {
+        self.backing.as_mut().is_some_and(|r| r.poll())
+    }
+
+    /// Whether a submitted frame has yet to be published. The host must keep
+    /// scheduling while this holds: iced renders only when dirty, so a deferred
+    /// publish would otherwise land on a frame that never comes and the surface
+    /// would sit on stale pixels.
+    pub fn has_pending(&self) -> bool {
+        self.backing.as_ref().is_some_and(|r| r.has_pending())
+    }
+
+    /// Record that iced submitted its frame for the claimed slot.
+    ///
+    /// `pipeline` is passed in rather than re-read: the caller already holds the
+    /// settings for this frame, and re-reading here made it one `RwLock`
+    /// acquisition per surface per frame for a value that cannot have changed.
+    pub fn submitted(&mut self, pipeline: bool) {
+        if let Some(ring) = self.backing.as_mut() {
+            ring.submitted(pipeline);
+        }
+    }
+
+    /// Bumped on every publish; the instance's damage follows it.
+    pub fn generation(&self) -> u64 {
+        self.backing.as_ref().map_or(0, |r| r.generation())
     }
 
     /// Whether the GPU backing is currently allocated. `false` after `release`
@@ -226,18 +295,19 @@ impl IcedSurface {
         if self.backing.is_some() {
             return Ok(());
         }
-        self.backing = Some(Backing::allocate(render_node, wgpu_ctx, gles, self.size)?);
+        self.backing = Some(Self::ring(render_node, wgpu_ctx, gles, self.size)?);
         Ok(())
     }
 
-    /// Sampleable GLES view, or `None` while released.
+    /// Sampleable GLES view of the PUBLISHED slot, or `None` while released —
+    /// never the slot iced is drawing into.
     pub fn gles_texture(&self) -> Option<&GlesTexture> {
-        self.backing.as_ref().map(|b| &b.gles_texture)
+        self.backing.as_ref().map(|r| &r.published().gles_texture)
     }
 
-    /// The underlying dmabuf, or `None` while released.
+    /// The published slot's dmabuf, or `None` while released.
     pub fn dmabuf(&self) -> Option<&smithay::backend::allocator::dmabuf::Dmabuf> {
-        self.backing.as_ref().map(|b| &b.allocated.dmabuf)
+        self.backing.as_ref().map(|r| &r.published().allocated.dmabuf)
     }
 
     /// Resize. Destroy-and-recreate in drop-safe order when resident; when
@@ -262,21 +332,24 @@ impl IcedSurface {
             self.size.w, self.size.h, new_size.w, new_size.h
         );
 
-        if self.backing.is_some() {
-            // Allocate the replacement first (clean error on failure), then let
-            // the old backing drop (gles → wgpu → allocation) as it is replaced.
-            let replacement = Backing::allocate(render_node, wgpu_ctx, gles, new_size)?;
-            self.backing = Some(replacement);
+        if let Some(ring) = self.backing.as_mut() {
+            // Allocate every replacement first (clean error on failure), then let
+            // the old slots drop (gles → wgpu → allocation) as they are replaced.
+            let mut slots = Vec::with_capacity(ring.len());
+            for _ in 0..ring.len() {
+                slots.push(Backing::allocate(render_node, wgpu_ctx, gles, new_size)?);
+            }
+            ring.replace(slots);
         }
         self.size = new_size;
         Ok(())
     }
 
-    /// Convenience: produce a `wgpu::TextureView` for use as a render
-    /// attachment, or `None` while released.
-    pub fn create_render_view(&self) -> Option<wgpu::TextureView> {
-        self.backing.as_ref().map(|b| {
-            b.wgpu_texture.create_view(&wgpu::TextureViewDescriptor {
+    /// Claim the slot to render into and produce a `wgpu::TextureView` for it,
+    /// or `None` while released. May block once the GPU is a whole ring behind.
+    pub fn begin_render_view(&mut self) -> Option<wgpu::TextureView> {
+        self.backing.as_mut().map(|r| {
+            r.begin().wgpu_texture.create_view(&wgpu::TextureViewDescriptor {
                 label: Some("y5_iced_dmabuf_render_view"),
                 ..Default::default()
             })

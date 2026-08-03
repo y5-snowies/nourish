@@ -14,15 +14,3 @@ release-artifacts:
     expire_in: never
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v/'
-
-# Optional live host deploy (scp to y5@yrd.local via the existing script). Manual, tag-gated.
-deploy-remote:
-  stage: release
-  script:
-    - eval "$(ssh-agent -s)"
-    - echo "$Y5_DEPLOY_SSH_KEY" | tr -d '\r' | ssh-add -
-    - environment/build-release.sh remote
-  rules:
-    - if: '$CI_COMMIT_TAG =~ /^v/'
-      when: manual
-      allow_failure: true

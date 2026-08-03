@@ -23,6 +23,10 @@ pub struct BevyInstance<S: BevyScene> {
     #[doc(hidden)] pub scale_factor: f32,
     #[doc(hidden)] pub runtime: BevyRuntime<S>,
     #[doc(hidden)] pub pending_resize: Option<(Size<i32, Physical>, f32)>,
+    /// Last ring generation reflected in `commit`. Damage follows the ring, not
+    /// the tick: a frame the ring did not publish is pixels the compositor
+    /// already has, and reporting damage for it repaints the rect for nothing.
+    #[doc(hidden)] pub generation: u64,
 }
 
 impl<S: BevyScene> BevyInstance<S> {
@@ -45,11 +49,22 @@ pub trait BevyInstanceAny: Any {
     fn size(&self) -> Size<i32, Physical>;
     fn set_location(&mut self, p: Point<i32, Physical>);
     fn tick(&mut self);
-    fn texture_handle(&self) -> &GlesTexture;
-    /// Strict read-only accessor for the surface's underlying dmabuf (so Vulkan
-    /// can import the bevy output natively; GLES samples the texture above).
-    fn dmabuf(&self) -> &smithay::backend::allocator::dmabuf::Dmabuf;
+    /// The GLES view, or `None` on the off-thread path — that path is Vulkan-only
+    /// and the compositor imports the dmabuf natively there, so the worker never
+    /// builds a GLES texture (building one needs `&mut GlesRenderer`, which only
+    /// exists on the compositor thread).
+    fn texture_handle(&self) -> Option<&GlesTexture>;
+    /// The buffer to composite: owned, because the off-thread path clones it out
+    /// of the publish board rather than holding it. `None` before the first
+    /// finished frame, and the instance draws nothing until then.
+    fn dmabuf(&self) -> Option<smithay::backend::allocator::dmabuf::Dmabuf>;
+    /// The size actually rendered, when it can differ from the requested one (a
+    /// resize still in flight on the worker). `None` means "same as `size()`".
+    fn rendered_size(&self) -> Option<Size<i32, Physical>> { None }
     fn apply_pending_resize(&mut self, render_node: &str, wgpu_ctx: &WgpuVulkanContext, gles: &mut GlesRenderer) -> Result<bool, SurfaceError>;
+    /// Match the ring to the live setting. Per-frame, so the knob applies without
+    /// a restart; a no-op once the depth already matches.
+    fn sync_depth(&mut self, render_node: &str, wgpu_ctx: &WgpuVulkanContext, gles: &mut GlesRenderer, want: usize) -> Result<(), SurfaceError>;
     fn request_resize(&mut self, new_size: Size<i32, Physical>, scale_factor: f32);
     fn pending_resize(&self) -> Option<(Size<i32, Physical>, f32)>;
     fn as_any(&self) -> &dyn Any;
@@ -66,14 +81,27 @@ impl<S: BevyScene> BevyInstanceAny for BevyInstance<S> {
     fn set_location(&mut self, p: Point<i32, Physical>) { self.location = p; }
 
     fn tick(&mut self) {
+        let settings = compositor_model_environment_interface_base::base::get();
+        // Retire whatever the GPU finished since the last frame, then claim a
+        // slot that is neither published nor still being written.
+        self.output_surface.poll();
+        self.output_surface.begin();
+        if self.output_surface.take_retarget() {
+            let target = std::sync::Arc::new(self.output_surface.target().wgpu_texture.clone());
+            self.runtime.set_output_texture(target);
+        }
         self.runtime.update();
-        self.commit.increment();
+        self.output_surface.submitted(settings.pipeline);
+        if self.generation != self.output_surface.generation() {
+            self.generation = self.output_surface.generation();
+            self.commit.increment();
+        }
         trace!("tick handle={:?}", self.id);
     }
 
-    fn texture_handle(&self) -> &GlesTexture { &self.output_surface.gles_texture }
-    fn dmabuf(&self) -> &smithay::backend::allocator::dmabuf::Dmabuf {
-        &self.output_surface.allocated.dmabuf
+    fn texture_handle(&self) -> Option<&GlesTexture> { Some(self.output_surface.gles_texture()) }
+    fn dmabuf(&self) -> Option<smithay::backend::allocator::dmabuf::Dmabuf> {
+        Some(self.output_surface.dmabuf().clone())
     }
 
     fn apply_pending_resize(&mut self, render_node: &str, wgpu_ctx: &WgpuVulkanContext, gles: &mut GlesRenderer) -> Result<bool, SurfaceError> {
@@ -88,6 +116,10 @@ impl<S: BevyScene> BevyInstanceAny for BevyInstance<S> {
         self.runtime.resize((new_size.w as u32, new_size.h as u32), self.scale_factor);
         self.commit.increment();
         Ok(true)
+    }
+
+    fn sync_depth(&mut self, render_node: &str, wgpu_ctx: &WgpuVulkanContext, gles: &mut GlesRenderer, want: usize) -> Result<(), SurfaceError> {
+        self.output_surface.sync_depth(render_node, wgpu_ctx, gles, want)
     }
 
     fn request_resize(&mut self, new_size: Size<i32, Physical>, scale_factor: f32) {

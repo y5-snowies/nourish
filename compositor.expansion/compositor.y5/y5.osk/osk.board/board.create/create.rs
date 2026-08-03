@@ -453,9 +453,7 @@ fn create(
     // A key tap must not move keyboard focus off the text field being typed into.
     registry.set_keyboard_transparent_by_id(handle.id, true);
     registry
-        .instance_mut(handle)?
-        .runtime_mut()
-        .set_message_handler(move |m: &OskMessage| dispatch(m, &tx));
+        .set_message_handler(handle, move |m: &OskMessage| dispatch(m, &tx));
     Some(handle)
 }
 

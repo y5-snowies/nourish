@@ -169,18 +169,51 @@ impl PlaceholderSystem {
             // drag whenever scale != 1 (e.g. fractional-scale winit). See the
             // `scale` note on `PlaceholderGeometry`.
             let s = ev.scale;
-            let position = ev.position.map(|(x, y)| {
-                Point::<i32, Physical>::from((
-                    (x as f64 * s).round() as i32,
-                    (y as f64 * s).round() as i32,
-                ))
-            });
-            let size = ev.size.map(|(w, h)| {
-                Size::<i32, Physical>::from((
-                    (w as f64 * s).round() as i32,
-                    (h as f64 * s).round() as i32,
-                ))
-            });
+            // ROUND THE EDGES, then derive the extent — never round origin and
+            // extent independently.
+            //
+            // Dragging a LEFT or TOP edge changes `position` and `size` together,
+            // in opposite directions. Rounded apart, the far edge lands on
+            // `round(x·s) + round(w·s)`, which is not `round((x+w)·s)`: the two
+            // roundings tick out of step as the drag proceeds and the edge the
+            // user is NOT holding wobbles by a pixel. That is the jitter, and it
+            // is why only some edges show it — a right/bottom drag leaves `x`
+            // alone, so nothing can drift.
+            //
+            // `motion.rs` already anchors the fixed edge this way in WORLD space
+            // for both windows and placeholders; this is the same rule applied to
+            // the world -> storage-physical hop, which only placeholders take.
+            // (`Transform::into_storage_rect_physical` rounds apart too — uniting
+            // them is deferred, so this fixes the path that shows it.)
+            let (position, size) = match (ev.position, ev.size) {
+                (Some((x, y)), Some((w, h))) => {
+                    let left = (x as f64 * s).round() as i32;
+                    let top = (y as f64 * s).round() as i32;
+                    let right = ((x as f64 + w as f64) * s).round() as i32;
+                    let bottom = ((y as f64 + h as f64) * s).round() as i32;
+                    (
+                        Some(Point::<i32, Physical>::from((left, top))),
+                        Some(Size::<i32, Physical>::from((right - left, bottom - top))),
+                    )
+                }
+                // Only one of them moved, so there is no pair to keep consistent:
+                // a pure move leaves the extent alone, and a right/bottom drag
+                // leaves the origin alone and grows monotonically from it.
+                (position, size) => (
+                    position.map(|(x, y)| {
+                        Point::<i32, Physical>::from((
+                            (x as f64 * s).round() as i32,
+                            (y as f64 * s).round() as i32,
+                        ))
+                    }),
+                    size.map(|(w, h)| {
+                        Size::<i32, Physical>::from((
+                            (w as f64 * s).round() as i32,
+                            (h as f64 * s).round() as i32,
+                        ))
+                    }),
+                ),
+            };
             compositor_y5_surface_system_base::base::announce_placeholder_geometry(
                 cx.channels, handle, position, size,
             );

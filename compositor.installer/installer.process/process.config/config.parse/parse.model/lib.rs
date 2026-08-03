@@ -33,7 +33,7 @@ pub struct BaseConfig {
     /// Default scanout depth for the Y5 Desktop (10 per spec — same as Dev).
     pub depth: u8,
     pub vrr: bool,
-    /// Renderer backend: "vulkan" (default) or "gles". AMD cards may need gles.
+    /// Renderer backend: "vulkan" (default) or "gles". gles is the fail-safe for older GPUs.
     pub renderer: String,
     pub renderer_fallback: bool,
 }

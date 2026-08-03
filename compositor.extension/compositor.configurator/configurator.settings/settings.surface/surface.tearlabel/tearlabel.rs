@@ -1,7 +1,7 @@
 //! Short control labels for the tearing/pacing settings. The balloon text that
 //! goes under each control lives in `surface.tearhint`.
 
-use compositor_model_environment_tearing_rate::rate::{PaceMode, Rate, TearMode};
+use compositor_model_environment_tearing_rate::rate::{Cadence, PaceMode, Rate, TearMode};
 use compositor_model_environment_tearing_select::select::{Exclusivity, Selector};
 
 pub fn selector_label(s: Selector) -> &'static str {
@@ -42,6 +42,23 @@ pub fn rate_label(r: Rate) -> String {
         Rate::Uncapped => "Uncapped".to_string(),
         Rate::Multiplier(m) => format!("{m:.1}x refresh"),
         Rate::Fps(f) => format!("{f:.0} FPS"),
+    }
+}
+
+/// A whole row of its own: "Per composite" / "Per refresh".
+pub fn cadence_label(c: Cadence) -> &'static str {
+    match c {
+        Cadence::Vblank => "Per composite",
+        Cadence::Timer => "Per refresh",
+    }
+}
+
+/// For use INSIDE the field whose value it qualifies, where a "per" already
+/// precedes it — "1.00x per [composite|refresh]" rather than a separate row.
+pub fn cadence_short(c: Cadence) -> &'static str {
+    match c {
+        Cadence::Vblank => "composite",
+        Cadence::Timer => "refresh",
     }
 }
 

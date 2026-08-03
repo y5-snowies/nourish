@@ -4,6 +4,12 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_model_environment_background_base = { workspace = true }
+compositor_model_environment_interface_base = { workspace = true }
+compositor_model_environment_tearing_rate = { workspace = true }
+compositor_model_environment_interface_preset = { workspace = true }
+compositor_background_two_worker_buffers = { workspace = true }
+compositor_model_environment_background_preset = { workspace = true }
 compositor_configurator_settings_surface_message = { workspace = true }
 compositor_configurator_settings_surface_style = { workspace = true }
 compositor_configurator_settings_surface_control = { workspace = true }
@@ -18,9 +24,9 @@ compositor_configurator_settings_surface_pen = { workspace = true }
 compositor_model_environment_graphics_base = { workspace = true }
 compositor_model_environment_preference_base = { workspace = true }
 compositor_model_environment_tearing_config = { workspace = true }
-compositor_model_environment_tearing_rate = { workspace = true }
 compositor_model_environment_tearing_select = { workspace = true }
 compositor_configurator_settings_surface_tearlabel = { workspace = true }
+compositor_configurator_settings_surface_bufferlabel = { workspace = true }
 compositor_configurator_settings_surface_tearhint = { workspace = true }
 compositor_configurator_hardware_gpu_base = { workspace = true }
 compositor_configurator_settings_surface_keys = { workspace = true }

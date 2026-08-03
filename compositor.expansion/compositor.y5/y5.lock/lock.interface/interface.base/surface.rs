@@ -33,13 +33,9 @@ pub(crate) fn create(
     let Some(registry) = state.inner.surface_mut().registry.as_mut() else {
         return None;
     };
-    registry
-        .instance_mut(handle)
-        .unwrap()
-        .runtime_mut()
-        .set_message_handler(move |message: &LockMessage| {
-            lock_surface_dispatch(message, &tx);
-        });
+    registry.set_message_handler(handle, move |message: &LockMessage| {
+        lock_surface_dispatch(message, &tx);
+    });
 
     return Some(handle);
 }

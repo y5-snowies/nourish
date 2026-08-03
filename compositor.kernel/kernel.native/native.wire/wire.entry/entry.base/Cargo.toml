@@ -4,6 +4,11 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_kernel_graphic_bridge_negotiate_report = { workspace = true }
+compositor_model_environment_experimental_base = { workspace = true }
+compositor_kernel_drm_device_node_base = { workspace = true }
+compositor_kernel_gles_multigpu_bind_base = { workspace = true }
+compositor_kernel_graphic_bridge_negotiate_compositor = { workspace = true }
 compositor_orchestration_driver_output_base.workspace = true
 compositor_kernel_vulkan_renderer_core_base.workspace = true
 compositor_model_debug_instance_record.workspace = true

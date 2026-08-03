@@ -81,10 +81,19 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
 
 // Driver-stable integer/bit-mix value hashes (Dave Hoskins) — no `fract(sin)`, so
 // the noise stays box-free across Vulkan drivers (see the stock parallax note).
+// `hash` is a pure function of two fract lanes: the vec3's z lane always
+// duplicates x, since both are `fract(p.x * 0.1031)`. Splitting the lane setup
+// out lets `noise` compute its four corner lanes once and share them across all
+// four taps. Every operand and operation order below is unchanged, so the output
+// is bit-identical to the vec3 form this replaced.
+fn hash_lane(x: f32, y: f32) -> f32 {
+    let p3 = vec3<f32>(x, y, x);
+    let d = dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + vec3<f32>(33.33));
+    return fract(((x + d) + (y + d)) * (x + d));
+}
 fn hash(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 = p3 + dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + vec3<f32>(33.33));
-    return fract((p3.x + p3.y) * p3.z);
+    let q = fract(p * 0.1031);
+    return hash_lane(q.x, q.y);
 }
 fn hash2(p: vec2<f32>) -> vec2<f32> {
     var p3 = fract(vec3<f32>(p.x, p.y, p.x) * vec3<f32>(0.1031, 0.1030, 0.0973));
@@ -95,25 +104,40 @@ fn noise(p: vec2<f32>) -> f32 {
     let i = floor(p);
     var f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
+    // One vec4 mul+fract for all four corner lanes, each still computed exactly as
+    // the four separate `hash` calls did: fract(i.x*K), fract((i.x+1)*K),
+    // fract(i.y*K), fract((i.y+1)*K).
+    let q = fract(vec4<f32>(i.x, i.x + 1.0, i.y, i.y + 1.0) * 0.1031);
     return mix(
-        mix(hash(i), hash(i + vec2<f32>(1.0, 0.0)), f.x),
-        mix(hash(i + vec2<f32>(0.0, 1.0)), hash(i + vec2<f32>(1.0, 1.0)), f.x),
+        mix(hash_lane(q.x, q.z), hash_lane(q.y, q.z), f.x),
+        mix(hash_lane(q.x, q.w), hash_lane(q.y, q.w), f.x),
         f.y,
     );
 }
 // Rotated-octave fbm — the per-octave twist keeps the swell from lining up with
 // the grid axes, so the body reads as organic turbulence, not a tiled wash.
+// Octave count for `fbm`. The loader rewrites this literal to the `@optimized`
+// value when the world's Optimized toggle is on, and naga folds it through the
+// loop below — one source, two compiled variants, nothing to keep in step.
+const FBM_OCTAVES: i32 = 5;   // @optimized 2
+// The reference walk's amplitude sum. `fbm` renormalises to it so a shortened walk
+// keeps this scene's brightness instead of coming out dim. At the reference count
+// the factor is exactly 1.0 — both values are exact binary fractions — so the
+// reference output is bit-identical to the fixed-5-octave version.
+const FBM_REF_SUM: f32 = 0.96875;
 fn fbm(p_in: vec2<f32>) -> f32 {
     var v = 0.0;
     var a = 0.5;
+    var norm = 0.0;
     var p = p_in;
     let m = mat2x2<f32>(0.80, 0.60, -0.60, 0.80);
-    for (var i = 0; i < 5; i = i + 1) {
+    for (var i = 0; i < FBM_OCTAVES; i = i + 1) {
         v = v + a * noise(p);
+        norm = norm + a;
         p = m * p * 2.0;
         a = a * 0.5;
     }
-    return v;
+    return v * (FBM_REF_SUM / norm);
 }
 
 // One octave of an animated Voronoi *edge* field: bright, thin filaments along the
@@ -158,9 +182,18 @@ fn god_rays(s: vec2<f32>, time: f32, drift: f32) -> f32 {
     let t = time * 0.04 * drift;
     // A few detuned sine lobes make irregular shafts; drifting noise breaks up
     // their edges so they never read as a fixed grating.
-    var sh = pow(0.5 + 0.5 * sin(x * 6.0 + t), 5.0);
-    sh = sh + 0.55 * pow(0.5 + 0.5 * sin(x * 3.3 - t * 0.7 + 1.7), 7.0);
-    sh = sh + 0.35 * pow(0.5 + 0.5 * sin(x * 10.0 + t * 1.3), 4.0);
+    // Integer exponents by repeated squaring — three `pow()`s here is six SFU ops
+    // (a log2/exp2 pair each) for what multiplies do exactly.
+    let l1 = 0.5 + 0.5 * sin(x * 6.0 + t);
+    let l1_2 = l1 * l1;
+    var sh = l1_2 * l1_2 * l1;                                   // ^5
+    let l2 = 0.5 + 0.5 * sin(x * 3.3 - t * 0.7 + 1.7);
+    let l2_2 = l2 * l2;
+    let l2_4 = l2_2 * l2_2;
+    sh = sh + 0.55 * (l2_4 * l2_2 * l2);                         // ^7
+    let l3 = 0.5 + 0.5 * sin(x * 10.0 + t * 1.3);
+    let l3_2 = l3 * l3;
+    sh = sh + 0.35 * (l3_2 * l3_2);                              // ^4
     sh = sh * (0.55 + 0.75 * noise(vec2<f32>(x * 2.0, t)));
     let depth = smoothstep(0.6, -0.7, s.y);
     return max(sh, 0.0) * depth;
@@ -192,7 +225,7 @@ fn bubble_layer(col: vec3<f32>, uv: vec2<f32>, pan: vec2<f32>, time: f32,
         let disc = smoothstep(rr + aa, rr - aa, d);
         let e = clamp(d / rr, 0.0, 1.0);                     // 0 core → 1 rim
         // Fresnel rim: light grazes the meniscus, so brightness climbs to the edge.
-        let rim = disc * pow(e, 3.0);
+        let rim = disc * (e * e * e);
         // Soft transmitting core, faintly brighter toward the middle.
         let fill = disc * (0.05 + 0.05 * (1.0 - e));
         // Top-lit specular glint where the surface light would catch the bubble.
@@ -311,10 +344,23 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     col = mix(col, vec3<f32>(lum), smoothstep(0.45, 1.0, t) * 0.22);
 
     // Optional edge vignette in zoom-independent screen space.
-    let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
-    col = col * mix(1.0, vig, clamp(vignette, 0.0, 1.0));
+    // Guarded because the default is off: the length() and the smoothstep would
+    // otherwise run on every pixel only to be multiplied by 1.0. The guard also
+    // makes a 0 softness safe — that smoothstep divides by zero, and
+    // mix(1.0, NaN, 0.0) is NaN, not 1.0.
+    let vig_amount = clamp(vignette, 0.0, 1.0);
+    if (vig_amount > 0.0) {
+        let vig = smoothstep(vig_radius, vig_radius - vig_softness, length(screen_uv));
+        col = col * mix(1.0, vig, vig_amount);
+    }
     // Per-world sRGB flag (push lock_alpha.z): gamma-encode for the brighter,
     // preview-matching look on a non-sRGB scanout buffer. Off = raw values.
-    let outc = select(col, pow(max(col, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)), pc.lock_alpha.z > 0.5);
+    var outc = col;
+    // An `if`, not `select` — `select` evaluates both arms, so these three
+    // pow()s ran on every pixel even with the flag off (the default). The branch is
+    // on a push constant, so it is uniform across the whole draw.
+    if (pc.lock_alpha.z > 0.5) {
+        outc = pow(max(outc, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
+    }
     return vec4<f32>(outc, 1.0) * (alpha * 0.75);
 }

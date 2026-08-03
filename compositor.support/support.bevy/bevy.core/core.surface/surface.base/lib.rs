@@ -1,29 +1,24 @@
-//! `BevySurface`: one DMABUF, imported as both a `wgpu::Texture` and a
-//! `GlesTexture`. One per Bevy instance. The engine renders into the wgpu
-//! texture; the compositor samples the GLES texture.
+//! `BevySurface`: the ring of dmabufs one Bevy instance renders through.
+//!
+//! Each entry is a [`Slot`] — one dmabuf imported as both a `wgpu::Texture`
+//! (Bevy's render attachment) and a `GlesTexture` (what the compositor samples).
+//! The engine draws into [`target`](BevySurface::target); the compositor is only
+//! ever shown [`published`](BevySurface::published), a buffer whose write has
+//! already completed. Ring depth is the live `Surfaces` setting: one slot is the
+//! disabled path and behaves exactly as the single-buffer surface did.
 
-use compositor_support_bevy_core_alloc_base::{AllocatedDmabuf, allocate_dmabuf_negotiated};
+use compositor_kernel_graphic_bridge_publish_ring::ring::Ring;
 use compositor_support_bevy_core_context_base::WgpuVulkanContext;
 use compositor_support_bevy_core_fault_base::SurfaceError;
-use compositor_support_bevy_core_gles_base::import_dmabuf_to_gles;
-use compositor_support_bevy_core_import_base::{TEXTURE_FORMAT, import_dmabuf_to_wgpu};
+use compositor_support_bevy_core_slot_base::Slot;
 use compositor_model_debug_instance_record::info;
+use compositor_model_environment_interface_base::base as interface;
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::utils::{Physical, Size};
 
-/// One render target, addressable from both wgpu and GLES.
-///
-/// Drop order is load-bearing: `gles_texture` before `wgpu_texture` before
-/// `allocated`. Both texture views reference the dmabuf; the allocation owns
-/// the GPU memory. Drop fields in declaration order means imports go first.
 pub struct BevySurface {
-    /// Sampleable view used by the compositor.
-    pub gles_texture: GlesTexture,
-    /// Render-attachment view used by Bevy.
-    pub wgpu_texture: wgpu::Texture,
-    /// Underlying allocation.
-    pub allocated: AllocatedDmabuf,
-    /// Logical size (equals texture extent today).
+    ring: Ring<Slot>,
+    /// Logical size (equals every slot's texture extent).
     pub size: Size<i32, Physical>,
 }
 
@@ -31,45 +26,48 @@ impl std::fmt::Debug for BevySurface {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BevySurface")
             .field("size", &self.size)
-            .field("format", &TEXTURE_FORMAT)
+            .field("slots", &self.ring.len())
             .finish()
     }
 }
 
 impl BevySurface {
-    /// Allocate a fresh dmabuf at the given size and import it as both views.
+    /// Allocate the ring at the depth the live setting asks for.
     pub fn allocate(
         render_node: &str,
         wgpu_ctx: &WgpuVulkanContext,
         gles: &mut GlesRenderer,
         size: Size<i32, Physical>,
     ) -> Result<Self, SurfaceError> {
-        info!("BevySurface::allocate {}x{}", size.w, size.h);
-
-        // Negotiate an explicit modifier across gles ∩ wgpu (empty ⇒ implicit path).
-        let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
-        let mods = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_modifiers(
-            smithay::backend::renderer::ImportDma::dmabuf_formats(gles),
-            wgpu_ctx.importable.clone(),
-            fourcc,
-        );
-        let allocated =
-            allocate_dmabuf_negotiated(render_node, size.w as u32, size.h as u32, fourcc, &mods)?;
-        let gles_texture = import_dmabuf_to_gles(gles, &allocated.dmabuf)?;
-        let wgpu_texture = import_dmabuf_to_wgpu(wgpu_ctx, &allocated.dmabuf)?;
-
-        Ok(Self {
-            gles_texture,
-            wgpu_texture,
-            allocated,
-            size,
-        })
+        let depth = interface::get().depth();
+        info!("BevySurface::allocate {}x{} slots={depth}", size.w, size.h);
+        let mut slots = Vec::with_capacity(depth);
+        for _ in 0..depth {
+            slots.push(Slot::allocate(render_node, wgpu_ctx, gles, size)?);
+        }
+        let ring = Ring::new(slots, wgpu_ctx.device.clone(), wgpu_ctx.queue.clone());
+        Ok(Self { ring, size })
     }
 
-    /// Resize: destroy-and-recreate, drop-safe.
-    ///
-    /// If allocation fails, `*self` is left unchanged so the caller sees a
-    /// clean error.
+    /// Match the ring to the live setting, allocating or dropping slots. Called
+    /// per frame, so toggling the setting applies without a restart.
+    pub fn sync_depth(
+        &mut self,
+        render_node: &str,
+        wgpu_ctx: &WgpuVulkanContext,
+        gles: &mut GlesRenderer,
+        want: usize,
+    ) -> Result<(), SurfaceError> {
+        if want == self.ring.len() {
+            return Ok(());
+        }
+        info!("BevySurface ring {} -> {want} slots", self.ring.len());
+        let size = self.size;
+        self.ring.set_depth(want, || Slot::allocate(render_node, wgpu_ctx, gles, size))
+    }
+
+    /// Resize: destroy-and-recreate every slot. Allocated up front so a failure
+    /// leaves `*self` untouched and the caller sees a clean error.
     pub fn resize(
         &mut self,
         render_node: &str,
@@ -84,17 +82,61 @@ impl BevySurface {
             "BevySurface::resize {}x{} -> {}x{}",
             self.size.w, self.size.h, new_size.w, new_size.h
         );
-
-        let replacement = BevySurface::allocate(render_node, wgpu_ctx, gles, new_size)?;
-        let _old = std::mem::replace(self, replacement);
+        let mut slots = Vec::with_capacity(self.ring.len());
+        for _ in 0..self.ring.len() {
+            slots.push(Slot::allocate(render_node, wgpu_ctx, gles, new_size)?);
+        }
+        self.ring.replace(slots);
+        self.size = new_size;
         Ok(())
     }
 
-    /// Produce a `wgpu::TextureView` for use as a render attachment.
-    pub fn create_render_view(&self) -> wgpu::TextureView {
-        self.wgpu_texture.create_view(&wgpu::TextureViewDescriptor {
-            label: Some("y5_bevy_dmabuf_render_view"),
-            ..Default::default()
-        })
+    /// Retire finished frames. Returns whether a new buffer became visible, which
+    /// is what the instance's commit counter — and so its damage — follows.
+    pub fn poll(&mut self) -> bool {
+        self.ring.poll()
+    }
+
+    /// Claim the slot to render into. May block once the GPU is a whole ring behind.
+    pub fn begin(&mut self) -> &Slot {
+        self.ring.begin()
+    }
+
+    /// Whether Bevy must be re-pointed at [`target`](Self::target) before it
+    /// draws. False on a single-slot ring, which never rotates.
+    pub fn take_retarget(&mut self) -> bool {
+        self.ring.take_retarget()
+    }
+
+    /// Record that Bevy submitted its frame for the claimed slot.
+    ///
+    /// `pipeline` is passed in rather than re-read: the caller already holds the
+    /// settings for this frame, and re-reading the global here made it one
+    /// `RwLock` acquisition per surface per frame to learn a value that had not
+    /// changed since the frame began.
+    pub fn submitted(&mut self, pipeline: bool) {
+        self.ring.submitted(pipeline);
+    }
+
+    /// The slot Bevy is currently drawing into.
+    pub fn target(&self) -> &Slot {
+        self.ring.target()
+    }
+
+    /// The slot the compositor samples — never one still being written.
+    pub fn published(&self) -> &Slot {
+        self.ring.published()
+    }
+
+    pub fn gles_texture(&self) -> &GlesTexture {
+        &self.published().gles_texture
+    }
+
+    pub fn dmabuf(&self) -> &smithay::backend::allocator::dmabuf::Dmabuf {
+        self.published().dmabuf()
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.ring.generation()
     }
 }

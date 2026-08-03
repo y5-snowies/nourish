@@ -18,7 +18,8 @@ RUN --mount=type=cache,target=/var/cache/pacman/pkg \
         nodejs npm \
         webkit2gtk-4.1 libsoup3 gtk3 librsvg libayatana-appindicator \
         libxcb xcb-util-cursor \
-        foot ttf-dejavu
+        foot 
+#ttf-dejavu
 
 # --- build stage: clone the local repo + compile winit ----------------------------------
 FROM deps AS build

@@ -1,0 +1,11 @@
+[package]
+name = "compositor_model_environment_background_preset"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_model_environment_background_base = { workspace = true }
+serde = { workspace = true }
+
+[lib]
+path = "lib.rs"

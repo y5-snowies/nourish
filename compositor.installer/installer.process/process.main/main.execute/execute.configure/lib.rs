@@ -26,8 +26,8 @@ pub fn gather() -> Vec<cfg::Preset> {
         vrr: prompt::yes_no("vrr", "Enable adaptive sync / VRR", defaults.vrr),
         renderer: prompt::choose(
             "renderer",
-            "Renderer backend. NOTE for AMD users: some have reported Vulkan not \
-             working on AMD; if you're on an AMD card, choose 'gles'.",
+            "Renderer backend. Vulkan is the default and is right for current hardware; \
+             'gles' is the fail-safe for older GPUs.",
             &["vulkan", "gles"],
             &defaults.renderer,
         ),

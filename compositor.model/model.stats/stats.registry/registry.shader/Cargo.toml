@@ -7,3 +7,4 @@ edition = "2024"
 path = "lib.rs"
 
 [dependencies]
+compositor_model_environment_background_base = { workspace = true }

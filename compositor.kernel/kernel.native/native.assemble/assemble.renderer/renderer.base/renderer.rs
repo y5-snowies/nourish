@@ -206,6 +206,9 @@ fn assemble_gles(display: &mut DisplayAssembly) -> RendererAssembly {
             all.join(", ")
         );
         use compositor_kernel_graphic_bridge_negotiate_classify::classify;
+        // The achieved depth, for producers that should match it rather than
+        // render 8-bit into a 10-bit pipeline (the background worker does).
+        compositor_kernel_graphic_bridge_negotiate_compositor::compositor::set_scanout_fourcc(fourcc);
         compositor_model_stats_registry_base::base::set_device_format(
             "scanout",
             &format!("{fourcc:?}"),

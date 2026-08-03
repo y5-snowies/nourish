@@ -102,3 +102,19 @@ impl EventFlags {
         }
     }
 }
+
+/// Opt-in read-back for a UI the compositor inspects synchronously.
+///
+/// Off-thread the compositor cannot borrow `&U` — the runtime lives on the worker
+/// — so a UI that must be read from compositor code publishes a `Send + Clone`
+/// copy instead. Only the handful that are actually read implement this; the rest
+/// need no change, which is why it is a separate trait rather than an associated
+/// type on [`IcedUi`] (associated-type defaults are nightly-only).
+///
+/// The snapshot is one frame old by construction. That is fine for the reads we
+/// have — a form's committed state, a hovered tooltip — and would not be for a
+/// read-modify-write, which should become a message instead.
+pub trait IcedSnapshot: IcedUi {
+    type Snapshot: Send + Sync + Clone + 'static;
+    fn snapshot(&self) -> Self::Snapshot;
+}

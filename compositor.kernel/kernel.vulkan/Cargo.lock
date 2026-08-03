@@ -669,6 +669,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_model_environment_background_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_tearing_rate",
+ "serde",
+]
+
+[[package]]
 name = "compositor_model_environment_config_base"
 version = "0.0.1"
 dependencies = [
@@ -678,6 +686,13 @@ dependencies = [
 
 [[package]]
 name = "compositor_model_environment_graphics_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "compositor_model_environment_tearing_rate"
 version = "0.0.1"
 dependencies = [
  "serde",
@@ -714,6 +729,9 @@ version = "0.0.1"
 [[package]]
 name = "compositor_model_stats_registry_shader"
 version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_background_base",
+]
 
 [[package]]
 name = "compositor_model_stats_registry_snapshot"

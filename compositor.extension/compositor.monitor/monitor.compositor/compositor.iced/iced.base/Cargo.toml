@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+compositor_kernel_graphic_bridge_publish_thread = { workspace = true }
+compositor_kernel_graphic_bridge_publish_wake = { workspace = true }
+compositor_kernel_graphic_bridge_publish_attempt = { workspace = true }
 compositor_model_debug_instance_record = { workspace = true }
 compositor_orchestration_draw_dispatch_frame = { workspace = true }
 thiserror = { workspace = true }
@@ -12,4 +15,8 @@ iced_core = { workspace = true }
 wgpu = { workspace = true }
 
 compositor_monitor_runtime_surface_base = { workspace = true }
+compositor_kernel_graphic_bridge_publish_ring = { workspace = true }
+compositor_model_stats_registry_base = { workspace = true }
+compositor_model_environment_config_base = { workspace = true }
+compositor_model_environment_interface_base = { workspace = true }
 compositor_support_iced_core_engine_base = { workspace = true }

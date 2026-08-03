@@ -7,6 +7,7 @@ edition = "2024"
 path = "lib.rs"
 
 [dependencies]
+compositor_model_environment_interface_base = { workspace = true }
 compositor_support_bevy_core_context_base = { workspace = true }
 compositor_support_bevy_core_element_base = { workspace = true }
 compositor_support_bevy_core_fault_base = { workspace = true }
@@ -14,4 +15,6 @@ compositor_support_bevy_core_handle_base = { workspace = true }
 compositor_support_bevy_core_instance_base = { workspace = true }
 compositor_support_bevy_core_scene_base = { workspace = true }
 compositor_support_bevy_core_space_base = { workspace = true }
+compositor_support_bevy_core_worker_instance = { workspace = true }
+compositor_kernel_graphic_bridge_publish_attempt = { workspace = true }
 smithay = { workspace = true }

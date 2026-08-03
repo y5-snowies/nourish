@@ -12,7 +12,7 @@ folders won't break them.
 environment/                  # host build / run / release (no container)
   build.sh            # compile y5_compositor          [winit|udev] [debug|release]
   run-host.sh         # run on the HOST, no container  [winit|udev] [debug|release] [--it] [--env=FILE]
-  build-release.sh    # host udev release build + install/deploy  <dev|system|remote>
+  build-release.sh    # host udev release build + install  <dev|system>
   install-deps.sh     # install host build deps on Fedora (for bare-metal builds)
   check.sh            # workspace lint/conformance gate
   compositor-env.sh   # turn COMPOSITOR_* knobs into the settings.json the binary reads
@@ -92,7 +92,6 @@ COMPOSITOR_RENDERER=gles ./run-host.sh   # force GLES (Vulkan is the default)
 # Release build on the host + install/deploy (always udev release):
 ./build-release.sh dev     # -> /usr/bin/y5.compositor.dev   (sudo cp)
 ./build-release.sh system  # -> /usr/bin/y5.compositor       (sudo mv)
-./build-release.sh remote  # -> y5@yrd.local:/home/y5/compositor (scp)
 
 # Bare-metal host build deps (Fedora):
 ./install-deps.sh
