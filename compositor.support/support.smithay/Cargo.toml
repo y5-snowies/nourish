@@ -610,6 +610,7 @@ compositor_support_library_pam_worker_base = { path = "../support.library/librar
 compositor_support_library_pam_worker_pam = { path = "../support.library/library.pam/pam.worker/worker.pam" }
 compositor_support_library_pam_worker_user = { path = "../support.library/library.pam/pam.worker/worker.user" }
 compositor_support_library_pam_worker_zerostr = { path = "../support.library/library.pam/pam.worker/worker.zerostr" }
+compositor_support_library_process_child_hygiene = { path = "../support.library/library.process/process.child/child.hygiene" }
 compositor_support_smithay_dispatch_state_base = { path = "smithay.dispatch/dispatch.state/state.base" }
 compositor_support_smithay_dispatch_state_bounds = { path = "smithay.dispatch/dispatch.state/state.bounds" }
 compositor_support_smithay_dispatch_state_factory = { path = "smithay.dispatch/dispatch.state/state.factory" }

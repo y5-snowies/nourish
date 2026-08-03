@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use smithay::reexports::wayland_server::{Client, DisplayHandle};
 
 use compositor_model_environment_preference_base::base::Ime;
+use compositor_support_library_process_child_hygiene::hygiene::command;
 
 /// pid (== process-group id) of the launched IME; `0` before launch / if none started.
 static IME_PGID: AtomicI32 = AtomicI32::new(0);
@@ -29,7 +30,7 @@ pub fn launch(configured: Option<Ime>) {
 
     // `process_group(0)` → new group with pgid == child pid (covers the IME + any helper it forks).
     // The IME must NOT daemonize (`-d`), or the connecting process is a reparented grandchild.
-    let spawned = Command::new(&ime.exec)
+    let spawned = command(&ime.exec)
         .args(&ime.args)
         .process_group(0)
         .stdin(Stdio::null())

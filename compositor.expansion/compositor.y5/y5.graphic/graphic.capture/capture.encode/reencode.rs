@@ -13,7 +13,9 @@
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
+
+use compositor_support_library_process_child_hygiene::hygiene::command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread::JoinHandle;
@@ -84,7 +86,7 @@ impl ReencodeJob {
     ) -> Option<ReencodeJob> {
         let total_us = probe_duration_us(input).unwrap_or(0);
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = command("ffmpeg");
         cmd.args(["-y", "-loglevel", "error", "-nostats", "-progress", "pipe:1"])
             .args(input_decode_args(input, render_node))
             .arg("-i")
@@ -246,7 +248,7 @@ fn run_blocking(
     format: &str,
     render_node: &str,
 ) -> bool {
-    let mut cmd = Command::new("ffmpeg");
+    let mut cmd = command("ffmpeg");
     cmd.args(["-y", "-loglevel", "error"])
         .args(input_decode_args(input, render_node))
         .arg("-i")
@@ -292,7 +294,7 @@ fn snap_fps(avg: f64) -> u32 {
 
 /// Probe a file's average frame rate via `ffprobe`. `None` if unavailable.
 fn probe_avg_fps(input: &Path) -> Option<f64> {
-    let out = Command::new("ffprobe")
+    let out = command("ffprobe")
         .args([
             "-v",
             "error",
@@ -345,7 +347,7 @@ fn input_decode_args(input: &Path, render_node: &str) -> Vec<String> {
 
 /// The input stream's codec name (e.g. `h264`, `hevc`, `av1`) via `ffprobe`.
 fn probe_codec_name(input: &Path) -> Option<String> {
-    let out = Command::new("ffprobe")
+    let out = command("ffprobe")
         .args([
             "-v",
             "error",
@@ -368,7 +370,7 @@ fn probe_codec_name(input: &Path) -> Option<String> {
 /// token is surrounded by spaces). Defaults to `true` if the probe itself fails
 /// (can't tell → assume software decode and let ffmpeg try).
 fn software_decoder_available(codec: &str) -> bool {
-    let Ok(out) = Command::new("ffmpeg")
+    let Ok(out) = command("ffmpeg")
         .args(["-hide_banner", "-decoders"])
         .stderr(Stdio::null())
         .output()
@@ -384,7 +386,7 @@ fn software_decoder_available(codec: &str) -> bool {
 /// Probe a media file's duration in microseconds via `ffprobe`. `None` if
 /// unavailable (progress then stays best-effort 0).
 fn probe_duration_us(input: &Path) -> Option<i64> {
-    let out = Command::new("ffprobe")
+    let out = command("ffprobe")
         .args([
             "-v",
             "error",

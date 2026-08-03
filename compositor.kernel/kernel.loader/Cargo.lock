@@ -2551,7 +2551,7 @@ dependencies = [
  "compositor_introspection_execution_launch_scope",
  "compositor_introspection_execution_launch_types",
  "compositor_model_debug_instance_record",
- "libc",
+ "compositor_support_library_process_child_hygiene",
 ]
 
 [[package]]
@@ -3841,6 +3841,7 @@ dependencies = [
  "compositor_support_bevy_core_runtime_base",
  "compositor_support_iced_font_default_base",
  "compositor_support_library_debug_client_base",
+ "compositor_support_library_process_child_hygiene",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_support_smithay_dispatch_wire_trait",
  "compositor_support_smithay_state_space_base",
@@ -5762,6 +5763,7 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_model_debug_instance_record",
+ "compositor_support_library_process_child_hygiene",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -7100,6 +7102,7 @@ name = "compositor_support_library_debug_client_base"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.13.0",
+ "compositor_support_library_process_child_hygiene",
  "smithay",
  "tracing",
  "tracing-subscriber",
@@ -7191,10 +7194,21 @@ dependencies = [
 [[package]]
 name = "compositor_support_library_pam_worker_user"
 version = "0.0.1"
+dependencies = [
+ "compositor_support_library_process_child_hygiene",
+]
 
 [[package]]
 name = "compositor_support_library_pam_worker_zerostr"
 version = "0.0.1"
+
+[[package]]
+name = "compositor_support_library_process_child_hygiene"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_record",
+ "libc",
+]
 
 [[package]]
 name = "compositor_support_smithay_dispatch_state_base"
@@ -8044,6 +8058,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_model_debug_instance_record",
  "compositor_model_environment_preference_base",
+ "compositor_support_library_process_child_hygiene",
  "smithay",
 ]
 
@@ -8856,6 +8871,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_model_debug_instance_record",
  "compositor_support_bevy_core_runtime_base",
+ "compositor_support_library_process_child_hygiene",
  "image",
  "wgpu",
  "zbus",
@@ -10686,6 +10702,7 @@ dependencies = [
  "compositor_remote_client_handle_aspect",
  "compositor_remote_client_handle_selection",
  "compositor_remote_message_client_base",
+ "compositor_support_library_process_child_hygiene",
  "compositor_support_world_order_track_base",
  "compositor_y5_surface_draw_handle",
  "compositor_y5_surface_protocol_base",

@@ -11,7 +11,10 @@ pub fn current_username() -> Option<String> {
             return Some(u);
         }
     }
-    let output = std::process::Command::new("id").arg("-un").output().ok()?;
+    let output = compositor_support_library_process_child_hygiene::hygiene::command("id")
+        .arg("-un")
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }

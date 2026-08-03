@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_support_library_process_child_hygiene = { workspace = true }
 smithay = { workspace = true }
 uuid = { workspace = true }
 compositor_orchestration_core_state_base = { workspace = true }

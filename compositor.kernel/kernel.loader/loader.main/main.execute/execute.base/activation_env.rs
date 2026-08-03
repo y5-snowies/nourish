@@ -11,7 +11,9 @@
 //! same.
 
 use std::io;
-use std::process::Command;
+
+// Every spawn goes through the hygiene wrapper — see `process.child`.
+use compositor_support_library_process_child_hygiene::hygiene::command;
 
 /// Update the session and user-manager activation environments with
 /// `KEY=VALUE` pairs, so subsequent `systemd-run --user` and
@@ -31,7 +33,7 @@ pub fn push_session_env(pairs: &[(&str, &str)]) -> io::Result<()> {
         return Ok(());
     }
 
-    let mut cmd = Command::new("dbus-update-activation-environment");
+    let mut cmd = command("dbus-update-activation-environment");
     cmd.arg("--systemd");
     for (k, v) in pairs {
         cmd.arg(format!("{k}={v}"));

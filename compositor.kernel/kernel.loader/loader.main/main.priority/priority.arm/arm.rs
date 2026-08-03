@@ -3,6 +3,13 @@
 //! here on — forked children AND late threads — start at default scheduling
 //! instead of inheriting the `priority` boost. Deferred so the initial
 //! compositor threads DO inherit it.
+//!
+//! `SCHED_RESET_ON_FORK` is per-THREAD (`sched_setscheduler(0, …)` acts on the
+//! caller, not the process), so this covers only what the calling thread goes
+//! on to create. Threads that already exist — the `y5-launch` worker among
+//! them — keep the raw boost and hand it to anything THEY fork; a fork site on
+//! such a thread must reset scheduling itself between fork and exec (see
+//! `launch.execute`).
 
 /// Arm the inheritance stop for the boosted modes; no-op when disabled.
 pub fn arm(priority: &str) {

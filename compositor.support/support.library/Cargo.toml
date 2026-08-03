@@ -3,6 +3,8 @@ resolver = "2"
 members = ["library.*/*/*"]
 
 [workspace.dependencies]
+# Child-process hygiene (library.process) talks to the scheduler/signal syscalls.
+libc = "0.2"
 tracing = { version = "0.1.37", features = [
     "max_level_trace",
     "release_max_level_debug",
@@ -546,6 +548,7 @@ compositor_support_library_pam_worker_base = { path = "library.pam/pam.worker/wo
 compositor_support_library_pam_worker_pam = { path = "library.pam/pam.worker/worker.pam" }
 compositor_support_library_pam_worker_user = { path = "library.pam/pam.worker/worker.user" }
 compositor_support_library_pam_worker_zerostr = { path = "library.pam/pam.worker/worker.zerostr" }
+compositor_support_library_process_child_hygiene = { path = "library.process/process.child/child.hygiene" }
 compositor_support_smithay_dispatch_state_base = { path = "../support.smithay/smithay.dispatch/dispatch.state/state.base" }
 compositor_support_smithay_dispatch_state_bounds = { path = "../support.smithay/smithay.dispatch/dispatch.state/state.bounds" }
 compositor_support_smithay_dispatch_state_factory = { path = "../support.smithay/smithay.dispatch/dispatch.state/state.factory" }

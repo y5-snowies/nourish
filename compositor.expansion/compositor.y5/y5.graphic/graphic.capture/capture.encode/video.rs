@@ -8,7 +8,9 @@
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
+
+use compositor_support_library_process_child_hygiene::hygiene::command;
 use std::sync::mpsc::{Sender, channel};
 use std::thread::JoinHandle;
 
@@ -37,7 +39,7 @@ impl VideoEncoder {
             .unwrap_or(0);
         let temp = std::env::temp_dir().join(format!("y5-capture-{nanos}.mp4"));
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = command("ffmpeg");
         cmd.args([
             "-y",
             "-loglevel",
