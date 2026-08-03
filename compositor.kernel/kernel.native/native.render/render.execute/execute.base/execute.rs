@@ -437,6 +437,29 @@ pub fn execute(
     let tap_post_scene =
         frame_plan.has_tap(POST_SCENE) && ctx_ref.tap_subscriptions.is_active(POST_SCENE);
 
+    // Picker pass: FULL redraw, same lever as the multi-output case above and for
+    // the same reason — the aged buffer does not hold what the tracker assumes.
+    //
+    // The picker's whole scene is three off-thread elements (parallax, sphere,
+    // details panel), and each damages only on the composite where ITS worker
+    // published. Between publishes the pass reports partial damage and the
+    // remainder is whatever the aged buffer holds, which is stale: the artifact
+    // is the screen alternating between the last two samples. It was invisible
+    // before triple buffering only because the inline parallax bumped its own
+    // commit every frame and so forced near-full damage — the same masking the
+    // multi-output note above records. Confirmed by exactly this reset: plugging
+    // in a second monitor (which takes the branch above) makes it go away.
+    //
+    // Costs little HERE specifically, which is why the picker takes the blunt
+    // fix and the scene does not: nothing else is on screen, and a spinning
+    // sphere covers most of the monitor, so "full damage" is close to what an
+    // honest damage set would be anyway.
+    if render_picker {
+        if let Some(o) = ctx_ref.outputs[output_idx].drm_output.as_ref() {
+            o.with_compositor(|c| c.reset_buffer_ages());
+        }
+    }
+
     // HDR output signalling (M5): apply BT.2020 + PQ to the connector exactly
     // once, after smithay's first modeset has bound the connector (gated on a
     // seen vblank so the prop-only atomic commit references an active connector).

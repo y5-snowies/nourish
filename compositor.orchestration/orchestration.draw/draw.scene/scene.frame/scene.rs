@@ -577,7 +577,24 @@ where
     ) {
         Some(windows) => {
             // Overview overlay owns the content band; keep the background full-screen.
-            if let Some(bg) = prepared.background_two.clone() {
+            if let Some(mut bg) = prepared.background_two.clone() {
+                // This branch builds its own plan and so never reaches the region
+                // loop's `bind_pane` below — it has to supply the pane identity
+                // itself, exactly as the picker and the lock screen do.
+                //
+                // Without it the element kept the constructor's placeholders:
+                // pane 0, the 30Hz fallback refresh, and a `serial` frozen at 0.
+                // Frozen is the damaging one — under `Cadence::Vblank` the rate
+                // gate asks `serial - last_serial >= need`, which is false forever
+                // once the serial stops advancing, so the only thing still
+                // admitting a render is the stall rescue at `min_interval * 3`.
+                // That is a third of the configured rate, whatever the setting says.
+                //
+                // Its OWN namespace, not the world's region 0: those are the same
+                // rect only while the viewport is unsplit. Sharing the key would
+                // have `ensure` reallocate the ring to the full output on every
+                // overview open and back to the sub-rect on every close.
+                bg.bind_overlay("overview", &pane_output, refresh, frame_serial);
                 plan.push(layer::BACKGROUND, DrawNode::Background2D(bg));
             }
             windows

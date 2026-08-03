@@ -187,16 +187,16 @@ pub fn run(signal: Arc<Signal>, registry: Registry, tx: mpsc::Sender<Result<(), 
         match pace::until_any_due(&panes, &tb) {
             // A real render deadline: waiting on TIME, not on the compositor.
             //
-            // `for_ack` is false, and that is the whole point. An ack fires once
-            // per pane per composite — on a host running thousands of composites
-            // a second that woke this thread thousands of times a second, and
-            // every wake is a full pass: lock, clone the live map, read the
-            // settings, build the seen set, sweep, lock again. It also contends
-            // the signal mutex with the compositor twice per composite. Nothing
-            // is gained: the pane is not due yet, so the pass can only decide to
-            // park again. An earlier comment here claimed an ack should "cut it
-            // short", which had it backwards — cutting a render deadline short
-            // is exactly what the deadline exists to prevent.
+            // `for_ack` is false deliberately. An ack fires once per pane per
+            // composite, so waking on one puts this thread on the COMPOSITE rate:
+            // thousands of passes a second on a fast host, each a full pass —
+            // lock, clone the live map, read the settings, build the seen set,
+            // sweep, lock again — plus mutex contention with the compositor twice
+            // per composite, and every one of them can only conclude "not due
+            // yet" and park again.
+            //
+            // Tried both ways against the slow-picker symptom; the ack wake made
+            // no difference to it, so the cheap reading of a deadline stands.
             Some(n) => signal.park(seq, n, false),
             None if drew => {}
             None if stalled => signal.park(seq, STALLED_BACKSTOP, false),

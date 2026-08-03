@@ -13,6 +13,7 @@ use compositor_kernel_native_context_render_base::render::NativeRenderContext;
 use compositor_kernel_graphic_preference_output_profile::profile::{self, ModeRequest};
 use compositor_orchestration_event_output_base::output::OutputChange;
 use compositor_orchestration_core_state_base::Loop;
+use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_orchestration_driver_lid_base::base::{DISPLAY_OFF_MUT, DISPLAY_SNAPSHOT_MUT};
 use compositor_orchestration_driver_output_base::base::{
     ModeInfo, OutputModesSnapshot, OutputsSnapshot, OUTPUTS_SNAPSHOT_MUT, OUTPUT_MODES_SNAPSHOT_MUT,
@@ -451,6 +452,49 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
     let layout = compositor_orchestration_driver_output_base::base::build_teleport(&state.inner.preference, &connected_keys);
     *state.inner.kernel.get_mut(&compositor_orchestration_driver_output_base::base::TELEPORT_LAYOUT_MUT) = layout;
     *state.inner.kernel.get_mut(&compositor_orchestration_driver_output_base::base::CURSOR_PLACEMENT_MUT) = None;
+    // The cursor's monitor may be the one that just went away.
+    //
+    // Nothing else clears `cursor_output`: the motion path only SEEDS it while it
+    // is `None`, so a key naming a removed output survives every later event. Then
+    // `current_output_key()` — and with it `camera()`, `viewports()` and the
+    // per-output view map the input systems read — keeps resolving to a monitor
+    // that no longer exists, while `current_output()` silently falls back to the
+    // first mapped one for the SIZE. The cursor is then clamped against a
+    // surviving output's bounds whilst panning a phantom output's viewport, which
+    // is what leaves it stranded on the unplugged screen with no way back.
+    //
+    // Re-pointed at a real output rather than set to `None`: the empty-string
+    // default that `current_output_key()` falls back to is itself a key, and
+    // `views()` would mint a second phantom viewport tree under it.
+    let cursor_mapped = state.inner.cursor_output.as_ref().is_some_and(|k| {
+        state
+            .inner
+            .space_state()
+            .state
+            .outputs()
+            .any(|o| compositor_orchestration_core_state_base::state::output_key(o) == *k)
+    });
+    if !cursor_mapped {
+        let survivor = state
+            .inner
+            .space_state()
+            .state
+            .outputs()
+            .next()
+            .map(compositor_orchestration_core_state_base::state::output_key);
+        state.inner.cursor_output = survivor.clone();
+        if let Some(key) = survivor {
+            state.inner.output_views_mut().set_current(&key);
+            // Park the pointer inside the surviving output NOW. The relative-motion
+            // clamp would do it on the next event, but until one arrives a click
+            // hit-tests at a coordinate that is off the only screen there is.
+            let (pw, ph) = state.size_ctx_all().screen_size_physical;
+            let motion = &mut state.inner.pointer_mut().motion;
+            motion.x = motion.x.clamp(0.0, pw);
+            motion.y = motion.y.clamp(0.0, ph);
+            info!("reconcile: cursor output was removed; moved to {key}");
+        }
+    }
     // A pipe brought up in this reconcile has never flipped, so the per-CRTC vblank path
     // (`RenderScope::Crtc`) will never render it. FORCE the redraw ping (which runs
     // `execute(RenderScope::All)`) so the new pipe gets its first frame and starts its own

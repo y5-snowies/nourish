@@ -276,7 +276,22 @@ pub fn relative<I: InputBackend>(
     // the input systems (pan/zoom, hit-test) operate on THIS monitor's own viewport
     // — not the last-rendered one. `cursor_output` is maintained by teleport
     // crossings and persists between them; initialize it to the primary on first use.
-    if _loop.inner.cursor_output.is_none() {
+    //
+    // Re-validated, not just seeded. A key that names an output which has since
+    // been unplugged is as unusable as `None`, and strictly worse: `set_current`
+    // below would keep pointing the input systems at a viewport tree for a
+    // monitor that is gone. The removal path re-points this deterministically;
+    // this is the backstop that heals it whatever the cause (and covers backends
+    // that have no reconcile at all).
+    let stale = _loop.inner.cursor_output.as_ref().is_none_or(|key| {
+        !_loop
+            .inner
+            .space_state()
+            .state
+            .outputs()
+            .any(|o| compositor_orchestration_core_state_base::state::output_key(o) == *key)
+    });
+    if stale {
         _loop.inner.cursor_output =
             Some(compositor_orchestration_core_state_base::state::output_key(_loop.inner.current_output()));
     }
