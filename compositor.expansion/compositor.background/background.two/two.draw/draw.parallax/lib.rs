@@ -193,6 +193,35 @@ impl ParallaxBackground {
         self.lock_time = Some(Instant::now());
         self.motion.lock_amount = 1.0;
     }
+    /// Bind the identity an OVERLAY pass has to supply for itself.
+    ///
+    /// The orchestration scene sets these in its region loop (`bind_pane`), but
+    /// the picker and the lock screen build their own plans and so never did —
+    /// leaving the constructor's placeholders: pane 0, the fallback refresh, and
+    /// a `serial` frozen at 0.
+    ///
+    /// Frozen is the damaging one. Under `Cadence::Vblank` the worker's rate gate
+    /// asks `serial - last_serial >= need`, which is false FOREVER once the
+    /// serial stops advancing — so the only thing still admitting a render is the
+    /// stall rescue at `min_interval * 3`, a timeout rather than a rate. That is
+    /// what an overlay's backdrop was actually running at.
+    ///
+    /// `namespace` separates overlays that each draw a full-output backdrop: the
+    /// picker and the lock screen would otherwise collide with each other and
+    /// with the world behind them, all three being `(output, region 0)`.
+    pub fn bind_overlay(
+        &mut self,
+        namespace: &str,
+        output: &str,
+        refresh: std::time::Duration,
+        serial: u64,
+    ) {
+        self.pane = pane_key(&format!("{output}::{namespace}"), 0);
+        self.refresh = refresh;
+        self.serial = serial;
+        self.regions = 1;
+    }
+
     /// Rebind a clone to a viewport pane (render rect + pane camera + distinct id).
     #[allow(clippy::too_many_arguments)]
     pub fn bind_pane(&mut self, offset: (i32, i32), size: (f32, f32), pan: (f32, f32), zoom: f32, id: Id, pane: u64, refresh: std::time::Duration, serial: u64, regions: usize) {

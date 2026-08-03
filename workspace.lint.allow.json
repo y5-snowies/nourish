@@ -494,5 +494,8 @@
   ],
   "compositor.model/model.environment/environment.experimental/experimental.base": [
     "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.picker/picker.scene/scene.tick": [
+    "size"
   ]
 }

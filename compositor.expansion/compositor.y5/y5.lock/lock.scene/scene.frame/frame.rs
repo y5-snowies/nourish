@@ -59,8 +59,18 @@ pub fn prepare(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Ph
     };
     // Render two background only when not pending, otherwise it's already
     // rendered by the regular scene.
+    // See `ParallaxBackground::bind_overlay` — the lock screen builds its own
+    // plan, so nothing else supplies the pane, refresh or frame serial.
     let background_two = if !pending {
-        compositor_background_two_draw_scene::scene::scene(state)
+        compositor_background_two_draw_scene::scene::scene(state).map(|mut b| {
+            b.bind_overlay(
+                "lock",
+                &state.inner.current_output_key(),
+                state.inner.current_refresh(),
+                state.inner.next_frame_serial(),
+            );
+            b
+        })
     } else {
         None
     };

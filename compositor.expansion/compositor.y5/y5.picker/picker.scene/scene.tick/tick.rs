@@ -49,7 +49,17 @@ pub fn tick(state: &mut Loop, renderer: &mut GlesRenderer) -> Option<ParallaxBac
     if bg.is_some() {
         state.schedule_redraw_post_vblank();
     }
-    bg
+    // See `ParallaxBackground::bind_overlay` — the picker builds its own plan, so
+    // nothing else supplies the pane, refresh or frame serial.
+    bg.map(|mut b| {
+        b.bind_overlay(
+            "picker",
+            &state.inner.current_output_key(),
+            state.inner.current_refresh(),
+            state.inner.next_frame_serial(),
+        );
+        b
+    })
 }
 
 /// Ensure the picker's OWN parallax instance exists (create it DIRECTLY — the
