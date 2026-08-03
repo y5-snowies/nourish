@@ -11,8 +11,8 @@ use iced_core::{Background, Border, Color, Element, Length, Padding, Theme};
 use iced_widget::{button, container, mouse_area, row, text};
 
 /// Glyph size / ring diameter; the pill height is `MENU_H`, its radius silhouette.
-const ICON: f32 = 11.0;
-const CELL: f32 = 22.0;
+const ICON: f32 = 16.0;
+const CELL: f32 = 32.0;
 
 /// Which entry the pointer is over (drives the tooltip).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -67,16 +67,16 @@ impl IcedUi for GuideMenu {
             icon(font_map::Settings, GuideMessage::OpenSettings, GuideItem::Settings, h == Some(GuideItem::Settings)),
             icon(font_map::QuestionMark, GuideMessage::OpenHelp, GuideItem::Help, h == Some(GuideItem::Help)),
         ]
-        .spacing(8);
+        .spacing(12);
         container(content)
             .center_x(Length::Fill)
             .center_y(Length::Fill)
             .width(Length::Fill)
             .height(Length::Fill)
-            .padding(Padding { top: 6.0, bottom: 6.0, left: 14.0, right: 14.0 })
+            .padding(Padding { top: 8.0, bottom: 8.0, left: 20.0, right: 20.0 })
             .style(|_t| container::Style {
                 background: Some(Background::Color(Color::from_rgba(0.06, 0.07, 0.10, 0.90))),
-                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.14), width: 1.0, radius: 10.0.into() },
+                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.14), width: 1.0, radius: 14.0.into() },
                 ..Default::default()
             })
             .into()

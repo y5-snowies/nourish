@@ -347,6 +347,26 @@ pub struct IcedItem {
     /// a driver's "no" to a specific allocation is not a transient condition.
     backing_failed: Attempt<Size<i32, Physical>>,
     depth_failed: Attempt<(usize, Size<i32, Physical>)>,
+    /// World items only. `Some(ss)` pins the on-screen size to `buffer / ss`
+    /// instead of letting the camera zoom scale it, so the surface stays the same
+    /// number of screen pixels at any zoom.
+    ///
+    /// `ss` is a SUPERSAMPLE factor: at 1.0 the buffer is the on-screen size and
+    /// is blitted 1:1; at 2.0 the caller allocates twice the pixels (with a
+    /// matching iced scale factor, so the layout is unchanged) and the compositor
+    /// downscales — which is how small glyphs stop looking chewed.
+    ///
+    /// The alternative — the counter-scale every chrome overlay used to do, an
+    /// item sized `native/zoom` with an iced factor of `1/zoom` — also holds the
+    /// on-screen size constant, but by SHRINKING the texture: at 4× zoom it
+    /// rasterizes a quarter-resolution buffer and the compositor upscales it 4×,
+    /// which is why the toolbars turned to mush when zoomed in. Pinning here
+    /// keeps a fixed, known-good texture size and drops the per-zoom dmabuf
+    /// realloc with it. Only the world ANCHOR still moves with the camera.
+    ///
+    /// `None` by default: content surfaces (placeholders, group tiles) are
+    /// supposed to grow with the canvas.
+    zoom_lock: Option<f32>,
 }
 
 impl IcedItem {
@@ -370,6 +390,7 @@ impl IcedItem {
             release_pending: false,
             backing_failed: Attempt::new(),
             depth_failed: Attempt::new(),
+            zoom_lock: None,
         }
     }
 
@@ -389,6 +410,7 @@ impl IcedItem {
             release_pending: false,
             backing_failed: Attempt::new(),
             depth_failed: Attempt::new(),
+            zoom_lock: None,
         }
     }
 
@@ -491,6 +513,28 @@ impl IcedItem {
     /// Compute this item's on-screen position given the camera transform
     /// and output size. For `Screen` items, returns the stored location
     /// unchanged; for `World` items, applies the transform.
+    /// The factor between this item's BUFFER size and its on-screen size. The
+    /// single definition every size/hit-test path below shares — they disagreed
+    /// once and clicks landed off the widget they appeared to be on.
+    pub fn world_zoom(&self, transform: &Transform) -> f64 {
+        match (self.space, self.zoom_lock) {
+            (IcedSpace::Screen, _) => 1.0,
+            (IcedSpace::World, Some(ss)) => 1.0 / (ss.max(0.01) as f64),
+            (IcedSpace::World, None) => transform.zoom,
+        }
+    }
+
+    /// Pin this world item's on-screen size, optionally supersampled (see
+    /// `zoom_lock`). The caller is responsible for allocating a buffer `ss` times
+    /// the intended on-screen size with a matching iced scale factor.
+    pub fn set_zoom_lock(&mut self, lock: Option<f32>) {
+        self.zoom_lock = lock;
+    }
+
+    pub fn zoom_lock(&self) -> Option<f32> {
+        self.zoom_lock
+    }
+
     pub fn screen_location(
         &self,
         transform: &Transform,
@@ -511,16 +555,15 @@ impl IcedItem {
         }
     }
 
-    /// On-screen size, scaled by zoom for World items.
+    /// On-screen size: the buffer scaled by `world_zoom` (1.0 for Screen items
+    /// and for zoom-locked World ones, the camera zoom otherwise).
     pub fn screen_size(&self, transform: &Transform) -> Size<i32, Physical> {
         let size = self.inner.size();
-        match self.space {
-            IcedSpace::Screen => size,
-            IcedSpace::World => Size::from((
-                (size.w as f64 * transform.zoom) as i32,
-                (size.h as f64 * transform.zoom) as i32,
-            )),
+        let zoom = self.world_zoom(transform);
+        if (zoom - 1.0).abs() < f64::EPSILON {
+            return size;
         }
+        Size::from(((size.w as f64 * zoom) as i32, (size.h as f64 * zoom) as i32))
     }
 
     /// Full on-screen rectangle (location + size, both transformed).
@@ -574,21 +617,15 @@ impl IcedItem {
         // Map the on-screen offset into the surface's iced LOGICAL space — the
         // space iced lays out and hit-tests in (see `IcedRuntime::tick`, which
         // builds the UI at `viewport.logical_size()`). The on-screen rect spans
-        // `screen_size` physical px (`size × zoom` for World) while the logical
-        // extent is `size / scale_factor`, so the offset scales by
-        // `logical / screen = 1 / (zoom × scale_factor)`.
+        // `size × world_zoom` physical px while the logical extent is
+        // `size / scale_factor`, so the offset scales by
+        // `logical / screen = 1 / (world_zoom × scale_factor)`.
         //
-        // For a World surface the zoom counter-scale (`scale_factor = 1/zoom`,
-        // set via `request_resize_scaled_by_id`) cancels the projection zoom, so
-        // the on-screen size is held constant and the mapping is 1:1 at every
-        // zoom. For Screen, zoom is 1 and scale_factor is 1. Dividing by zoom
-        // ALONE (the previous code) mis-mapped a zoomed-out World surface — the
-        // selection toolbar received clicks at the wrong spot.
-        let zoom = match self.space {
-            IcedSpace::Screen => 1.0,
-            IcedSpace::World => transform.zoom,
-        };
-        let divisor = zoom * self.inner.scale_factor() as f64;
+        // Both factors matter. A zoom-locked overlay has world_zoom 1 and factor
+        // 1 (1:1). A plain World surface scales by the camera zoom alone.
+        // Dividing by the camera zoom ALONE mis-mapped a zoomed-out counter-
+        // scaled surface — the selection toolbar took clicks at the wrong spot.
+        let divisor = self.world_zoom(transform) * self.inner.scale_factor() as f64;
         Some(iced_core::Point::new(
             (local.0 / divisor) as f32,
             (local.1 / divisor) as f32,
@@ -784,10 +821,7 @@ impl IcedItem {
         // an unwritten buffer would flash garbage.
         let dmabuf = self.inner.dmabuf()?;
         let location = self.screen_location(transform, output_size);
-        let world_zoom = match self.space {
-            IcedSpace::Screen => 1.0,
-            IcedSpace::World => transform.zoom,
-        };
+        let world_zoom = self.world_zoom(transform);
         Some(IcedRenderElement {
             texture: self.inner.texture_handle().cloned(),
             dmabuf,

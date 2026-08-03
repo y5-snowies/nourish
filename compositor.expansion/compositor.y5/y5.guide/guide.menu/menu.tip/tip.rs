@@ -36,10 +36,10 @@ impl IcedUi for GuideTip {
     fn view(&self) -> Element<'_, Self::Message, Theme, Renderer> {
         let bubble = container(
             text(self.label.clone())
-                .size(12)
+                .size(13)
                 .style(|_t: &Theme| text::Style { color: Some(Color::from_rgb(0.93, 0.95, 0.99)) }),
         )
-        .padding(Padding { top: 4.0, bottom: 4.0, left: 9.0, right: 9.0 })
+        .padding(Padding { top: 5.0, bottom: 5.0, left: 11.0, right: 11.0 })
         .style(|_t| container::Style {
             background: Some(Background::Color(Color::from_rgba(0.09, 0.10, 0.13, 0.96))),
             border: Border {

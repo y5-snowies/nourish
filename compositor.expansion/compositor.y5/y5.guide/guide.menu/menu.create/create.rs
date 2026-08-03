@@ -1,10 +1,10 @@
 //! Per-frame reconciler for the context menu against `GuideState::menu_at`, plus
 //! its companion tooltip surface.
 //!
-//! WORLD-space, like the selection toolbar: it sits where it was summoned and
-//! pans with the canvas, but is counter-scaled on every zoom change so it keeps
-//! ONE on-screen size — a menu that shrinks to nothing when you zoom out is not
-//! a rescue affordance. The tooltip is SCREEN-space, separate (`menu.hover`).
+//! World-ANCHORED but zoom-locked: the pill rides the canvas from where it was
+//! summoned, yet is drawn at exactly `MENU_W`×`MENU_H` screen pixels forever
+//! (`set_zoom_lock_by_id`), from a buffer supersampled `MENU_SUPERSAMPLE` times
+//! that. Only the anchor is re-derived on zoom — no dmabuf is ever reallocated.
 
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Rectangle, Size};
@@ -17,7 +17,7 @@ use compositor_support_world_order_track_base::base::DrawLayer;
 use compositor_y5_guide_interface_surface::surface;
 use compositor_y5_guide_menu_tip::GuideTip;
 use compositor_y5_guide_menu_view::{GuideMenu, GuideMessage};
-use compositor_y5_guide_state_base::state::{world_loc, world_scale_factor, world_size, GUIDE, GUIDE_MUT, MENU_H, MENU_W, TIP_H, TIP_W};
+use compositor_y5_guide_state_base::state::{menu_buffer, world_loc, GUIDE, GUIDE_MUT, MENU_SUPERSAMPLE, TIP_H, TIP_W};
 
 pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer) {
     let want = state.inner.kernel.get(&GUIDE).menu_at;
@@ -30,7 +30,7 @@ pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer) {
     }
     match (want, live) {
         (Some(at), None) => create(state, renderer, at),
-        (Some(_), Some(id)) => rescale(state, id),
+        (Some(_), Some(id)) => reanchor(state, id),
         (None, Some(id)) => destroy(state, id),
         (None, None) => {}
     }
@@ -46,7 +46,9 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, at: (f64, f64)) {
         settings_hint: compositor_y5_guide_help_row::row::settings_hint(nested),
         help_hint: "Help".to_string(),
     };
-    let size = world_size(MENU_W, MENU_H, zoom);
+    // The dmabuf is supersampled; `set_zoom_lock` below divides it back down to
+    // MENU_W×MENU_H on screen, so the layout and the anchor are unaffected.
+    let size = menu_buffer();
     let rect = Rectangle::new(world_loc(at, scale, zoom), size);
     let handle = compositor_y5_surface_draw_handle::handle::load_snapshot(state, renderer, menu, rect, IcedSpace::World, Layer::SCENE.bits());
     // World-space: lift above every window (`load_snapshot` registered it at CONTENT).
@@ -55,9 +57,10 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, at: (f64, f64)) {
     let gpu = state.inner.environment.GPU.clone();
     let tip = state.inner.surface_mut().registry.as_mut().and_then(|reg| {
         reg.set_message_handler(handle, move |m: &GuideMessage| surface::dispatch(m, &tx));
-        // Counter-scale so the content lays out at MENU_W×MENU_H inside the
-        // (larger, when zoomed out) world dmabuf `rect` already sized for it.
-        reg.request_resize_scaled_by_id(handle.id, size, world_scale_factor(zoom));
+        reg.set_zoom_lock_by_id(handle.id, Some(MENU_SUPERSAMPLE));
+        // Matching iced factor: the UI still lays out at MENU_W×MENU_H logical,
+        // it is just rasterized into the larger buffer.
+        reg.request_resize_scaled_by_id(handle.id, size, MENU_SUPERSAMPLE);
         reg.create_tooltip(&gpu.as_str(), GuideTip::new(), renderer, Size::from((TIP_W, TIP_H)), Layer::SCENE.bits())
             .ok()
             .map(|h| h.id)
@@ -79,18 +82,17 @@ fn destroy(state: &mut Loop, id: HandleId) {
     guide.last_tip = None;
 }
 
-/// Keep the on-screen size constant across zoom. The anchor is a WORLD point, so
-/// the location is recomputed from it rather than nudged — the menu scales about
-/// the cursor it was summoned at, not about its own corner.
-fn rescale(state: &mut Loop, id: HandleId) {
+/// Re-derive the world location when the zoom changes. The pill is centred on a
+/// WORLD anchor but is a fixed number of SCREEN pixels wide, so its half-width in
+/// world units is `MENU_W/2/zoom` — zoom-dependent even though the size is not.
+/// Location only: no resize, no reallocation.
+fn reanchor(state: &mut Loop, id: HandleId) {
     let zoom = state.inner.camera().transform.zoom;
     let guide = state.inner.kernel.get(&GUIDE);
     let Some(at) = guide.menu_at.filter(|_| guide.menu_zoom != zoom) else { return };
     let scale = state.size_ctx_all().scale;
-    let size = world_size(MENU_W, MENU_H, zoom);
     let loc = world_loc(at, scale, zoom);
     if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-        reg.request_resize_scaled_by_id(id, size, world_scale_factor(zoom));
         reg.set_location_by_id(id, loc);
     }
     state.inner.kernel.get_mut(&GUIDE_MUT).menu_zoom = zoom;

@@ -15,19 +15,34 @@ use smithay::utils::{Physical, Point, Size};
 /// (`menu.tip`), like the selection toolbar's — inside the menu it would have to
 /// reserve room it does not need, and re-laying the counter-scaled world surface
 /// on every hover made the menu visibly lag the pointer.
-pub const MENU_W: i32 = 180;
-pub const MENU_H: i32 = 34;
+pub const MENU_W: i32 = 250;
+pub const MENU_H: i32 = 48;
+/// Supersample factor for the menu's texture: the dmabuf holds `MENU × SS`
+/// pixels and is downscaled to `MENU` on screen. Material glyphs at this size
+/// are only ~16px tall, and rasterizing them 1:1 left the icons visibly chewed
+/// while the selection toolbar — whose icons are half again as large — looked
+/// fine. Costs one 500×96 buffer instead of 250×48, allocated once.
+pub const MENU_SUPERSAMPLE: f32 = 2.0;
+
+/// The menu's dmabuf size: the on-screen size times the supersample factor.
+pub fn menu_buffer() -> Size<i32, Physical> {
+    Size::from((
+        ((MENU_W as f32) * MENU_SUPERSAMPLE).round() as i32,
+        ((MENU_H as f32) * MENU_SUPERSAMPLE).round() as i32,
+    ))
+}
+
 /// On-screen size of the hover tooltip and its gap below the menu, physical px.
-pub const TIP_W: i32 = 180;
-pub const TIP_H: i32 = 30;
+pub const TIP_W: i32 = 200;
+pub const TIP_H: i32 = 34;
 pub const TIP_GAP: i32 = 6;
 /// On-screen size of the help panel, physical px.
 pub const HELP_W: i32 = 380;
 pub const HELP_H: i32 = 258;
 /// Gap below the cursor the menu is anchored at, physical px.
 pub const CURSOR_DY: f64 = 10.0;
-/// Lower bound on the zoom used for counter-scaling, so the world dmabuf
-/// (`MENU / zoom`) can't explode past GPU limits when zoomed far out.
+/// Lower bound on the zoom the anchor offset is divided by, so a camera parked
+/// at a near-zero zoom can't send the menu off to infinity.
 pub const MIN_ZOOM: f64 = 0.15;
 /// Double-click window (ms) and max travel (world px) that still opens the menu.
 pub const DOUBLE_CLICK_MS: u32 = 400;
@@ -45,7 +60,7 @@ pub struct GuideState {
     /// Last text pushed into the tip; gates redundant re-renders while the same
     /// entry stays hovered.
     pub last_tip: Option<String>,
-    /// Camera zoom the menu was last counter-scaled for (NaN-free: 0 = unset).
+    /// Camera zoom the menu's anchor offset was last derived for (0 = unset).
     pub menu_zoom: f64,
     /// The help panel should be shown / is shown.
     pub help_open: bool,
@@ -65,30 +80,17 @@ impl GuideState {
 pub static GUIDE: Token<GuideState> = Token::new();
 pub static GUIDE_MUT: TokenMut<GuideState> = TokenMut::new(&GUIDE);
 
-/// World footprint that renders to `w`×`h` ON SCREEN at the given zoom (a World
-/// item's screen size = world size × zoom), so the menu keeps one size however
-/// far the canvas is zoomed. Mirrors the selection toolbar's counter-scale.
-pub fn world_size(w: i32, h: i32, zoom: f64) -> Size<i32, Physical> {
-    let z = zoom.max(MIN_ZOOM);
-    Size::from((
-        ((w as f64) / z).round().max(1.0) as i32,
-        ((h as f64) / z).round().max(1.0) as i32,
-    ))
-}
-
-/// iced scale factor for that counter-scaled surface, so the content lays out at
-/// the native size and fills the (larger, when zoomed out) dmabuf.
-pub fn world_scale_factor(zoom: f64) -> f32 {
-    (1.0 / zoom.max(MIN_ZOOM)) as f32
-}
-
 /// World-physical top-left placing the menu centred on, and just below, the
 /// anchor. World iced stores location in `logical × scale` units.
+///
+/// The surface is zoom-LOCKED, so `MENU_W` is a count of SCREEN pixels at any
+/// zoom — which makes its half-width in WORLD units `MENU_W/2/zoom`. That is why
+/// this still depends on zoom even though the size no longer does, and why the
+/// caller re-derives it whenever the camera zoom moves.
 pub fn world_loc(anchor: (f64, f64), scale: f64, zoom: f64) -> Point<i32, Physical> {
-    let size = world_size(MENU_W, MENU_H, zoom);
     let z = zoom.max(MIN_ZOOM);
     Point::from((
-        (anchor.0 * scale - (size.w as f64) / 2.0).round() as i32,
+        (anchor.0 * scale - (MENU_W as f64) / z / 2.0).round() as i32,
         (anchor.1 * scale + CURSOR_DY / z).round() as i32,
     ))
 }
