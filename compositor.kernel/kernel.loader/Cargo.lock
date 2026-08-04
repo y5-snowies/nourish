@@ -6073,6 +6073,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_support_system_storage_slot_base",
  "compositor_support_system_world_host_base",
+ "compositor_support_system_world_identity_base",
  "uuid",
 ]
 
@@ -8327,6 +8328,7 @@ dependencies = [
  "compositor_support_system_persist_store_base",
  "compositor_support_system_persist_store_reconcile",
  "compositor_support_system_storage_slot_base",
+ "compositor_support_system_world_identity_base",
  "uuid",
 ]
 
@@ -8523,6 +8525,13 @@ dependencies = [
  "compositor_support_system_trait_system_base",
  "compositor_support_system_world_flow_base",
  "compositor_support_system_world_frame_base",
+ "uuid",
+]
+
+[[package]]
+name = "compositor_support_system_world_identity_base"
+version = "0.0.1"
+dependencies = [
  "uuid",
 ]
 

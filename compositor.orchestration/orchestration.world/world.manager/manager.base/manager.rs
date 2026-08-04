@@ -5,9 +5,9 @@ use uuid::Uuid;
 
 /// Fixed identities for the static worlds, stable across restarts so their saved
 /// state reloads. Picker-created worlds get generated `Uuid::now_v7()` instead.
-pub const MAIN_WORLD: Uuid = Uuid::from_u128(0x59350000_0000_4000_8000_000000000001);
-pub const LOCK_WORLD: Uuid = Uuid::from_u128(0x59350000_0000_4000_8000_000000000002);
-pub const PICKER_WORLD: Uuid = Uuid::from_u128(0x59350000_0000_4000_8000_000000000003);
+/// Defined one layer down (`system.world/world.identity`) so crates below the world
+/// manager — the persist loader — can name them without depending back on it.
+pub use compositor_support_system_world_identity_base::base::{LOCK_WORLD, MAIN_WORLD, PICKER_WORLD};
 
 /// Owns every world, identified by UUID. Exactly one world is ACTIVE (receives
 /// input, dispatch, update, draw). Worlds never close — switching disables the

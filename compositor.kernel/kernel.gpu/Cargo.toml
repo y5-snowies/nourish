@@ -680,6 +680,7 @@ compositor_support_system_trait_system_base = { path = "../../compositor.support
 compositor_support_system_world_flow_base = { path = "../../compositor.support/support.system/system.world/world.flow/flow.base" }
 compositor_support_system_world_frame_base = { path = "../../compositor.support/support.system/system.world/world.frame/frame.base" }
 compositor_support_system_world_host_base = { path = "../../compositor.support/support.system/system.world/world.host/host.base" }
+compositor_support_system_world_identity_base = { path = "../../compositor.support/support.system/system.world/world.identity/identity.base" }
 compositor_support_system_world_registry_base = { path = "../../compositor.support/support.system/system.world/world.registry/registry.base" }
 compositor_support_world_host_space_base = { path = "../../compositor.support/support.world/world.host/host.space/space.base" }
 compositor_support_world_host_window_base = { path = "../../compositor.support/support.world/world.host/host.window/window.base" }
