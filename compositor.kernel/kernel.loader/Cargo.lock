@@ -7220,6 +7220,7 @@ dependencies = [
  "compositor_support_smithay_dispatch_wire_color",
  "compositor_support_smithay_dispatch_wire_colorsurf",
  "compositor_support_smithay_dispatch_wire_redraw",
+ "compositor_support_smithay_dispatch_wire_session",
  "compositor_support_smithay_dispatch_wire_tablet",
  "compositor_support_smithay_dispatch_wire_tearing",
  "compositor_support_smithay_state_clipboard_base",
@@ -7234,6 +7235,7 @@ dependencies = [
  "compositor_support_smithay_state_popup_base",
  "compositor_support_smithay_state_presentation_base",
  "compositor_support_smithay_state_seat_base",
+ "compositor_support_smithay_state_session_store",
  "compositor_support_smithay_state_shm_base",
  "compositor_support_smithay_state_singlepixel_base",
  "compositor_support_smithay_state_space_base",
@@ -7311,6 +7313,7 @@ dependencies = [
  "compositor_support_smithay_dispatch_wire_color",
  "compositor_support_smithay_dispatch_wire_colorsurf",
  "compositor_support_smithay_dispatch_wire_redraw",
+ "compositor_support_smithay_dispatch_wire_session",
  "compositor_support_smithay_dispatch_wire_tablet",
  "compositor_support_smithay_dispatch_wire_tearing",
  "compositor_support_smithay_dispatch_wire_trait",
@@ -7381,6 +7384,19 @@ dependencies = [
  "compositor_support_smithay_state_fractional_base",
  "compositor_support_smithay_state_space_base",
  "smithay",
+]
+
+[[package]]
+name = "compositor_support_smithay_dispatch_wire_session"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_record",
+ "compositor_support_smithay_state_session_claim",
+ "compositor_support_smithay_state_session_store",
+ "smithay",
+ "uuid",
+ "wayland-backend",
+ "wayland-scanner",
 ]
 
 [[package]]
@@ -7932,6 +7948,20 @@ version = "0.0.1"
 dependencies = [
  "compositor_model_debug_instance_record",
  "compositor_model_environment_preference_base",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_support_smithay_state_session_claim"
+version = "0.0.1"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
+name = "compositor_support_smithay_state_session_store"
+version = "0.0.1"
+dependencies = [
  "smithay",
 ]
 
@@ -10540,6 +10570,7 @@ dependencies = [
  "compositor_orchestration_driver_introspection_base",
  "compositor_support_smithay_state_compositor_base",
  "compositor_support_smithay_state_compositor_place",
+ "compositor_support_smithay_state_session_claim",
  "compositor_support_system_persist_mark_base",
  "compositor_support_world_order_track_base",
  "compositor_y5_camera_transform_translate",
@@ -10579,6 +10610,7 @@ dependencies = [
  "compositor_introspection_inference_hint_base",
  "compositor_introspection_launchplan_plan_base",
  "compositor_introspection_launchplan_plan_preferences",
+ "compositor_introspection_restoration_state_pending",
  "serde",
  "serde_json",
 ]
@@ -10604,6 +10636,7 @@ dependencies = [
  "compositor_introspection_extraction_window_base",
  "compositor_introspection_inference_hint_base",
  "compositor_introspection_launchplan_plan_base",
+ "compositor_introspection_restoration_state_pending",
  "compositor_model_debug_instance_record",
  "smithay",
  "tracing",
@@ -10650,6 +10683,7 @@ dependencies = [
  "compositor_introspection_execution_launch_policy",
  "compositor_introspection_execution_launch_types",
  "compositor_orchestration_launch_broadcast_base",
+ "compositor_support_smithay_state_session_claim",
  "compositor_support_system_buffer_token_base",
  "compositor_support_system_channel_router_base",
  "compositor_support_system_channel_token_base",
@@ -11166,7 +11200,9 @@ dependencies = [
  "bitflags 2.13.0",
  "compositor_introspection_extraction_window_base",
  "compositor_introspection_inference_hint_base",
+ "compositor_introspection_restoration_state_pending",
  "compositor_model_debug_instance_record",
+ "compositor_support_smithay_state_session_store",
  "compositor_support_smithay_state_xdg_activation_dispatch",
  "compositor_y5_window_interface_data",
  "smithay",

@@ -8,7 +8,7 @@ use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 use compositor_introspection_launchplan_plan_base::LaunchPlan;
-use compositor_introspection_restoration_state_base::{PendingRestoration, match_window};
+use compositor_introspection_restoration_state_base::{PendingRestoration, SessionKey, match_window};
 use compositor_introspection_sampler_window_base::sampler::SampleBatch;
 use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_orchestration_core_state_base::{Loop, Transform};
@@ -47,10 +47,15 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
         window.application(&state.inner.space_state().state, &state.inner.loader.display_handle);
     let mut window_plan_0: Option<_> = None;
     let mut restored_ph: Option<Uuid> = None;
+    let mut candidate_session: Option<SessionKey> = None;
 
     if let Some(window_data_0) = window_data_0 {
         // On first-commit:
         let candidate_token = window.activation();
+        // The client-declared `xdg_session_management_v1` identity, if any. Read
+        // here rather than inferred later: `restore_toplevel` had to precede the
+        // first commit, so it is already on the surface by now.
+        candidate_session = window.session();
 
         let candidate_token_string = if let Some(candi) = &candidate_token {
             Some(candi.token.as_str())
@@ -61,12 +66,17 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
         let mut pending_restoration: Vec<PendingRestoration> = vec![];
         for (ph, _) in &state.inner.placeholder_mut().visible {
             // A placeholder is a match candidate if it's mid-launch (token/PID
-            // restoration) OR has capture-armed attributes (adopt-on-map). A
-            // capture-only candidate carries no token and pid `-1`, so neither
-            // the token nor the PID-tree signal can spuriously bind it.
+            // restoration), has capture-armed attributes (adopt-on-map), OR
+            // knows a session identity. A capture-only candidate carries no
+            // token and pid `-1`, so neither the token nor the PID-tree signal
+            // can spuriously bind it.
+            //
+            // The session arm is what lets a tile claim a window NOBODY here
+            // launched — the client came back on its own and re-declared which
+            // window it is. The other two can only ever claim our own spawns.
             let is_launching = ph.launching && ph.restoration.is_some();
             let is_capture_armed = !compositor_introspection_launchplan_plan_capture::capture::capture_keys(&ph.launch).is_empty();
-            if !is_launching && !is_capture_armed {
+            if !is_launching && !is_capture_armed && ph.session.is_none() {
                 continue;
             }
 
@@ -90,6 +100,7 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
                 plan: ph.launch.clone(),
                 launched_pid,
                 activation_env,
+                session: ph.session.clone(),
             });
         }
 
@@ -99,9 +110,14 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
             &window_data_0.meta.clone(),
             &window_data_0.hints.clone(),
             candidate_token_string,
+            candidate_session.as_ref(),
             &state.inner.placeholder_mut().restoration_registry,
         ) {
             restored_ph = Some(placeholder_id);
+            // The bootstrap pid→placeholder claim has served its purpose (or was
+            // never needed); drop it so a later, unrelated client cannot inherit
+            // this placeholder's session id.
+            compositor_support_smithay_state_session_claim::claim::release(placeholder_id);
             // CHECK: Update placeholder state to retain placeholder_id.
             // Remove token from registry.
             if let Some(candidate_token) = candidate_token {
@@ -181,6 +197,10 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
             launch_session: window_plan_0,
             session_time: Instant::now(),
             persistent: true,
+            // Prefer what the client just declared over what we had stored —
+            // `xdg_toplevel_session_v1.rename` is allowed to re-key a toplevel,
+            // and re-declaring is the only way we learn about it.
+            session: candidate_session.clone().or(restored_ph.session),
         }
     } else {
         // Otherwise, create a placeholder and attach to the window
@@ -192,6 +212,10 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
             launch_session: None,
             session_time: Instant::now(),
             persistent: false,
+            // A window we did not restore, but if its client declared an
+            // identity we record it now: that is what makes the NEXT close /
+            // reopen cycle an exact match instead of a guess.
+            session: candidate_session.clone(),
         };
         placeholder
     };

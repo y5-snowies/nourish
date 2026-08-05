@@ -1,6 +1,8 @@
 use compositor_support_system_persist_document_trait::base::Document;
 use compositor_support_system_persist_document_trait::y5_document;
-use compositor_y5_placeholder_persist_record::base::{to_launch_plan, to_persisted, PlaceholderRecord};
+use compositor_y5_placeholder_persist_record::base::{
+    to_launch_plan, to_persisted, to_persisted_session, to_session_key, PlaceholderRecord,
+};
 use compositor_y5_placeholder_record_base::placeholder::Placeholder;
 use compositor_y5_placeholder_state_base::state::{PlaceholderState, PLACEHOLDER, PLACEHOLDER_MUT};
 use std::time::Instant;
@@ -24,6 +26,7 @@ impl Document for PlaceholderDoc {
             let launch = p.launch.as_ref().map(to_persisted).unwrap_or_default();
             let record = PlaceholderRecord {
                 position: p.position, size: p.size, persistent: p.persistent, launch,
+                session: p.session.as_ref().map(to_persisted_session),
             };
             (id.to_string(), Vec::new(), record)
         });
@@ -31,6 +34,7 @@ impl Document for PlaceholderDoc {
             let record = PlaceholderRecord {
                 position: v.position, size: v.size, persistent: true,
                 launch: to_persisted(&v.launch),
+                session: v.session.as_ref().map(to_persisted_session),
             };
             (v.uuid.to_string(), Vec::new(), record)
         });
@@ -54,6 +58,7 @@ impl Document for PlaceholderDoc {
             uuid,
             session_time: Instant::now(),
             persistent: rec.persistent,
+            session: rec.session.as_ref().map(to_session_key),
         });
     }
 }

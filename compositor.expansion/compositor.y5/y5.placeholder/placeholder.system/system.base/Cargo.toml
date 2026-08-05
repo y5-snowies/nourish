@@ -20,10 +20,12 @@ compositor_orchestration_launch_broadcast_base = { workspace = true }
 compositor_introspection_execution_launch_types = { workspace = true }
 compositor_introspection_execution_launch_policy = { workspace = true }
 compositor_y5_placeholder_record_base = { workspace = true }
+compositor_support_smithay_state_session_claim.workspace = true
 
 [package.metadata.lint]
 allow = ["size"]
 reason = "Owns the placeholder slot and the cross-system geometry channel: an interactive placeholder move/scale must update both this slot (modify_visible) and the iced registry (surface system), so the channel receiver + buffer + the two announce paths live together as one routing unit."
+
 
 [lib]
 path = "lib.rs"

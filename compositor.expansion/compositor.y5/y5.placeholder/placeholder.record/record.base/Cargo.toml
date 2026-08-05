@@ -14,5 +14,7 @@ uuid.workspace = true
 compositor_introspection_extraction_window_base.workspace = true
 compositor_introspection_inference_hint_base.workspace = true
 compositor_introspection_launchplan_plan_base.workspace = true
+compositor_introspection_restoration_state_pending.workspace = true
+
 [lib]
 path = "lib.rs"

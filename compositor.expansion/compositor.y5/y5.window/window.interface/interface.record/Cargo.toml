@@ -15,5 +15,7 @@ uuid.workspace = true
 compositor_introspection_extraction_window_base.workspace = true
 compositor_introspection_inference_hint_base.workspace = true
 compositor_support_smithay_state_xdg_activation_dispatch.workspace = true
+compositor_support_smithay_state_session_store.workspace = true
+compositor_introspection_restoration_state_pending.workspace = true
 [lib]
 path = "lib.rs"

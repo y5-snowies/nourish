@@ -142,6 +142,35 @@ impl PlaceholderSystem {
         if outcome.result.is_err() {
             return;
         }
+        // Bootstrap the session-id correlation: `xdg_session_management_v1` has
+        // no way for us to TELL a client its session id — the client asks with
+        // NULL and we choose the string we send back in `created`. So we note
+        // which placeholder this pid was spawned for, and mint that placeholder's
+        // uuid when the resulting client asks. Needed once per app; from then on
+        // the client hands the id back itself.
+        //
+        // Uses the raw pid regardless of `REQUIRE_PID` — that toggle exists to
+        // exercise the token-only MATCHING path, and this is not matching.
+        //
+        // Hand over the session id this placeholder ALREADY restores under, so a
+        // relaunch re-mints the same string rather than a fresh one. Without it
+        // the returning client would be handed a new id every generation and
+        // could never find the state it saved under the old one.
+        if let Some(pid) = outcome.pid {
+            let known = cx
+                .storage
+                .get(&PLACEHOLDER)
+                .visible
+                .iter()
+                .find(|(ph, _)| ph.uuid == uuid)
+                .and_then(|(ph, _)| ph.session.as_ref().map(|s| s.session_id.clone()));
+            compositor_support_smithay_state_session_claim::claim::register(
+                pid,
+                uuid,
+                known,
+                outcome.token.clone(),
+            );
+        }
         let token = PlaceholderLaunchToken {
             token: outcome.token.clone(),
             child: if REQUIRE_PID { outcome.pid } else { None },

@@ -2,4 +2,4 @@
 
 pub mod pending;
 
-pub use pending::PendingRestoration;
+pub use pending::{PendingRestoration, SessionKey};

@@ -10,12 +10,14 @@ compositor_introspection_extraction_window_hints_codec_register = { workspace = 
 compositor_introspection_inference_hint_base = { workspace = true }
 compositor_introspection_launchplan_plan_base = { workspace = true }
 compositor_introspection_launchplan_plan_preferences = { workspace = true }
+compositor_introspection_restoration_state_pending.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 [package.metadata.lint]
 allow = ["size"]
 reason = "Full-fidelity launch persistence: the serde record types plus the codec-driven hint/preference projection + reconstruction form one cohesive conversion unit."
+
 
 [lib]
 path = "lib.rs"

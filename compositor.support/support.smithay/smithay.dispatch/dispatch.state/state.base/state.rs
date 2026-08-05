@@ -92,6 +92,11 @@ pub struct Dispatch {
     /// External `zwp_tablet_manager_v2` state (tool + pad). Hand-rolled — smithay
     /// hides its tablet-seat instances and has no pad support (see `mod tablet_impls`).
     pub tablet: compositor_support_smithay_dispatch_wire_tablet::tablet::TabletState,
+    /// External `xdg_session_management_v1` store: which toplevel names exist in
+    /// which session id (see `mod session_impls`). Only the identity index lives
+    /// here — the geometry a session restores to is the placeholder's, and the
+    /// durable copy of the identity is persisted with it.
+    pub session: compositor_support_smithay_state_session_store::store::SessionStore,
     pub needs_redraw: bool,
 
     // Additional safety for ping
@@ -514,6 +519,69 @@ mod tablet_impls {
         fn request(_: &mut Self, _: &Client, _: &ZwpTabletPadDialV2, _: zwp_tablet_pad_dial_v2::Request, _: &(), _: &DisplayHandle, _: &mut DataInit<'_, Self>) {}
         fn destroyed(state: &mut Self, _: ClientId, dial: &ZwpTabletPadDialV2, _: &()) {
             state.tablet.remove_pad_resource(&dial.id());
+        }
+    }
+}
+
+// ── xdg_session_management_v1 impls (orphan-required here) ─────────────────────
+// Hand-rolled like `color_impls` / `tablet_impls`: smithay has no module for the
+// protocol and `wayland-protocols` ships the staging XML without bindings, so
+// `wire.session` scans it and owns the request logic; the store lives on
+// `Dispatch.session`.
+mod session_impls {
+    use compositor_support_smithay_dispatch_wire_session::session::{
+        self, SessionData, ToplevelSessionData, XdgSessionManagerV1, XdgSessionV1,
+        XdgToplevelSessionV1, XxSessionManagerV1, XxSessionV1, XxToplevelSessionV1,
+        xdg_session_manager_v1, xdg_session_v1, xdg_toplevel_session_v1, xx_session_manager_v1,
+        xx_session_v1, xx_toplevel_session_v1,
+    };
+    use smithay::reexports::wayland_server::{
+        Client, DataInit, Dispatch as WLDispatch, DisplayHandle, GlobalDispatch, New,
+    };
+    use super::Dispatch;
+
+    impl GlobalDispatch<XdgSessionManagerV1, ()> for Dispatch {
+        fn bind(_: &mut Self, _: &DisplayHandle, _: &Client, resource: New<XdgSessionManagerV1>, _: &(), di: &mut DataInit<'_, Self>) {
+            di.init(resource, ());
+        }
+    }
+    impl WLDispatch<XdgSessionManagerV1, ()> for Dispatch {
+        fn request(state: &mut Self, client: &Client, manager: &XdgSessionManagerV1, request: xdg_session_manager_v1::Request, _: &(), dh: &DisplayHandle, di: &mut DataInit<'_, Self>) {
+            session::dispatch_manager(&mut state.session, manager, client, dh, request, di);
+        }
+    }
+    impl WLDispatch<XdgSessionV1, SessionData> for Dispatch {
+        fn request(state: &mut Self, _: &Client, _: &XdgSessionV1, request: xdg_session_v1::Request, data: &SessionData, _: &DisplayHandle, di: &mut DataInit<'_, Self>) {
+            session::dispatch_session(&mut state.session, &data.session_id, request, di);
+        }
+    }
+    impl WLDispatch<XdgToplevelSessionV1, ToplevelSessionData> for Dispatch {
+        fn request(state: &mut Self, _: &Client, _: &XdgToplevelSessionV1, request: xdg_toplevel_session_v1::Request, data: &ToplevelSessionData, _: &DisplayHandle, _: &mut DataInit<'_, Self>) {
+            session::dispatch_toplevel_session(&mut state.session, data, request);
+        }
+    }
+
+    // The same protocol under its pre-rename `xx_` namespace — the one GTK 4.22
+    // binds. Separate impls because the wire shapes genuinely differ (see
+    // `wire.session::legacy`); the store behind them is the same one.
+    impl GlobalDispatch<XxSessionManagerV1, ()> for Dispatch {
+        fn bind(_: &mut Self, _: &DisplayHandle, _: &Client, resource: New<XxSessionManagerV1>, _: &(), di: &mut DataInit<'_, Self>) {
+            di.init(resource, ());
+        }
+    }
+    impl WLDispatch<XxSessionManagerV1, ()> for Dispatch {
+        fn request(state: &mut Self, client: &Client, _: &XxSessionManagerV1, request: xx_session_manager_v1::Request, _: &(), dh: &DisplayHandle, di: &mut DataInit<'_, Self>) {
+            session::dispatch_legacy_manager(&mut state.session, client, dh, request, di);
+        }
+    }
+    impl WLDispatch<XxSessionV1, SessionData> for Dispatch {
+        fn request(state: &mut Self, _: &Client, _: &XxSessionV1, request: xx_session_v1::Request, data: &SessionData, _: &DisplayHandle, di: &mut DataInit<'_, Self>) {
+            session::dispatch_legacy_session(&mut state.session, &data.session_id, request, di);
+        }
+    }
+    impl WLDispatch<XxToplevelSessionV1, ToplevelSessionData> for Dispatch {
+        fn request(state: &mut Self, _: &Client, _: &XxToplevelSessionV1, request: xx_toplevel_session_v1::Request, data: &ToplevelSessionData, _: &DisplayHandle, _: &mut DataInit<'_, Self>) {
+            session::dispatch_legacy_toplevel_session(&mut state.session, data, request);
         }
     }
 }

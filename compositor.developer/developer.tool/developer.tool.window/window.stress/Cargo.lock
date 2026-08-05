@@ -541,6 +541,8 @@ version = "0.1.0"
 dependencies = [
  "calloop",
  "smithay-client-toolkit",
+ "wayland-backend",
  "wayland-client",
  "wayland-protocols",
+ "wayland-scanner",
 ]

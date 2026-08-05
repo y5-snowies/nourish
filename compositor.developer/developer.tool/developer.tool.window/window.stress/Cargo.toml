@@ -29,4 +29,8 @@ wayland-client = "0.31"
 # staging  -> wp_fractional_scale_v1, wp_single_pixel_buffer_v1
 # unstable -> zxdg_decoration_manager_v1
 wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
+# xdg-session-management-v1 is shipped as XML by wayland-protocols but has no
+# generated bindings, so `src/session.rs` scans `protocols/` itself.
+wayland-scanner = "0.31"
+wayland-backend = "0.3"
 calloop = "0.13"

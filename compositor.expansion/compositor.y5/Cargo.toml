@@ -658,6 +658,7 @@ compositor_support_smithay_dispatch_wire_base = { path = "../../compositor.suppo
 compositor_support_smithay_dispatch_wire_color = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.color" }
 compositor_support_smithay_dispatch_wire_colorsurf = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.colorsurf" }
 compositor_support_smithay_dispatch_wire_redraw = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.redraw" }
+compositor_support_smithay_dispatch_wire_session = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.session" }
 compositor_support_smithay_dispatch_wire_tablet = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.tablet" }
 compositor_support_smithay_dispatch_wire_tearing = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.tearing" }
 compositor_support_smithay_dispatch_wire_trait = { path = "../../compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.trait" }
@@ -715,6 +716,8 @@ compositor_support_smithay_state_seat_dispatch = { path = "../../compositor.supp
 compositor_support_smithay_state_seat_factory = { path = "../../compositor.support/support.smithay/smithay.state/state.seat/seat.factory" }
 compositor_support_smithay_state_seat_focus = { path = "../../compositor.support/support.smithay/smithay.state/state.seat/seat.focus" }
 compositor_support_smithay_state_seat_xkb = { path = "../../compositor.support/support.smithay/smithay.state/state.seat/seat.xkb" }
+compositor_support_smithay_state_session_claim = { path = "../../compositor.support/support.smithay/smithay.state/state.session/session.claim" }
+compositor_support_smithay_state_session_store = { path = "../../compositor.support/support.smithay/smithay.state/state.session/session.store" }
 compositor_support_smithay_state_shm_base = { path = "../../compositor.support/support.smithay/smithay.state/state.shm/shm.base" }
 compositor_support_smithay_state_shm_dispatch = { path = "../../compositor.support/support.smithay/smithay.state/state.shm/shm.dispatch" }
 compositor_support_smithay_state_shm_factory = { path = "../../compositor.support/support.smithay/smithay.state/state.shm/shm.factory" }

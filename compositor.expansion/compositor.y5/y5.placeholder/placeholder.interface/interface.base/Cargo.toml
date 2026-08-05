@@ -37,5 +37,7 @@ compositor_introspection_sampler_window_base.workspace = true
 compositor_introspection_execution_launch_build.workspace = true
 compositor_introspection_execution_launch_policy.workspace = true
 compositor_kernel_execution_driver_executor_base.workspace = true
+compositor_support_smithay_state_session_claim.workspace = true
+
 [lib]
 path = "lib.rs"

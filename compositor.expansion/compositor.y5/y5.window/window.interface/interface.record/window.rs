@@ -7,11 +7,17 @@ use smithay::wayland::seat::WaylandFocus;
 use uuid::Uuid;
 use compositor_introspection_extraction_window_base::{InferredHints, MetaNode, default_registry};
 use compositor_introspection_inference_hint_base::ApplicationData;
+use compositor_introspection_restoration_state_pending::pending::SessionKey;
 use compositor_support_smithay_state_xdg_activation_dispatch::wire::ActivationDetails;
 
 pub trait LoopWindow {
     fn window_data(&self) -> Option<&WindowData>;
     fn activation(&self) -> Option<ActivationDetails>;
+
+    /// The `xdg_session_management_v1` identity the client declared for this
+    /// toplevel: present before the first commit and identical on every future
+    /// run, so it identifies the window rather than the launch.
+    fn session(&self) -> Option<SessionKey>;
 
     fn uuid(&self) -> Option<Uuid>;
 
@@ -73,6 +79,12 @@ impl LoopWindow for Window {
         // let meta_result = meta.clone();
         let hints = compositor_introspection_extraction_window_base::extract_hints(&meta, &registry);
         Some(ApplicationData { meta, hints })
+    }
+
+    fn session(&self) -> Option<SessionKey> {
+        let surface = self.toplevel()?.wl_surface().clone();
+        compositor_support_smithay_state_session_store::store::identity(&surface)
+            .map(|i| SessionKey { session_id: i.session_id, name: i.name })
     }
 
     fn activation(&self) -> Option<ActivationDetails> {

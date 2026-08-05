@@ -11,6 +11,22 @@
 
 use std::io::BufRead;
 
+use window_stress::session::{
+    self, Namespace, SessionState, XdgSessionManagerV1, XdgSessionV1, XdgToplevelSessionV1,
+    XxSessionManagerV1, XxSessionV1, XxToplevelSessionV1, xdg_session_manager_v1, xdg_session_v1,
+    xdg_toplevel_session_v1, xx_session_manager_v1, xx_session_v1, xx_toplevel_session_v1,
+};
+
+/// The session objects, held for the lifetime of the toplevel — dropping them
+/// makes the compositor stop tracking the session. Which variant is live
+/// depends on `--xx`; the two namespaces are separate globals with different
+/// wire shapes, so they cannot share a type.
+enum SessionObjects {
+    None,
+    Xdg(XdgSessionV1, XdgToplevelSessionV1),
+    Xx(XxSessionV1, XxToplevelSessionV1),
+}
+
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     delegate_compositor, delegate_output, delegate_pointer, delegate_registry, delegate_seat,
@@ -196,6 +212,15 @@ struct Subject {
     frac_mgr: Option<WpFractionalScaleManagerV1>,
     sp_mgr: Option<WpSinglePixelBufferManagerV1>,
 
+    /// Session management: our durable identity + the value keyed by it.
+    session: SessionState,
+    /// Kept alive for the lifetime of the toplevel — see [`SessionObjects`].
+    _session_obj: SessionObjects,
+    /// Ignore stdin EOF. Set by `--detached`, which the placeholder replays —
+    /// a subject relaunched from a tile has no controller pipe, and a compositor
+    /// with no stdin would otherwise kill it the moment it started.
+    detached: bool,
+
     main_surface: WlSurface,
     main_xdg: XdgSurface,
     toplevel: XdgToplevel,
@@ -295,6 +320,28 @@ fn main() {
     let use_vp = !args.iter().any(|a| a == "--no-viewporter");
     let use_fs = !args.iter().any(|a| a == "--no-fractional-scale");
     let use_sp = !args.iter().any(|a| a == "--no-single-pixel");
+    let use_session = !args.iter().any(|a| a == "--no-session");
+    // Which namespace to bind. `xdg_` is the current staging name; `--xx`
+    // selects the pre-rename one GTK 4.22 binds. They are separate globals, so
+    // this picks which of the compositor's two implementations gets exercised.
+    let ns = if args.iter().any(|a| a == "--xx") { Namespace::Xx } else { Namespace::Xdg };
+    let detached = args.iter().any(|a| a == "--detached");
+    let flag = |name: &str| {
+        args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
+    };
+    // The toplevel's name INSIDE the session. Stays fixed across runs — it is
+    // the key the compositor matches on for `restore_toplevel`.
+    let session_name = flag("--session-name").unwrap_or_else(|| "main".to_string());
+    let session_store =
+        flag("--session-store").map(std::path::PathBuf::from).unwrap_or_else(session::default_store);
+    // NOTE: there is deliberately no per-instance flag here — no `--tag`, no
+    // index, nothing. Several session subjects are spawned with byte-identical
+    // argv, because a placeholder relaunches by replaying the argv it captured:
+    // any stable discriminator on the command line would be an alternative
+    // explanation for a value coming back, and the harness would only rule it
+    // out by code inspection. With argv identical, the session id the compositor
+    // mints per placeholder is the ONLY thing that can tell two subjects apart.
+    // On-screen identity comes from the SESSION line in the overlay instead.
 
     let conn = Connection::connect_to_env().expect("connect to wayland");
     let (globals, event_queue) = registry_queue_init::<Subject>(&conn).expect("registry init");
@@ -324,6 +371,10 @@ fn main() {
         if use_sp { bind_opt(&globals, &qh, "wp_single_pixel_buffer_manager_v1") } else { None };
     let tearing_mgr: Option<WpTearingControlManagerV1> =
         bind_opt(&globals, &qh, "wp_tearing_control_manager_v1");
+    let xdg_session_mgr: Option<XdgSessionManagerV1> =
+        if use_session && ns == Namespace::Xdg { bind_opt(&globals, &qh, ns.global()) } else { None };
+    let xx_session_mgr: Option<XxSessionManagerV1> =
+        if use_session && ns == Namespace::Xx { bind_opt(&globals, &qh, ns.global()) } else { None };
 
     info!(
         "globals: xdg_wm_base + decoration={} viewporter={} fractional={} single_pixel={}",
@@ -336,6 +387,9 @@ fn main() {
     let main_surface = compositor.create_surface(&qh);
     let main_xdg = wm_base.get_xdg_surface(&main_surface, &qh, XdgSurfData(Role::Main));
     let toplevel = main_xdg.get_toplevel(&qh, ());
+    // Same title for every subject, on purpose — see the argv note in `main`.
+    // A distinguishing title would also be a capture-matchable attribute, so it
+    // would muddy which signal bound the window to its placeholder.
     toplevel.set_title("y5 window-stress SUBJECT".into());
     toplevel.set_app_id("y5.window.stress.subject".into());
 
@@ -347,6 +401,37 @@ fn main() {
     // binding must not itself change behaviour.
     let tearing_ctl = tearing_mgr.as_ref().map(|m| m.get_tearing_control(&main_surface, &qh, ()));
     info!("tearing_control global: {}", tearing_mgr.is_some());
+
+    // --- session identity -------------------------------------------------------------
+    // Always ask with NULL: the subject is launched from a placeholder tile with
+    // no state of its own beyond the store file, and it has no way to know WHICH
+    // of several stored ids is "its own". The compositor does — it knows which
+    // placeholder spawned this pid — so we let it choose and then look our value
+    // up under whatever it hands back. That is exactly the asymmetry the protocol
+    // leaves to the compositor.
+    //
+    // `restore_toplevel` (not `add_toplevel`) and strictly BEFORE the first
+    // commit, which the protocol requires: it is what makes the compositor emit
+    // `restored` when it already knows this name in this session.
+    let bound = xdg_session_mgr.is_some() || xx_session_mgr.is_some();
+    let mut session = SessionState::new(session_name.clone(), session_store, ns, bound);
+    let session_obj = if let Some(mgr) = &xdg_session_mgr {
+        let s = mgr.get_session(xdg_session_manager_v1::Reason::Launch, None, &qh, ());
+        let ts = s.restore_toplevel(&toplevel, session_name.clone(), &qh, ());
+        info!("session(xdg): requested (name='{session_name}')");
+        SessionObjects::Xdg(s, ts)
+    } else if let Some(mgr) = &xx_session_mgr {
+        // Same call shape; the `xx_` differences are on the toplevel handle
+        // (`remove` vs `rename`) and in the `restored` event's argument.
+        let s = mgr.get_session(xx_session_manager_v1::Reason::Launch, None, &qh, ());
+        let ts = s.restore_toplevel(&toplevel, session_name.clone(), &qh, ());
+        info!("session(xx): requested (name='{session_name}')");
+        SessionObjects::Xx(s, ts)
+    } else {
+        info!("session: {} unavailable", ns.global());
+        session.phase = session::SessionPhase::Absent;
+        SessionObjects::None
+    };
 
     main_surface.commit();
 
@@ -364,6 +449,9 @@ fn main() {
         viewporter,
         frac_mgr,
         sp_mgr,
+        session,
+        _session_obj: session_obj,
+        detached,
         main_surface,
         main_xdg,
         toplevel,
@@ -427,10 +515,16 @@ fn main() {
         .handle()
         .insert_source(rx, |event, _, state| match event {
             ChanEvent::Msg(line) => state.on_line(&line),
-            // Controller closed the pipe (e.g. it exited): shut down too.
+            // Controller closed the pipe (e.g. it exited): shut down too — unless
+            // we were started detached, in which case there is no controller and
+            // stdin is whatever the compositor happened to inherit.
             ChanEvent::Closed => {
-                info!("stdin closed; exiting");
-                state.exit = true;
+                if state.detached {
+                    info!("stdin closed; staying up (--detached)");
+                } else {
+                    info!("stdin closed; exiting");
+                    state.exit = true;
+                }
             }
         })
         .expect("insert stdin channel");
@@ -1081,6 +1175,9 @@ impl Subject {
                 self.buf_delta
             ),
             format!("SUBS {}  POPUPS {}", self.subs.len(), self.popups.len()),
+            // The restoration check: after a relaunch from a placeholder tile
+            // this must read RESTORED with the SAME value as before the close.
+            self.session.overlay(),
         ];
         if self.show_counter {
             lines.insert(0, format!("FRAME {}  COMMIT {} Hz", self.commits, self.commit_hz));
@@ -1459,6 +1556,111 @@ impl Dispatch<XdgPopup, PopupTag> for Subject {
 
 impl Dispatch<XdgPositioner, ()> for Subject {
     fn event(_: &mut Self, _: &XdgPositioner, _: xdg_positioner::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+// ---- xdg_session_management_v1 -----------------------------------------------------------
+// The manager itself is eventless. `xdg_session_v1` answers `get_session` with
+// exactly one of created/restored/replaced; `xdg_toplevel_session_v1.restored`
+// arrives before the first xdg_toplevel configure when the compositor knew our
+// toplevel name.
+
+impl Dispatch<XdgSessionManagerV1, ()> for Subject {
+    fn event(_: &mut Self, _: &XdgSessionManagerV1, _: <XdgSessionManagerV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<XdgSessionV1, ()> for Subject {
+    fn event(state: &mut Self, _: &XdgSessionV1, event: xdg_session_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            // A session we did not have: the compositor chose the id. Look our
+            // value up under it — a HIT here after a placeholder relaunch is the
+            // whole point, and it means the compositor re-minted the same string.
+            xdg_session_v1::Event::Created { session_id } => {
+                let found = state.session.bind(session_id.clone());
+                state.session.phase = if found {
+                    session::SessionPhase::Restored
+                } else {
+                    session::SessionPhase::Created
+                };
+                info!(
+                    "session created id={session_id} store_hit={found} value={}",
+                    state.session.value.as_deref().unwrap_or("-")
+                );
+                state.draw_main();
+            }
+            // We passed an id the compositor recognised.
+            xdg_session_v1::Event::Restored => {
+                info!("session restored by compositor");
+                state.session.phase = session::SessionPhase::Restored;
+                state.draw_main();
+            }
+            xdg_session_v1::Event::Replaced => {
+                warn!("session taken over by another client");
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<XdgToplevelSessionV1, ()> for Subject {
+    fn event(state: &mut Self, _: &XdgToplevelSessionV1, event: xdg_toplevel_session_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let xdg_toplevel_session_v1::Event::Restored = event {
+            info!("toplevel session '{}' restored", state.session.name);
+            state.session.phase = session::SessionPhase::Restored;
+            state.draw_main();
+        }
+    }
+}
+
+// ---- xx_ namespace (--xx) ----------------------------------------------------------------
+// Identical handling; the wire shapes differ (see `session::legacy`), so the
+// impls cannot be shared even though the state they update is the same.
+
+impl Dispatch<XxSessionManagerV1, ()> for Subject {
+    fn event(_: &mut Self, _: &XxSessionManagerV1, _: <XxSessionManagerV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<XxSessionV1, ()> for Subject {
+    fn event(state: &mut Self, _: &XxSessionV1, event: xx_session_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            // NB: the `xx_` event names its argument `id`, not `session_id`.
+            xx_session_v1::Event::Created { id } => {
+                let found = state.session.bind(id.clone());
+                state.session.phase = if found {
+                    session::SessionPhase::Restored
+                } else {
+                    session::SessionPhase::Created
+                };
+                info!(
+                    "session(xx) created id={id} store_hit={found} value={}",
+                    state.session.value.as_deref().unwrap_or("-")
+                );
+                state.draw_main();
+            }
+            xx_session_v1::Event::Restored => {
+                info!("session(xx) restored by compositor");
+                state.session.phase = session::SessionPhase::Restored;
+                state.draw_main();
+            }
+            xx_session_v1::Event::Replaced => warn!("session(xx) taken over by another client"),
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<XxToplevelSessionV1, ()> for Subject {
+    fn event(state: &mut Self, _: &XxToplevelSessionV1, event: xx_toplevel_session_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        // Unlike `xdg_`, this event carries the toplevel back — checking it is
+        // ours is the cheapest test that the compositor serialised it correctly.
+        if let xx_toplevel_session_v1::Event::Restored { surface } = event {
+            let ours = surface == state.toplevel;
+            info!("toplevel session(xx) '{}' restored (toplevel matches: {ours})", state.session.name);
+            if !ours {
+                warn!("session(xx): restored carried a DIFFERENT toplevel than ours");
+            }
+            state.session.phase = session::SessionPhase::Restored;
+            state.draw_main();
+        }
+    }
 }
 
 impl Dispatch<ZxdgDecorationManagerV1, ()> for Subject {

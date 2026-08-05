@@ -5,6 +5,9 @@
   "compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.tablet": [
     "size"
   ],
+  "compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.session": [
+    "size"
+  ],
   "compositor.kernel/kernel.native/native.wire/wire.input/input.base": [
     "size"
   ],
@@ -496,6 +499,9 @@
     "size"
   ],
   "compositor.expansion/compositor.y5/y5.picker/picker.scene/scene.tick": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.window/window.interface/interface.record": [
     "size"
   ]
 }

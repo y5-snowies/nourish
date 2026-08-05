@@ -81,6 +81,14 @@ enum Act {
     CycleColor,
     ToggleProto(u8), // 0 deco, 1 vp, 2 fs, 3 sp
     Respawn,
+    /// Spawn N extra DETACHED session subjects (see `Controller::spawn_session`).
+    SpawnSession(u32),
+    /// Forget the spawned session subjects (they outlive the controller by design).
+    ForgetSession,
+    /// Wipe the subjects' id→value store so the next run starts from NEW.
+    ClearSessionStore,
+    /// Flip which session-management namespace the detached subjects bind.
+    ToggleSessionNs,
 }
 
 struct Btn {
@@ -112,6 +120,9 @@ struct Params {
     proto_vp: bool,
     proto_fs: bool,
     proto_sp: bool,
+    /// false = xdg_session_manager_v1 (current staging name),
+    /// true  = xx_session_manager_v1 (pre-rename; what GTK 4.22 binds).
+    session_xx: bool,
 }
 
 impl Params {
@@ -131,6 +142,7 @@ impl Params {
             proto_vp: true,
             proto_fs: true,
             proto_sp: true,
+            session_xx: false,
         }
     }
 
@@ -332,6 +344,24 @@ impl Params {
         b.push(btn(x + 180, y, 56, proto_label("SP", self.proto_sp), Act::ToggleProto(3)));
         y += 23;
         b.push(btn(x, y, cw, "RESPAWN SUBJECT", Act::Respawn));
+        y += 28;
+
+        // The placeholder session-restore check. These subjects are spawned
+        // DETACHED (no stdin pipe, no controller commands) precisely because the
+        // point is what survives without a controller: close them in the
+        // compositor, then press Launch on the placeholder tiles they leave
+        // behind. Each should come back showing RESTORED and the same VALUE —
+        // a value that is in none of the launch args the placeholder replays.
+        hdr(&mut h, &mut y, "SESSION RESTORE (detached subjects)");
+        b.push(btn(x, y, half, "SPAWN 1", Act::SpawnSession(1)));
+        b.push(btn(x + half + 6, y, half, "SPAWN 3", Act::SpawnSession(3)));
+        y += 23;
+        b.push(btn(x, y, half, "FORGET", Act::ForgetSession));
+        b.push(btn(x + half + 6, y, half, "CLEAR STORE", Act::ClearSessionStore));
+        y += 23;
+        b.push(btn(x, y, cw,
+                   if self.session_xx { "NS: xx_ (GTK 4.22)" } else { "NS: xdg_ (staging)" },
+                   Act::ToggleSessionNs));
 
         (b, h)
     }
@@ -356,6 +386,13 @@ struct Controller {
     subject_path: std::path::PathBuf,
     child: Option<Child>,
     child_stdin: Option<ChildStdin>,
+    /// Detached session subjects (see `Act::SpawnSession`). Held only so they can
+    /// be reaped; they are NOT killed on controller exit — the whole test is what
+    /// happens to them after the controller is out of the picture.
+    session_children: Vec<Child>,
+    /// Controller-side log counter for detached spawns. Never reaches the
+    /// subject — see `spawn_session` for why they must be argv-identical.
+    next_session_tag: u32,
 
     p: Params,
     log: Vec<String>,
@@ -411,6 +448,8 @@ fn main() {
         subject_path,
         child: None,
         child_stdin: None,
+        session_children: Vec::new(),
+        next_session_tag: 1,
         p: Params::new(),
         log: Vec::new(),
     };
@@ -487,6 +526,63 @@ impl Controller {
         }
     }
 
+    /// Spawn `n` DETACHED session subjects.
+    ///
+    /// `--detached` (so stdin EOF does not kill them) and stdin/stdout on null
+    /// (so there is no controller pipe at all). That single flag is the ENTIRE
+    /// command line: every subject is spawned byte-identical, with no index, no
+    /// tag, no per-instance path.
+    ///
+    /// That is the point. A placeholder relaunches by replaying the argv it
+    /// captured, so any stable discriminator here would be an alternative
+    /// explanation for a value coming back — and one you could only rule out by
+    /// reading the subject's source. With argv identical, the session id the
+    /// compositor mints per placeholder is the only thing distinguishing them.
+    fn spawn_session(&mut self, n: u32) {
+        for _ in 0..n {
+            let nth = self.next_session_tag;
+            self.next_session_tag += 1;
+            let mut cmd = PCommand::new(&self.subject_path);
+            cmd.arg("--detached");
+            if self.p.session_xx {
+                cmd.arg("--xx");
+            }
+            cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::inherit());
+            match cmd.spawn() {
+                Ok(child) => {
+                    // `nth` is a controller-side log counter only — it is never
+                    // passed to the subject.
+                    info!("spawned detached session subject ({nth})");
+                    let ns = if self.p.session_xx { "xx_" } else { "xdg_" };
+                    self.push_log(format!("session subject {nth} up ({ns}, identical argv)"));
+                    self.session_children.push(child);
+                }
+                Err(e) => {
+                    warn!("failed to spawn session subject: {e}");
+                    self.push_log(format!("SESSION SPAWN FAILED: {e}"));
+                }
+            }
+        }
+    }
+
+    /// Stop tracking the detached subjects without killing them — closing them
+    /// from inside the compositor is what produces the placeholder tiles.
+    fn forget_session(&mut self) {
+        let n = self.session_children.len();
+        self.session_children.clear();
+        self.push_log(format!("forgot {n} session subject(s) (still running)"));
+    }
+
+    /// Delete the shared id→value store, so the next spawn reports NEW rather
+    /// than RESTORED. The control case for the check.
+    fn clear_session_store(&mut self) {
+        let path = window_stress::session::default_store();
+        match std::fs::remove_file(&path) {
+            Ok(()) => self.push_log(format!("cleared {}", path.display())),
+            Err(e) => self.push_log(format!("clear store: {e}")),
+        }
+    }
+
     fn send(&mut self, cmd: Command) {
         let line = cmd.encode();
         if let Some(stdin) = &mut self.child_stdin {
@@ -545,6 +641,14 @@ impl Controller {
                 self.push_log("proto toggled — press RESPAWN to apply".into());
             }
             Act::Respawn => self.spawn_subject(),
+            Act::SpawnSession(n) => self.spawn_session(n),
+            Act::ForgetSession => self.forget_session(),
+            Act::ClearSessionStore => self.clear_session_store(),
+            Act::ToggleSessionNs => {
+                self.p.session_xx = !self.p.session_xx;
+                let ns = if self.p.session_xx { "xx_" } else { "xdg_" };
+                self.push_log(format!("session namespace -> {ns} (applies to next spawn)"));
+            }
         }
         self.need_redraw = true;
     }

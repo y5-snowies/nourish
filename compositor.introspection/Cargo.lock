@@ -307,7 +307,7 @@ dependencies = [
  "compositor_introspection_execution_launch_scope",
  "compositor_introspection_execution_launch_types",
  "compositor_model_debug_instance_record",
- "libc",
+ "compositor_support_library_process_child_hygiene",
 ]
 
 [[package]]
@@ -1101,6 +1101,14 @@ version = "0.0.1"
 dependencies = [
  "compositor_model_debug_instance_channel",
  "compositor_model_debug_instance_level",
+]
+
+[[package]]
+name = "compositor_support_library_process_child_hygiene"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_record",
+ "libc",
 ]
 
 [[package]]

@@ -5,6 +5,19 @@ use std::collections::HashMap;
 use uuid::Uuid;
 use compositor_introspection_launchplan_plan_base::LaunchPlan;
 
+/// A toplevel's identity under `xdg_session_management_v1`: the session id the
+/// compositor minted, plus the client's own name for the window inside it.
+///
+/// Unlike the activation token this is not tied to a launch — the client
+/// re-declares it on every run, before its first commit, whether or not we
+/// were the one who started it. Plain strings so this crate stays free of any
+/// wayland dependency; the y5 layer converts from the surface-data form.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionKey {
+    pub session_id: String,
+    pub name: String,
+}
+
 /// One in-flight placeholder launch awaiting the new window.
 ///
 /// The compositor builds this immediately after [`LaunchPlan::execute_with_env`]
@@ -35,4 +48,10 @@ pub struct PendingRestoration {
     /// `DESKTOP_STARTUP_ID`) so matchers can compare against the new
     /// window's env.
     pub activation_env: HashMap<String, String>,
+
+    /// The session identity this placeholder bound to on a previous run, if
+    /// its client speaks `xdg_session_management_v1`. Unlike the other fields
+    /// this survives a reboot — it is persisted with the placeholder — which
+    /// is why it outranks them in `match_window`.
+    pub session: Option<SessionKey>,
 }

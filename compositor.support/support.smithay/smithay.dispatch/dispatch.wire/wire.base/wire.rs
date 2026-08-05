@@ -81,6 +81,18 @@ impl<A: WireTrait + 'static> Wire<A> {
         // The hint only ever TAGS a surface; whether it tears is the
         // compositor's call (`environment.tearing`).
         compositor_support_smithay_dispatch_wire_tearing::tearing::create_global::<Dispatch>(display_handle);
+        // `xdg_session_management_v1`: lets a client declare durable identity for
+        // its toplevels instead of us inferring it after the fact. Advertised
+        // unconditionally — a client that never binds it is unaffected, and the
+        // placeholder path treats the identity as an ADDITIONAL signal on top of
+        // the activation token / pid tree, never a replacement.
+        compositor_support_smithay_dispatch_wire_session::session::create_global::<Dispatch>(display_handle);
+        // Both namespaces are advertised: `xdg_` is the current staging name,
+        // `xx_` is the pre-rename one GTK 4.22 actually binds — and today GTK is
+        // the only shipping client, so without this no real app reaches the
+        // feature at all. A client binds whichever it knows; both land in the
+        // same store, so the placeholder path cannot tell them apart.
+        compositor_support_smithay_dispatch_wire_session::session::create_legacy_global::<Dispatch>(display_handle);
         Self { state: dispatch, inner, loop_handle }
     }
 }
@@ -125,6 +137,7 @@ pub fn new_dispatch(
         dnd: compositor_support_smithay_state_dnd_factory::factory::new(),
         singlepixel: compositor_support_smithay_state_singlepixel_factory::factory::new::<Dispatch>(display_handle),
         tablet: Default::default(),
+        session: Default::default(),
         needs_redraw: true,
         redraw_ping: None,
         render_in_flight: false,

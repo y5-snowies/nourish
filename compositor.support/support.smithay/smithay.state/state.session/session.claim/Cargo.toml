@@ -1,0 +1,14 @@
+[package]
+name = "compositor_support_smithay_state_session_claim"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+uuid = { workspace = true }
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "One correlation unit: the claim registry plus both predicates it resolves on (activation token from /proc environ, pid parent chain) — splitting them would separate a lookup from the two ways it answers."
+
+[lib]
+path = "lib.rs"

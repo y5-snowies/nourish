@@ -529,6 +529,7 @@ compositor_support_smithay_dispatch_wire_base = { path = "../support.smithay/smi
 compositor_support_smithay_dispatch_wire_color = { path = "../support.smithay/smithay.dispatch/dispatch.wire/wire.color" }
 compositor_support_smithay_dispatch_wire_colorsurf = { path = "../support.smithay/smithay.dispatch/dispatch.wire/wire.colorsurf" }
 compositor_support_smithay_dispatch_wire_redraw = { path = "../support.smithay/smithay.dispatch/dispatch.wire/wire.redraw" }
+compositor_support_smithay_dispatch_wire_session = { path = "../support.smithay/smithay.dispatch/dispatch.wire/wire.session" }
 compositor_support_smithay_dispatch_wire_tablet = { path = "../support.smithay/smithay.dispatch/dispatch.wire/wire.tablet" }
 compositor_support_smithay_dispatch_wire_tearing = { path = "../support.smithay/smithay.dispatch/dispatch.wire/wire.tearing" }
 compositor_support_smithay_dispatch_wire_trait = { path = "../support.smithay/smithay.dispatch/dispatch.wire/wire.trait" }
@@ -586,6 +587,8 @@ compositor_support_smithay_state_seat_dispatch = { path = "../support.smithay/sm
 compositor_support_smithay_state_seat_factory = { path = "../support.smithay/smithay.state/state.seat/seat.factory" }
 compositor_support_smithay_state_seat_focus = { path = "../support.smithay/smithay.state/state.seat/seat.focus" }
 compositor_support_smithay_state_seat_xkb = { path = "../support.smithay/smithay.state/state.seat/seat.xkb" }
+compositor_support_smithay_state_session_claim = { path = "../support.smithay/smithay.state/state.session/session.claim" }
+compositor_support_smithay_state_session_store = { path = "../support.smithay/smithay.state/state.session/session.store" }
 compositor_support_smithay_state_shm_base = { path = "../support.smithay/smithay.state/state.shm/shm.base" }
 compositor_support_smithay_state_shm_dispatch = { path = "../support.smithay/smithay.state/state.shm/shm.dispatch" }
 compositor_support_smithay_state_shm_factory = { path = "../support.smithay/smithay.state/state.shm/shm.factory" }

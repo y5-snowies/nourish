@@ -23,7 +23,7 @@ pub mod token {
 
 pub use matcher::{MatchResult, RestorationMatcher};
 pub use matchers::default_matchers;
-pub use pending::PendingRestoration;
+pub use pending::{PendingRestoration, SessionKey};
 pub use registry::MatcherRegistry;
 pub use token::{
     candidate_token_from_env, token_matches, ACTIVATION_TOKEN_ENV, STARTUP_ID_ENV,
