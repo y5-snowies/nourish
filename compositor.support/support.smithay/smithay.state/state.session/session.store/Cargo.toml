@@ -4,7 +4,12 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_model_debug_instance_record = { workspace = true }
 smithay = { workspace = true }
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "One store: the durable name index plus the live grant bookkeeping the protocol's name_in_use/already_added errors are defined against. Splitting them would separate a lookup from the invariants that make it correct."
 
 [lib]
 path = "lib.rs"

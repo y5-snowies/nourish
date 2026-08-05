@@ -97,6 +97,9 @@ pub struct Dispatch {
     /// here — the geometry a session restores to is the placeholder's, and the
     /// durable copy of the identity is persisted with it.
     pub session: compositor_support_smithay_state_session_store::store::SessionStore,
+    /// Which protocol object currently manages which session id — the
+    /// `replaced` / `in_use` half of session management (see `mod session_impls`).
+    pub session_live: compositor_support_smithay_dispatch_wire_session::session::SessionLive,
     pub needs_redraw: bool,
 
     // Additional safety for ping
@@ -530,13 +533,14 @@ mod tablet_impls {
 // `Dispatch.session`.
 mod session_impls {
     use compositor_support_smithay_dispatch_wire_session::session::{
-        self, SessionData, ToplevelSessionData, XdgSessionManagerV1, XdgSessionV1,
+        self, SessionData, SessionResource, ToplevelSessionData, XdgSessionManagerV1, XdgSessionV1,
         XdgToplevelSessionV1, XxSessionManagerV1, XxSessionV1, XxToplevelSessionV1,
         xdg_session_manager_v1, xdg_session_v1, xdg_toplevel_session_v1, xx_session_manager_v1,
         xx_session_v1, xx_toplevel_session_v1,
     };
     use smithay::reexports::wayland_server::{
-        Client, DataInit, Dispatch as WLDispatch, DisplayHandle, GlobalDispatch, New,
+        backend::ClientId, Client, DataInit, Dispatch as WLDispatch, DisplayHandle, GlobalDispatch,
+        New,
     };
     use super::Dispatch;
 
@@ -547,41 +551,56 @@ mod session_impls {
     }
     impl WLDispatch<XdgSessionManagerV1, ()> for Dispatch {
         fn request(state: &mut Self, client: &Client, manager: &XdgSessionManagerV1, request: xdg_session_manager_v1::Request, _: &(), dh: &DisplayHandle, di: &mut DataInit<'_, Self>) {
-            session::dispatch_manager(&mut state.session, manager, client, dh, request, di);
+            session::dispatch_manager(&mut state.session, &mut state.session_live, manager, client, dh, request, di);
         }
     }
     impl WLDispatch<XdgSessionV1, SessionData> for Dispatch {
-        fn request(state: &mut Self, _: &Client, _: &XdgSessionV1, request: xdg_session_v1::Request, data: &SessionData, _: &DisplayHandle, di: &mut DataInit<'_, Self>) {
-            session::dispatch_session(&mut state.session, &data.session_id, request, di);
+        fn request(state: &mut Self, _: &Client, session: &XdgSessionV1, request: xdg_session_v1::Request, data: &SessionData, _: &DisplayHandle, di: &mut DataInit<'_, Self>) {
+            session::dispatch_session(&mut state.session, session, &data.session_id, request, di);
+        }
+        // Release the live claim; the REMEMBERED names stay, which is what makes
+        // the next run restorable. Only an explicit `remove` erases those.
+        fn destroyed(state: &mut Self, _: ClientId, resource: &XdgSessionV1, data: &SessionData) {
+            session::destroyed_session(&mut state.session_live, data, SessionResource::Xdg(resource.clone()));
         }
     }
     impl WLDispatch<XdgToplevelSessionV1, ToplevelSessionData> for Dispatch {
         fn request(state: &mut Self, _: &Client, _: &XdgToplevelSessionV1, request: xdg_toplevel_session_v1::Request, data: &ToplevelSessionData, _: &DisplayHandle, _: &mut DataInit<'_, Self>) {
             session::dispatch_toplevel_session(&mut state.session, data, request);
         }
+        fn destroyed(state: &mut Self, _: ClientId, _: &XdgToplevelSessionV1, data: &ToplevelSessionData) {
+            session::destroyed_toplevel_session(&mut state.session, data);
+        }
     }
 
-    // The same protocol under its pre-rename `xx_` namespace — the one GTK 4.22
-    // binds. Separate impls because the wire shapes genuinely differ (see
-    // `wire.session::legacy`); the store behind them is the same one.
+    // The same protocol under its pre-rename `xx_` namespace — what GTK 4.22,
+    // Qt 6.11 and Chrome 151 bind. Separate impls because the wire shapes
+    // genuinely differ (see `wire.session::legacy`); the store behind them is
+    // the same one.
     impl GlobalDispatch<XxSessionManagerV1, ()> for Dispatch {
         fn bind(_: &mut Self, _: &DisplayHandle, _: &Client, resource: New<XxSessionManagerV1>, _: &(), di: &mut DataInit<'_, Self>) {
             di.init(resource, ());
         }
     }
     impl WLDispatch<XxSessionManagerV1, ()> for Dispatch {
-        fn request(state: &mut Self, client: &Client, _: &XxSessionManagerV1, request: xx_session_manager_v1::Request, _: &(), dh: &DisplayHandle, di: &mut DataInit<'_, Self>) {
-            session::dispatch_legacy_manager(&mut state.session, client, dh, request, di);
+        fn request(state: &mut Self, client: &Client, manager: &XxSessionManagerV1, request: xx_session_manager_v1::Request, _: &(), dh: &DisplayHandle, di: &mut DataInit<'_, Self>) {
+            session::dispatch_legacy_manager(&mut state.session, &mut state.session_live, manager, client, dh, request, di);
         }
     }
     impl WLDispatch<XxSessionV1, SessionData> for Dispatch {
-        fn request(state: &mut Self, _: &Client, _: &XxSessionV1, request: xx_session_v1::Request, data: &SessionData, _: &DisplayHandle, di: &mut DataInit<'_, Self>) {
-            session::dispatch_legacy_session(&mut state.session, &data.session_id, request, di);
+        fn request(state: &mut Self, _: &Client, session: &XxSessionV1, request: xx_session_v1::Request, data: &SessionData, _: &DisplayHandle, di: &mut DataInit<'_, Self>) {
+            session::dispatch_legacy_session(&mut state.session, session, &data.session_id, request, di);
+        }
+        fn destroyed(state: &mut Self, _: ClientId, resource: &XxSessionV1, data: &SessionData) {
+            session::destroyed_session(&mut state.session_live, data, SessionResource::Xx(resource.clone()));
         }
     }
     impl WLDispatch<XxToplevelSessionV1, ToplevelSessionData> for Dispatch {
         fn request(state: &mut Self, _: &Client, _: &XxToplevelSessionV1, request: xx_toplevel_session_v1::Request, data: &ToplevelSessionData, _: &DisplayHandle, _: &mut DataInit<'_, Self>) {
             session::dispatch_legacy_toplevel_session(&mut state.session, data, request);
+        }
+        fn destroyed(state: &mut Self, _: ClientId, _: &XxToplevelSessionV1, data: &ToplevelSessionData) {
+            session::destroyed_toplevel_session(&mut state.session, data);
         }
     }
 }

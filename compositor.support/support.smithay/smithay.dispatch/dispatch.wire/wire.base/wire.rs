@@ -138,6 +138,7 @@ pub fn new_dispatch(
         singlepixel: compositor_support_smithay_state_singlepixel_factory::factory::new::<Dispatch>(display_handle),
         tablet: Default::default(),
         session: Default::default(),
+        session_live: Default::default(),
         needs_redraw: true,
         redraw_ping: None,
         render_in_flight: false,

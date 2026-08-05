@@ -5,8 +5,10 @@
 use compositor_orchestration_core_state_base::Loop;
 use compositor_y5_window_interface_record::window::LoopWindow;
 
-/// Layout tab: close the overlay and travel the camera to fit the clicked
-/// window (the "view" action). No-op if the uuid no longer maps to a window.
+/// Layout tab: close the overlay and travel the camera to the clicked window
+/// (the "view" action). Travels/pans without zooming in to fill the window —
+/// the same preset the Super+Arrow directional navigation uses. No-op if the
+/// uuid no longer maps to a window.
 pub fn activate(state: &mut Loop, uuid: uuid::Uuid) {
     let window = state
         .inner
@@ -17,7 +19,7 @@ pub fn activate(state: &mut Loop, uuid: uuid::Uuid) {
         .cloned();
     let Some(window) = window else { return };
     compositor_y5_overview_interface_base::base::request_close(state);
-    compositor_y5_navigator_interface_base::interface::fit_to_window(state, &window);
+    compositor_y5_navigator_interface_base::interface::travel_to_window(state, &window);
 }
 
 /// World tab: enter the focused globe cell's world. Resolve (or create) the
