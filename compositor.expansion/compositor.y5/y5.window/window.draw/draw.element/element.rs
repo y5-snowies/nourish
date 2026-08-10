@@ -47,6 +47,13 @@ pub struct ClampOpaque<E> {
     pub inner: E,
     /// Screen / output size in physical pixels (the space `opaque_regions`/`geometry` report in).
     pub screen: Size<i32, Physical>,
+    /// Whether the drawn world's bundle composites this window itself.
+    ///
+    /// Stamped at construction rather than read here: `opaque_regions` is a
+    /// smithay trait method with no way to reach a world, and the value is a fact
+    /// about the world whose band this window is in — which used to mean a
+    /// process-global that any world could have written.
+    pub covered: bool,
 }
 
 impl<E: ElementSmithay> ElementSmithay for ClampOpaque<E> {
@@ -86,6 +93,13 @@ impl<E: ElementSmithay> ElementSmithay for ClampOpaque<E> {
         &self,
         scale: Scale<f64>,
     ) -> smithay::backend::renderer::utils::OpaqueRegions<i32, Physical> {
+        // A bundle that draws this window itself may put it anywhere, so it no
+        // longer covers what is behind it. Claiming opacity here would subtract the
+        // background band's damage under the window, and the engine then skips the
+        // window too (`Claim::owns_op`) — leaving a hole exactly where it moved from.
+        if self.covered {
+            return Default::default();
+        }
         // Central `OPAQUE_CLAMP_FRACTION` of the screen, in absolute output-physical coords.
         let cw = (self.screen.w as f64 * OPAQUE_CLAMP_FRACTION).round() as i32;
         let ch = (self.screen.h as f64 * OPAQUE_CLAMP_FRACTION).round() as i32;
@@ -159,6 +173,8 @@ where
 pub struct ElementWindowSurface<E> {
     pub inner: E,
     pub zoom: f64,
+    /// See [`ClampOpaque::covered`] — the same fact, stamped for the same reason.
+    pub covered: bool,
 }
 
 impl<E: ElementSmithay> ElementSmithay for ElementWindowSurface<E> {
@@ -198,6 +214,9 @@ impl<E: ElementSmithay> ElementSmithay for ElementWindowSurface<E> {
         &self,
         _scale: Scale<f64>,
     ) -> smithay::backend::renderer::utils::OpaqueRegions<i32, Physical> {
+        if self.covered {
+            return Default::default();
+        }
         self.inner.opaque_regions(Scale::from(self.zoom))
     }
 

@@ -1,0 +1,15 @@
+{
+  "name": "tb-window-descriptors",
+  "version": 1,
+  "windows": "world",
+  "passes": [
+    {
+      "name": "descriptors",
+      "shader": "passes/descriptors.wgsl",
+      "output": "output",
+      "requires": ["window_geometry", "window_textures", "window_times", "pointer_state"]
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

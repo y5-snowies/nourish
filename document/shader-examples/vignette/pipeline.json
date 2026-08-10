@@ -1,0 +1,17 @@
+{
+  "name": "vignette",
+  "version": 1,
+
+  "passes": [
+    { "name": "backdrop", "shader": "passes/backdrop.wgsl", "output": "output" },
+
+    {
+      "name": "vignette",
+      "shader": "passes/vignette.wgsl",
+      "when": "after-content",
+      "inputs": { "scene": "content" },
+      "requires": ["composited_scene"],
+      "output": "output"
+    }
+  ]
+}

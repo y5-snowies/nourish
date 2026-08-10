@@ -1,0 +1,15 @@
+{
+  "name": "tb-window-metaballs",
+  "version": 1,
+  "passes": [
+    {
+      "name": "goo",
+      "shader": "passes/goo.wgsl",
+      "output": "output",
+      "requires": ["window_geometry", "window_textures"]
+    }
+  ],
+  "windows": "world",
+  "decorations": "off",
+  "letterbox": "always"
+}

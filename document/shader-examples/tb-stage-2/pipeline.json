@@ -1,0 +1,51 @@
+{
+  "name": "tb-stage-2",
+  "version": 1,
+  "targets": {
+    "a": {
+      "format": "rgba16f",
+      "scale": 1.0
+    },
+    "b": {
+      "format": "rgba16f",
+      "scale": 0.5
+    },
+    "c": {
+      "format": "rgba16f",
+      "scale": 1.0
+    }
+  },
+  "passes": [
+    {
+      "name": "s0",
+      "shader": "../tb-chain-proof/passes/s0.wgsl",
+      "output": "a"
+    },
+    {
+      "name": "s1",
+      "shader": "../tb-chain-proof/passes/s1.wgsl",
+      "inputs": {
+        "prev": "a"
+      },
+      "output": "b"
+    },
+    {
+      "name": "s2",
+      "shader": "../tb-chain-proof/passes/s2.wgsl",
+      "inputs": {
+        "prev": "b"
+      },
+      "output": "c"
+    },
+    {
+      "name": "report",
+      "shader": "../tb-chain-proof/passes/report.wgsl",
+      "inputs": {
+        "chain": "c"
+      },
+      "output": "output"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

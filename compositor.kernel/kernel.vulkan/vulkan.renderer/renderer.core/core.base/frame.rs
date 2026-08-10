@@ -175,6 +175,14 @@ pub(crate) enum DrawOp {
         /// Per-element metadata (space, …), tagged by the scene wrapper. AA is
         /// applied only to `World` elements; screen/background are not.
         meta: compositor_orchestration_draw_dispatch_frame::ElementMeta,
+        /// Physical dst rect `[x, y, w, h]` when this is a `World` element (a
+        /// window / iced-world panel); `None` for screen elements. Collected into
+        /// the window-rects UBO for shaders that declare `needs: ["window-rects"]`.
+        world_rect: Option<[f32; 4]>,
+        /// The client dmabuf behind this surface, when it has one. Carried so the
+        /// window set can hand a SECOND device something it can import; `None` for
+        /// a SHM surface, which has no fd.
+        source: compositor_pipeline_abi_worldset_base::base::Source,
     },
     /// A fullscreen native shader pass (e.g. the parallax background): the SDR
     /// variant plus an optional HDR-output variant; `submit_frame` builds/caches
@@ -184,6 +192,10 @@ pub(crate) enum DrawOp {
         hdr: Option<ShaderVariant>,
         scissors: Vec<vk::Rect2D>,
     },
+    /// A multipass background pipeline: `submit_frame` runs its intermediate
+    /// passes into offscreen targets (in the pre-pass) and draws its
+    /// swapchain-output pass inline in the composite pass. See `renderer.graph`.
+    Pipeline(std::sync::Arc<compositor_pipeline_execute_graph_base::graph::GraphPipeline>),
 }
 
 /// Clamp one element-local damage rect into `dst` and lift it to output space —
@@ -311,6 +323,31 @@ impl Frame for VulkanFrame<'_, '_> {
         // the native IN_FENCE path returns from submit while the GPU still
         // reads it (see `VulkanRenderer::pinned_textures`).
         self.renderer.pinned_textures.push(texture.clone());
+        // The shader pipeline's WORLD set — every world-space drawable
+        // (`is_world()`), tagged per element by the scene wrapper
+        // (`set_element_meta`), not just the client windows.
+        //
+        // It used to be `is_window()`, and the iced-world panels it left out kept
+        // being drawn by the engine at their true depth — which, once a bundle
+        // owns window compositing, is ABOVE the pipeline's output pass and so
+        // above every window in it. Collecting the whole band is what lets a
+        // bundle put them back where they belong; `Kind` (set in submit.rs from
+        // `is_window()`) is what still keeps glass/window-glow from treating a
+        // placeholder as a window.
+        // On-screen physical dst; submit.rs normalizes it to screen-UV.
+        //
+        // Gated on a bundle REQUIRING the world set, so with none loaded this is a
+        // single atomic read and the `Option`/`Source` below stay empty — no rect,
+        // and no `Arc` clone of the client's buffer, per textured element per
+        // frame. `submit.rs` collects only what is tagged here, so the two gates
+        // are the same condition read from the same slot.
+        let wants_world_set = compositor_pipeline_abi_seam_base::base::Requires::from_bits(
+            self.renderer.facts.requires,
+        )
+        .world_set();
+        let world_rect = (wants_world_set && self.current_meta.is_world()).then(|| {
+            [dst.loc.x as f32, dst.loc.y as f32, dst.size.w as f32, dst.size.h as f32]
+        });
         // AA targets ONLY world content (windows + iced-world), tagged per
         // element by the scene wrapper (`set_element_meta`). Screen-space iced
         // (settings/picker) and the bevy background are never eligible.
@@ -322,6 +359,23 @@ impl Frame for VulkanFrame<'_, '_> {
             tex_w: texture.width().max(1),
             tex_h: texture.height().max(1),
             meta: self.current_meta,
+            world_rect,
+            // Upgraded HERE, for this frame only. The texture holds the client's
+            // buffer weakly (see `VulkanTexture::source`), so a strong handle
+            // exists exactly as long as the set that is about to be published —
+            // and a buffer the client has already released upgrades to `None`,
+            // which is the honest answer rather than a stale pointer.
+            source: match (world_rect.is_some(), &texture.source, &texture.shared) {
+                (false, ..) => compositor_pipeline_abi_worldset_base::base::Source::Unavailable,
+                (_, Some(w), _) => match w.upgrade() {
+                    Some(d) => compositor_pipeline_abi_worldset_base::base::Source::Client(d),
+                    None => compositor_pipeline_abi_worldset_base::base::Source::Unavailable,
+                },
+                (_, None, Some(s)) => {
+                    compositor_pipeline_abi_worldset_base::base::Source::Shared(s.clone())
+                }
+                _ => compositor_pipeline_abi_worldset_base::base::Source::Unavailable,
+            },
         });
         Ok(())
     }

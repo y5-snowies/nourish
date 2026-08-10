@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_pipeline_world_system_base = { workspace = true }
 # Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
 compositor_model_debug_instance_record = { workspace = true }
 compositor_orchestration_core_state_base = { workspace = true }

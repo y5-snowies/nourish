@@ -1,0 +1,24 @@
+{
+  "name": "motion-blur-inline",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../motion-blur/passes/backdrop.wgsl",
+      "output": "output",
+      "place": "compositor"
+    },
+    {
+      "name": "blur",
+      "shader": "../motion-blur/passes/blur.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "cur": "content",
+        "prev": "history"
+      },
+      "requires": ["composited_scene", "previous_frame"],
+      "output": "output",
+      "place": "compositor"
+    }
+  ]
+}

@@ -9,6 +9,9 @@ pub mod bind {
     pub mod selection {
         tonic::include_proto!("y5.compositor.rpc.protocol.client.selection");
     }
+    pub mod shader {
+        tonic::include_proto!("y5.compositor.rpc.protocol.client.shader");
+    }
 }
 
 pub mod message;

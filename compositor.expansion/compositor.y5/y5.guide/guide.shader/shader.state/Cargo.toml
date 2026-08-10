@@ -1,0 +1,20 @@
+[package]
+name = "compositor_y5_guide_shader_state"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_pipeline_abi_seam_base = { workspace = true }
+compositor_pipeline_bundle_builtin_base = { workspace = true }
+compositor_pipeline_bundle_load_base = { workspace = true }
+compositor_pipeline_build_pipeline_base = { workspace = true }
+compositor_pipeline_build_place_base = { workspace = true }
+compositor_background_two_storage_base = { workspace = true }
+compositor_configurator_settings_surface_message = { workspace = true }
+compositor_model_stats_registry_base = { workspace = true }
+compositor_orchestration_core_state_base = { workspace = true }
+compositor_orchestration_draw_dispatch_frame = { workspace = true }
+compositor_y5_guide_shader_view = { workspace = true }
+
+[lib]
+path = "lib.rs"

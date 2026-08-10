@@ -1,0 +1,35 @@
+{
+  "name": "tb-storage-histogram",
+  "version": 1,
+  "storage": {
+    "bins": { "bytes": 1024 }
+  },
+  "targets": {
+    "scratch": { "format": "rgba8", "scale": 0.25 }
+  },
+  "passes": [
+    {
+      "name": "reset",
+      "shader": "passes/reset.wgsl",
+      "when": "after-content",
+      "output": "scratch"
+    },
+    {
+      "name": "tally",
+      "shader": "passes/tally.wgsl",
+      "inputs": { "scene": "content" },
+      "when": "after-content",
+      "requires": ["composited_scene"],
+      "output": "scratch"
+    },
+    {
+      "name": "graph",
+      "shader": "passes/graph.wgsl",
+      "inputs": { "scene": "content" },
+      "when": "after-content",
+      "requires": ["composited_scene"],
+      "output": "output"
+    }
+  ],
+  "letterbox": "always"
+}

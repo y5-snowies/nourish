@@ -201,6 +201,8 @@ pub struct OutputDamageTracker {
     element_damage_index: Vec<usize>,
     element_opaque_regions: Vec<Rectangle<i32, Physical>>,
     element_visible_area_workhouse: Vec<Rectangle<i32, Physical>>,
+    /// y5: see [`OutputDamageTracker::set_draw_all`].
+    draw_all: bool,
     span: tracing::Span,
 }
 
@@ -267,6 +269,7 @@ impl OutputDamageTracker {
             element_damage_index: Default::default(),
             element_opaque_regions: Default::default(),
             element_visible_area_workhouse: Default::default(),
+            draw_all: false,
             span: info_span!("renderer_damage"),
         }
     }
@@ -288,6 +291,7 @@ impl OutputDamageTracker {
             element_opaque_regions: Default::default(),
             element_visible_area_workhouse: Default::default(),
             last_state: Default::default(),
+            draw_all: false,
             span: info_span!("renderer_damage", output = output.name()),
         }
     }
@@ -300,6 +304,7 @@ impl OutputDamageTracker {
     pub fn from_mode_source(output_mode_source: impl Into<OutputModeSource>) -> Self {
         Self {
             mode: output_mode_source.into(),
+            draw_all: false,
             span: info_span!("render_damage"),
             damage_shaper: Default::default(),
             damage: Default::default(),
@@ -425,6 +430,19 @@ impl OutputDamageTracker {
         }
 
         self.render_output_internal(renderer, framebuffer, &render_elements, clear_color, states)
+    }
+
+    /// y5: draw every element the render loop reaches, even ones this frame's
+    /// damage does not touch.
+    ///
+    /// For a consumer that derives state from the sequence of draw calls rather
+    /// than from the pixels — y5's shader pipelines collect the frame's world set
+    /// as each element draws, so a skipped element is one the bundle is never told
+    /// about. Damage itself is untouched: an undamaged frame is still skipped, and
+    /// each element still receives only the damage that intersects it, which for a
+    /// skipped element is empty.
+    pub fn set_draw_all(&mut self, draw_all: bool) {
+        self.draw_all = draw_all;
     }
 
     /// Damage this output and return the damage without actually rendering the difference
@@ -903,7 +921,7 @@ impl OutputDamageTracker {
                     d.loc -= element_geometry.loc;
                 });
 
-                if element_damage.is_empty() {
+                if element_damage.is_empty() && !self.draw_all {
                     trace!(
                         "skipping rendering element {:?} with geometry {:?}, no damage",
                         element_id, element_geometry

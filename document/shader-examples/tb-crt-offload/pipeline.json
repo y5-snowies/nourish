@@ -1,0 +1,24 @@
+{
+  "name": "tb-crt-offload",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../tb-crt/passes/backdrop.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "crt",
+      "shader": "../tb-crt/passes/crt.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "requires": ["composited_scene"],
+      "output": "output",
+      "place": "worker"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

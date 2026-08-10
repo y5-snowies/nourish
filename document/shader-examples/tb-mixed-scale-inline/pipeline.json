@@ -1,0 +1,43 @@
+{
+  "name": "tb-mixed-scale-inline",
+  "version": 1,
+  "targets": {
+    "full": {
+      "format": "rgba16f",
+      "scale": 1.0
+    },
+    "quarter": {
+      "format": "rgba16f",
+      "scale": 0.25
+    }
+  },
+  "passes": [
+    {
+      "name": "grid",
+      "shader": "../tb-mixed-scale/passes/grid.wgsl",
+      "output": "full",
+      "place": "compositor"
+    },
+    {
+      "name": "down",
+      "shader": "../tb-mixed-scale/passes/copy.wgsl",
+      "inputs": {
+        "src": "full"
+      },
+      "output": "quarter",
+      "place": "compositor"
+    },
+    {
+      "name": "up",
+      "shader": "../tb-mixed-scale/passes/compare.wgsl",
+      "inputs": {
+        "hi": "full",
+        "lo": "quarter"
+      },
+      "output": "output",
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

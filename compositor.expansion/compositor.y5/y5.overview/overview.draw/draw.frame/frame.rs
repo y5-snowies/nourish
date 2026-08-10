@@ -91,7 +91,10 @@ where
         Tab::Layout => {
             let (grid, windows) = compositor_y5_overview_draw_scene::scene::scene(state, renderer, size);
             for e in grid {
-                plan.push(layer::CANVAS, DrawNode::Canvas(e));
+                // No descriptors: the overview grid draws thumbnails of windows,
+                // not the windows, and the band is suppressed while it is up
+                // (`set::band_suppressed`) so no bundle is reading them anyway.
+                plan.push(layer::CANVAS, DrawNode::Canvas { elem: e, flags: 0, times: [-1.0; 12] });
             }
             windows
         }

@@ -1,0 +1,26 @@
+{
+  "name": "tb-worker-windows-inline",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../tb-worker-windows/passes/backdrop.wgsl",
+      "output": "output",
+      "place": "compositor"
+    },
+    {
+      "name": "mark",
+      "shader": "../tb-worker-windows/passes/mark.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content",
+        "win": "windows"
+      },
+      "requires": ["composited_scene", "window_layer"],
+      "output": "output",
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

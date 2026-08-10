@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_pipeline_world_system_base = { workspace = true }
 compositor_orchestration_driver_capture_base = { workspace = true }
 compositor_y5_lock_system_base = { workspace = true }
 compositor_background_two_system_base = { workspace = true }
@@ -23,6 +24,7 @@ compositor_y5_lock_scene_frame.workspace = true
 compositor_y5_picker_system_base.workspace = true
 compositor_y5_picker_scene_frame.workspace = true
 compositor_orchestration_draw_scene_frame.workspace = true
+compositor_orchestration_draw_dispatch_frame.workspace = true
 compositor_orchestration_core_state_base.workspace = true
 compositor_y5_graphic_capture_registry.workspace = true
 compositor_y5_graphic_capture_interface.workspace = true

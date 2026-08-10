@@ -1,0 +1,16 @@
+{
+  "name": "tb-window-owned-inline",
+  "version": 1,
+  "windows": "world",
+  "passes": [
+    {
+      "name": "world",
+      "shader": "../tb-window-owned/passes/world.wgsl",
+      "output": "output",
+      "requires": ["window_geometry", "window_textures"],
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

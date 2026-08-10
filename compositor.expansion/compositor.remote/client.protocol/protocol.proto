@@ -3,3 +3,4 @@ package y5.compositor.rpc.protocol.client;
 import "navigator/navigator.proto";
 import "selection/selection.proto";
 import "debug/debug.proto";
+import "shader/shader.proto";

@@ -15,7 +15,7 @@ use smithay::utils::{Physical, Point, Size};
 /// (`menu.tip`), like the selection toolbar's — inside the menu it would have to
 /// reserve room it does not need, and re-laying the counter-scaled world surface
 /// on every hover made the menu visibly lag the pointer.
-pub const MENU_W: i32 = 250;
+pub const MENU_W: i32 = 300;
 pub const MENU_H: i32 = 48;
 /// Supersample factor for the menu's texture: the dmabuf holds `MENU × SS`
 /// pixels and is downscaled to `MENU` on screen. Material glyphs at this size
@@ -39,6 +39,11 @@ pub const TIP_GAP: i32 = 6;
 /// On-screen size of the help panel, physical px.
 pub const HELP_W: i32 = 380;
 pub const HELP_H: i32 = 258;
+/// On-screen size of the shader editor, physical px. Taller than the help panel
+/// because it lists one row per variable and the richest shipped bundle declares
+/// thirteen; the rows scroll past that rather than the panel growing.
+pub const SHADER_W: i32 = 420;
+pub const SHADER_H: i32 = 460;
 /// Gap below the cursor the menu is anchored at, physical px.
 pub const CURSOR_DY: f64 = 10.0;
 /// Lower bound on the zoom the anchor offset is divided by, so a camera parked
@@ -65,13 +70,21 @@ pub struct GuideState {
     /// The help panel should be shown / is shown.
     pub help_open: bool,
     pub help: Option<HandleId>,
+    /// The shader editor should be shown / is shown. Screen-space, and unlike the
+    /// other two it is MODELESS: it survives clicks on the desktop, because its
+    /// whole purpose is to be adjusted while watching what it changes.
+    pub shader_open: bool,
+    pub shader: Option<HandleId>,
     /// Last empty-canvas press (time ms, world x, y) — the double-click state.
     pub last_click: Option<(u32, f64, f64)>,
 }
 
 impl GuideState {
-    /// True while either popup is up or requested — the gate the input rim uses
-    /// to decide whether a press/key has a popup to dismiss.
+    /// True while either DISMISSIBLE popup is up or requested — the gate the input
+    /// rim uses to decide whether a press/key has a popup to dismiss.
+    ///
+    /// The shader editor is deliberately not counted: it closes on its own button
+    /// or on Escape, never on the click that adjusts the desktop behind it.
     pub fn showing(&self) -> bool {
         self.menu_at.is_some() || self.help_open
     }

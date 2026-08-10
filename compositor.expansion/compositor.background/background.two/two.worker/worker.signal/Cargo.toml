@@ -4,8 +4,12 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_kernel_vulkan_memory_external_base = { workspace = true }
+compositor_pipeline_abi_worldset_base = { workspace = true }
+compositor_pipeline_world_system_base = { workspace = true }
+compositor_pipeline_build_pipeline_base = { workspace = true }
 compositor_background_two_worker_key = { workspace = true }
-compositor_background_two_shader_spirv = { workspace = true }
+compositor_pipeline_compile_spirv_base = { workspace = true }
 compositor_orchestration_draw_dispatch_frame = { workspace = true }
 
 [lib]

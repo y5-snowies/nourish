@@ -5,6 +5,7 @@
 //! cadence driven by a high-refresh or tearing host cannot outrun what the
 //! machine was told to hold.
 
+use compositor_background_two_worker_key::key::PaneKey;
 use compositor_background_two_worker_pane::pane::Pane;
 use compositor_model_environment_background_base::base::{Cadence, Rate, TripleBufferBackground};
 use std::collections::HashMap;
@@ -105,6 +106,6 @@ pub fn until_due(p: &Pane, tb: &TripleBufferBackground) -> Option<Duration> {
 }
 
 /// Time until the earliest pane comes due, or `None` if any is due now.
-pub fn until_any_due(panes: &HashMap<u64, Pane>, tb: &TripleBufferBackground) -> Option<Duration> {
+pub fn until_any_due(panes: &HashMap<PaneKey, Pane>, tb: &TripleBufferBackground) -> Option<Duration> {
     panes.values().filter_map(|p| until_due(p, tb)).min()
 }

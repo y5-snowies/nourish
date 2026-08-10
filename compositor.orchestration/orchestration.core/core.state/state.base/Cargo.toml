@@ -5,6 +5,7 @@ edition = "2024"
 
 
 [dependencies]
+compositor_kernel_graphic_bridge_publish_retire = { workspace = true }
 compositor_kernel_graphic_bridge_negotiate_compositor = { workspace = true }
 compositor_y5_launcher_system_base = { workspace = true }
 compositor_y5_placeholder_system_base = { workspace = true }

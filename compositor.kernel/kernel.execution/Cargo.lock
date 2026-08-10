@@ -1745,16 +1745,36 @@ version = "0.0.1"
 dependencies = [
  "compositor_configurator_bluetooth_backend_base",
  "compositor_configurator_network_backend_base",
+ "compositor_configurator_settings_surface_tearhint",
+ "compositor_configurator_settings_surface_tearlabel",
+ "compositor_model_environment_background_base",
+ "compositor_model_environment_background_preset",
  "compositor_model_environment_config_base",
  "compositor_model_environment_graphics_base",
+ "compositor_model_environment_interface_base",
  "compositor_model_environment_preference_base",
  "compositor_model_environment_tearing_config",
  "compositor_model_environment_tearing_rate",
  "compositor_model_environment_tearing_select",
  "compositor_orchestration_driver_output_base",
+ "compositor_pipeline_bundle_property_base",
  "compositor_y5_audio_controller_interface",
- "compositor_y5_graphic_tearing_describe",
- "compositor_y5_graphic_tearing_text",
+]
+
+[[package]]
+name = "compositor_configurator_settings_surface_tearhint"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_tearing_rate",
+ "compositor_model_environment_tearing_select",
+]
+
+[[package]]
+name = "compositor_configurator_settings_surface_tearlabel"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_tearing_rate",
+ "compositor_model_environment_tearing_select",
 ]
 
 [[package]]
@@ -1774,7 +1794,7 @@ dependencies = [
  "compositor_introspection_execution_launch_scope",
  "compositor_introspection_execution_launch_types",
  "compositor_model_debug_instance_record",
- "libc",
+ "compositor_support_library_process_child_hygiene",
 ]
 
 [[package]]
@@ -2581,6 +2601,7 @@ name = "compositor_kernel_graphic_bridge_negotiate_base"
 version = "0.0.1"
 dependencies = [
  "compositor_kernel_graphic_bridge_negotiate_classify",
+ "compositor_model_debug_instance_record",
  "compositor_model_environment_experimental_base",
  "smithay",
 ]
@@ -2589,6 +2610,24 @@ dependencies = [
 name = "compositor_kernel_graphic_bridge_negotiate_classify"
 version = "0.0.1"
 dependencies = [
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_negotiate_compositor"
+version = "0.0.1"
+dependencies = [
+ "compositor_kernel_graphic_bridge_negotiate_base",
+ "compositor_model_environment_config_base",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_negotiate_report"
+version = "0.0.1"
+dependencies = [
+ "compositor_kernel_graphic_bridge_negotiate_classify",
+ "compositor_model_debug_instance_record",
  "smithay",
 ]
 
@@ -2604,10 +2643,75 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_kernel_graphic_bridge_publish_attempt"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_publish_retire"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_publish_ring"
+version = "0.0.1"
+dependencies = [
+ "wgpu",
+]
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_publish_thread"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_record",
+ "libc",
+]
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_publish_wake"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_kernel_graphic_bridge_window_set"
+version = "0.0.1"
+dependencies = [
+ "compositor_kernel_vulkan_memory_external_base",
+ "compositor_model_debug_instance_record",
+ "smithay",
+]
+
+[[package]]
 name = "compositor_kernel_graphic_color_surface_base"
 version = "0.0.1"
 dependencies = [
  "smithay",
+]
+
+[[package]]
+name = "compositor_kernel_vulkan_device_factory_base"
+version = "0.0.1"
+dependencies = [
+ "ash",
+ "bitflags 2.13.0",
+ "compositor_model_debug_instance_record",
+ "smithay",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "compositor_kernel_vulkan_memory_external_base"
+version = "0.0.1"
+dependencies = [
+ "ash",
+ "compositor_kernel_vulkan_device_factory_base",
+ "compositor_kernel_vulkan_renderer_error_base",
+]
+
+[[package]]
+name = "compositor_kernel_vulkan_renderer_error_base"
+version = "0.0.1"
+dependencies = [
+ "ash",
+ "smithay",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2631,6 +2735,23 @@ version = "0.0.1"
 dependencies = [
  "compositor_model_debug_instance_channel",
  "compositor_model_debug_instance_level",
+]
+
+[[package]]
+name = "compositor_model_environment_background_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_tearing_rate",
+ "compositor_model_stats_registry_counter",
+ "serde",
+]
+
+[[package]]
+name = "compositor_model_environment_background_preset"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_background_base",
+ "serde",
 ]
 
 [[package]]
@@ -2659,6 +2780,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_model_environment_interface_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_tearing_rate",
+ "compositor_model_stats_registry_counter",
+ "serde",
+]
+
+[[package]]
 name = "compositor_model_environment_keybinding_base"
 version = "0.0.1"
 dependencies = [
@@ -2671,9 +2801,13 @@ dependencies = [
 name = "compositor_model_environment_preference_base"
 version = "0.0.1"
 dependencies = [
+ "compositor_model_debug_instance_record",
+ "compositor_model_environment_background_base",
  "compositor_model_environment_config_base",
  "compositor_model_environment_graphics_base",
+ "compositor_model_environment_interface_base",
  "compositor_model_environment_tearing_config",
+ "compositor_model_stats_registry_base",
  "serde",
  "serde_json",
 ]
@@ -2732,6 +2866,9 @@ version = "0.0.1"
 [[package]]
 name = "compositor_model_stats_registry_shader"
 version = "0.0.1"
+dependencies = [
+ "compositor_model_environment_background_base",
+]
 
 [[package]]
 name = "compositor_model_stats_registry_snapshot"
@@ -2746,7 +2883,14 @@ dependencies = [
 name = "compositor_monitor_compositor_iced_base"
 version = "0.1.0"
 dependencies = [
+ "compositor_kernel_graphic_bridge_publish_attempt",
+ "compositor_kernel_graphic_bridge_publish_ring",
+ "compositor_kernel_graphic_bridge_publish_thread",
+ "compositor_kernel_graphic_bridge_publish_wake",
  "compositor_model_debug_instance_record",
+ "compositor_model_environment_config_base",
+ "compositor_model_environment_interface_base",
+ "compositor_model_stats_registry_base",
  "compositor_monitor_runtime_surface_base",
  "compositor_orchestration_draw_dispatch_frame",
  "compositor_support_iced_core_engine_base",
@@ -2771,10 +2915,14 @@ version = "0.1.0"
 dependencies = [
  "compositor_kernel_graphic_bridge_negotiate_base",
  "compositor_kernel_graphic_bridge_negotiate_classify",
+ "compositor_kernel_graphic_bridge_negotiate_compositor",
+ "compositor_kernel_graphic_bridge_negotiate_report",
  "compositor_kernel_graphic_bridge_negotiate_wgpu",
+ "compositor_kernel_graphic_bridge_publish_ring",
  "compositor_model_debug_instance_record",
  "compositor_model_environment_config_base",
  "compositor_model_environment_experimental_base",
+ "compositor_model_environment_interface_base",
  "compositor_model_stats_registry_gpu",
  "compositor_y5_graphic_card_constant",
  "gbm",
@@ -2836,7 +2984,10 @@ version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_introspection_sampler_window_base",
+ "compositor_kernel_graphic_bridge_negotiate_compositor",
+ "compositor_kernel_graphic_bridge_publish_retire",
  "compositor_model_debug_instance_record",
+ "compositor_model_environment_background_base",
  "compositor_model_environment_keybinding_base",
  "compositor_model_environment_preference_base",
  "compositor_model_stats_registry_base",
@@ -2885,6 +3036,7 @@ dependencies = [
  "compositor_y5_graphic_capture_registry",
  "compositor_y5_graphic_capture_session",
  "compositor_y5_group_state_base",
+ "compositor_y5_guide_state_base",
  "compositor_y5_launcher_draw_state",
  "compositor_y5_launcher_system_base",
  "compositor_y5_lock_state_base",
@@ -2923,6 +3075,8 @@ dependencies = [
 name = "compositor_orchestration_draw_dispatch_uniforms"
 version = "0.0.1"
 dependencies = [
+ "compositor_kernel_graphic_bridge_window_set",
+ "compositor_pipeline_bundle_require_base",
  "smithay",
 ]
 
@@ -3135,7 +3289,19 @@ version = "0.0.1"
 dependencies = [
  "compositor_support_system_storage_slot_base",
  "compositor_support_system_world_host_base",
+ "compositor_support_system_world_identity_base",
  "uuid",
+]
+
+[[package]]
+name = "compositor_pipeline_bundle_property_base"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_pipeline_bundle_require_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -3209,6 +3375,7 @@ name = "compositor_support_bevy_core_alloc_base"
 version = "0.0.1"
 dependencies = [
  "compositor_kernel_graphic_bridge_negotiate_classify",
+ "compositor_kernel_graphic_bridge_negotiate_report",
  "compositor_model_debug_instance_record",
  "compositor_model_stats_registry_gpu",
  "compositor_support_bevy_core_fault_base",
@@ -3257,6 +3424,7 @@ dependencies = [
 name = "compositor_support_bevy_core_context_base"
 version = "0.0.1"
 dependencies = [
+ "compositor_kernel_graphic_bridge_negotiate_report",
  "compositor_kernel_graphic_bridge_negotiate_wgpu",
  "compositor_model_debug_instance_record",
  "compositor_model_environment_config_base",
@@ -3314,6 +3482,7 @@ name = "compositor_support_bevy_core_frame_base"
 version = "0.0.1"
 dependencies = [
  "compositor_model_debug_instance_record",
+ "compositor_model_environment_interface_base",
  "compositor_support_bevy_core_context_base",
  "compositor_support_bevy_core_element_base",
  "compositor_support_bevy_core_error_base",
@@ -3344,9 +3513,12 @@ name = "compositor_support_bevy_core_host_base"
 version = "0.0.1"
 dependencies = [
  "bevy",
+ "compositor_model_debug_instance_record",
  "compositor_support_bevy_core_boot_base",
+ "compositor_support_bevy_core_bridge_base",
  "compositor_support_bevy_core_scene_base",
  "compositor_support_bevy_core_shared_base",
+ "compositor_support_bevy_core_worker_base",
  "wgpu",
 ]
 
@@ -3376,6 +3548,7 @@ name = "compositor_support_bevy_core_instance_base"
 version = "0.0.1"
 dependencies = [
  "compositor_model_debug_instance_record",
+ "compositor_model_environment_interface_base",
  "compositor_support_bevy_core_context_base",
  "compositor_support_bevy_core_fault_base",
  "compositor_support_bevy_core_handle_base",
@@ -3389,6 +3562,8 @@ dependencies = [
 name = "compositor_support_bevy_core_item_base"
 version = "0.0.1"
 dependencies = [
+ "compositor_kernel_graphic_bridge_publish_attempt",
+ "compositor_model_environment_interface_base",
  "compositor_support_bevy_core_context_base",
  "compositor_support_bevy_core_element_base",
  "compositor_support_bevy_core_fault_base",
@@ -3396,6 +3571,7 @@ dependencies = [
  "compositor_support_bevy_core_instance_base",
  "compositor_support_bevy_core_scene_base",
  "compositor_support_bevy_core_space_base",
+ "compositor_support_bevy_core_worker_instance",
  "smithay",
 ]
 
@@ -3414,6 +3590,8 @@ dependencies = [
  "compositor_support_bevy_core_shared_base",
  "compositor_support_bevy_core_space_base",
  "compositor_support_bevy_core_surface_base",
+ "compositor_support_bevy_core_worker_base",
+ "compositor_support_bevy_core_worker_instance",
  "smithay",
 ]
 
@@ -3444,9 +3622,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_support_bevy_core_publish_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_bevy_core_handle_base",
+ "smithay",
+]
+
+[[package]]
 name = "compositor_support_bevy_core_registry_base"
 version = "0.0.1"
 dependencies = [
+ "compositor_kernel_graphic_bridge_publish_ring",
+ "compositor_model_debug_instance_record",
+ "compositor_model_environment_interface_base",
+ "compositor_model_stats_registry_base",
  "compositor_support_bevy_core_context_base",
  "compositor_support_bevy_core_element_base",
  "compositor_support_bevy_core_error_base",
@@ -3460,6 +3650,8 @@ dependencies = [
  "compositor_support_bevy_core_scene_base",
  "compositor_support_bevy_core_shared_base",
  "compositor_support_bevy_core_space_base",
+ "compositor_support_bevy_core_worker_base",
+ "compositor_support_bevy_core_worker_spawn",
  "smithay",
 ]
 
@@ -3490,14 +3682,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "compositor_support_bevy_core_space_base"
-version = "0.0.1"
-dependencies = [
- "smithay",
-]
-
-[[package]]
-name = "compositor_support_bevy_core_surface_base"
+name = "compositor_support_bevy_core_slot_base"
 version = "0.0.1"
 dependencies = [
  "compositor_kernel_graphic_bridge_negotiate_base",
@@ -3509,6 +3694,97 @@ dependencies = [
  "compositor_support_bevy_core_import_base",
  "smithay",
  "wgpu",
+]
+
+[[package]]
+name = "compositor_support_bevy_core_space_base"
+version = "0.0.1"
+dependencies = [
+ "smithay",
+]
+
+[[package]]
+name = "compositor_support_bevy_core_surface_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_kernel_graphic_bridge_publish_ring",
+ "compositor_model_debug_instance_record",
+ "compositor_model_environment_interface_base",
+ "compositor_support_bevy_core_context_base",
+ "compositor_support_bevy_core_fault_base",
+ "compositor_support_bevy_core_slot_base",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_support_bevy_core_worker_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_bevy_core_handle_base",
+ "compositor_support_bevy_core_publish_base",
+ "compositor_support_bevy_core_shared_base",
+ "smithay",
+ "wgpu",
+]
+
+[[package]]
+name = "compositor_support_bevy_core_worker_instance"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_bevy_core_context_base",
+ "compositor_support_bevy_core_fault_base",
+ "compositor_support_bevy_core_handle_base",
+ "compositor_support_bevy_core_instance_base",
+ "compositor_support_bevy_core_publish_base",
+ "compositor_support_bevy_core_worker_base",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_support_bevy_core_worker_serve"
+version = "0.0.1"
+dependencies = [
+ "compositor_kernel_graphic_bridge_publish_attempt",
+ "compositor_kernel_graphic_bridge_publish_ring",
+ "compositor_kernel_graphic_bridge_publish_thread",
+ "compositor_kernel_graphic_bridge_publish_wake",
+ "compositor_model_debug_instance_record",
+ "compositor_model_environment_interface_base",
+ "compositor_model_stats_registry_base",
+ "compositor_support_bevy_core_context_base",
+ "compositor_support_bevy_core_handle_base",
+ "compositor_support_bevy_core_publish_base",
+ "compositor_support_bevy_core_shared_base",
+ "compositor_support_bevy_core_worker_base",
+ "compositor_support_bevy_core_worker_slot",
+ "smithay",
+ "wgpu",
+]
+
+[[package]]
+name = "compositor_support_bevy_core_worker_slot"
+version = "0.0.1"
+dependencies = [
+ "compositor_kernel_graphic_bridge_negotiate_compositor",
+ "compositor_support_bevy_core_alloc_base",
+ "compositor_support_bevy_core_context_base",
+ "compositor_support_bevy_core_fault_base",
+ "compositor_support_bevy_core_import_base",
+ "smithay",
+ "wgpu",
+]
+
+[[package]]
+name = "compositor_support_bevy_core_worker_spawn"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_record",
+ "compositor_model_environment_config_base",
+ "compositor_support_bevy_core_context_base",
+ "compositor_support_bevy_core_publish_base",
+ "compositor_support_bevy_core_shared_base",
+ "compositor_support_bevy_core_worker_base",
+ "compositor_support_bevy_core_worker_serve",
 ]
 
 [[package]]
@@ -3587,10 +3863,21 @@ dependencies = [
 [[package]]
 name = "compositor_support_library_pam_worker_user"
 version = "0.0.1"
+dependencies = [
+ "compositor_support_library_process_child_hygiene",
+]
 
 [[package]]
 name = "compositor_support_library_pam_worker_zerostr"
 version = "0.0.1"
+
+[[package]]
+name = "compositor_support_library_process_child_hygiene"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_record",
+ "libc",
+]
 
 [[package]]
 name = "compositor_support_smithay_dispatch_state_base"
@@ -4429,6 +4716,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_model_debug_instance_record",
  "compositor_model_environment_preference_base",
+ "compositor_support_library_process_child_hygiene",
  "smithay",
 ]
 
@@ -4697,6 +4985,7 @@ dependencies = [
  "compositor_support_system_persist_store_base",
  "compositor_support_system_persist_store_reconcile",
  "compositor_support_system_storage_slot_base",
+ "compositor_support_system_world_identity_base",
  "uuid",
 ]
 
@@ -4888,6 +5177,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_support_system_world_identity_base"
+version = "0.0.1"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
 name = "compositor_support_world_host_space_base"
 version = "0.0.1"
 dependencies = [
@@ -5036,6 +5332,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_model_debug_instance_record",
  "compositor_support_bevy_core_runtime_base",
+ "compositor_support_library_process_child_hygiene",
  "image",
  "wgpu",
  "zbus",
@@ -5090,22 +5387,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "compositor_y5_graphic_tearing_describe"
-version = "0.0.1"
-dependencies = [
- "compositor_model_environment_tearing_rate",
- "compositor_model_environment_tearing_select",
-]
-
-[[package]]
-name = "compositor_y5_graphic_tearing_text"
-version = "0.0.1"
-dependencies = [
- "compositor_model_environment_tearing_rate",
- "compositor_model_environment_tearing_select",
-]
-
-[[package]]
 name = "compositor_y5_group_protocol_base"
 version = "0.0.1"
 dependencies = [
@@ -5146,6 +5427,36 @@ dependencies = [
  "smithay",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "compositor_y5_guide_menu_view"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_selection_font_base",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
+]
+
+[[package]]
+name = "compositor_y5_guide_shader_view"
+version = "0.0.1"
+dependencies = [
+ "compositor_configurator_settings_surface_message",
+ "compositor_monitor_selection_font_base",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
+]
+
+[[package]]
+name = "compositor_y5_guide_state_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_compositor_iced_base",
+ "compositor_support_system_storage_token_base",
+ "smithay",
 ]
 
 [[package]]
@@ -5466,6 +5777,8 @@ dependencies = [
  "compositor_y5_graphic_capture_session",
  "compositor_y5_group_protocol_base",
  "compositor_y5_group_surface_base",
+ "compositor_y5_guide_menu_view",
+ "compositor_y5_guide_shader_view",
  "compositor_y5_launcher_protocol_message",
  "compositor_y5_lock_interface_surface",
  "compositor_y5_osk_board_view",

@@ -224,6 +224,17 @@ impl ImportDma for VulkanRenderer {
                 owns_memory: true,
             }),
             surf: [0.0; 4],
+            // Keep a WEAK handle on the client's own dmabuf: this image's memory
+            // was IMPORTED, not allocated exportable, so it cannot be re-exported —
+            // but the original fd can be handed to a second device, which is how
+            // the background worker gets at window content.
+            //
+            // Weak, not strong: this texture is about to be stored in
+            // `import_cache`, which is KEYED by the weak form of this same dmabuf
+            // and evicted by upgrading that key. A strong clone here would make
+            // every entry keep its own key alive, so nothing would ever be reaped.
+            source: Some(dmabuf.weak()),
+            shared: None,
         };
         self.import_cache.insert(key, texture.clone());
         Ok(texture)
@@ -250,6 +261,20 @@ impl ImportDmaWl for VulkanRenderer {
     }
 }
 
+/// Whether SHM uploads must be shareable with a second device right now.
+///
+/// LIVE, not settled at startup: the selected bundle changes whenever the user
+/// picks a shader. Read from the same slot every other requirement gate reads, so
+/// there is one answer.
+///
+/// A change is not stranded. `shm_cache` refuses to reuse a cached texture whose
+/// shareability no longer matches this, so each surface reallocates correctly on
+/// its next commit — in both directions. A surface that never commits again keeps
+/// its old image and reports `Source::Unavailable`, which holds the bundle inline
+/// and now SAYS so (`draw.offload`), rather than sampling a descriptor it does not
+/// own.
+
+
 impl ImportMem for VulkanRenderer {
     fn import_memory(
         &mut self,
@@ -258,6 +283,9 @@ impl ImportMem for VulkanRenderer {
         size: Size<i32, BufferCoord>,
         _flipped: bool,
     ) -> Result<VulkanTexture, VulkanError> {
+        // Hoisted: the upload below takes `&mut self.shm_staging`, so the answer
+        // cannot be read through `&self` inside the same call.
+        let shared = self.wants_shared_shm();
         let up = compositor_kernel_vulkan_memory_upload_base::upload::create_and_upload(
             &self.dev,
             &self.phd,
@@ -267,6 +295,7 @@ impl ImportMem for VulkanRenderer {
             data,
             format,
             size,
+            shared,
         )?;
         Ok(VulkanTexture {
             inner: Arc::new(TextureInner {
@@ -282,6 +311,26 @@ impl ImportMem for VulkanRenderer {
                 owns_memory: true,
             }),
             surf: [0.0; 4],
+            source: None,
+            // SHM has no client fd, so share the image we uploaded into. Exported
+            // ONCE here rather than per frame: the allocation is exportable, and
+            // the fd is what the worker duplicates on import. A failure is not
+            // fatal — the surface simply cannot be sampled off-thread.
+            //
+            // Only when the ACTIVE bundle requires window textures — this mints an
+            // `OwnedFd` per surface, and the allocation it exports is only
+            // exportable under the same answer (`memory.upload`). With no such
+            // bundle it is skipped entirely, so a desktop full of SHM clients holds
+            // no extra fds.
+            shared: shared
+                .then(|| {
+                    compositor_kernel_vulkan_memory_external_base::external::export(
+                        &self.dev, up.memory, up.size, up.format, up.width, up.height,
+                    )
+                    .ok()
+                    .map(std::sync::Arc::new)
+                })
+                .flatten(),
         })
     }
 

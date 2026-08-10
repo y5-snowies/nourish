@@ -50,9 +50,26 @@ pub fn reconcile_finger_pan(state: &mut Loop) {
 
     // Where the cursor is actually drawn: its world location projected through the
     // live (possibly panned) camera — the same pane context the cursor renders in.
-    let world = state.state.seat.seat.get_pointer().unwrap().current_location();
+    //
+    // That identity holds only while the pointer's world location is a pure
+    // projection of the hardware position. A background bundle with a pointer
+    // warp breaks it: `current_location()` is CORRECTED, so projecting it back
+    // gives the displaced screen point, not the hardware one. Writing that into
+    // the accumulator makes the next event's input the previous event's output —
+    // the correction is then applied to its own result, compounding every event
+    // until the cursor pins itself in a corner. That is not a warp being too
+    // strong; it is a feedback loop, and it runs away in about three events.
+    //
+    // Under a warp the hardware position is authoritative and a camera glide does
+    // not move it, so the accumulator is left alone and only the camera's pan
+    // accumulator is re-seated below.
+    let warped = compositor_orchestration_seat_pointer_warp::warp::applies(state);
     let ctx = state.focus_pane_context();
-    let phys: Point<f64, Physical> = {
+    let phys: Point<f64, Physical> = if warped {
+        let m = state.inner.pointer_mut().motion;
+        Point::from((m.x, m.y))
+    } else {
+        let world = state.state.seat.seat.get_pointer().unwrap().current_location();
         let t: Transform = (world, ctx).into();
         t.into()
     };
@@ -60,7 +77,9 @@ pub fn reconcile_finger_pan(state: &mut Loop) {
     {
         let motion = &mut state.inner.pointer_mut().motion;
         // Already consistent (no glide has pulled them apart) → nothing to do.
-        if (motion.x - phys.x).abs() < 1e-6 && (motion.y - phys.y).abs() < 1e-6 {
+        // Skipped under a warp: `phys` IS the accumulator there, so this would
+        // always return early and leave `position_previous` stale.
+        if !warped && (motion.x - phys.x).abs() < 1e-6 && (motion.y - phys.y).abs() < 1e-6 {
             return;
         }
         motion.x = phys.x;

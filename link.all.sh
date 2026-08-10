@@ -25,6 +25,17 @@ node ../../workspace.link.js
 cd ..
 cd ..
 
+# The shader pipeline. Listed explicitly because `compositor.expansion/*` is not
+# globbed here the way `compositor.kernel/*` is below: `workspace.link.js`
+# DISCOVERS this root automatically (so every other root picks its crates up),
+# but only ever WRITES the generated block of the root it is invoked from. Miss
+# this stanza and the new workspace is the one thing in the repo that cannot
+# resolve its own dependencies, while everything else builds.
+cd compositor.expansion/compositor.pipeline
+node ../../workspace.link.js
+cd ..
+cd ..
+
 cd compositor.expansion/compositor.remote
 node ../../workspace.link.js
 cd ..

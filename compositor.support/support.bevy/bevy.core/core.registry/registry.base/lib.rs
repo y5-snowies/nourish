@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use compositor_model_debug_instance_record::warn;
 use compositor_support_bevy_core_context_base::WgpuVulkanContext;
 use compositor_support_bevy_core_element_base::BevyRenderElement;
 use compositor_support_bevy_core_error_base::{CreateError, DispatchError, ResizeError};
@@ -85,7 +86,24 @@ impl BevyRegistry {
         compositor_support_bevy_core_lifecycle_base::create_in_space(&mut self.next_id, &mut self.items, &mut self.index, &self.shared, &self.wgpu_ctx, self.instance_scale, render_node, scene, gles, location, size, space, layer, self.worker.as_ref())
     }
     pub fn destroy<S: BevyScene>(&mut self, handle: BevyHandle<S>) -> bool { self.destroy_by_id(handle.id) }
-    pub fn destroy_by_id(&mut self, id: HandleId) -> bool { compositor_support_bevy_core_lifecycle_base::destroy_by_id(&mut self.items, &mut self.index, id) }
+    pub fn destroy_by_id(&mut self, id: HandleId) -> bool {
+        let destroyed =
+            compositor_support_bevy_core_lifecycle_base::destroy_by_id(&mut self.items, &mut self.index, id);
+        // INLINE PATH ONLY (`worker: None`, i.e. triple buffering off, and always
+        // on GLES). Dropping the `App` above only queues its GPU resources; wgpu
+        // performs the free during a device poll, and bevy's render loop — the
+        // only thing that normally polls — went away with the App.
+        //
+        // Off-thread, the worker's `Job::Destroy` already does this, which is why
+        // the picker's open/close leak looked fixed with triple buffering ON and
+        // came straight back when it was turned off. Same bug, second path.
+        if destroyed && self.worker.is_none() {
+            if let Err(e) = self.wgpu_ctx.device.poll(wgpu::PollType::wait_indefinitely()) {
+                warn!("bevy registry: device poll after destroy failed: {e:?}");
+            }
+        }
+        destroyed
+    }
     pub fn set_location<S: BevyScene>(&mut self, handle: BevyHandle<S>, location: Point<i32, Physical>) -> bool { self.set_location_by_id(handle.id, location) }
     pub fn set_location_by_id(&mut self, id: HandleId, location: Point<i32, Physical>) -> bool {
         compositor_support_bevy_core_mutate_base::set_location_by_id(&mut self.items, &self.index, id, location)

@@ -105,7 +105,19 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
         label: Some("y5_bevy_dmabuf_wgpu_device"),
         required_features: to_request,
         required_limits: limits,
-        memory_hints: wgpu::MemoryHints::default(),
+        // MemoryUsage, not the default Performance. wgpu maps the hint straight
+        // to gpu-allocator's block sizes: Performance floors a device block at
+        // 128 MiB and a host block at 64 MiB, so this device reserved 192 MiB
+        // from the driver while reporting 0 MiB allocated — two permanent
+        // wgpu-internal buffers of a few hundred bytes each, one per memory type,
+        // pinning a block apiece. MemoryUsage drops those floors to 8 MiB and
+        // 4 MiB.
+        //
+        // It is a granularity knob, not a quality one: nothing about what is
+        // rendered changes, only how coarsely the allocator carves memory. It
+        // also makes the churn path work — a block is returned to the driver only
+        // once it is ENTIRELY empty, and smaller blocks empty far more readily.
+        memory_hints: wgpu::MemoryHints::MemoryUsage,
         trace: wgpu::Trace::Off,
     }))
     .map_err(WgpuContextError::DeviceCreation)?;

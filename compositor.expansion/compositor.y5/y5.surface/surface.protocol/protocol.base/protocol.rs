@@ -39,8 +39,12 @@ pub enum SurfaceMessageType {
     Capture(CaptureMessage),
     Picker(PickerSurfaceMessage),
     TouchPane(TouchPaneMessage),
-    /// A click on the empty-canvas guide menu (Settings / Help).
+    /// A click on the empty-canvas guide menu (Settings / Help / Shader).
     Guide(GuideMessage),
+    /// An edit in the inline shader editor the guide menu opens. Separate from
+    /// `Guide` because it is a different surface with a different lifetime — the
+    /// menu is dismissed by the next click, the editor outlives it on purpose.
+    Shader(compositor_y5_guide_shader_view::ShaderMessage),
     Osk(OskMessage),
     Selection(SelectionForward),
     Overview(compositor_y5_overview_state_base::base::OverviewSurfaceMessage),

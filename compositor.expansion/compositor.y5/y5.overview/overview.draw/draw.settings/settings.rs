@@ -8,7 +8,7 @@ use compositor_orchestration_driver_output_base::base::{OutputModeRequest, Outpu
 use compositor_orchestration_driver_settings_base::base::{SETTINGS, SETTINGS_MUT};
 use compositor_configurator_network_backend_base::base::{self as wifi, WifiCmd, WifiSnapshot};
 use compositor_configurator_bluetooth_backend_base::base::{self as bt, BtCmd, BtSnapshot};
-use compositor_configurator_settings_surface_message::message::{SettingsMessage, ShaderProp, ShaderPropKind};
+use compositor_configurator_settings_surface_message::message::{SettingsMessage, ShaderEntry, ShaderFacts, ShaderProp};
 use compositor_configurator_settings_surface_view::Settings;
 use compositor_y5_audio_controller_interface::interface::{AudioState, AudioWatch};
 use compositor_y5_surface_draw_handle::handle::load;
@@ -30,7 +30,10 @@ thread_local! {
     static LAST_TOUCH: RefCell<Option<Vec<TouchDeviceInfo>>> = const { RefCell::new(None) };
     /// Last (bundles, selection, variables, preview source) pushed to the panel.
     #[allow(clippy::type_complexity)]
-    static LAST_SHADERS: RefCell<Option<(Vec<String>, Option<String>, Vec<ShaderProp>, String, Option<String>, bool, bool, bool, bool, bool)>> = const { RefCell::new(None) };
+    static LAST_SHADERS: RefCell<Option<ShaderState>> = const { RefCell::new(None) };
+    /// See `bundle_categories`.
+    static LAST_CATEGORIES: RefCell<Option<(Vec<String>, Vec<(String, String)>)>> =
+        const { RefCell::new(None) };
     /// Output size the surface was last sized to. The settings surface is
     /// screen-space and spans the output, so a mode/resolution change invalidates
     /// its rect — re-size only when this drifts (resizes reallocate a texture).
@@ -46,14 +49,102 @@ fn settings_rect(size: Size<i32, Physical>) -> Rectangle<i32, Physical> {
 /// The available shader bundles, the active world's resolved selection, and the
 /// selected shader's editable variables (with current values), for the picker
 /// + the variable controls. Resolution: world override → preference default.
-#[allow(clippy::type_complexity)]
-fn shader_state(state: &Loop) -> (Vec<String>, Option<String>, Vec<ShaderProp>, String, Option<String>, bool, bool, bool, bool, bool) {
-    // The compiled-in built-in worlds first, then every user bundle on disk.
-    let mut options: Vec<String> = compositor_background_two_shader_builtin::builtins()
-        .iter()
-        .map(|b| b.id.to_string())
+///
+/// Named rather than a tuple: it is compared field-for-field, and a dozen
+/// mostly-`Option<String>` members are one transposition from a silent swap.
+#[derive(Clone, PartialEq)]
+struct ShaderState {
+    options: Vec<ShaderEntry>,
+    current: Option<String>,
+    props: Vec<ShaderProp>,
+    /// `None` = this selection has no previewable source. See `SyncShaderPreview`.
+    preview: Option<String>,
+    facts: Option<ShaderFacts>,
+    /// The selected shader's compile error, if it failed.
+    status: Option<String>,
+    /// A non-fatal condition about a shader that IS running.
+    notice: Option<String>,
+    invert_x: bool,
+    invert_y: bool,
+    srgb: bool,
+    optimized: bool,
+    can_optimize: bool,
+}
+
+/// Every selectable shader, grouped and in picker order: the stock parallax, the
+/// compiled-in built-ins under their own headings, then every bundle on disk.
+///
+/// Sorted by category first, keeping disk order within each.
+fn shader_options() -> Vec<ShaderEntry> {
+    let mut out = vec![ShaderEntry {
+        value: String::new(),
+        label: "Built-in parallax".to_string(),
+        category: compositor_pipeline_bundle_builtin_base::DEFAULT_CATEGORY.to_string(),
+    }];
+    out.extend(compositor_pipeline_bundle_builtin_base::builtins().iter().map(|b| ShaderEntry {
+        value: b.id.to_string(),
+        label: title_case(b.id.trim_start_matches(
+            compositor_pipeline_bundle_builtin_base::BUILTIN_PREFIX,
+        )),
+        category: b.category.to_string(),
+    }));
+    // The compiled-in MULTIPASS bundles. Separate from `builtins()` because a
+    // `Builtin` is one WGSL source and these are a manifest plus a tree of passes;
+    // labelled by bundle name like a disk bundle rather than title-cased like a
+    // built-in world, since that is the name their manifest and folder carry.
+    out.extend(compositor_pipeline_bundle_embed_base::embed::BUNDLES.iter().map(|b| {
+        let value = compositor_pipeline_bundle_embed_base::embed::id_of(b);
+        let category = compositor_pipeline_bundle_load_base::category_for(&value);
+        ShaderEntry { value, label: b.to_string(), category }
+    }));
+    let mut bundles: Vec<ShaderEntry> = bundle_categories()
+        .into_iter()
+        .map(|(value, category)| ShaderEntry { label: value.clone(), value, category })
         .collect();
-    options.extend(compositor_background_two_shader_locate::list_bundles());
+    // Stable so the disk order survives inside each group.
+    bundles.sort_by(|a, b| a.category.cmp(&b.category));
+    out.extend(bundles);
+    out
+}
+
+/// `(bundle, category)` for every bundle on disk, memoized on the bundle LIST.
+///
+/// A category means parsing that bundle's `pipeline.json`, and this runs every
+/// frame the panel is open — ~60 file reads. Only the parse is cached; the
+/// readdir behind it is one syscall.
+fn bundle_categories() -> Vec<(String, String)> {
+    let names = compositor_pipeline_bundle_locate_base::list_bundles();
+    LAST_CATEGORIES.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.as_ref().map(|(n, _)| n) != Some(&names) {
+            let resolved = names
+                .iter()
+                .map(|n| (n.clone(), compositor_pipeline_bundle_load_base::category_for(n)))
+                .collect();
+            *c = Some((names, resolved));
+        }
+        c.as_ref().map(|(_, r)| r.clone()).unwrap_or_default()
+    })
+}
+
+/// `leafy-drift` → `Leafy Drift`. Bundle folder names are shown verbatim; only
+/// the built-in ids get this, because only they are known to be kebab-case.
+fn title_case(id: &str) -> String {
+    id.split(['-', '_'])
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Resolve everything the Current-World panel shows, for the active world.
+fn shader_state(state: &Loop) -> ShaderState {
+    let options = shader_options();
     let two = state
         .inner
         .worlds
@@ -65,6 +156,18 @@ fn shader_state(state: &Loop) -> (Vec<String>, Option<String>, Vec<ShaderProp>, 
     let current = two
         .and_then(|t| t.background_shader.clone())
         .or_else(compositor_model_stats_registry_base::base::background_shader_default);
+    // A live, non-fatal condition about a shader that IS running. Read from the
+    // background layer rather than stored per world because it is a property of
+    // what is on screen this instant, not of the selection — it appears and clears
+    // as clients come and go, and the change-detect below re-dispatches when it
+    // flips. Only meaningful while a bundle is actually selected.
+    let notice = (current.is_some()
+        && compositor_background_two_draw_offload::offload::textures_unavailable())
+    .then(|| {
+        "window textures are unavailable right now — a surface on screen cannot be \
+         shared with the background thread, so this shader is drawing inline"
+            .to_string()
+    });
     let overrides = two.map(|t| t.params.clone()).unwrap_or_default();
     // This world's per-axis background pan inversion + sRGB output (default off).
     let (invert_x, invert_y) = two.map(|t| (t.invert_pan_x, t.invert_pan_y)).unwrap_or((false, false));
@@ -73,58 +176,100 @@ fn shader_state(state: &Loop) -> (Vec<String>, Option<String>, Vec<ShaderProp>, 
     // any selected shader loads its own module and has no optimized twin.
     let optimized = two.map(|t| t.optimized).unwrap_or(false);
 
-    // Properties for the resolved shader (user source, or the built-in list).
-    let props = match &current {
-        Some(sel) => compositor_background_two_shader_load::properties_for(sel),
-        None => compositor_background_two_shader_builtin::builtin_props(),
+    // From the LOADED bundle when there is one: same union, no disk read, and by
+    // construction the list the running shader is indexed by.
+    let props = match (two.and_then(|t| t.props()), &current) {
+        (Some(p), _) => p.to_vec(),
+        (None, Some(sel)) => compositor_pipeline_bundle_load_base::properties_for(sel),
+        (None, None) => compositor_pipeline_bundle_builtin_base::builtin_props(),
     };
-    // Effective value per prop: this world's override (matched by name) or the
-    // declared default.
-    let defaults = compositor_background_two_shader_property::default_params(&props);
-    let dtos = props
-        .iter()
-        .take(16)
-        .enumerate()
-        .map(|(slot, p)| {
-            let value = overrides
-                .iter()
-                .find(|(n, _)| n == &p.name)
-                .map(|(_, v)| *v)
-                .unwrap_or(defaults[slot]);
-            ShaderProp {
-                name: p.name.clone(),
-                label: p.label.clone().unwrap_or_else(|| p.name.clone()),
-                kind: match p.default {
-                    compositor_background_two_shader_property::PropValue::Bool(_) => ShaderPropKind::Bool,
-                    _ => ShaderPropKind::Float,
-                },
-                slot,
-                min: p.min.unwrap_or(0.0),
-                max: p.max.unwrap_or(1.0).max(p.min.unwrap_or(0.0) + 0.0001),
-                value,
-            }
-        })
-        .collect();
-    // Preview source: the selected shader's WGSL (vulkan/ or wgsl/ bundle), else
-    // the built-in parallax WGSL so the preview always renders something valid —
-    // the optimized twin when this world is on it, so the panel shows what is
-    // actually on screen rather than the reference it no longer runs.
-    let preview = current
-        .as_deref()
-        .and_then(|s| compositor_background_two_shader_load::preview_wgsl(s, optimized))
-        .unwrap_or_else(|| {
+    // Shared with the inline editor so the two panels cannot disagree.
+    let dtos =
+        compositor_configurator_settings_surface_message::message::shader_props(&props, &overrides);
+    // Preview source: the selected shader's WGSL (vulkan/ or wgsl/ bundle).
+    //
+    // The parallax source is the preview only when the built-in is SELECTED. It
+    // used to be the fallback for any unpreviewable selection, so every
+    // `passes/`-only bundle previewed as a starfield. `None` now says so.
+    let preview = match current.as_deref() {
+        None => Some(
             match optimized {
                 true => compositor_background_two_draw_vulkan::vulkan::PARALLAX_OPTIMIZED_WGSL,
                 false => compositor_background_two_draw_vulkan::vulkan::PARALLAX_WGSL,
             }
-            .to_string()
-        });
+            .to_string(),
+        ),
+        Some(s) => compositor_pipeline_bundle_load_base::preview_wgsl(s, optimized),
+    };
+    // Read off the live pipeline, not the manifest: `place` is resolved at load.
+    let facts = two.and_then(|t| t.bundle()).map(shader_facts);
     // Is there anything to optimize? The stock parallax (no selection) always has
     // its twin; a selected shader only does if its source declares `@optimized`.
     let can_optimize = current
         .as_deref()
-        .map_or(true, compositor_background_two_shader_load::supports_optimized);
-    (options, current, dtos, preview, status, invert_x, invert_y, srgb, optimized, can_optimize)
+        .map_or(true, compositor_pipeline_bundle_load_base::supports_optimized);
+    ShaderState {
+        options,
+        current,
+        props: dtos,
+        preview,
+        facts,
+        status,
+        notice,
+        invert_x,
+        invert_y,
+        srgb,
+        optimized,
+        can_optimize,
+    }
+}
+
+/// Flatten a loaded bundle into the panel's properties card. `owns` and `place`
+/// read as sentences rather than enum names — they change how the desktop behaves.
+fn shader_facts(
+    cp: &compositor_pipeline_build_pipeline_base::pipeline::CompiledPipeline,
+) -> compositor_configurator_settings_surface_message::message::ShaderFacts {
+    use compositor_pipeline_bundle_manifest_base::manifest::{Decorations, Evaluate, LetterboxMode};
+    use compositor_pipeline_build_place_base::place::Offload;
+    use compositor_pipeline_abi_seam_base::base::WorldOwn;
+    let owns = match cp.owns {
+        WorldOwn::Engine => "drawn by the engine",
+        WorldOwn::Windows => "windows drawn by the shader",
+        WorldOwn::World => "whole band drawn by the shader",
+    };
+    let place = match cp.offload {
+        Offload::Whole => "background thread",
+        Offload::BeforeBand => "background thread, then the compositor",
+        Offload::AfterBand => "the compositor, then the background thread",
+        Offload::None => "the compositor thread",
+    };
+    let warp = cp.warp.as_ref().map(|_| {
+        match cp.warp_evaluate {
+            Evaluate::MapStatic => "displaced; corrected from a baked map",
+            Evaluate::Pointwise => "displaced; corrected per event",
+            Evaluate::Map => "displaced; corrected from a per-frame GPU map",
+        }
+        .to_string()
+    });
+    let chrome = match (cp.decorations == Decorations::Off, cp.letterbox) {
+        (false, LetterboxMode::Keep) => None,
+        (true, LetterboxMode::Keep) => Some("no border".to_string()),
+        (false, l) => Some(format!("letterbox {l:?}")),
+        (true, l) => Some(format!("no border, letterbox {l:?}")),
+    };
+    compositor_configurator_settings_surface_message::message::ShaderFacts {
+        before: cp.before.len(),
+        after: cp.after.len(),
+        owns: owns.to_string(),
+        place: place.to_string(),
+        requires: compositor_pipeline_bundle_require_base::require::Requirement::ALL
+            .iter()
+            .filter(|r| cp.requires.has(**r))
+            .map(|r| (r.to_string(), r.cost().to_string()))
+            .collect(),
+        warp,
+        chrome,
+    }
 }
 
 pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physical>) {
@@ -243,15 +388,17 @@ fn sync(state: &mut Loop, id: HandleId, size: Size<i32, Physical>) {
     let shaders_changed = LAST_SHADERS.with(|l| { let mut l = l.borrow_mut(); if l.as_ref() != Some(&shaders) { *l = Some(shaders.clone()); true } else { false } });
     if shaders_changed {
         if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-            let (options, current, props, preview, status, invert_x, invert_y, srgb, optimized, can_optimize) = shaders;
+            let s = shaders;
             let handle = IcedHandle::<Settings>::from_id(id);
-            let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaders(options, current));
-            let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaderProps(props));
-            let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaderPreview(preview));
-            let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaderStatus(status));
-            let _ = reg.dispatch_message(handle, SettingsMessage::SyncWorldInvert(invert_x, invert_y));
-            let _ = reg.dispatch_message(handle, SettingsMessage::SyncWorldSrgb(srgb));
-            let _ = reg.dispatch_message(handle, SettingsMessage::SyncWorldOptimized(optimized, can_optimize));
+            let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaders(s.options, s.current));
+            let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaderProps(s.props));
+            let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaderPreview(s.preview));
+            let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaderFacts(s.facts));
+            let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaderStatus(s.status));
+            let _ = reg.dispatch_message(handle, SettingsMessage::SyncShaderNotice(s.notice));
+            let _ = reg.dispatch_message(handle, SettingsMessage::SyncWorldInvert(s.invert_x, s.invert_y));
+            let _ = reg.dispatch_message(handle, SettingsMessage::SyncWorldSrgb(s.srgb));
+            let _ = reg.dispatch_message(handle, SettingsMessage::SyncWorldOptimized(s.optimized, s.can_optimize));
         }
     }
     // Animate the live preview: while the Current-World tab is open, dispatch a
@@ -308,6 +455,13 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     let ui = Settings::new(env, cursor, natural, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, show_fps, release_hidden, fractional_invisible, background_triple_buffer, interface_triple_buffer, flip, snap, keys, tab, layout, cyclic, ime, keyboard, protocol_foreign, protocol_foreign_all_worlds, pen);
     let handle = load(state, renderer, ui, rect, IcedSpace::Screen, Layer::SCENE.bits());
     install_handler(state, handle);
+    // Restore the shader-picker category, the same way `tab` is restored above.
+    let category = state.inner.kernel.get(&SETTINGS).shader_category.clone();
+    if category.is_some() {
+        if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
+            let _ = reg.dispatch_message(handle, SettingsMessage::SelectShaderCategory(category));
+        }
+    }
     let untyped = handle.untyped();
     if let Some(reg) = state.inner.surface_mut().registry.as_mut() { reg.set_keyboard_focus(Some(untyped)); }
     let st = state.inner.kernel.get_mut(&SETTINGS_MUT);

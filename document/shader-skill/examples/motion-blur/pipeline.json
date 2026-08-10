@@ -1,0 +1,17 @@
+{
+  "name": "motion-blur",
+  "version": 1,
+
+  "passes": [
+    { "name": "backdrop", "shader": "passes/backdrop.wgsl", "output": "output" },
+
+    {
+      "name": "blur",
+      "shader": "passes/blur.wgsl",
+      "when": "after-content",
+      "inputs": { "cur": "content", "prev": "history" },
+      "requires": ["composited_scene", "previous_frame"],
+      "output": "output"
+    }
+  ]
+}

@@ -178,7 +178,7 @@ fn deactivate_scene(_loop: &mut Loop) {
     // CHECK: Ice Registry should be per scene, as well as space, etc.
     //        this is due to occur when space is encapsulated ( layers feature ).
     // CHECK: IcedRegistry has pointer_grab. it should probably be released as well.
-    if let Some(registry) = _loop.inner.surface_mut().registry.as_mut() {
+    if let Some(registry) = compositor_y5_lock_system_base::base::registry(&mut _loop.inner.worlds) {
         // Iced deactivation:
         registry.set_keyboard_focus(None);
         // registry.dispatch_button(None, button, true);
@@ -280,7 +280,10 @@ pub fn unlock_fail(state: &mut Loop) {
         .unwrap()
         .surface_input
         .unwrap();
-    let registry = state.inner.surface_mut().registry.as_mut().unwrap();
+    let Some(registry) = compositor_y5_lock_system_base::base::registry(&mut state.inner.worlds)
+    else {
+        return;
+    };
     registry.dispatch_message(
         handle,
         compositor_y5_lock_interface_surface::message::LockMessage::AuthFailed(String::from(
@@ -294,6 +297,9 @@ pub fn unlock(state: &mut Loop) {
         compositor_orchestration_core_state_base::state::Status::Locked { .. } => {}
         _ => return,
     }
+    // The lock backdrop is keyed under the SESSION world, which is still very
+    // much alive, so no world retirement will ever name this pane.
+    compositor_kernel_graphic_bridge_publish_retire::retire::retire_overlay("lock");
 
     let reg = state.inner.worlds.get_mut(compositor_y5_lock_system_base::base::LOCK_WORLD).storage_mut().get_mut(&compositor_y5_lock_system_base::base::LOCK_MUT).pam.as_ref().and_then(|w| Some(w.1));
     if let Some(reg) = reg {
@@ -307,7 +313,7 @@ pub fn unlock(state: &mut Loop) {
         active.surface.clone()
     };
 
-    if let Some(registry) = state.inner.surface_mut().registry.as_mut() {
+    if let Some(registry) = compositor_y5_lock_system_base::base::registry(&mut state.inner.worlds) {
         for item in destroy_ids {
             registry.destroy_by_id(item);
         }

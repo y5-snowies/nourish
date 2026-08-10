@@ -1,0 +1,26 @@
+{
+  "name": "tb-windows-layer-inline",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../tb-windows-layer/passes/backdrop.wgsl",
+      "output": "output",
+      "place": "compositor"
+    },
+    {
+      "name": "layer",
+      "shader": "../tb-windows-layer/passes/layer.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content",
+        "win": "windows"
+      },
+      "requires": ["composited_scene", "window_layer"],
+      "output": "output",
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

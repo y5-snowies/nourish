@@ -110,7 +110,7 @@ pub fn dispatch(
 
     let (iced_transform, iced_output_size) = hit::iced_camera(_loop);
 
-    if let Some(registry) = _loop.inner.surface_mut().registry.as_mut() {
+    if let Some(registry) = compositor_y5_lock_system_base::base::registry(&mut _loop.inner.worlds) {
         registry.route_pointer_to(
             iced_target,
             iced_screen_point,

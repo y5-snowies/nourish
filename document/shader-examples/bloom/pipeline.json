@@ -1,0 +1,29 @@
+{
+  "name": "bloom",
+  "version": 1,
+
+  "modules": ["lib/color.wgsl"],
+
+  "targets": {
+    "scene":  { "format": "rgba16f", "scale": 1.0 },
+    "bright": { "format": "rgba16f", "scale": 0.5 },
+    "blur_a": { "format": "rgba16f", "scale": 0.5 },
+    "blur_b": { "format": "rgba16f", "scale": 0.5 }
+  },
+
+  "passes": [
+    { "name": "base",    "shader": "passes/base.wgsl",    "output": "scene" },
+
+    { "name": "bright",  "shader": "passes/bright.wgsl",
+      "inputs": { "src": "scene" },  "output": "bright" },
+
+    { "name": "blurH",   "shader": "passes/blur.wgsl",
+      "inputs": { "src": "bright" }, "output": "blur_a", "defines": { "HORIZONTAL": "true" } },
+
+    { "name": "blurV",   "shader": "passes/blur.wgsl",
+      "inputs": { "src": "blur_a" }, "output": "blur_b" },
+
+    { "name": "combine", "shader": "passes/combine.wgsl",
+      "inputs": { "scene": "scene", "bloom": "blur_b" }, "output": "output" }
+  ]
+}

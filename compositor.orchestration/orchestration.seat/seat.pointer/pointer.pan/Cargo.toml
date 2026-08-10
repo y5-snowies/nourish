@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_orchestration_seat_pointer_warp = { workspace = true }
 smithay = { workspace = true }
 compositor_orchestration_core_state_base = { workspace = true }
 compositor_y5_camera_transform_translate = { workspace = true }

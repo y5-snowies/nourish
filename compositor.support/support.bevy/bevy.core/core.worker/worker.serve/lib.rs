@@ -205,6 +205,29 @@ fn apply(
         Job::Destroy(id) => {
             hosted.remove(&id);
             board.remove(id);
+            // Dropping the `App` only QUEUES its GPU resources for destruction.
+            // wgpu defers the actual `vkDestroyImage`/`vkFreeMemory` until the
+            // device is polled and the GPU is known to be done with them, and
+            // bevy's own render loop is the only thing that normally polls — from
+            // inside a running App. Drop the last one and nothing polls again, so
+            // the queue is never flushed and the memory is held for the life of
+            // the process.
+            //
+            // That is the picker leak: open + close the picker without changing
+            // world and roughly 300 MiB of view targets (`main_texture_*`,
+            // `view_depth_texture` at output resolution) go unreclaimed per cycle.
+            // It is also why only the overview ever gave the memory back — it
+            // starts bevy work, which ticks an App, which polls, which flushes
+            // every destruction queued since.
+            //
+            // `wait_indefinitely` rather than `Poll`: a non-blocking check drops
+            // anything the GPU has not finished with yet, which on a teardown
+            // immediately after a frame is exactly the resources being released.
+            // This runs on the worker thread, only on close, so the wait is not on
+            // any interactive path.
+            if let Err(e) = ctx.device.poll(wgpu::PollType::wait_indefinitely()) {
+                warn!("bevy worker: device poll after destroy failed: {e:?}");
+            }
         }
         Job::Resize { id, size, scale } => {
             if let Some(h) = hosted.get_mut(&id) {

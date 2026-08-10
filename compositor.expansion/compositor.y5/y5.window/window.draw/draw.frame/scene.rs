@@ -178,6 +178,7 @@ fn surface_opaque(surface: &WlSurface) -> bool {
 fn fit_wrap<R>(
     inner: WaylandSurfaceRenderElement<R>,
     force_scale: f64,
+    covered: bool,
     rescale: Scale<f64>,
     reloc: Point<i32, Physical>,
     crop: Rectangle<i32, Physical>,
@@ -187,11 +188,11 @@ where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Texture + Clone + Send + 'static,
 {
-    let forced = ElementWindowSurface { inner, zoom: force_scale };
+    let forced = ElementWindowSurface { inner, zoom: force_scale, covered };
     let r = RescaleRenderElement::from_element(forced, Point::from((0, 0)), rescale);
     let l = RelocateRenderElement::from_element(r, reloc, Relocate::Relative);
     let c = CropRenderElement::from_element(l, Scale::from(force_scale), crop)?;
-    Some(Element::WindowFit(ClampOpaque { inner: c, screen }))
+    Some(Element::WindowFit(ClampOpaque { inner: c, screen, covered }))
 }
 
 pub fn scene<R>(
@@ -201,6 +202,9 @@ pub fn scene<R>(
     window: &Window,
     context: &compositor_y5_canvas_draw_context::context::Context,
     occluders: &Occluders,
+    // Whether the drawn world's bundle composites windows itself — resolved ONCE
+    // per frame by the caller, not per window. See `ClampOpaque::covered`.
+    covered: bool,
 ) -> (Vec<Element<R>>, Drawn)
 where
     R: Renderer + ImportAll + ImportMem,
@@ -297,8 +301,9 @@ where
         );
         out.extend(native.into_iter().map(|inner| {
             Element::Window(ClampOpaque {
-                inner: ElementWindowSurface { inner, zoom: output_scale },
+                inner: ElementWindowSurface { inner, zoom: output_scale, covered },
                 screen: size,
+                covered,
             })
         }));
     };
@@ -332,8 +337,9 @@ where
                 );
                 elements.extend(native.into_iter().map(|inner| {
                     Element::Window(ClampOpaque {
-                        inner: ElementWindowSurface { inner, zoom: ctx.scale },
+                        inner: ElementWindowSurface { inner, zoom: ctx.scale, covered },
                         screen: size,
+                        covered,
                     })
                 }));
                 continue;
@@ -415,7 +421,7 @@ where
                 Kind::Unspecified,
             );
             for inner in native {
-                if let Some(e) = fit_wrap(inner, ctx.scale, Scale::from((1.0, 1.0)), anchor, crop_output, size) {
+                if let Some(e) = fit_wrap(inner, ctx.scale, covered, Scale::from((1.0, 1.0)), anchor, crop_output, size) {
                     elements.push(e);
                 }
             }
@@ -430,7 +436,7 @@ where
             Kind::Unspecified,
         );
         for inner in native {
-            if let Some(e) = fit_wrap(inner, ctx.scale, rescale, reloc, crop_output, size) {
+            if let Some(e) = fit_wrap(inner, ctx.scale, covered, rescale, reloc, crop_output, size) {
                 elements.push(e);
             }
         }
@@ -449,7 +455,7 @@ where
         Kind::Unspecified,
     );
     for inner in native {
-        if let Some(e) = fit_wrap(inner, ctx.scale, rescale, reloc, crop_slot, size) {
+        if let Some(e) = fit_wrap(inner, ctx.scale, covered, rescale, reloc, crop_slot, size) {
             elements.push(e);
         }
     }
@@ -468,18 +474,42 @@ where
         ref_size.h as f64 * fit_sy,
     );
 
-    // Opaque black behind the content. A resize in flight keeps the FULL-slot
-    // backstop: the client can commit a blank/no-content frame for a few frames
-    // right after acking, and without something opaque under the content the
-    // background flashes through that gap.
+    // Opaque black behind the content: the letterbox BARS, which are the slot
+    // minus the content. Nothing is drawn under content that is about to cover
+    // it, so a translucent client is never silently backed with black.
+    // `subtract_rect` returns nothing when the fit covers the slot, so it also
+    // replaces the "does it fill?" test that used to gate this.
     //
-    // Otherwise only the letterbox BARS are painted — the slot minus the content.
-    // Nothing is drawn under content that is about to cover it, and a translucent
-    // client stops being silently backed with black. `subtract_rect` returns
-    // nothing at all when the fit covers the slot, so it also replaces the
-    // "does it fill?" test that used to gate this.
-    let bars: Vec<Rectangle<i32, Physical>> =
-        if stretch { vec![crop_slot] } else { crop_slot.subtract_rect(content) };
+    // A resize in flight is the same expression, not a special case. `stretch`
+    // fits the geometry to exactly fill the slot, so the remainder is empty and
+    // no black is painted — which is the point: the full-slot backstop this used
+    // to paint showed through every translucent window for the whole drag. It
+    // still covers the slot when the geometry is degenerate (nothing committed
+    // yet), which is the blank-commit gap the backstop was for.
+    //
+    // The bundle's `letterbox` policy is INERT: every case takes the bars arm.
+    // The manifest field still parses and `policy` is still resolved per world,
+    // so re-enabling suppression is uncommenting the arms below. It is off
+    // because both suppressing modes existed to escape the full-slot backstop,
+    // and with that gone a bundle asking for them gets a worse result than the
+    // shared arm already gives it.
+    use compositor_pipeline_bundle_manifest_base::manifest::LetterboxMode as Letterbox;
+    // THIS world's bundle, not a process-global copy of the last one selected.
+    let target = state.inner.worlds.spawn_target();
+    let policy: Letterbox = state
+        .inner
+        .worlds
+        .get(target)
+        .storage()
+        .try_get(&compositor_background_two_storage_base::base::BG_TWO)
+        .map(|t| t.letterbox())
+        .unwrap_or_default();
+    let bars: Vec<Rectangle<i32, Physical>> = match (policy, stretch) {
+        // (Letterbox::Always, _) => Vec::new(),
+        // (Letterbox::OnResize, true) => Vec::new(),
+        // (_, true) => vec![crop_slot],   // the full-slot resize backstop
+        _ => crop_slot.subtract_rect(content),
+    };
     for rect in &bars {
         elements.push(Element::SolidBox(SolidColorRenderElement::new(
             Id::new(),

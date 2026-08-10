@@ -165,7 +165,7 @@ pub fn input_received<I: InputBackend>(event: &I::KeyboardKeyEvent, _loop: &mut 
     // press would tear the panel away the instant someone tried what it just told
     // them to, before the combo was even complete.
     if key_state == KeyState::Pressed && !is_modifier_keysym(shortcut_sym.raw()) {
-        compositor_y5_guide_interface_base::base::on_key(_loop);
+        compositor_y5_guide_interface_base::base::on_key(_loop, shortcut_sym.raw());
     }
 
     if should_forward::<I>(_loop, keysym, shortcut_sym, key_state, &modifiers) {

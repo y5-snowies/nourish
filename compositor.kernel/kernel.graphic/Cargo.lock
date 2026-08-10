@@ -1757,6 +1757,7 @@ dependencies = [
  "compositor_model_environment_tearing_rate",
  "compositor_model_environment_tearing_select",
  "compositor_orchestration_driver_output_base",
+ "compositor_pipeline_bundle_property_base",
  "compositor_y5_audio_controller_interface",
 ]
 
@@ -2981,6 +2982,7 @@ dependencies = [
  "bitflags 2.13.0",
  "compositor_introspection_sampler_window_base",
  "compositor_kernel_graphic_bridge_negotiate_compositor",
+ "compositor_kernel_graphic_bridge_publish_retire",
  "compositor_model_debug_instance_record",
  "compositor_model_environment_background_base",
  "compositor_model_environment_keybinding_base",
@@ -3031,6 +3033,7 @@ dependencies = [
  "compositor_y5_graphic_capture_registry",
  "compositor_y5_graphic_capture_session",
  "compositor_y5_group_state_base",
+ "compositor_y5_guide_state_base",
  "compositor_y5_launcher_draw_state",
  "compositor_y5_launcher_system_base",
  "compositor_y5_lock_state_base",
@@ -3281,8 +3284,13 @@ version = "0.0.1"
 dependencies = [
  "compositor_support_system_storage_slot_base",
  "compositor_support_system_world_host_base",
+ "compositor_support_system_world_identity_base",
  "uuid",
 ]
+
+[[package]]
+name = "compositor_pipeline_bundle_property_base"
+version = "0.0.1"
 
 [[package]]
 name = "compositor_remote_message_client_base"
@@ -3843,10 +3851,21 @@ dependencies = [
 [[package]]
 name = "compositor_support_library_pam_worker_user"
 version = "0.0.1"
+dependencies = [
+ "compositor_support_library_process_child_hygiene",
+]
 
 [[package]]
 name = "compositor_support_library_pam_worker_zerostr"
 version = "0.0.1"
+
+[[package]]
+name = "compositor_support_library_process_child_hygiene"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_record",
+ "libc",
+]
 
 [[package]]
 name = "compositor_support_smithay_dispatch_state_base"
@@ -4685,6 +4704,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_model_debug_instance_record",
  "compositor_model_environment_preference_base",
+ "compositor_support_library_process_child_hygiene",
  "smithay",
 ]
 
@@ -4953,6 +4973,7 @@ dependencies = [
  "compositor_support_system_persist_store_base",
  "compositor_support_system_persist_store_reconcile",
  "compositor_support_system_storage_slot_base",
+ "compositor_support_system_world_identity_base",
  "uuid",
 ]
 
@@ -5144,6 +5165,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_support_system_world_identity_base"
+version = "0.0.1"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
 name = "compositor_support_world_host_space_base"
 version = "0.0.1"
 dependencies = [
@@ -5292,6 +5320,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_model_debug_instance_record",
  "compositor_support_bevy_core_runtime_base",
+ "compositor_support_library_process_child_hygiene",
  "image",
  "wgpu",
  "zbus",
@@ -5408,6 +5437,36 @@ dependencies = [
  "smithay",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "compositor_y5_guide_menu_view"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_selection_font_base",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
+]
+
+[[package]]
+name = "compositor_y5_guide_shader_view"
+version = "0.0.1"
+dependencies = [
+ "compositor_configurator_settings_surface_message",
+ "compositor_monitor_selection_font_base",
+ "compositor_support_iced_core_engine_base",
+ "iced_core",
+ "iced_widget",
+]
+
+[[package]]
+name = "compositor_y5_guide_state_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_monitor_compositor_iced_base",
+ "compositor_support_system_storage_token_base",
+ "smithay",
 ]
 
 [[package]]
@@ -5728,6 +5787,8 @@ dependencies = [
  "compositor_y5_graphic_capture_session",
  "compositor_y5_group_protocol_base",
  "compositor_y5_group_surface_base",
+ "compositor_y5_guide_menu_view",
+ "compositor_y5_guide_shader_view",
  "compositor_y5_launcher_protocol_message",
  "compositor_y5_lock_interface_surface",
  "compositor_y5_osk_board_view",

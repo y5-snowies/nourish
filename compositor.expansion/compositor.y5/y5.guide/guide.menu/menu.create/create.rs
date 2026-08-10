@@ -45,6 +45,7 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, at: (f64, f64)) {
         hovered: None,
         settings_hint: compositor_y5_guide_help_row::row::settings_hint(nested),
         help_hint: "Help".to_string(),
+        shader_hint: "Background variables".to_string(),
     };
     // The dmabuf is supersampled; `set_zoom_lock` below divides it back down to
     // MENU_W×MENU_H on screen, so the layout and the anchor are unaffected.

@@ -1,0 +1,15 @@
+{
+  "name": "tb-stage-3",
+  "version": 1,
+  "windows": "pipeline",
+  "passes": [
+    {
+      "name": "world",
+      "shader": "../tb-window-owned/passes/world.wgsl",
+      "output": "output",
+      "requires": ["window_geometry", "window_textures"]
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

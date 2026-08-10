@@ -7,12 +7,23 @@ edition = "2024"
 path = "lib.rs"
 
 [dependencies]
-compositor_background_two_draw_program = { workspace = true }
+compositor_pipeline_abi_seam_base = { workspace = true }
+compositor_pipeline_build_seam_base = { workspace = true }
+compositor_pipeline_abi_push_base = { workspace = true }
+compositor_model_environment_background_base = { workspace = true }
+compositor_pipeline_build_place_base = { workspace = true }
+compositor_pipeline_host_hit_base.workspace = true
+compositor_pipeline_compile_program_base = { workspace = true }
 compositor_background_two_draw_vulkan = { workspace = true }
-compositor_background_two_shader_load = { workspace = true }
-compositor_background_two_shader_spirv = { workspace = true }
-compositor_background_two_shader_property = { workspace = true }
-compositor_background_two_shader_builtin = { workspace = true }
+compositor_pipeline_bundle_load_base = { workspace = true }
+compositor_pipeline_compile_spirv_base = { workspace = true }
+compositor_pipeline_bundle_property_base = { workspace = true }
+compositor_pipeline_bundle_builtin_base = { workspace = true }
+compositor_pipeline_build_pipeline_base = { workspace = true }
+compositor_pipeline_bundle_manifest_base = { workspace = true }
+compositor_pipeline_bundle_locate_base = { workspace = true }
+compositor_pipeline_bundle_embed_base = { workspace = true }
 compositor_model_stats_registry_base = { workspace = true }
+compositor_model_debug_instance_record = { workspace = true }
 compositor_orchestration_draw_dispatch_frame = { workspace = true }
 smithay = { workspace = true }

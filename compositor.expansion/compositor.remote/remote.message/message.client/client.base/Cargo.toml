@@ -18,5 +18,9 @@ tonic-prost = { workspace = true }
 tonic-prost-build = { workspace = true }
 
 
+[package.metadata.lint]
+allow = ["size"]
+reason = "The `define!` invocation: one block declaring every gRPC service, its methods and their request/response types. It is a table, and its length is the number of RPCs the compositor exposes. Splitting it would mean two macro invocations building two master enums, which is exactly the thing the single invocation exists to prevent."
+
 [lib]
 path = "lib.rs"

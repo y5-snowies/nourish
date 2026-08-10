@@ -29,7 +29,7 @@ use compositor_model_environment_tearing_rate::rate::Cadence as PaceCadence;
 use compositor_model_environment_background_preset::preset::Preset;
 use compositor_model_environment_interface_preset::preset::Preset as UiPreset;
 use compositor_configurator_settings_surface_bufferlabel::bufferlabel as bl;
-use compositor_configurator_settings_surface_message::message::{Applied, GraphicsTab, InputTab, SettingsMessage, ShaderProp, Tab};
+use compositor_configurator_settings_surface_message::message::{Applied, GraphicsTab, InputTab, SettingsMessage, ShaderEntry, ShaderFacts, ShaderProp, Tab};
 use compositor_configurator_settings_surface_style::style;
 use compositor_configurator_settings_surface_control::control;
 use compositor_configurator_settings_surface_world::world;
@@ -760,8 +760,9 @@ pub fn render<'a>(
     ime: &'a Ime, keyboard: &'a KeyboardLayout, catalog: &'a [(String, String)],
     lang_picker_open: bool, lang_search: &'a str,
     protocol_foreign: &'a str, protocol_foreign_all_worlds: bool,
-    shaders: &'a [String], shader_current: Option<&'a str>, shader_props: &'a [ShaderProp],
-    preview_source: &'a str, shader_status: Option<&'a str>,
+    shaders: &'a [ShaderEntry], shader_current: Option<&'a str>, shader_category: Option<&'a str>, shader_props: &'a [ShaderProp],
+    preview_source: Option<&'a str>, shader_facts: Option<&'a ShaderFacts>,
+    shader_status: Option<&'a str>, shader_notice: Option<&'a str>,
     invert_pan_x: bool, invert_pan_y: bool, srgb: bool, optimized: bool, can_optimize: bool,
     graphics: &'a GraphicsAaConfig,
     pen: &'a PenConfig,
@@ -787,7 +788,7 @@ pub fn render<'a>(
             Tab::System => environment::build(env, devices),
             Tab::Misc => misc::build(protocol_foreign, protocol_foreign_all_worlds),
             Tab::Language => language::build(keyboard, catalog, lang_picker_open, lang_search, ime),
-            Tab::World => world::build(shaders, shader_current, shader_props, preview_source, shader_status, invert_pan_x, invert_pan_y, srgb, optimized, can_optimize),
+            Tab::World => world::build(shaders, shader_current, shader_category, shader_props, preview_source, shader_facts, shader_status, shader_notice, invert_pan_x, invert_pan_y, srgb, optimized, can_optimize),
             Tab::Graphics(sub) => graphics_body(sub, graphics, flip),
         };
         let content = column![body].spacing(16).height(Length::Fill);

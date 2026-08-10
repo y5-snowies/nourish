@@ -5,7 +5,8 @@
 
 pub mod element {
     pub use compositor_background_two_draw_parallax::ParallaxBackground;
-    /// Pane identity, re-exported on the same facade so the scene builder — which
-    /// owns the `(output, region)` pair — and the worker derive it identically.
-    pub use compositor_background_two_draw_parallax::pane_key;
+    /// Pane identity, re-exported on the same facade. The scene builder no longer
+    /// derives a key of its own — it hands `bind_pane` the output and the region
+    /// index and the element builds one, so there is a single derivation.
+    pub use compositor_background_two_draw_parallax::{PaneKey, Region};
 }

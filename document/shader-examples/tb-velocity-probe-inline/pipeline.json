@@ -1,0 +1,25 @@
+{
+  "name": "tb-velocity-probe-inline",
+  "version": 1,
+  "passes": [
+    {
+      "name": "probe_before",
+      "shader": "../tb-velocity-probe/passes/probe_before.wgsl",
+      "output": "output",
+      "place": "compositor"
+    },
+    {
+      "name": "probe_after",
+      "shader": "../tb-velocity-probe/passes/probe_after.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "requires": ["composited_scene"],
+      "output": "output",
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

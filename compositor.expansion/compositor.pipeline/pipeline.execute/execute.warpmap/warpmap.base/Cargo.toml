@@ -1,0 +1,15 @@
+[package]
+name = "compositor_pipeline_execute_warpmap_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_model_debug_instance_record = { workspace = true }
+compositor_pipeline_execute_graph_base = { workspace = true }
+ash = { workspace = true }
+compositor_kernel_vulkan_device_factory_base = { workspace = true }
+compositor_pipeline_execute_effect_base = { workspace = true }
+compositor_kernel_vulkan_renderer_error_base = { workspace = true }
+
+[lib]
+path = "lib.rs"

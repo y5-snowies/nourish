@@ -175,6 +175,32 @@ pub enum RenderScope {
 /// would cost more rate than it saves.
 const CAP_DEFER_FLOOR: std::time::Duration = std::time::Duration::from_micros(1_000);
 
+/// The world whose background is on screen this frame.
+///
+/// The same resolution the three prepare paths use when they state their facts:
+/// the picker draws its OWN world's background, everything else draws the spawn
+/// target's — including the lock screen, which falls back through it.
+fn drawn_world(state: &compositor_orchestration_core_state_base::Loop) -> uuid::Uuid {
+    match state.inner.worlds.active_id() == compositor_y5_picker_system_base::base::PICKER_WORLD {
+        true => compositor_y5_picker_system_base::base::PICKER_WORLD,
+        false => state.inner.worlds.spawn_target(),
+    }
+}
+
+/// What that world's bundle asks of the engine. Neutral for a world with no
+/// pipeline slot, which is the same answer as "no bundle" and the right one.
+fn drawn_facts(
+    state: &compositor_orchestration_core_state_base::Loop,
+) -> compositor_pipeline_abi_worldset_base::base::Facts {
+    let w = drawn_world(state);
+    match state.inner.worlds.contains(w) {
+        true => compositor_pipeline_world_system_base::base::facts(
+            state.inner.worlds.get(w).storage(),
+        ),
+        false => Default::default(),
+    }
+}
+
 pub fn execute(
     ctx_rc: Rc<RefCell<NativeRenderContext>>,
     loop_handle: LoopHandle<'static, Loop>,
@@ -213,9 +239,14 @@ pub fn execute(
     // that would strip hardware planes (and the hardware cursor with them) the
     // moment any selector is armed, including on a desktop that is merely waiting
     // for a target and never tears.
-    let frame_flags = compositor_kernel_scanout_plane_direct_base::direct::flags(
+    let mut frame_flags = compositor_kernel_scanout_plane_direct_base::direct::flags(
         compositor_support_smithay_state_tearing_gate::gate::tearing(),
     );
+    // A bundle whose frame is cleared and recomposed whole must be handed the whole
+    // element list, or the clear wipes what the damage tracker chose not to redraw.
+    if drawn_facts(state).whole_frame {
+        frame_flags |= smithay::backend::drm::compositor::FrameFlags::DRAW_ALL_ELEMENTS;
+    }
 
     let gpu_binding = ctx_ref.gpu_binding.clone();
     let mut binding = gpu_binding.borrow_mut();
@@ -436,6 +467,74 @@ pub fn execute(
     let render_picker = frame_plan.has_pass(FramePass::Picker);
     let tap_post_scene =
         frame_plan.has_tap(POST_SCENE) && ctx_ref.tap_subscriptions.is_active(POST_SCENE);
+    // The three states that put something on screen the live bundle did not draw.
+    // Decided here because this is where the plan picks which of the three prepare
+    // paths runs — the picker and the lock each have their own, so a hook inside
+    // the scene's would not run for them at all. Overview is inside the scene pass,
+    // hence the separate read. See `set::band_suppressed`.
+    let suppressed = picker_active || render_lock || state.inner.overview().visible;
+    let drawn = drawn_world(state);
+    let facts = drawn_facts(state);
+    // Cheap and unconditional: a field assignment on the renderer, and the value
+    // every renderer-side gate reads.
+    // WHICH OUTPUT this pass is for. The renderer's intermediate targets,
+    // `content` and `history` are all sized from this pass's extent and filled by
+    // this pass's composite; held as one set they were shared by every monitor.
+    // The world's copy of what that pass produced is keyed the same way, so the
+    // two cannot disagree about which monitor a set of rects describes.
+    let out_key: std::sync::Arc<str> =
+        std::sync::Arc::from(state.inner.render_output.clone().unwrap_or_default().as_str());
+    if let Some(vk) = ctx_ref.vulkan.as_mut() {
+        vk.set_render_output(&out_key);
+        vk.reclaim_removed_outputs();
+        vk.set_pipeline_facts(facts);
+    }
+    // EVERYTHING ELSE IS GATED. A desktop with no bundle — the overwhelmingly
+    // common one, running the stock parallax — pays one token read here and
+    // nothing more; the handovers below exist only for a pipeline.
+    //
+    // `holds`, not just `active`: the frame a bundle unloads has `active == false`
+    // while the world is still carrying its set, grid and shares, so gating on
+    // `active` alone would strand them. Deactivation therefore costs exactly one
+    // more pass through here, which clears everything to `None`, and from the next
+    // frame on this is a single comparison.
+    let produced = ctx_ref.vulkan.as_ref().is_some_and(|vk| {
+        let (c, w) = vk.shared_bands();
+        vk.warp_grid().is_some() || c.is_some() || w.is_some()
+    });
+    if state.inner.worlds.contains(drawn)
+        && (facts.active()
+            || produced
+            || compositor_pipeline_world_system_base::base::holds(
+                state.inner.worlds.get(drawn).storage(),
+            ))
+    {
+        // The three states that put something on screen the live bundle did not
+        // draw. Decided here because this is where the plan picks which of the
+        // three prepare paths runs — the picker and the lock each have their own,
+        // so a hook inside the scene's would not run for them at all.
+        compositor_pipeline_world_system_base::base::publish_suppressed(
+            state.inner.worlds.get_mut(drawn).storage_mut(),
+            suppressed,
+        );
+        //         // Drain what the renderer produced LAST frame into the world it belongs
+        // to, for THIS output. One frame old, which is what the shared slot was.
+        // One handover, for THIS output. The renderer produced all of it in this
+        // pass, for this output, and splitting it into four keyed writes was four
+        // chances to key one of them differently.
+        let frame = compositor_pipeline_world_system_base::base::OutputFrame {
+            world_set: ctx_ref.vulkan.as_mut().and_then(|vk| vk.take_world_set()),
+            warp_grid: ctx_ref.vulkan.as_ref().and_then(|vk| vk.warp_grid()),
+            content_share: ctx_ref.vulkan.as_ref().and_then(|vk| vk.shared_bands().0),
+            windows_share: ctx_ref.vulkan.as_ref().and_then(|vk| vk.shared_bands().1),
+        };
+        compositor_pipeline_world_system_base::base::publish_frame(
+            state.inner.worlds.get_mut(drawn).storage_mut(),
+            &out_key,
+            frame,
+        );
+    }
+
 
     // Picker pass: FULL redraw, same lever as the multi-output case above and for
     // the same reason — the aged buffer does not hold what the tracker assumes.

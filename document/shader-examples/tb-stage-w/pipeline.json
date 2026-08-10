@@ -1,0 +1,24 @@
+{
+  "name": "tb-stage-w",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../tb-windows-layer/passes/backdrop.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "layer",
+      "shader": "../tb-windows-layer/passes/layer.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content",
+        "win": "windows"
+      },
+      "requires": ["composited_scene", "window_layer"],
+      "output": "output"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

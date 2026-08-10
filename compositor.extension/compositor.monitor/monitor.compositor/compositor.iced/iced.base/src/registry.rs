@@ -145,7 +145,6 @@ pub struct IcedRegistry {
     items: Vec<IcedItem>,
     index: HashMap<HandleId, usize>,
 
-    next_id: u64,
     pointer_inside: Option<HandleId>,
     keyboard_focus: Option<HandleId>,
     pointer_grab: Option<HandleId>,
@@ -197,22 +196,29 @@ impl std::fmt::Debug for IcedRegistry {
     }
 }
 
+/// Handle ids, unique across EVERY registry rather than per registry.
+///
+/// They were per registry (`next_id: 1`), which was fine while each world had
+/// its own worker: two worlds could both hand out `HandleId(1)` and never meet.
+/// The worker is now shared, and both its `hosted` map and its `Board` are keyed
+/// by `HandleId` alone — so a per-registry counter would have world B's first
+/// surface silently displace world A's.
+///
+/// Starts at 1: zero stays available as a niche/sentinel, as it was before.
+/// World surfaces do not come through here at all — their ids are derived
+/// reversibly from the window uuid (see `surface.draw.handle`), which is already
+/// globally unique.
+fn next_handle_id() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 impl IcedRegistry {
-    pub fn new(engine: SharedEngine, wgpu_ctx: Arc<WgpuVulkanContext>) -> Self {
-        // Vulkan-only, deliberately: the worker's ring slots carry no GLES view,
-        // because building one needs `&mut GlesRenderer` — the single thing that
-        // cannot leave the compositor thread. On GLES this stays inline and
-        // behaves exactly as it always has.
-        let vulkan = compositor_model_stats_registry_base::base::compositor_prefers_dmabuf();
-        let wanted = compositor_model_environment_interface_base::base::get().enabled;
-        let node = compositor_model_environment_config_base::base::get().render_node.clone();
-        let worker = compositor_model_environment_interface_base::base::get()
-            .engaged()
-            .then(|| crate::worker::spawn(&wgpu_ctx, node))
-            .flatten();
-        if wanted && !vulkan {
-            info!("iced: triple buffering requested but the compositor is on GLES; staying inline");
-        }
+    /// `worker` is the ONE shared off-thread host (see `worker::spawn_shared`),
+    /// cloned in rather than spawned here. It used to be spawned per registry,
+    /// which meant a thread and a whole `SharedEngine` — image atlas included —
+    /// per world.
+    pub fn new(engine: SharedEngine, wgpu_ctx: Arc<WgpuVulkanContext>, worker: Option<Worker>) -> Self {
         Self {
             worker,
             effective_modifiers: IcedMods::empty(),
@@ -220,7 +226,6 @@ impl IcedRegistry {
             wgpu_ctx,
             items: Vec::new(),
             index: HashMap::new(),
-            next_id: 1,
             pointer_inside: None,
             keyboard_focus: None,
             pointer_grab: None,
@@ -385,8 +390,7 @@ impl IcedRegistry {
             + Send
             + 'static,
     ) -> Result<IcedHandle<U>, CreateError> {
-        let id = HandleId(self.next_id);
-        self.next_id += 1;
+        let id = HandleId(next_handle_id());
 
         // Off-thread path. Construction is OPTIMISTIC: the handle comes back now
         // and the worker builds the runtime on its own thread, so a backing
@@ -473,6 +477,16 @@ impl IcedRegistry {
             self.pointer_grab = None;
         }
 
+        // INLINE PATH ONLY (`worker: None` — triple buffering off, or GLES).
+        // Dropping the instance queues its backing for destruction; wgpu only
+        // performs the free during a device poll, and off-thread that poll lives
+        // in the worker's `Job::Destroy`. Without this the inline path retains
+        // every destroyed surface's backing exactly as bevy's did.
+        if self.worker.is_none() {
+            if let Err(e) = self.wgpu_ctx.device.poll(wgpu::PollType::wait_indefinitely()) {
+                warn!("iced registry: device poll after destroy failed: {e:?}");
+            }
+        }
         trace!("destroyed iced instance handle={id:?}");
         true
     }
@@ -1193,6 +1207,33 @@ impl IcedRegistry {
             self.batch_first = None;
             self.batch_touch = None;
         }
+    }
+
+    /// Release every resident backing, returning how many were freed.
+    ///
+    /// For a world that is not being composited. `manage_backings` decides
+    /// residency from per-pane visibility, and a world nobody is looking at has
+    /// no panes and nothing visible — so it would release all of them anyway,
+    /// once, if it were ever called for that registry. It is not: the frame
+    /// resolves ONE registry through `spawn_target()`, so every other world's
+    /// surfaces stay resident for the life of the session.
+    ///
+    /// No debounce, unlike the visible-world path. The grace period there exists
+    /// so a surface flickering in and out of occlusion is not freed and
+    /// reallocated every frame; leaving a world is a discrete event that does not
+    /// repeat, and the backing re-allocates on return (items are marked stale, so
+    /// they re-render).
+    pub fn release_all_backings(&mut self) -> usize {
+        let mut freed = 0;
+        for item in &mut self.items {
+            if item.is_resident() {
+                item.release_backing();
+                freed += 1;
+            }
+        }
+        self.batch_first = None;
+        self.batch_touch = None;
+        freed
     }
 
     /// Build a render element for every item, in draw order, applying
