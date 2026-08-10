@@ -1,0 +1,19 @@
+{
+  "name": "tb-texture-sheet",
+  "version": 1,
+  "windows": "world",
+  "textures": {
+    "sparks": { "file": "sparks.png" }
+  },
+  "passes": [
+    {
+      "name": "world",
+      "shader": "passes/world.wgsl",
+      "inputs": { "sparks": "sparks" },
+      "output": "output",
+      "requires": ["window_geometry", "window_textures", "window_times"]
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

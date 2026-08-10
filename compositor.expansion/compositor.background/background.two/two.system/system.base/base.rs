@@ -106,16 +106,31 @@ impl System for TwoSystem {
         if cx.storage.try_get(&compositor_background_three_system_base::base::BG_THREE)
             .is_some_and(|b| b.example_lock_done) { return; }
         // Renderer-agnostic node; the frame driver bridges + lowers it.
+        // What the renderer produced is NOT stamped here: it is per OUTPUT, and a
+        // world does not know which monitor is about to draw it. The bind sites
+        // do it — see `ParallaxBackground::bind_frame`.
         if let Some(instance) = &cx.storage.get(&BG_TWO).instance {
             plan.push(layer::BACKGROUND, Box::new(instance.clone()));
         }
     }
 
     fn buffer(&mut self, cx: &mut BufferCx, message: Box<dyn Any>) {
+        let world = cx.world;
         let two = cx.storage.get_mut(&BG_TWO_MUT);
         match *message.downcast::<TwoCmd>().expect("two buffer type") {
-            TwoCmd::SetInstance(instance) => {
+            TwoCmd::SetInstance(mut instance) => {
+                // Stamp the owning world HERE, the moment the instance lands in a
+                // world's slot — this is the only place `Two.instance` is ever
+                // assigned, and `BufferCx` is the only cx that carries the id.
+                // The stamp is what keeps the worker's pane (its targets, history
+                // and ping-pong ring) from being shared with another world drawn
+                // on the same output and region.
+                instance.world = Some(world);
                 two.shader_error = instance.shader_error.clone();
+                // A new bundle means a new warp, so the previous one's bake is
+                // wrong — and wrong in the quietest way, since a stale grid still
+                // moves the pointer plausibly.
+                two.warp_map = None;
                 two.instance = Some(instance);
             }
             TwoCmd::Tick => { if let Some(i) = &mut two.instance { i.update(); } }

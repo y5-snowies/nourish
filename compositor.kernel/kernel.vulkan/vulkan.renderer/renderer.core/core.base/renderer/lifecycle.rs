@@ -23,6 +23,10 @@ impl VulkanRenderer {
     pub fn new(phd: PhysicalDevice) -> Result<Self, VulkanError> {
         let dev = compositor_kernel_vulkan_device_factory_base::factory::create(&phd)
             .map_err(|e| VulkanError::Vk(format!("device create: {e}")))?;
+        // Publish the bindless capability so the shader-pipeline producer can gate
+        // the `window-textures` interface (bundles fall back where it's absent).
+        stats::set_descriptor_indexing(dev.descriptor_indexing);
+        stats::set_storage_writes(dev.storage_writes);
         let queue = compositor_kernel_vulkan_device_queue_base::queue::graphics_queue(&dev);
         let command_pool = compositor_kernel_vulkan_command_pool_base::pool::create(&dev)
             .map_err(|e| VulkanError::Vk(format!("command pool: {e}")))?;
@@ -71,6 +75,12 @@ impl VulkanRenderer {
             mipgen: std::cell::RefCell::new(crate::renderer::mipgen::MipGen::default()),
             aa_was_active: false,
             shader_passes: HashMap::new(),
+            after_band: None,
+            outputs: Default::default(),
+            output: std::sync::Arc::from(""),
+            retired_cursor:
+                compositor_kernel_graphic_bridge_publish_retire::retire::retired_epoch(),
+            facts: Default::default(),
             hdr_pipelines: HashMap::new(),
             hdr_enabled: false,
             descriptor_pool,

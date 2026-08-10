@@ -1,0 +1,11 @@
+[package]
+name = "compositor_pipeline_compile_program_base"
+version = "0.0.1"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+compositor_model_debug_instance_record = { workspace = true }
+smithay = { workspace = true }

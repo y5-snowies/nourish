@@ -23,7 +23,7 @@ impl Passes {
     pub fn get(
         &mut self,
         dev: &VulkanDevice,
-        v: &ShaderVariant<'_>,
+        v: &ShaderVariant,
         format: vk::Format,
     ) -> Result<&FullscreenPass, String> {
         if !self.map.contains_key(&(v.id, format)) {

@@ -1,0 +1,121 @@
+{
+  "name": "tb-many-targets-inline",
+  "version": 1,
+  "targets": {
+    "t0": {
+      "format": "rgba8",
+      "scale": 1.0
+    },
+    "t1": {
+      "format": "rgba16f",
+      "scale": 0.5
+    },
+    "t2": {
+      "format": "rgba16f",
+      "scale": 0.5
+    },
+    "t3": {
+      "format": "rgba8",
+      "scale": 0.25
+    },
+    "t4": {
+      "format": "rgba16f",
+      "scale": 0.25
+    },
+    "t5": {
+      "format": "rgba16f",
+      "scale": 0.125
+    },
+    "t6": {
+      "format": "rgba32f",
+      "scale": 0.125
+    },
+    "t7": {
+      "format": "rgba16f",
+      "scale": 0.5
+    }
+  },
+  "passes": [
+    {
+      "name": "s0",
+      "shader": "../tb-many-targets/passes/seed.wgsl",
+      "output": "t0",
+      "place": "compositor"
+    },
+    {
+      "name": "s1",
+      "shader": "../tb-many-targets/passes/step.wgsl",
+      "inputs": {
+        "src": "t0"
+      },
+      "output": "t1",
+      "place": "compositor"
+    },
+    {
+      "name": "s2",
+      "shader": "../tb-many-targets/passes/step.wgsl",
+      "inputs": {
+        "src": "t1"
+      },
+      "output": "t2",
+      "place": "compositor"
+    },
+    {
+      "name": "s3",
+      "shader": "../tb-many-targets/passes/step.wgsl",
+      "inputs": {
+        "src": "t2"
+      },
+      "output": "t3",
+      "place": "compositor"
+    },
+    {
+      "name": "s4",
+      "shader": "../tb-many-targets/passes/step.wgsl",
+      "inputs": {
+        "src": "t3"
+      },
+      "output": "t4",
+      "place": "compositor"
+    },
+    {
+      "name": "s5",
+      "shader": "../tb-many-targets/passes/step.wgsl",
+      "inputs": {
+        "src": "t4"
+      },
+      "output": "t5",
+      "place": "compositor"
+    },
+    {
+      "name": "s6",
+      "shader": "../tb-many-targets/passes/step.wgsl",
+      "inputs": {
+        "src": "t5"
+      },
+      "output": "t6",
+      "place": "compositor"
+    },
+    {
+      "name": "s7",
+      "shader": "../tb-many-targets/passes/step.wgsl",
+      "inputs": {
+        "src": "t6"
+      },
+      "output": "t7",
+      "place": "compositor"
+    },
+    {
+      "name": "fin",
+      "shader": "../tb-many-targets/passes/fin.wgsl",
+      "inputs": {
+        "base": "t0",
+        "tip": "t7"
+      },
+      "output": "output",
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

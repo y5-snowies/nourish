@@ -79,6 +79,11 @@ pub fn hook(_loop: &mut Loop, renderer: &mut GlesRenderer) {
             compositor_y5_window_lifecycle_event::event::WindowLifecycleEvent::InitialMap(
                 window,
             ) => {
+                // The window's own birth stamp. `draw.moment` records every later
+                // moment by observing the draw, but it is skipped entirely while
+                // no bundle is loaded — so the one thing a draw cannot recover
+                // afterwards, WHEN this window appeared, is recorded here.
+                compositor_y5_window_draw_moment::moment::born(&window);
                 _initial_mapped(_loop, window);
             }
             WindowLifecycleEvent::Fullscreen(window, fullscreen) => {

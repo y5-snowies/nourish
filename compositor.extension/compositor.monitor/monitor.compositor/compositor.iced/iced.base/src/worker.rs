@@ -57,6 +57,10 @@ pub enum Job {
     Tick,
 }
 
+/// `Clone` so ONE worker serves every world's registry. The thread, and the
+/// `SharedEngine` (and image atlas) born on it, are the expensive parts — one
+/// per world cost ~20 threads and ~20 atlases. Both fields are already handles:
+/// `Sender` clones, and `Board` is `Arc`-backed.
 #[derive(Clone)]
 pub struct Worker {
     tx: Sender<Job>,
@@ -73,9 +77,25 @@ impl Worker {
     }
 }
 
-/// Start the worker. `None` leaves the caller on the inline path — a missing UI
-/// surface is not something to degrade silently into.
-pub fn spawn(ctx: &Arc<WgpuVulkanContext>, render_node: String) -> Option<Worker> {
+/// Start THE worker, if the interface preference engages it. One per process:
+/// every registry clones the returned handle. `None` leaves every caller on the
+/// inline path, which is a supported mode rather than a degradation.
+///
+/// Vulkan-only, deliberately: the worker's ring slots carry no GLES view, because
+/// building one needs `&mut GlesRenderer` — the single thing that cannot leave
+/// the compositor thread. On GLES everything stays inline, as it always has.
+pub fn spawn_shared(ctx: &Arc<WgpuVulkanContext>) -> Option<Worker> {
+    let interface = compositor_model_environment_interface_base::base::get();
+    if !interface.engaged() {
+        if interface.enabled && !compositor_model_stats_registry_base::base::compositor_prefers_dmabuf() {
+            info!("iced: triple buffering requested but the compositor is on GLES; staying inline");
+        }
+        return None;
+    }
+    spawn(ctx, compositor_model_environment_config_base::base::get().render_node.clone())
+}
+
+fn spawn(ctx: &Arc<WgpuVulkanContext>, render_node: String) -> Option<Worker> {
     let board = Board::new();
     let (tx, rx) = channel::<Job>();
     let (ctx, node, board_for_thread) = (ctx.clone(), render_node.clone(), board.clone());
@@ -193,6 +213,14 @@ fn apply(
         Job::Destroy(id) => {
             hosted.remove(&id);
             board.remove(id);
+            // Same deferred-destruction flush as the bevy worker's `Destroy`, for
+            // the same reason: dropping the instance queues its ring's images,
+            // and wgpu only performs the free when the device is polled. The
+            // amounts here are smaller — surface-sized rather than output-sized —
+            // but the retention is unbounded in exactly the same way.
+            if let Err(e) = ctx.device.poll(wgpu::PollType::wait_indefinitely()) {
+                warn!("iced worker: device poll after destroy failed: {e:?}");
+            }
         }
         Job::Resize { id, size, scale, location } => {
             if let Some(h) = hosted.get_mut(&id) {

@@ -13,6 +13,14 @@ pub struct Two {
     /// The selected shader's compile error for the active renderer (runtime only,
     /// not persisted); `None` when it compiled or the built-in is selected.
     pub shader_error: Option<String>,
+    /// This world's baked pointer-warp map, for a bundle that declared
+    /// `evaluate: "map_static"`. PER WORLD because the bundle is: a process-global
+    /// cache could only ever hold one world's warp, and would hand the other
+    /// world's pointer a displacement from a shader it is not running.
+    ///
+    /// Rebaked in place when the resolution moves (the only input that can, since
+    /// `@prop`s are fixed at load). `None` until the first pointer event asks.
+    pub warp_map: Option<compositor_pipeline_host_map_base::map::Map>,
     /// Per-world background pan inversion: flip the camera pan fed to the shader on
     /// each axis. Persisted per world; default off. Lets a world reverse its
     /// horizontal and/or vertical parallax without touching the shader source.
@@ -31,12 +39,49 @@ pub struct Two {
 }
 
 impl Two {
+    /// This world's loaded multipass bundle, if it has one.
+    pub fn bundle(
+        &self,
+    ) -> Option<&compositor_pipeline_build_pipeline_base::pipeline::CompiledPipeline> {
+        self.instance.as_ref()?.pipeline.as_deref()
+    }
+
+    /// This world's editable variables, from the bundle that is actually running.
+    ///
+    /// `shader.load::properties_for` answers the same question from disk, and has
+    /// to for a bundle that is merely listed rather than selected — but it re-reads
+    /// and re-parses `pipeline.json` plus every pass source on each call, and it is
+    /// called per param message and per frame while the panel is open. When a
+    /// bundle IS loaded the answer is already in hand, free, and cannot disagree
+    /// with what is on screen.
+    pub fn props(&self) -> Option<&[compositor_pipeline_bundle_property_base::Property]> {
+        Some(&self.bundle()?.properties)
+    }
+
+    /// Whether the engine should draw its own border around each window.
+    ///
+    /// The border is drawn OUTSIDE the slot and is opaque, so any effect reading
+    /// window edges — a glow, a field between windows, a refraction — reads the
+    /// border rather than the window under it. A bundle doing that suppresses it.
+    /// `true` (draw it) whenever no bundle says otherwise, which is every world
+    /// that is not running one.
+    pub fn border(&self) -> bool {
+        use compositor_pipeline_bundle_manifest_base::manifest::Decorations;
+        self.bundle().map(|cp| cp.decorations != Decorations::Off).unwrap_or(true)
+    }
+
+    /// When to suppress the letterbox fill painted behind client content.
+    pub fn letterbox(&self) -> compositor_pipeline_bundle_manifest_base::manifest::LetterboxMode {
+        self.bundle().map(|cp| cp.letterbox).unwrap_or_default()
+    }
+
     pub fn new() -> Self {
         Self {
             instance: None,
             background_shader: None,
             params: Vec::new(),
             shader_error: None,
+            warp_map: None,
             invert_pan_x: false,
             invert_pan_y: false,
             srgb: false,

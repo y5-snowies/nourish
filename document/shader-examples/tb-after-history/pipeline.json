@@ -1,0 +1,24 @@
+{
+  "name": "tb-after-history",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "passes/backdrop.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "delta",
+      "shader": "passes/delta.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "cur": "content",
+        "prev": "history"
+      },
+      "requires": ["composited_scene", "previous_frame"],
+      "output": "output"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

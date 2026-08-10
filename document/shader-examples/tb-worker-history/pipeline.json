@@ -1,0 +1,25 @@
+{
+  "name": "tb-worker-history",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "passes/backdrop.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "trail",
+      "shader": "passes/trail.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content",
+        "prev": "history"
+      },
+      "requires": ["composited_scene", "previous_frame"],
+      "output": "output",
+      "place": "worker"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

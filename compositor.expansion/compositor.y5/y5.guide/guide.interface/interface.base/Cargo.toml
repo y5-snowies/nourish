@@ -8,6 +8,7 @@ compositor_orchestration_core_state_base = { workspace = true }
 compositor_y5_guide_state_base = { workspace = true }
 compositor_y5_surface_interface_base = { workspace = true }
 compositor_y5_window_interface_draw = { workspace = true }
+smithay = { workspace = true }
 
 [lib]
 path = "lib.rs"

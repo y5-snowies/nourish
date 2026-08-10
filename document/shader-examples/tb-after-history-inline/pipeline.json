@@ -1,0 +1,26 @@
+{
+  "name": "tb-after-history-inline",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../tb-after-history/passes/backdrop.wgsl",
+      "output": "output",
+      "place": "compositor"
+    },
+    {
+      "name": "delta",
+      "shader": "../tb-after-history/passes/delta.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "cur": "content",
+        "prev": "history"
+      },
+      "requires": ["composited_scene", "previous_frame"],
+      "output": "output",
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

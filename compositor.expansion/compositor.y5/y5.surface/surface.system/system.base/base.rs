@@ -7,6 +7,7 @@ use compositor_support_iced_core_engine_base::{EngineSettings, SharedEngine};
 use compositor_y5_surface_state_base::state::SurfaceState;
 use compositor_monitor_runtime_surface_base::WgpuVulkanContext;
 use compositor_monitor_compositor_iced_base::{HandleId, IcedRegistry};
+use compositor_monitor_compositor_iced_base::worker::Worker as IcedWorker;
 use smithay::utils::{Physical, Point, Size};
 use std::any::Any;
 use std::sync::Arc;
@@ -98,6 +99,71 @@ pub static SURFACE_MUT: TokenMut<SurfaceState> = TokenMut::new(&SURFACE);
 pub static ICED_CONTEXT: Token<Option<Arc<WgpuVulkanContext>>> = Token::new();
 pub static ICED_CONTEXT_MUT: TokenMut<Option<Arc<WgpuVulkanContext>>> = TokenMut::new(&ICED_CONTEXT);
 
+/// The ONE iced renderer, shared by every world's registry — kernel driver data
+/// like the context above, and for the same reason.
+///
+/// `SharedEngine` owns the `iced_wgpu` `Renderer`, and the renderer owns the
+/// image atlas and the glyph atlas. Those are keyed by image content and glyph,
+/// never by world, so a per-world copy shares nothing and duplicates everything.
+/// Building one per world cost 40 live `iced_wgpu::image texture atlas`
+/// allocations totalling 547 MiB in a 17-world session, and an atlas is never
+/// returned: `Atlas::grow` allocates a larger texture and copies, but nothing
+/// ever truncates its layers, and a registry is created once and never dropped.
+///
+/// The type was always meant to be shared — it is `Clone` over an
+/// `Arc<RefCell<Renderer>>`, and the clone is what every world now takes. That
+/// `RefCell` is also why this is sound: it is `!Send`, so every registry holding
+/// a clone is on the compositor thread by construction, and the borrows are
+/// scoped to a single `with_renderer` / `renderer_borrow` call.
+pub static ICED_ENGINE: Token<Option<SharedEngine>> = Token::new();
+pub static ICED_ENGINE_MUT: TokenMut<Option<SharedEngine>> = TokenMut::new(&ICED_ENGINE);
+
+/// The ONE off-thread host, on the same terms as [`ICED_ENGINE`] and for the
+/// same reason: the worker thread builds its own `SharedEngine` (the renderer is
+/// `!Send`, so it cannot be handed across), which means a worker per world was a
+/// SECOND atlas per world. Twenty worlds therefore held forty atlases, which is
+/// exactly the count the allocator reported.
+///
+/// Safe to share only because handle ids are now globally unique — the worker's
+/// `hosted` map and its `Board` are keyed by `HandleId` alone. See
+/// `IcedRegistry`'s `next_handle_id`.
+pub static ICED_WORKER: Token<Option<IcedWorker>> = Token::new();
+pub static ICED_WORKER_MUT: TokenMut<Option<IcedWorker>> = TokenMut::new(&ICED_WORKER);
+
+/// Build the shared renderer, once, as soon as the wgpu context lands. Called
+/// from the loader immediately after `ICED_CONTEXT` is set and before the
+/// prewarm pass, so every `ensure_registry` below finds it present.
+pub fn ensure_engine(kernel: &mut Storage) {
+    if kernel.try_get(&ICED_ENGINE).is_some_and(Option::is_some) {
+        return;
+    }
+    let Some(wgpu) = kernel.try_get(&ICED_CONTEXT).and_then(|c| c.clone()) else {
+        return;
+    };
+    // `try_get_mut`, not `get_mut`: an unregistered slot is a wiring mistake in
+    // the loader, and the cost of getting it wrong should be a log plus the
+    // inline path — not a panic before the compositor can draw anything.
+    let Some(engine) = kernel.try_get_mut(&ICED_ENGINE_MUT) else {
+        error!("iced: ICED_ENGINE slot not registered; every world stays engine-less");
+        return;
+    };
+    info!("iced: building the shared renderer (one for all worlds)");
+    *engine = Some(SharedEngine::new(
+        &wgpu.adapter,
+        Arc::new(wgpu.device.clone()),
+        Arc::new(wgpu.queue.clone()),
+        compositor_monitor_runtime_surface_base::TEXTURE_FORMAT,
+        EngineSettings::default(),
+    ));
+    let worker = compositor_monitor_compositor_iced_base::worker::spawn_shared(&wgpu);
+    match kernel.try_get_mut(&ICED_WORKER_MUT) {
+        Some(slot) => *slot = worker,
+        // Not fatal: no worker means every registry runs inline, which is the
+        // supported GLES shape rather than a broken one.
+        None => error!("iced: ICED_WORKER slot not registered; staying inline"),
+    }
+}
+
 /// Build THIS world's iced registry from the shared kernel context, off the
 /// render path. No-op if the world doesn't run `SurfaceSystem` (no `SURFACE`
 /// slot — e.g. an overlay world), already has a registry, or the context hasn't
@@ -113,15 +179,17 @@ pub fn ensure_registry(storage: &mut Storage, kernel: &Storage) {
     let Some(wgpu) = kernel.try_get(&ICED_CONTEXT).and_then(|c| c.clone()) else {
         return;
     };
-    info!("prewarm: build per-world iced registry");
-    let shared_engine = SharedEngine::new(
-        &wgpu.adapter,
-        Arc::new(wgpu.device.clone()),
-        Arc::new(wgpu.queue.clone()),
-        compositor_monitor_runtime_surface_base::TEXTURE_FORMAT,
-        EngineSettings::default(),
-    );
-    surface.registry = Some(IcedRegistry::new(shared_engine, wgpu));
+    // A CLONE of the one renderer (see `ICED_ENGINE`), not a new one. If it is
+    // absent the world gets no registry rather than a private engine: silently
+    // falling back to per-world is exactly the bug this replaced, and it would
+    // reappear invisibly the first time the build order changed.
+    let Some(engine) = kernel.try_get(&ICED_ENGINE).and_then(Clone::clone) else {
+        error!("iced registry: shared engine absent — `ensure_engine` must run first");
+        return;
+    };
+    info!("prewarm: build per-world iced registry (shared renderer)");
+    let worker = kernel.try_get(&ICED_WORKER).and_then(Clone::clone);
+    surface.registry = Some(IcedRegistry::new(engine, wgpu, worker));
 }
 
 /// Owns the surface slot.

@@ -1,0 +1,73 @@
+{
+  "name": "bloom-inline",
+  "version": 1,
+  "modules": [
+    "../bloom/lib/color.wgsl"
+  ],
+  "targets": {
+    "scene": {
+      "format": "rgba16f",
+      "scale": 1.0
+    },
+    "bright": {
+      "format": "rgba16f",
+      "scale": 0.5
+    },
+    "blur_a": {
+      "format": "rgba16f",
+      "scale": 0.5
+    },
+    "blur_b": {
+      "format": "rgba16f",
+      "scale": 0.5
+    }
+  },
+  "passes": [
+    {
+      "name": "base",
+      "shader": "../bloom/passes/base.wgsl",
+      "output": "scene",
+      "place": "compositor"
+    },
+    {
+      "name": "bright",
+      "shader": "../bloom/passes/bright.wgsl",
+      "inputs": {
+        "src": "scene"
+      },
+      "output": "bright",
+      "place": "compositor"
+    },
+    {
+      "name": "blurH",
+      "shader": "../bloom/passes/blur.wgsl",
+      "inputs": {
+        "src": "bright"
+      },
+      "output": "blur_a",
+      "defines": {
+        "HORIZONTAL": "true"
+      },
+      "place": "compositor"
+    },
+    {
+      "name": "blurV",
+      "shader": "../bloom/passes/blur.wgsl",
+      "inputs": {
+        "src": "blur_a"
+      },
+      "output": "blur_b",
+      "place": "compositor"
+    },
+    {
+      "name": "combine",
+      "shader": "../bloom/passes/combine.wgsl",
+      "inputs": {
+        "scene": "scene",
+        "bloom": "blur_b"
+      },
+      "output": "output",
+      "place": "compositor"
+    }
+  ]
+}

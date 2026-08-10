@@ -182,7 +182,23 @@ pub fn apply_focus(
             }
         }
         SurfaceHit::Iced { handle, .. } => {
-            _loop.inner.raise_drawable(uuid::Uuid::from_u128(handle.0 as u128));
+            // WORLD surfaces only. `raise_drawable` lazily REGISTERS into the world
+            // band's z-authority, which a screen surface does not belong to — so
+            // raising one reordered nothing and instead had the canvas scene draw
+            // it a second time, camera-transformed. Invisible until a pointer warp
+            // curved the world band and not the screen band.
+            let is_world = _loop
+                .inner
+                .surface()
+                .registry
+                .as_ref()
+                .and_then(|r| r.space_of(*handle))
+                .is_some_and(|s| {
+                    matches!(s, compositor_monitor_compositor_iced_base::IcedSpace::World)
+                });
+            if is_world {
+                _loop.inner.raise_drawable(uuid::Uuid::from_u128(handle.0 as u128));
+            }
             for window in _loop.inner.space_state().state.elements() {
                 window.set_activated(false);
                 if let Some(toplevel) = window.toplevel() {

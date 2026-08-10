@@ -1,0 +1,26 @@
+{
+  "name": "tb-persist-trail",
+  "version": 1,
+  "windows": "world",
+  "targets": {
+    "trail": { "format": "rgba16f", "scale": 1.0, "persist": true }
+  },
+  "passes": [
+    {
+      "name": "accumulate",
+      "shader": "passes/accumulate.wgsl",
+      "inputs": { "prev": "trail" },
+      "output": "trail",
+      "requires": ["window_geometry", "window_textures"]
+    },
+    {
+      "name": "present",
+      "shader": "passes/present.wgsl",
+      "inputs": { "trail": "trail" },
+      "output": "output",
+      "requires": ["window_geometry", "window_textures"]
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

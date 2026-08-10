@@ -5,6 +5,10 @@ edition = "2024"
 
 
 [dependencies]
+compositor_pipeline_build_pipeline_base = { workspace = true }
+compositor_pipeline_bundle_manifest_base = { workspace = true }
+compositor_pipeline_host_map_base = { workspace = true }
+compositor_pipeline_bundle_property_base = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 bitflags = { workspace = true }

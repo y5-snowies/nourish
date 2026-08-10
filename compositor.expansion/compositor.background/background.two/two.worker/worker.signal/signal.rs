@@ -7,7 +7,8 @@
 //! hardware queue. Idle falls out for free: a pane goes quiet [`LIVE`] after its
 //! last ping, and the worker then parks in [`Signal::live`].
 
-use compositor_background_two_shader_spirv::VulkanModule;
+use compositor_pipeline_compile_spirv_base::VulkanModule;
+use compositor_background_two_worker_key::key::PaneKey;
 use compositor_orchestration_draw_dispatch_frame::ParallaxUniforms;
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
@@ -34,6 +35,11 @@ pub struct DrawRequest {
     /// Runtime-loaded shader, or `None` for the built-in. Cheap per request: the
     /// module's SPIR-V is behind an `Arc`.
     pub module: Option<Arc<VulkanModule>>,
+    /// A multipass bundle the worker runs INSTEAD of `module`. Only ever set when
+    /// the placement verdict is `Offload::Whole` — every pass before-content with
+    /// no engine `needs` — so the worker can render it without any window set or
+    /// composited `content`. `Arc`: the SPIR-V is shared, not copied per request.
+    pub pipeline: Option<Arc<compositor_pipeline_build_pipeline_base::pipeline::CompiledPipeline>>,
     /// The world's "Optimized" flag — selects a SPIR-V variant, not a push value,
     /// so it rides here rather than inside `uniforms`.
     pub optimized: bool,
@@ -47,6 +53,14 @@ pub struct DrawRequest {
     /// native path. Carried, not derived by counting pings: a pane lowered during
     /// two outputs' passes would be pinged twice per retrace and halve its divisor.
     pub serial: u64,
+    /// The drawn world's drawables. Travels WITH the request rather than being
+    /// read from a shared slot: the worker runs on another thread for a world it
+    /// cannot reach, and a slot would serve it whichever world wrote last.
+    pub world_set: Option<std::sync::Arc<compositor_pipeline_abi_worldset_base::base::WorldSet>>,
+    /// The compositor's composited band and window layer, exported for this
+    /// world. Travels with the request for the same reason the world set does.
+    pub content_share: Option<std::sync::Arc<compositor_kernel_vulkan_memory_external_base::external::Shared>>,
+    pub windows_share: Option<std::sync::Arc<compositor_kernel_vulkan_memory_external_base::external::Shared>>,
     /// How many viewport regions this output currently has.
     ///
     /// The retirement signal for a viewport collapse: every pane of this output
@@ -57,7 +71,7 @@ pub struct DrawRequest {
 
 #[derive(Default)]
 struct State {
-    panes: HashMap<u64, (DrawRequest, Instant)>,
+    panes: HashMap<PaneKey, (DrawRequest, Instant)>,
     /// Bumped by anything that could change what the worker would decide, so a
     /// wake that lands between "finished a pass" and "went to sleep" is not
     /// lost. The worker snapshots it BEFORE its pass and hands it back to
@@ -99,11 +113,11 @@ impl Signal {
     /// A ping that only carries a new camera changes nothing about *when* to
     /// render, so it does not wake anyone; the worker will read it on its own
     /// schedule.
-    pub fn ping(&self, pane: u64, req: DrawRequest) {
+    pub fn ping(&self, pane: &PaneKey, req: DrawRequest) {
         if let Ok(mut s) = self.state.lock() {
             let was_idle = s.panes.is_empty();
-            let resized = s.panes.get(&pane).is_none_or(|(p, _)| p.size != req.size);
-            s.panes.insert(pane, (req, Instant::now()));
+            let resized = s.panes.get(pane).is_none_or(|(p, _)| p.size != req.size);
+            s.panes.insert(pane.clone(), (req, Instant::now()));
             if was_idle || resized {
                 s.progress = s.progress.wrapping_add(1);
                 self.wake.notify_one();
@@ -174,7 +188,7 @@ impl Signal {
     /// monitor unplugged on an idle desktop leaves its ring in GPU memory until
     /// something happens to redraw. With nothing allocated there is no such work,
     /// so it parks indefinitely and an idle machine stays idle.
-    pub fn live(&self, holding: bool) -> Option<Vec<(u64, DrawRequest)>> {
+    pub fn live(&self, holding: bool) -> Option<Vec<(PaneKey, DrawRequest)>> {
         let mut s = self.state.lock().ok()?;
         loop {
             if s.stop {
@@ -182,7 +196,7 @@ impl Signal {
             }
             s.panes.retain(|_, (_, t)| t.elapsed() < LIVE);
             if !s.panes.is_empty() {
-                return Some(s.panes.iter().map(|(k, (r, _))| (*k, r.clone())).collect());
+                return Some(s.panes.iter().map(|(k, (r, _))| (k.clone(), r.clone())).collect());
             }
             if !holding {
                 s = self.wake.wait(s).ok()?;

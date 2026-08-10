@@ -1,0 +1,41 @@
+{
+  "name": "crt-input-map-live",
+  "version": 1,
+  "windows": "world",
+  "modules": [
+    "lib/warp.wgsl"
+  ],
+  "targets": {
+    "band": {
+      "format": "rgba16f"
+    }
+  },
+  "hit": {
+    "module": "lib/warp.wgsl",
+    "params": [
+      "curve"
+    ],
+    "evaluate": "map"
+  },
+  "passes": [
+    {
+      "name": "world",
+      "shader": "../tb-window-owned/passes/world.wgsl",
+      "output": "band",
+      "requires": [
+        "window_geometry",
+        "window_textures"
+      ]
+    },
+    {
+      "name": "crt",
+      "shader": "passes/crt.wgsl",
+      "inputs": {
+        "src": "band"
+      },
+      "output": "output"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

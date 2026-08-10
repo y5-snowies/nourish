@@ -4,6 +4,12 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_kernel_graphic_bridge_publish_retire = { workspace = true }
+compositor_pipeline_abi_seam_base = { workspace = true }
+compositor_pipeline_abi_worldset_base = { workspace = true }
+compositor_pipeline_execute_warpmap_base = { workspace = true }
+compositor_kernel_vulkan_memory_external_base = { workspace = true }
+compositor_pipeline_abi_descriptor_base = { workspace = true }
 compositor_model_debug_instance_record.workspace = true
 compositor_model_environment_config_base.workspace = true
 compositor_model_environment_graphics_base.workspace = true
@@ -32,6 +38,8 @@ compositor_kernel_vulkan_pipeline_cache_base.workspace = true
 compositor_kernel_vulkan_pipeline_composite_base.workspace = true
 compositor_kernel_vulkan_pipeline_fullscreen_base.workspace = true
 compositor_kernel_vulkan_pipeline_hdr_base.workspace = true
+compositor_pipeline_execute_offscreen_base.workspace = true
+compositor_pipeline_execute_graph_base.workspace = true
 compositor_kernel_vulkan_command_pool_base.workspace = true
 compositor_kernel_vulkan_command_record_base.workspace = true
 compositor_kernel_vulkan_element_texture_base.workspace = true

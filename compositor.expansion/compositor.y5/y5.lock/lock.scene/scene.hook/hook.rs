@@ -20,8 +20,13 @@ pub fn hook(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physi
 
 fn load_incoming_buffer(state: &mut Loop, x: &mut GlesRenderer, size: Size<i32, Physical>) {
     {
-        // Drain the channel into the buffer (single slot borrow).
-        let surface = state.inner.surface_mut();
+        // Drain the channel into the buffer (single slot borrow). The LOCK
+        // world's own channel — the auth panel publishes into it, so the session
+        // world's would be empty and every attempt silently dropped.
+        let Some(surface) = compositor_y5_lock_system_base::base::surface(&mut state.inner.worlds)
+        else {
+            return;
+        };
         'drain: while true {
             if let Ok(ok) = surface.surface_message_buffer_channel.1.try_recv() {
                 info!("Buffer item receive");
@@ -33,7 +38,10 @@ fn load_incoming_buffer(state: &mut Loop, x: &mut GlesRenderer, size: Size<i32, 
     }
 
     // Takes the buffer by draining it
-    let taken = std::mem::take(&mut state.inner.surface_mut().surface_message_buffer);
+    let taken = match compositor_y5_lock_system_base::base::surface(&mut state.inner.worlds) {
+        Some(surface) => std::mem::take(&mut surface.surface_message_buffer),
+        None => return,
+    };
 
     // Delegate actions
     for item in taken {

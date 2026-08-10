@@ -1,7 +1,6 @@
 use smithay::backend::renderer::gles::{GlesFrame, GlesPixelProgram, GlesRenderer, GlesTexture, Uniform};
 use smithay::backend::renderer::{Frame, Renderer, RendererSuper};
 use smithay::utils::{Buffer as BufferCoord, Physical, Rectangle, Size};
-use std::borrow::Cow;
 use std::sync::Arc;
 
 /// Renderer-agnostic uniform values for the parallax background shader. The GLES
@@ -37,9 +36,11 @@ pub struct ParallaxUniforms {
 /// pipeline cache misses. `Arc` lets both built-in (`'static`) and
 /// runtime-compiled shaders flow through the same seam while making the
 /// per-frame hand-off a refcount bump rather than a deep copy of the blob.
-/// `push` stays a `Cow` — it is ~112 bytes and genuinely differs per draw.
+/// `push` is an `Arc` too — it is ~112 bytes and differs per draw, but every
+/// consumer took ownership of it anyway, and the lifetime a `Cow` needed is what
+/// kept this seam off `'static`.
 #[derive(Clone)]
-pub struct ShaderVariant<'a> {
+pub struct ShaderVariant {
     /// Stable per-shader id, used as the renderer's pipeline-cache key.
     pub id: u64,
     /// SPIR-V module bytes. Holds both entry points unless `vert_spv` is set.
@@ -50,16 +51,35 @@ pub struct ShaderVariant<'a> {
     pub vert_entry: Arc<str>,
     pub frag_entry: Arc<str>,
     /// Push-constant bytes for this draw (already packed by the producer).
-    pub push: Cow<'a, [u8]>,
+    ///
+    /// `Arc`, not `Cow`. The borrow saved nothing — every consumer called
+    /// `into_owned()` on it immediately — while the lifetime it introduced spread
+    /// through `PipelinePass` and `ShaderPipeline` and kept the whole seam off
+    /// `'static`, which is what an opaque handle needs.
+    pub push: Arc<[u8]>,
 }
 
 /// A renderer-native fullscreen-shader draw handed through the dispatch seam:
 /// the standard (SDR) variant plus an optional variant the renderer selects
-/// when compositing for HDR output.
+/// when compositing for HDR output. `pipeline`, when set, is a multipass graph
+/// the renderer runs INSTEAD of the single `sdr` pass (Vulkan only; renderers
+/// without a graph executor ignore it and use `sdr`).
 #[derive(Clone)]
-pub struct NativeShaderPass<'a> {
-    pub sdr: ShaderVariant<'a>,
-    pub hdr: Option<ShaderVariant<'a>>,
+pub struct NativeShaderPass {
+    pub sdr: ShaderVariant,
+    pub hdr: Option<ShaderVariant>,
+    /// A multipass bundle for the renderer to run INSTEAD of `sdr`, as an OPAQUE
+    /// handle.
+    ///
+    /// This crate describes how the scene hands a renderer a shader pass; it does
+    /// not know what a multipass pipeline is, and it used to declare seven types
+    /// that existed for nothing else. They live in `pipeline.abi/abi.seam` now,
+    /// and travel through here without being named — which is what lets the
+    /// pipeline grow what it carries without touching orchestration at all.
+    ///
+    /// `'static` by construction: the seam types hold `Arc`s, so a renderer that
+    /// understands the handle downcasts it and one that does not ignores it.
+    pub pipeline: Option<std::sync::Arc<dyn std::any::Any + Send + Sync>>,
 }
 
 /// Per-renderer draw seam for scene elements that carry GLES-produced resources

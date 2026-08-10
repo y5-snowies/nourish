@@ -1,0 +1,35 @@
+{
+  "name": "tb-crt-after-pointwise",
+  "version": 1,
+  "modules": [
+    "../crt-input-map/lib/warp.wgsl"
+  ],
+  "hit": {
+    "module": "../crt-input-map/lib/warp.wgsl",
+    "params": [
+      "curve"
+    ],
+    "evaluate": "pointwise"
+  },
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../tb-after-trivial/passes/backdrop.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "crt",
+      "shader": "passes/crt.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "requires": [
+        "composited_scene"
+      ],
+      "output": "output"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

@@ -65,6 +65,19 @@ pub struct VulkanDevice {
     /// (`ash::khr/ext::*::Device::new`) can be constructed — they need the
     /// instance to resolve `vkGetDeviceProcAddr`.
     pub instance: ash::Instance,
+    /// Whether the descriptor-indexing features needed for a bindless
+    /// `binding_array<texture>` (runtime array + partially-bound + non-uniform
+    /// sampled-image indexing) were advertised AND enabled. Probed at creation;
+    /// gates the `window-textures` engine interface (bundles that need it fall
+    /// back when this is false — no device-creation risk on adapters lacking it).
+    pub descriptor_indexing: bool,
+    /// Whether a FRAGMENT shader may write to a storage buffer.
+    ///
+    /// Core Vulkan 1.0 and near-universal, but off unless asked for — and a
+    /// shader that stores without it is undefined rather than an error, so it is
+    /// probed and enabled the same way descriptor indexing is, and a bundle
+    /// declaring `storage` is refused where it is absent.
+    pub storage_writes: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -122,6 +135,41 @@ pub fn create(phd: &PhysicalDevice) -> Result<VulkanDevice, DeviceError> {
     if supported.sampler_anisotropy == vk::TRUE {
         base_features = base_features.sampler_anisotropy(true);
     }
+    // Storage writes from the fragment stage, for bundles that declare `storage`.
+    // Enabling an unsupported feature fails `vkCreateDevice` outright — which
+    // would black-screen the compositor — so this is advertised-or-nothing, like
+    // every other optional feature here.
+    let storage_writes = supported.fragment_stores_and_atomics == vk::TRUE;
+    if storage_writes {
+        base_features = base_features.fragment_stores_and_atomics(true);
+    }
+
+    // Probe descriptor-indexing (Vulkan 1.2) for a bindless window-texture array.
+    // Query support via features2, then enable ONLY if all three needed bits are
+    // advertised — enabling an unsupported feature fails vkCreateDevice (would
+    // black-screen the compositor), so an adapter without them simply reports the
+    // capability as false and `window_textures` bundles fall back.
+    //
+    // NOT gated on which bundle is selected. This factory builds BOTH the
+    // compositor's device and the background worker's second device, and
+    // `vkCreateDevice` happens once per device while the selection changes whenever
+    // the user picks a shader — so there is no bundle-shaped answer to give here,
+    // and the flag means "what this GPU can do", which a preference has no business
+    // overriding.
+    let descriptor_indexing = {
+        let mut probe = vk::PhysicalDeviceVulkan12Features::default();
+        let mut f2 = vk::PhysicalDeviceFeatures2::default().push_next(&mut probe);
+        unsafe { instance.get_physical_device_features2(phd.handle(), &mut f2) };
+        probe.runtime_descriptor_array == vk::TRUE
+            && probe.descriptor_binding_partially_bound == vk::TRUE
+            && probe.shader_sampled_image_array_non_uniform_indexing == vk::TRUE
+    };
+    if descriptor_indexing {
+        features12 = features12
+            .runtime_descriptor_array(true)
+            .descriptor_binding_partially_bound(true)
+            .shader_sampled_image_array_non_uniform_indexing(true);
+    }
 
     let create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(std::slice::from_ref(&queue_info))
@@ -136,11 +184,16 @@ pub fn create(phd: &PhysicalDevice) -> Result<VulkanDevice, DeviceError> {
             .map_err(|e| DeviceError::Create(format!("{e}")))?
     };
 
-    info!("vulkan logical device created (queue family {queue_family_index})");
+    info!(
+        "vulkan logical device created (queue family {queue_family_index}, \
+         descriptor_indexing={descriptor_indexing}, storage_writes={storage_writes})"
+    );
     Ok(VulkanDevice {
         device,
         queue_family_index,
         multiplane,
         instance: instance.clone(),
+        descriptor_indexing,
+        storage_writes,
     })
 }

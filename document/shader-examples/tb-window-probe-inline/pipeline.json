@@ -1,0 +1,25 @@
+{
+  "name": "tb-window-probe-inline",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../tb-window-probe/passes/backdrop.wgsl",
+      "output": "output",
+      "place": "compositor"
+    },
+    {
+      "name": "probe",
+      "shader": "../tb-window-probe/passes/probe.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "output": "output",
+      "requires": ["window_geometry", "window_textures", "composited_scene"],
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

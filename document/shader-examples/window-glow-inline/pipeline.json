@@ -1,0 +1,23 @@
+{
+  "name": "window-glow-inline",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../window-glow/passes/backdrop.wgsl",
+      "output": "output",
+      "place": "compositor"
+    },
+    {
+      "name": "glow",
+      "shader": "../window-glow/passes/glow.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "output": "output",
+      "requires": ["window_geometry", "composited_scene"],
+      "place": "compositor"
+    }
+  ]
+}

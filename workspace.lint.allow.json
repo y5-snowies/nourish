@@ -35,13 +35,13 @@
   "compositor.kernel/kernel.native/native.wire/wire.input/input.map": [
     "size"
   ],
-  "compositor.expansion/compositor.background/background.two/two.shader/shader.property": [
+  "compositor.expansion/compositor.pipeline/pipeline.bundle/bundle.property/property.base": [
     "size"
   ],
-  "compositor.expansion/compositor.background/background.two/two.shader/shader.load": [
+  "compositor.expansion/compositor.pipeline/pipeline.bundle/bundle.load/load.base": [
     "size"
   ],
-  "compositor.expansion/compositor.background/background.two/two.shader/shader.builtin": [
+  "compositor.expansion/compositor.pipeline/pipeline.bundle/bundle.builtin/builtin.base": [
     "size"
   ],
   "compositor.expansion/compositor.background/background.two/two.draw/draw.parallax": [
@@ -474,6 +474,18 @@
   "compositor.model/model.environment/environment.interface/interface.base": [
     "size"
   ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.import": [
+    "size"
+  ],
+  "compositor.kernel/kernel.vulkan/vulkan.memory/memory.external/external.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.chain": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.pane": [
+    "size"
+  ],
   "compositor.expansion/compositor.background/background.two/two.worker/worker.pace": [
     "size"
   ],
@@ -496,6 +508,81 @@
     "size"
   ],
   "compositor.expansion/compositor.y5/y5.picker/picker.scene/scene.tick": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.draw/draw.select": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.build/build.pipeline/pipeline.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.build/build.place/place.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.bundle/bundle.manifest/manifest.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.compile/compile.spirv/spirv.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.execute/execute.effect/effect.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.execute/execute.graph/graph.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.execute/execute.offscreen/offscreen.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.history": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.host/host.eval/eval.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.host/host.hit/hit.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.bundle/bundle.require/require.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.bundle/bundle.graph/graph.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.host/host.map/map.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.execute/execute.warpmap/warpmap.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.guide/guide.interface/interface.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.guide/guide.menu/menu.create": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.guide/guide.menu/menu.view": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.guide/guide.shader/shader.create": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.guide/guide.shader/shader.view": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.guide/guide.state/state.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.canvas/canvas.draw/draw.scene": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.compile/compile.decode/decode.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.abi/abi.worldset/worldset.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.abi/abi.seam/seam.base": [
     "size"
   ]
 }

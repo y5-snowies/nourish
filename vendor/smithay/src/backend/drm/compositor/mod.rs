@@ -1034,6 +1034,9 @@ bitflags::bitflags! {
         const ALLOW_CURSOR_PLANE_SCANOUT = 8;
         /// Return `EmptyFrame`, if only the cursor plane would have been updated
         const SKIP_CURSOR_ONLY_UPDATES = 16;
+        /// y5: draw every element the render loop reaches, even undamaged ones.
+        /// See `OutputDamageTracker::set_draw_all`.
+        const DRAW_ALL_ELEMENTS = 32;
         /// Allow to realize the frame by assigning elements on any plane
         const ALLOW_SCANOUT = Self::ALLOW_PRIMARY_PLANE_SCANOUT.bits() | Self::ALLOW_OVERLAY_PLANE_SCANOUT.bits() | Self::ALLOW_CURSOR_PLANE_SCANOUT.bits();
         /// Safe default set of flags
@@ -1696,6 +1699,9 @@ where
         R::TextureId: Texture + 'static,
     {
         let mut clear_color = clear_color.into();
+
+        self.damage_tracker
+            .set_draw_all(frame_flags.contains(FrameFlags::DRAW_ALL_ELEMENTS));
 
         if !self.surface.is_active() {
             return Err(RenderFrameErrorType::<A, F, R>::PrepareFrame(

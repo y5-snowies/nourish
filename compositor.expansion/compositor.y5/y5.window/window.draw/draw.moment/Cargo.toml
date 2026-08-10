@@ -1,0 +1,16 @@
+[package]
+name = "compositor_y5_window_draw_moment"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+smithay = { workspace = true }
+compositor_pipeline_abi_clock_base = { workspace = true }
+compositor_pipeline_abi_descriptor_base = { workspace = true }
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "One record and the single function that observes every edge on it. The alternative to its length is seven lifecycle hooks in six files, which is what this exists to avoid — and the per-moment rationale is what stops the next one being added as an eighth hook somewhere else."
+
+[lib]
+path = "lib.rs"

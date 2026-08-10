@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_pipeline_bundle_property_base = { workspace = true }
 compositor_model_environment_background_base = { workspace = true }
 compositor_model_environment_interface_base = { workspace = true }
 compositor_model_environment_background_preset = { workspace = true }

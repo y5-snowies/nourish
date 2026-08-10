@@ -1,3 +1,4 @@
+use compositor_pipeline_abi_push_base::base::{as_bytes, params_vec4, velocity_lane, SdrPush};
 use compositor_orchestration_draw_dispatch_frame::{NativeShaderPass, ParallaxUniforms, ShaderVariant};
 use std::borrow::Cow;
 use std::sync::{Arc, OnceLock};
@@ -43,16 +44,6 @@ fn builtin() -> &'static Builtin {
     })
 }
 
-/// SDR push — matches `parallax.wgsl`'s `Push` (engine 3×vec4 + params 4×vec4 =
-/// 112 bytes). `params` carries the shader-authored `@prop` values.
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct SdrPush {
-    res_zoom_time: [f32; 4],
-    pan_flow: [f32; 4],
-    lock_alpha: [f32; 4],
-    params: [[f32; 4]; 4],
-}
 
 /// HDR push — the SDR fields plus the HDR levels (8×vec4 = 128 bytes).
 #[repr(C)]
@@ -66,19 +57,7 @@ struct HdrPush {
     hdr: [f32; 4],
 }
 
-/// Split the 16-float params block into four `vec4`s (the std140 push layout).
-fn params_vec4(p: &[f32; 16]) -> [[f32; 4]; 4] {
-    [
-        [p[0], p[1], p[2], p[3]],
-        [p[4], p[5], p[6], p[7]],
-        [p[8], p[9], p[10], p[11]],
-        [p[12], p[13], p[14], p[15]],
-    ]
-}
 
-fn as_bytes<T: Copy>(v: &T) -> &[u8] {
-    unsafe { std::slice::from_raw_parts((v as *const T) as *const u8, std::mem::size_of::<T>()) }
-}
 
 /// Owns this frame's packed push payloads so the borrowed `NativeShaderPass`
 /// stays valid for the duration of the dispatch call. Build it in the render
@@ -92,23 +71,6 @@ pub struct ParallaxPass {
     optimized: bool,
 }
 
-/// The full-scale pan velocity (world px/s) of the packed push lane — one lane
-/// carries both components, so shaders decode with
-/// `unpack2x16snorm(bitcast<u32>(lock_alpha.w)) * VELOCITY_LANE_SCALE`.
-pub const VELOCITY_LANE_SCALE: f32 = 16384.0;
-
-/// Pack the smoothed pan velocity into one push lane as two snorm16 halves.
-/// One lane suffices because velocity only drives visual stretch — quantisation
-/// (~0.5 px/s) is far below anything visible. Lane z stays free for the sRGB
-/// flag. snorm (not f16) so the preview's capability-less naga accepts the
-/// decode.
-fn velocity_lane(v: [f32; 2]) -> f32 {
-    let q = |x: f32| -> u32 {
-        let n = (x / VELOCITY_LANE_SCALE).clamp(-1.0, 1.0);
-        ((n * 32767.0).round() as i32 as u32) & 0xffff
-    };
-    f32::from_bits(q(v[0]) | (q(v[1]) << 16))
-}
 
 impl ParallaxPass {
     /// Pack both variants' push constants from the renderer-agnostic uniforms.
@@ -147,7 +109,7 @@ impl ParallaxPass {
     /// this toggle exists for do not drive HDR output. Because the ids differ the
     /// renderer's `(id, format)` pipeline cache holds both, so toggling costs one
     /// pipeline build the first time and nothing after.
-    pub fn pass(&self) -> NativeShaderPass<'_> {
+    pub fn pass(&self) -> NativeShaderPass {
         let b = builtin();
         let (sdr_id, sdr_spv) = if self.optimized {
             (OPT_ID, &b.opt)
@@ -161,7 +123,7 @@ impl ParallaxPass {
                 vert_spv: None,
                 vert_entry: Arc::clone(&b.vs),
                 frag_entry: Arc::clone(&b.fs),
-                push: Cow::Borrowed(as_bytes(&self.sdr)),
+                push: as_bytes(&self.sdr).into(),
             },
             hdr: Some(ShaderVariant {
                 id: HDR_ID,
@@ -169,23 +131,10 @@ impl ParallaxPass {
                 vert_spv: None,
                 vert_entry: Arc::clone(&b.vs),
                 frag_entry: Arc::clone(&b.fs),
-                push: Cow::Borrowed(as_bytes(&self.hdr)),
+                push: as_bytes(&self.hdr).into(),
             }),
+            pipeline: None,
         }
     }
 }
 
-/// Pack the standard 112-byte engine push (`res_zoom_time` / `pan_flow` /
-/// `lock_alpha` + the 4×vec4 `params` block) for a runtime-loaded WGSL/GLSL
-/// background shader, which uses the same `Push` layout as `parallax.wgsl`.
-pub fn engine_push(u: &ParallaxUniforms, params: &[f32; 16]) -> [u8; 112] {
-    let p = SdrPush {
-        res_zoom_time: [u.resolution[0], u.resolution[1], u.zoom, u.time],
-        pan_flow: [u.pan[0], u.pan[1], u.flow_offset[0], u.flow_offset[1]],
-        lock_alpha: [u.lock_amount, u.alpha, u.srgb, velocity_lane(u.velocity)],
-        params: params_vec4(params),
-    };
-    let mut out = [0u8; 112];
-    out.copy_from_slice(as_bytes(&p));
-    out
-}

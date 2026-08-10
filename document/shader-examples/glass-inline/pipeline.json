@@ -1,0 +1,24 @@
+{
+  "name": "glass-inline",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../glass/passes/backdrop.wgsl",
+      "output": "output",
+      "place": "compositor"
+    },
+    {
+      "name": "glass",
+      "shader": "../glass/passes/glass.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "content": "content",
+        "history": "history"
+      },
+      "output": "output",
+      "requires": ["world_geometry", "world_textures", "composited_scene", "previous_frame"],
+      "place": "compositor"
+    }
+  ]
+}

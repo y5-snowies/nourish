@@ -1,0 +1,15 @@
+{
+  "name": "tb-stage-5b-inline",
+  "version": 1,
+  "passes": [
+    {
+      "name": "thumbs",
+      "shader": "../tb-stage-5b/passes/thumbs.wgsl",
+      "output": "output",
+      "requires": ["window_geometry", "window_textures"],
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

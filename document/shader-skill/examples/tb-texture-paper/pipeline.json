@@ -1,0 +1,16 @@
+{
+  "name": "tb-texture-paper",
+  "version": 1,
+  "textures": {
+    "paper": { "file": "paper.png", "srgb": false }
+  },
+  "passes": [
+    {
+      "name": "paper",
+      "shader": "passes/paper.wgsl",
+      "inputs": { "paper": "paper" },
+      "output": "output",
+      "requires": ["pointer_state"]
+    }
+  ]
+}

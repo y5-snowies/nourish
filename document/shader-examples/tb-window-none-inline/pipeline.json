@@ -1,0 +1,16 @@
+{
+  "name": "tb-window-none-inline",
+  "version": 1,
+  "windows": "pipeline",
+  "passes": [
+    {
+      "name": "void",
+      "shader": "../tb-window-none/passes/void.wgsl",
+      "output": "output",
+      "requires": ["window_geometry"],
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

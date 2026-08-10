@@ -70,7 +70,16 @@ pub(crate) fn import_shm_buffer(
 
     let cache = compositor_kernel_vulkan_texture_cache_base::cache::for_surface(surface);
     let id = r.context_id_value();
-    // Reuse only if a cached texture matches this buffer's size AND format.
+    // Reuse only if a cached texture matches this buffer's size AND format AND is
+    // shareable exactly when the active bundle currently needs it to be.
+    //
+    // That last clause is what makes the shareability gate safe to change at
+    // runtime. Shareability is fixed when the image is ALLOCATED, so without it a
+    // bundle selected mid-session would find every existing surface unexportable
+    // and one deselected would leave every surface paying for an export nothing
+    // reads — unreliable in both directions. Failing the reuse test instead drops
+    // the stale image and reallocates it correctly on the surface's next commit.
+    let want_shared = r.wants_shared_shm();
     let cached = cache
         .lock()
         .unwrap()
@@ -80,6 +89,7 @@ pub(crate) fn import_shm_buffer(
             t.width() == width.max(0) as u32
                 && t.height() == height.max(0) as u32
                 && t.format() == Some(fourcc)
+                && t.shared.is_some() == want_shared
         });
 
     let mut tex = if let Some(cached) = cached {

@@ -1,0 +1,17 @@
+{
+  "name": "mp-parallax",
+  "version": 1,
+  "category": "Multipass",
+  "modules": [
+    "lib/parallax.wgsl"
+  ],
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "passes/backdrop.wgsl",
+      "output": "output"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "on-resize"
+}

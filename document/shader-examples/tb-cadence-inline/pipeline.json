@@ -1,0 +1,30 @@
+{
+  "name": "tb-cadence-inline",
+  "version": 1,
+  "targets": {
+    "slow": {
+      "format": "rgba16f",
+      "scale": 1.0
+    }
+  },
+  "passes": [
+    {
+      "name": "slow",
+      "shader": "../tb-cadence/passes/slow.wgsl",
+      "output": "slow",
+      "cadence": 8,
+      "place": "compositor"
+    },
+    {
+      "name": "out",
+      "shader": "../tb-cadence/passes/out.wgsl",
+      "inputs": {
+        "held": "slow"
+      },
+      "output": "output",
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

@@ -1,0 +1,22 @@
+{
+  "name": "tb-texture-grade",
+  "version": 1,
+  "textures": {
+    "grade": { "file": "grade.png", "srgb": false }
+  },
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "passes/backdrop.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "grade",
+      "shader": "passes/grade.wgsl",
+      "when": "after-content",
+      "inputs": { "scene": "content", "lut": "grade" },
+      "requires": ["composited_scene"],
+      "output": "output"
+    }
+  ]
+}

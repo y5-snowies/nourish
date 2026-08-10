@@ -1,0 +1,26 @@
+{
+  "name": "tb-parallax-lights",
+  "version": 1,
+  "modules": [
+    "lib/lights.wgsl"
+  ],
+  "passes": [
+    {
+      "name": "parallax",
+      "shader": "passes/parallax.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "lit",
+      "shader": "passes/lit.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "output": "output",
+      "requires": ["window_geometry", "composited_scene"]
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

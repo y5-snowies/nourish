@@ -1,0 +1,54 @@
+{
+  "name": "storm-forest",
+  "version": 1,
+
+  "windows": "world",
+  "decorations": "off",
+
+  "modules": [
+    "lib/quake.wgsl",
+    "lib/field.wgsl"
+  ],
+
+  "targets": {
+    "forest_a": { "format": "rgba16f", "scale": 0.5 },
+    "forest_b": { "format": "rgba16f", "scale": 0.5 },
+    "forest_c": { "format": "rgba16f", "scale": 0.5 }
+  },
+
+  "passes": [
+    {
+      "name": "forest",
+      "shader": "passes/forest.wgsl",
+      "output": "forest_a"
+    },
+    {
+      "name": "blur_h",
+      "shader": "passes/blur.wgsl",
+      "inputs": { "src": "forest_a" },
+      "output": "forest_b",
+      "defines": { "HORIZONTAL": "true" }
+    },
+    {
+      "name": "blur_v",
+      "shader": "passes/blur.wgsl",
+      "inputs": { "src": "forest_b" },
+      "output": "forest_c"
+    },
+    {
+      "name": "band",
+      "shader": "passes/band.wgsl",
+      "inputs": { "forest": "forest_c" },
+      "output": "output",
+      "requires": ["window_geometry", "window_textures", "window_times"]
+    },
+    {
+      "name": "smear",
+      "shader": "passes/smear.wgsl",
+      "when": "after-content",
+      "inputs": { "cur": "content", "prev": "history" },
+      "output": "output",
+      "requires": ["composited_scene", "previous_frame"]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+[package]
+name = "compositor_background_two_worker_history"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+ash.workspace = true
+compositor_kernel_vulkan_device_factory_base.workspace = true
+compositor_pipeline_execute_effect_base.workspace = true
+compositor_kernel_vulkan_pipeline_composite_base.workspace = true
+compositor_pipeline_execute_offscreen_base.workspace = true
+compositor_background_two_worker_device.workspace = true
+
+[lib]
+path = "lib.rs"

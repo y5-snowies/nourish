@@ -1,0 +1,23 @@
+{
+  "name": "vignette-inline",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../vignette/passes/backdrop.wgsl",
+      "output": "output",
+      "place": "compositor"
+    },
+    {
+      "name": "vignette",
+      "shader": "../vignette/passes/vignette.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "requires": ["composited_scene"],
+      "output": "output",
+      "place": "compositor"
+    }
+  ]
+}

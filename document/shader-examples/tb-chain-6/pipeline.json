@@ -1,0 +1,76 @@
+{
+  "name": "tb-chain-6",
+  "version": 1,
+  "targets": {
+    "a": {
+      "format": "rgba16f",
+      "scale": 1.0
+    },
+    "b": {
+      "format": "rgba16f",
+      "scale": 0.5
+    },
+    "c": {
+      "format": "rgba16f",
+      "scale": 0.5
+    },
+    "d": {
+      "format": "rgba16f",
+      "scale": 0.25
+    },
+    "e": {
+      "format": "rgba16f",
+      "scale": 0.25
+    }
+  },
+  "passes": [
+    {
+      "name": "seed",
+      "shader": "passes/seed.wgsl",
+      "output": "a"
+    },
+    {
+      "name": "down1",
+      "shader": "passes/blit.wgsl",
+      "inputs": {
+        "src": "a"
+      },
+      "output": "b"
+    },
+    {
+      "name": "warp",
+      "shader": "passes/warp.wgsl",
+      "inputs": {
+        "src": "b"
+      },
+      "output": "c"
+    },
+    {
+      "name": "down2",
+      "shader": "passes/blit.wgsl",
+      "inputs": {
+        "src": "c"
+      },
+      "output": "d"
+    },
+    {
+      "name": "warp2",
+      "shader": "passes/warp.wgsl",
+      "inputs": {
+        "src": "d"
+      },
+      "output": "e"
+    },
+    {
+      "name": "join",
+      "shader": "passes/join.wgsl",
+      "inputs": {
+        "base": "a",
+        "small": "e"
+      },
+      "output": "output"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

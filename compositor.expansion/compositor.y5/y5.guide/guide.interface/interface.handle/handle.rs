@@ -17,6 +17,12 @@ pub fn delegate(state: &mut Loop, message: GuideMessage) {
             open_settings(state);
         }
         GuideMessage::OpenHelp => base::open_help(state),
+        // The editor is meant to be used WITH the desktop it edits, so unlike the
+        // other two entries it is not a modal takeover — dismiss only the menu.
+        GuideMessage::OpenShader => {
+            base::close(state);
+            base::open_shader(state);
+        }
         // Surface-internal (drives the menu's own caption) — never forwarded.
         GuideMessage::Hover(_) => {}
     }

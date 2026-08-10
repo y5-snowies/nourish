@@ -1,0 +1,28 @@
+{
+  "name": "tb-parallax-lights-inline",
+  "version": 1,
+  "modules": [
+    "../tb-parallax-lights/lib/lights.wgsl"
+  ],
+  "passes": [
+    {
+      "name": "parallax",
+      "shader": "../tb-parallax-lights/passes/parallax.wgsl",
+      "output": "output",
+      "place": "compositor"
+    },
+    {
+      "name": "lit",
+      "shader": "../tb-parallax-lights/passes/lit.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "output": "output",
+      "requires": ["window_geometry", "composited_scene"],
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

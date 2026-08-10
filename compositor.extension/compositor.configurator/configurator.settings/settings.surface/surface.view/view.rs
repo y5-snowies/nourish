@@ -12,7 +12,7 @@ use compositor_configurator_network_backend_base::base::WifiSnapshot;
 use compositor_configurator_bluetooth_backend_base::base::BtSnapshot;
 use compositor_configurator_hardware_gpu_base::base::{render_devices, RenderDevice};
 use compositor_configurator_settings_surface_chrome::chrome;
-use compositor_configurator_settings_surface_message::message::{Applied, SettingsMessage, ShaderProp, Tab};
+use compositor_configurator_settings_surface_message::message::{Applied, SettingsMessage, ShaderEntry, ShaderFacts, ShaderProp, Tab};
 use iced_core::{Element, Theme};
 
 pub struct Settings {
@@ -90,15 +90,22 @@ pub struct Settings {
     /// Live frames-per-second (pushed by the embed), shown on the Display panel.
     pub fps: u32,
     /// Available background-shader bundle names (pushed in via `SyncShaders`).
-    pub shader_options: Vec<String>,
+    pub shader_options: Vec<ShaderEntry>,
     /// The active world's current shader override (`None` = default/built-in).
     pub shader_current: Option<String>,
+    /// Which category the picker is filtered to (UI-local); `None` = all.
+    pub shader_category: Option<String>,
     /// The selected shader's editable variables (pushed via `SyncShaderProps`).
     pub shader_props: Vec<ShaderProp>,
-    /// The selected shader's WGSL source for the live preview.
-    pub preview_source: String,
+    /// The selected shader's WGSL source for the live preview. `None` = this
+    /// selection has none (see `SettingsMessage::SyncShaderPreview`).
+    pub preview_source: Option<String>,
+    /// What the selected shader declared; `None` for the built-in / single-pass.
+    pub shader_facts: Option<ShaderFacts>,
     /// The selected shader's compile error (active renderer), if it failed.
     pub shader_status: Option<String>,
+    /// See `SettingsMessage::SyncShaderNotice`.
+    pub shader_notice: Option<String>,
     /// The active world's per-axis background pan inversion (pushed via
     /// `SyncWorldInvert`); mirrored on toggle so the switches reflect immediately.
     pub invert_pan_x: bool,
@@ -216,9 +223,12 @@ impl Settings {
             fps: 0,
             shader_options: Vec::new(),
             shader_current: None,
+            shader_category: None,
             shader_props: Vec::new(),
-            preview_source: String::new(),
+            preview_source: Some(String::new()),
+            shader_facts: None,
             shader_status: None,
+            shader_notice: None,
             invert_pan_x: false,
             invert_pan_y: false,
             srgb: false,
@@ -417,9 +427,12 @@ impl IcedUi for Settings {
             SettingsMessage::SetWorldShader(s) => {
                 self.shader_current = if s.is_empty() { None } else { Some(s) };
             }
+            SettingsMessage::SelectShaderCategory(c) => self.shader_category = c,
             SettingsMessage::SyncShaderProps(props) => self.shader_props = props,
             SettingsMessage::SyncShaderPreview(src) => self.preview_source = src,
+            SettingsMessage::SyncShaderFacts(f) => self.shader_facts = f,
             SettingsMessage::SyncShaderStatus(status) => self.shader_status = status,
+            SettingsMessage::SyncShaderNotice(notice) => self.shader_notice = notice,
             // Pan-inversion: pushed state, plus the UI mirror of each toggle (both
             // also forwarded to persist + flip the live background).
             SettingsMessage::SyncWorldInvert(x, y) => { self.invert_pan_x = x; self.invert_pan_y = y; }
@@ -569,9 +582,12 @@ impl IcedUi for Settings {
             self.protocol_foreign_all_worlds,
             &self.shader_options,
             self.shader_current.as_deref(),
+            self.shader_category.as_deref(),
             &self.shader_props,
-            &self.preview_source,
+            self.preview_source.as_deref(),
+            self.shader_facts.as_ref(),
             self.shader_status.as_deref(),
+            self.shader_notice.as_deref(),
             self.invert_pan_x,
             self.invert_pan_y,
             self.srgb,

@@ -15,6 +15,7 @@ use smithay::output::Output;
 use smithay::reexports::wayland_server::DisplayHandle;
 use smithay::utils::{Physical, Rectangle, Scale, Size, Transform};
 use compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer;
+use compositor_orchestration_draw_dispatch_frame::SceneDispatch;
 use compositor_orchestration_draw_scene_frame::scene::Scene;
 use compositor_orchestration_core_state_base::Loop;
 use compositor_y5_graphic_capture_registry::{CaptureRegistry, OutputId};
@@ -121,6 +122,58 @@ fn compose(
     let tap_post_scene =
         frame_plan.has_tap(POST_SCENE) && context.tap_subscriptions.is_active(POST_SCENE);
 
+    // The drawn world's facts onto the renderer, before anything composes. Same
+    // resolution, gating and reasoning as the native path — see `render.execute`.
+    {
+        let drawn = match picker_active {
+            true => compositor_y5_picker_system_base::base::PICKER_WORLD,
+            false => state.inner.worlds.spawn_target(),
+        };
+        let suppressed = picker_active || render_lock || state.inner.overview().visible;
+        let known = state.inner.worlds.contains(drawn);
+        let facts = match known {
+            true => compositor_pipeline_world_system_base::base::facts(
+                state.inner.worlds.get(drawn).storage(),
+            ),
+            false => Default::default(),
+        };
+        // See the native path: the renderer's per-output resources and the world's
+        // copy of what they produced are keyed by the same output.
+        let out_key: std::sync::Arc<str> =
+            std::sync::Arc::from(state.inner.render_output.clone().unwrap_or_default().as_str());
+        if let Some(vk) = context.vulkan.as_mut() {
+            vk.set_render_output(&out_key);
+            vk.reclaim_removed_outputs();
+            vk.set_pipeline_facts(facts);
+        }
+        let produced = context.vulkan.as_ref().is_some_and(|vk| {
+            let (c, w) = vk.shared_bands();
+            vk.warp_grid().is_some() || c.is_some() || w.is_some()
+        });
+        if known
+            && (facts.active()
+                || produced
+                || compositor_pipeline_world_system_base::base::holds(
+                    state.inner.worlds.get(drawn).storage(),
+                ))
+        {
+                // One handover, for THIS output. The renderer produced all of it in this
+            // pass, for this output, and splitting it into four keyed writes was four
+            // chances to key one of them differently.
+            let frame = compositor_pipeline_world_system_base::base::OutputFrame {
+                world_set: context.vulkan.as_mut().and_then(|vk| vk.take_world_set()),
+                warp_grid: context.vulkan.as_ref().and_then(|vk| vk.warp_grid()),
+                content_share: context.vulkan.as_ref().and_then(|vk| vk.shared_bands().0),
+                windows_share: context.vulkan.as_ref().and_then(|vk| vk.shared_bands().1),
+            };
+            compositor_pipeline_world_system_base::base::publish_frame(
+                state.inner.worlds.get_mut(drawn).storage_mut(),
+                &out_key,
+                frame,
+            );
+        }
+    }
+
     let mut visible_window: Vec<Window> = Vec::new();
     if render_scene {
         // GLES prepare phase (builds iced/bevy/parallax resources) — always on
@@ -213,8 +266,20 @@ fn compose(
                             let scale = Scale::from(1.0);
                             // Scene elements are front-to-back (smithay
                             // convention); draw back-to-front so the background
-                            // sits underneath.
-                            for element in scene.Element.iter().rev() {
+                            // sits underneath. Tag each element's space (lockstep
+                            // `scene.meta`) before drawing so the Vulkan renderer
+                            // bands world content (windows + iced-world) into
+                            // `content` for after-content passes (vignette/glow)
+                            // and restricts AA to it — mirrors the udev path
+                            // (`native.render` `VkOutput`). Without this every
+                            // element defaults to `Screen`, so windows draw on top
+                            // of the after-content pass instead of under it.
+                            for (element, meta) in
+                                scene.Element.iter().zip(scene.meta.iter()).rev()
+                            {
+                                <VulkanRenderer as SceneDispatch>::set_element_meta(
+                                    &mut frame, *meta,
+                                );
                                 let _ = element.draw(
                                     &mut frame,
                                     element.src(),
@@ -470,6 +535,21 @@ fn compose(
             let mut frame = gles_renderer
                 .render(&mut gles_framebuffer, present_size, output_transform)
                 .unwrap();
+
+            // OPAQUE FIRST. This branch is the lock FADE (`Locked { pending }`),
+            // the one plan that runs the Scene pass and the Lock pass in the same
+            // frame — the scene renders so the lock has a desktop to capture. The
+            // lock scene deliberately carries no background of its own while
+            // pending, and this pass does not clear, so without this the world the
+            // scene just presented stayed on screen underneath: the lock UI faded
+            // in over live windows.
+            //
+            // World content must never reach the lock screen, transiently or
+            // otherwise, so the framebuffer is cleared before the lock draws.
+            let _ = frame.clear(
+                smithay::backend::renderer::Color32F::new(0.0, 0.0, 0.0, 1.0),
+                &[present_full],
+            );
 
             let scale = Scale::from(1.0);
             // Stretch the logical lock render up to the physical framebuffer (same reason as

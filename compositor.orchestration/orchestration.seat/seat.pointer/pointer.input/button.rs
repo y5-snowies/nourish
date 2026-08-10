@@ -8,6 +8,16 @@ use compositor_y5_surface_interface_base::hit::surface_under_filtered;
 use compositor_y5_window_interface_draw::visible::DrawWindow;
 
 pub fn button<I: InputBackend>(event: &<I as InputBackend>::PointerButtonEvent, _loop: &mut Loop) {
+    // The pointer descriptor, recorded FIRST — before every early return below.
+    // A release swallowed by the overview or by a popup grab is still a release,
+    // and a bundle left holding a button that was let go would stay in its
+    // pressed state until the next click somewhere it happened to be observed.
+    compositor_orchestration_seat_pointer_publish::publish::note_button(
+        event.button_code(),
+        event.state() == ButtonState::Pressed,
+        compositor_pipeline_abi_clock_base::base::now(),
+    );
+
     // Overview overlay open → the overview layer handles + swallows the click
     // (menu bar / grid cell / globe); windows never receive it.
     if compositor_y5_overview_input_pointer::pointer::button::<I>(event, _loop) {

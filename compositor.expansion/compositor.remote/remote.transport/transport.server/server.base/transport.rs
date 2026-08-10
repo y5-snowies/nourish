@@ -89,6 +89,7 @@ fn serve(
             .add_service(compositor_remote_message_client_base::bind::navigator::navigator_server::NavigatorServer::new(service.clone()))
             .add_service(compositor_remote_message_client_base::bind::debug::debug_server::DebugServer::new(service.clone()))
             .add_service(compositor_remote_message_client_base::bind::selection::selection_server::SelectionServer::new(service.clone()))
+            .add_service(compositor_remote_message_client_base::bind::shader::shader_server::ShaderServer::new(service.clone()))
             .serve_with_incoming_shutdown(stream, async { let _ = stop_rx.await; })
             .await;
     });

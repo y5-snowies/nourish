@@ -1,0 +1,22 @@
+[package]
+name = "compositor_remote_client_handle_shader"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_pipeline_abi_seam_base = { workspace = true }
+compositor_orchestration_core_state_base = { workspace = true }
+compositor_remote_message_client_base = { workspace = true }
+compositor_orchestration_draw_dispatch_frame = { workspace = true }
+compositor_background_two_storage_base = { workspace = true }
+compositor_pipeline_bundle_embed_base = { workspace = true }
+compositor_pipeline_bundle_locate_base = { workspace = true }
+compositor_pipeline_bundle_load_base = { workspace = true }
+compositor_support_system_persist_mark_base = { workspace = true }
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "Four handler bodies that must stay together: they are the one place the world's background slot is written from outside the settings panel, and the rationale for the three-field write (selection, instance, mark) is what stops the next handler doing two of the three."
+
+[lib]
+path = "lib.rs"

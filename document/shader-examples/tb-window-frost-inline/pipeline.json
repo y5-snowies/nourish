@@ -1,0 +1,27 @@
+{
+  "name": "tb-window-frost-inline",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../tb-window-frost/passes/backdrop.wgsl",
+      "output": "output",
+      "place": "compositor"
+    },
+    {
+      "name": "frost",
+      "shader": "../tb-window-frost/passes/frost.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content",
+        "win": "windows"
+      },
+      "output": "output",
+      "requires": ["window_geometry", "composited_scene", "window_layer"],
+      "place": "compositor"
+    }
+  ],
+  "windows": "world",
+  "decorations": "off",
+  "letterbox": "always"
+}

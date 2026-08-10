@@ -1,0 +1,37 @@
+[package]
+name = "compositor_pipeline_build_pipeline_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_pipeline_abi_seam_base = { workspace = true }
+compositor_pipeline_abi_worldset_base = { workspace = true }
+compositor_pipeline_execute_warpmap_base = { workspace = true }
+compositor_pipeline_execute_graph_base = { workspace = true }
+compositor_pipeline_host_hit_base.workspace = true
+compositor_orchestration_draw_dispatch_frame.workspace = true
+compositor_pipeline_bundle_embed_base = { workspace = true }
+compositor_pipeline_bundle_manifest_base = { workspace = true }
+compositor_pipeline_bundle_graph_base = { workspace = true }
+compositor_pipeline_build_place_base = { workspace = true }
+compositor_pipeline_compile_compose_base = { workspace = true }
+compositor_pipeline_compile_decode_base = { workspace = true }
+compositor_pipeline_bundle_property_base = { workspace = true }
+compositor_pipeline_compile_spirv_base = { workspace = true }
+
+[dev-dependencies]
+# `tests/union.rs` checks that the union this crate compiles and the union
+# `shader.load` reads back off disk are the same list in the same order, and that
+# the warp resolves its named props from the LIVE array (`draw.select`).
+compositor_pipeline_bundle_load_base = { workspace = true }
+compositor_pipeline_build_seam_base = { workspace = true }
+# The category vocabulary the picker groups by (`USER_MARK`).
+compositor_pipeline_bundle_builtin_base = { workspace = true }
+# `tests/texture.rs` builds real PNGs rather than checking in fixture files, so
+# the bytes a case depends on are visible in the case.
+image = { workspace = true }
+compositor_pipeline_bundle_graph_base = { workspace = true }
+compositor_pipeline_compile_decode_base = { workspace = true }
+
+[lib]
+path = "lib.rs"

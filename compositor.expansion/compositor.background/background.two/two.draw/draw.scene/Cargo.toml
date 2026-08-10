@@ -5,6 +5,9 @@ edition = "2024"
 
 
 [dependencies]
+compositor_pipeline_abi_worldset_base = { workspace = true }
+compositor_pipeline_world_system_base = { workspace = true }
+compositor_pipeline_build_seam_base = { workspace = true }
 compositor_y5_lock_system_base = { workspace = true }
 compositor_background_three_system_base = { workspace = true }
 compositor_background_two_storage_base = { workspace = true }

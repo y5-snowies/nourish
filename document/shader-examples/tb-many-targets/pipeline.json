@@ -1,0 +1,112 @@
+{
+  "name": "tb-many-targets",
+  "version": 1,
+  "targets": {
+    "t0": {
+      "format": "rgba8",
+      "scale": 1.0
+    },
+    "t1": {
+      "format": "rgba16f",
+      "scale": 0.5
+    },
+    "t2": {
+      "format": "rgba16f",
+      "scale": 0.5
+    },
+    "t3": {
+      "format": "rgba8",
+      "scale": 0.25
+    },
+    "t4": {
+      "format": "rgba16f",
+      "scale": 0.25
+    },
+    "t5": {
+      "format": "rgba16f",
+      "scale": 0.125
+    },
+    "t6": {
+      "format": "rgba32f",
+      "scale": 0.125
+    },
+    "t7": {
+      "format": "rgba16f",
+      "scale": 0.5
+    }
+  },
+  "passes": [
+    {
+      "name": "s0",
+      "shader": "passes/seed.wgsl",
+      "output": "t0"
+    },
+    {
+      "name": "s1",
+      "shader": "passes/step.wgsl",
+      "inputs": {
+        "src": "t0"
+      },
+      "output": "t1"
+    },
+    {
+      "name": "s2",
+      "shader": "passes/step.wgsl",
+      "inputs": {
+        "src": "t1"
+      },
+      "output": "t2"
+    },
+    {
+      "name": "s3",
+      "shader": "passes/step.wgsl",
+      "inputs": {
+        "src": "t2"
+      },
+      "output": "t3"
+    },
+    {
+      "name": "s4",
+      "shader": "passes/step.wgsl",
+      "inputs": {
+        "src": "t3"
+      },
+      "output": "t4"
+    },
+    {
+      "name": "s5",
+      "shader": "passes/step.wgsl",
+      "inputs": {
+        "src": "t4"
+      },
+      "output": "t5"
+    },
+    {
+      "name": "s6",
+      "shader": "passes/step.wgsl",
+      "inputs": {
+        "src": "t5"
+      },
+      "output": "t6"
+    },
+    {
+      "name": "s7",
+      "shader": "passes/step.wgsl",
+      "inputs": {
+        "src": "t6"
+      },
+      "output": "t7"
+    },
+    {
+      "name": "fin",
+      "shader": "passes/fin.wgsl",
+      "inputs": {
+        "base": "t0",
+        "tip": "t7"
+      },
+      "output": "output"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

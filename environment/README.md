@@ -17,6 +17,9 @@ environment/                  # host build / run / release (no container)
   check.sh            # workspace lint/conformance gate
   compositor-env.sh   # turn COMPOSITOR_* knobs into the settings.json the binary reads
 
+document/shader-examples/     # the example shader bundles, and their installer
+  install-shaders.sh  # copy the bundles beside it into <data>/background/shader  [--dry-run] [--prune] [BUNDLE ...]
+
 environment.container/        # the containerized dev loop under nested Wayland
   Containerfile       # Fedora-based dev image (stable cargo/rust, Wayland + GPU stack)
   container.env       # env vars for the containerized run (NVIDIA path)
@@ -84,6 +87,9 @@ delegates to it.
 ./build.sh winit release   # winit release
 
 # Dev loop on the HOST (no container) — builds via build.sh then execs the binary.
+../document/shader-examples/install-shaders.sh             # refresh every example bundle in the data dir
+../document/shader-examples/install-shaders.sh --dry-run   # ...or just show what has drifted
+../document/shader-examples/install-shaders.sh tb-crt-spin # ...or one bundle
 ./run-host.sh                       # winit debug, nested in your current session
 ./run-host.sh --it                  # ...but prompt for every env var first
 COMPOSITOR_RENDERER=gles ./run-host.sh   # force GLES (Vulkan is the default)
