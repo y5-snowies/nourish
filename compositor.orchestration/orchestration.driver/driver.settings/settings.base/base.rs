@@ -35,6 +35,11 @@ pub struct SettingsState {
     /// panel restores the tab the user left on. Stored as the `Tab::to_index`
     /// value (orchestration can't name the configurator `Tab`); 0 = Display.
     pub tab: u8,
+    /// Last selected shader-picker category, kept for the same reason and in the
+    /// same place: reopening onto the World tab should land where it was left,
+    /// and the picker is long enough that "All" every time means scrolling back
+    /// to the same group. `None` = All.
+    pub shader_category: Option<String>,
     /// Pen-tab click-to-bind capture: what we're waiting for (armed by the settings
     /// handler), the control a captured key binds to, and the raw captured result
     /// (the reconciler applies it to the live pen config, persists, and syncs the UI).

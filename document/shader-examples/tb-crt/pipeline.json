@@ -1,0 +1,23 @@
+{
+  "name": "tb-crt",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "passes/backdrop.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "crt",
+      "shader": "passes/crt.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "requires": ["composited_scene"],
+      "output": "output"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

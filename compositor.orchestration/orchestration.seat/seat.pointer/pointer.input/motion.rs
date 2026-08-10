@@ -36,7 +36,15 @@ pub fn absolute<I: InputBackend>(
     // physical → world through THAT pane's camera/region, so input follows the
     // pane the cursor is over, not the keyboard-active pane.
     let ctx = _loop.pointer_context(position_screen);
-    let t: Transform = (position_screen, ctx).into();
+    // Two values leave this point and they are NOT the same thing:
+    //   `position_screen`     — the hardware position, in physical pixels;
+    //   `position_normalized` — where that lands in the y5 world.
+    // A pointer warp changes only the second. The shader displaced where things
+    // LOOK, not where the hand is, so the screen point stays true (the pane
+    // resolution above, the separator/floating drag below, and the cursor sprite
+    // all depend on it) and the world derivation goes through the warp.
+    publish_pointer(&ctx, position_screen);
+    let t: Transform = (warp_screen(_loop, &ctx, position_screen), ctx).into();
     let position_normalized = &t.into_storage_point_f64();
 
     // Separator / floating-pane drag in progress → apply it and move the cursor,
@@ -236,6 +244,12 @@ pub fn relative<I: InputBackend>(
 
     // Reconcile final world position and update the physical accumulator
     // so future deltas accumulate from the right place.
+    //
+    // A teleport crossing swaps the projection context along with the position, so
+    // the context matching where the accumulator ENDED UP is carried out of the
+    // branch — the warp below re-derives from the final accumulator, and doing
+    // that through the pre-teleport context would land on the monitor just left.
+    let mut eff_ctx = ctx;
     let final_world: Point<f64, Logical> = if was_constrained {
         // Reverse-project constrained world back to physical, write to accumulator.
         let final_phys: Point<f64, Physical> = {
@@ -256,6 +270,7 @@ pub fn relative<I: InputBackend>(
             Some((entry, new_ctx)) => {
                 _loop.inner.pointer_mut().motion.x = entry.x;
                 _loop.inner.pointer_mut().motion.y = entry.y;
+                eff_ctx = new_ctx;
                 let t: Transform = (entry, new_ctx).into();
                 t.into_storage_point_f64()
             }
@@ -299,8 +314,36 @@ pub fn relative<I: InputBackend>(
         _loop.inner.output_views_mut().set_current(&co);
     }
 
+    // The same two values as in `absolute`, and the same split. `position_screen`
+    // is the hardware accumulator and stays TRUE — everything above (constraint,
+    // teleport, clamp) reasons in that space, and nothing writes a corrected
+    // value back into it: doing so would make the next event's input this
+    // event's output and pin the cursor in a corner within a few events.
     let position_screen = _loop.inner.pointer_mut().motion;
-    let position_normalized = final_world;
+    // Unconditional, and ahead of the warp split below — the `else` branch does not
+    // go through `warp_screen`, which is exactly how this came to be published on
+    // winit and not on udev.
+    publish_pointer(
+        &eff_ctx,
+        Point::<f64, Physical>::from((position_screen.x, position_screen.y)),
+    );
+    // Only the WORLD point is warped. Re-derived from the final accumulator
+    // rather than from `final_world`, because that is the value the constraint
+    // and teleport branches agreed on and it is already in true space.
+    let position_normalized = if warp_active(_loop) {
+        let pt = warp_screen(_loop, &eff_ctx, Point::<f64, Physical>::from((
+            position_screen.x,
+            position_screen.y,
+        )));
+        let t: Transform = (pt, eff_ctx).into();
+        t.into_storage_point_f64()
+    } else {
+        // This branch skips `warp_screen` (the world point is already derived), so
+        // it has to withdraw the published correction itself — otherwise the last
+        // warped frame's position outlives the warp. See `warp_screen`.
+        compositor_orchestration_seat_pointer_publish::publish::set_true_screen(None);
+        final_world
+    };
 
     // Apply motion only if this is equals false
     // !was_constrained || final_world != previous_world a
@@ -445,4 +488,69 @@ pub fn relative<I: InputBackend>(
         (dt, dt_unaccelerated),
         was_constrained_locked,
     );
+}
+
+/// Whether the active bundle's warp applies to this event. Off for the picker,
+/// the lock and the overview — see `pointer.warp`.
+fn warp_active(state: &Loop) -> bool {
+    compositor_orchestration_seat_pointer_warp::warp::applies(state)
+}
+
+/// Correct a physical screen position through the active warp, and record the
+/// true one for the consumers that must not be corrected (the cursor sprite, the
+/// canvas solid box). Identity, and free, when the warp does not apply.
+///
+/// It publishes on BOTH paths. `None` is what tells those consumers the warp has
+/// stopped applying — a bundle switch, the picker, the lock — and without it they
+/// would go on correcting for a displacement nobody is drawing.
+/// Publish where the hand is, for `pointer_state`.
+///
+/// Screen UV, because this is the one place with the screen size in hand and the
+/// consumers do not share an extent — the worker renders per pane.
+///
+/// NOT inside `warp_screen`, which is where it started and where it was wrong.
+/// That function resolves a WARP, and the relative path only calls it when a warp
+/// is active — so on a udev session with no warping bundle loaded the pointer was
+/// never published at all, while winit (which is absolute, and calls `warp_screen`
+/// unconditionally) worked. Two behaviours from one input backend difference, with
+/// nothing in either path saying so. It is its own function now, called from both
+/// backends on every motion, whatever the warp is doing — and from the pen, which
+/// mirrors the absolute path rather than going through it.
+///
+/// Published BEFORE the warp is applied: `pointer.at` is where the hand is, which
+/// is what a shader drawing at the cursor wants. The displaced point is where the
+/// CONTENT under the hand came from, and a bundle that warps would otherwise drag
+/// its own cursor effect away from the hand by exactly the warp.
+pub(crate) fn publish_pointer(
+    ctx: &compositor_y5_camera_transform_translate::transform::Context,
+    p: Point<f64, Physical>,
+) {
+    let (w, h) = ctx.screen_size_physical;
+    if w > 0.0 && h > 0.0 {
+        compositor_orchestration_seat_pointer_publish::publish::set_position(p.x / w, p.y / h);
+    }
+}
+
+fn warp_screen(
+    state: &mut Loop,
+    ctx: &compositor_y5_camera_transform_translate::transform::Context,
+    p: Point<f64, Physical>,
+) -> Point<f64, Physical> {
+    if !warp_active(state) {
+        compositor_orchestration_seat_pointer_publish::publish::set_true_screen(None);
+        return p;
+    }
+    compositor_orchestration_seat_pointer_publish::publish::set_true_screen(Some((p.x, p.y)));
+    let (w, h) = ctx.screen_size_physical;
+    if w <= 0.0 || h <= 0.0 {
+        return p;
+    }
+    // The chain works in screen UV so it survives a resolution change unscaled.
+    let (u, v) = compositor_orchestration_seat_pointer_warp::warp::apply(
+        state,
+        p.x / w,
+        p.y / h,
+        [w as f32, h as f32],
+    );
+    Point::<f64, Physical>::from((u * w, v * h))
 }

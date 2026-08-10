@@ -1,0 +1,26 @@
+{
+  "name": "tb-worker-history-inline",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../tb-worker-history/passes/backdrop.wgsl",
+      "output": "output",
+      "place": "compositor"
+    },
+    {
+      "name": "trail",
+      "shader": "../tb-worker-history/passes/trail.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content",
+        "prev": "history"
+      },
+      "requires": ["composited_scene", "previous_frame"],
+      "output": "output",
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

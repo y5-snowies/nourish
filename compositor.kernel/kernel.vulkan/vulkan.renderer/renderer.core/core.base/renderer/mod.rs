@@ -17,7 +17,17 @@ mod import;
 mod lifecycle;
 mod mipgen;
 mod pipelines;
+/// Recording one composite: the per-op draw and the band iteration, split out so
+/// `submit` reads as the frame's structure rather than its pixels.
+mod compose;
 mod submit;
+/// Collecting the frame's world drawables and resolving the band claim, split
+/// out so the composite path in `submit` stays readable.
+///
+/// `pub` for `tests/claim.rs`: the claim decides whether the engine draws the
+/// world band at all, and getting it wrong blanks the desktop — it is worth being
+/// able to assert on directly rather than only through a device.
+pub mod worldset;
 
 use ash::vk;
 use compositor_kernel_vulkan_capture_blit_base::blit::CaptureCache;
@@ -53,6 +63,61 @@ pub(super) struct CachedTarget {
 /// Execution model (foundation): one reused command buffer, synchronous
 /// submission (`device_wait_idle` per frame) by default, one composite pipeline
 /// set per target format, a per-frame-reset descriptor pool.
+/// Everything the renderer owns PER OUTPUT.
+///
+/// Every field here is either sized from the pass's `extent` or filled from the
+/// pass's own composite, and `submit_frame` runs once per output. Held as a
+/// single instance each — which is what they were — they are shared by every
+/// monitor, and the two ways that shows up are both severe:
+///
+/// * `graph` rebuilds whenever `extent` changes (`GraphExec::prepare`), so two
+///   monitors of different sizes destroyed and recreated every intermediate
+///   target TWICE PER FRAME. A four-target bundle went from 500 fps to 19.
+/// * `offscreen` owns `content` AND `history`. Monitor A composited into
+///   `content` and copied it to `history`; monitor B then sampled that same
+///   `history` — A's picture. A motion-blur pass blended two different images
+///   instead of successive frames of one, alternating and dimming toward the
+///   average.
+///
+/// Keyed by OUTPUT and not by extent: two monitors at the same resolution would
+/// collide, which is the common setup and the one that reported the bug.
+#[derive(Default)]
+pub(super) struct OutputResources {
+    /// Multipass background executor: intermediate targets + per-pass pipelines,
+    /// all sized from this output's extent.
+    pub(super) graph: compositor_pipeline_execute_graph_base::graph::GraphExec,
+    /// The offscreen `content`/`history`/`windows` path for this output.
+    pub(super) offscreen:
+        Option<compositor_pipeline_execute_offscreen_base::offscreen::ContentPath>,
+    /// This output's GPU warp-map producer, for a bundle declaring
+    /// `evaluate: "map"`.
+    pub(super) warpmap: Option<compositor_pipeline_execute_warpmap_base::base::WarpMap>,
+    /// Whether `content` was shared last frame, so a withdrawal happens once.
+    pub(super) shared_content: bool,
+    /// This output's composited band and window layer, exported for the worker.
+    pub(super) content_shared:
+        Option<std::sync::Arc<compositor_kernel_vulkan_memory_external_base::external::Shared>>,
+    pub(super) windows_shared:
+        Option<std::sync::Arc<compositor_kernel_vulkan_memory_external_base::external::Shared>>,
+    /// The warp grid this output produced, for the frame driver to hand on.
+    pub(super) warp_grid: Option<std::sync::Arc<Vec<[f32; 2]>>>,
+    /// The drawables collected for this output, for the same hop.
+    pub(super) world_set:
+        Option<std::sync::Arc<compositor_pipeline_abi_worldset_base::base::WorldSet>>,
+}
+
+impl OutputResources {
+    fn destroy(mut self, dev: &VulkanDevice) {
+        if let Some(w) = self.warpmap {
+            w.destroy(dev);
+        }
+        if let Some(off) = self.offscreen {
+            off.destroy(dev);
+        }
+        self.graph.destroy(dev);
+    }
+}
+
 pub struct VulkanRenderer {
     pub(super) dev: VulkanDevice,
     pub(super) phd: PhysicalDevice,
@@ -77,6 +142,29 @@ pub struct VulkanRenderer {
     /// renderer's lifetime. The parallax background (SDR + HDR variants) is one
     /// such pass; the kernel keeps no shader-specific knowledge.
     pub(super) shader_passes: HashMap<(u64, vk::Format), FullscreenPass>,
+    /// Per-OUTPUT resources — see [`OutputResources`]. Every monitor gets its own;
+    /// `submit_frame` runs once per output pass.
+    pub(super) outputs: HashMap<std::sync::Arc<str>, OutputResources>,
+    /// Which output the pass being composed belongs to, pushed by the frame driver
+    /// before the pass exactly as the facts are. Empty on the winit /
+    /// single-output path, which is one output and so keys consistently.
+    pub(super) output: std::sync::Arc<str>,
+    /// This renderer's cursor into the output-retirement mailbox.
+    pub(super) retired_cursor: u64,
+    /// The worker's decorated world band for this frame, handed along the draw
+    /// seam. TAKEN by the frame that presents it — a band left in place would
+    /// freeze the desktop — so it must be re-supplied every frame it is wanted.
+    pub(super) after_band: Option<smithay::backend::allocator::dmabuf::Dmabuf>,
+    /// What the world being DRAWN asks of the engine this frame.
+    ///
+    /// Set by the frame driver before the frame, from that world's own
+    /// `PipelineState`. It is a renderer field rather than a `submit_frame`
+    /// parameter because `submit_frame` is reached through smithay's
+    /// `Frame::finish`, so there is no call site in this crate to thread it
+    /// through — and per-RENDERER is the right scope anyway: these gate device
+    /// work, and on a multi-GPU host each renderer must answer for its own device
+    /// rather than share one process-wide answer.
+    pub(super) facts: compositor_pipeline_abi_worldset_base::base::Facts,
     /// Per-format HDR composite pipelines (M5 1a), created on demand only when
     /// the HDR path is active. The SDR `pipelines` above are untouched.
     pub(super) hdr_pipelines: HashMap<vk::Format, crate::hdr_composite::HdrComposite>,
@@ -180,6 +268,78 @@ impl std::fmt::Debug for VulkanRenderer {
 }
 
 impl VulkanRenderer {
+    /// Which output the pass being composed belongs to. Pushed by the frame
+    /// driver before the pass, the way the facts are — `submit_frame` is reached
+    /// through smithay's `Frame::finish` and has no way to learn it otherwise.
+    pub fn set_render_output(&mut self, output: &std::sync::Arc<str>) {
+        self.output = std::sync::Arc::clone(output);
+    }
+
+    /// Release what every REMOVED output owned.
+    ///
+    /// Drains the kernel's own output-retirement mailbox with this renderer's own
+    /// cursor — the background worker reads the same mailbox for the same reason,
+    /// and the two are independent readers. Without this an unplugged 4K
+    /// display's intermediate targets, `content` and `history` stay resident for
+    /// the session.
+    pub fn reclaim_removed_outputs(&mut self) {
+        if compositor_kernel_graphic_bridge_publish_retire::retire::retired_epoch()
+            == self.retired_cursor
+        {
+            return;
+        }
+        let (gone, next) = compositor_kernel_graphic_bridge_publish_retire::retire::retired_since(
+            self.retired_cursor,
+        );
+        self.retired_cursor = next;
+        for output in gone {
+            if let Some(r) = self.outputs.remove(output.as_str()) {
+                info!("renderer: output {output:?} removed — released its intermediate targets");
+                r.destroy(&self.dev);
+            }
+        }
+    }
+
+    /// What THIS output exported for the worker this frame.
+    pub fn shared_bands(&self) -> (Option<std::sync::Arc<compositor_kernel_vulkan_memory_external_base::external::Shared>>, Option<std::sync::Arc<compositor_kernel_vulkan_memory_external_base::external::Shared>>) {
+        match self.outputs.get(&self.output) {
+            Some(r) => (r.content_shared.clone(), r.windows_shared.clone()),
+            None => (None, None),
+        }
+    }
+
+    /// The warp grid this device last produced. Cloned, not taken: it stays valid
+    /// until the producer changes, and a frame that records no new grid must not
+    /// blank the pointer correction.
+    pub fn warp_grid(&self) -> Option<std::sync::Arc<Vec<[f32; 2]>>> {
+        self.outputs.get(&self.output)?.warp_grid.clone()
+    }
+
+    /// Take what the last frame collected, for the world that was drawn.
+    pub fn take_world_set(&mut self) -> Option<std::sync::Arc<compositor_pipeline_abi_worldset_base::base::WorldSet>> {
+        self.outputs.get_mut(&self.output)?.world_set.take()
+    }
+
+    /// The facts of the world being drawn, set by the frame driver each frame.
+    pub fn set_pipeline_facts(
+        &mut self,
+        facts: compositor_pipeline_abi_worldset_base::base::Facts,
+    ) {
+        self.facts = facts;
+    }
+
+    /// Whether the drawn world's bundle wants window textures, and therefore
+    /// whether a SHM upload must be allocated exportable.
+    ///
+    /// LIVE, not settled at startup: the selected bundle changes whenever the user
+    /// picks a shader. A change is not stranded — `shm_cache` refuses to reuse a
+    /// cached texture whose shareability no longer matches, so each surface
+    /// reallocates correctly on its next commit, in both directions.
+    pub(crate) fn wants_shared_shm(&self) -> bool {
+        compositor_pipeline_abi_seam_base::base::Requires::from_bits(self.facts.requires)
+            .textures()
+    }
+
     pub(crate) fn context_id_value(&self) -> ContextId<VulkanTexture> {
         self.context_id.clone()
     }
@@ -305,6 +465,10 @@ impl Drop for VulkanRenderer {
             let passes: Vec<_> = self.shader_passes.drain().collect();
             for (_, p) in passes {
                 p.destroy(&self.dev);
+            }
+            let outputs: Vec<_> = self.outputs.drain().collect();
+            for (_, r) in outputs {
+                r.destroy(&self.dev);
             }
             let hdr: Vec<_> = self.hdr_pipelines.drain().collect();
             for (_, h) in hdr {

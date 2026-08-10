@@ -1,0 +1,35 @@
+{
+  "name": "tb-storage-embers",
+  "version": 1,
+  "storage": {
+    "field": { "bytes": 230400 },
+    "parts": { "bytes": 65536 }
+  },
+  "targets": {
+    "scratch": { "format": "rgba8", "scale": 0.25 }
+  },
+  "passes": [
+    {
+      "name": "clear",
+      "shader": "passes/clear.wgsl",
+      "when": "after-content",
+      "output": "scratch"
+    },
+    {
+      "name": "simulate",
+      "shader": "passes/simulate.wgsl",
+      "when": "after-content",
+      "requires": ["window_geometry", "pointer_state"],
+      "output": "scratch"
+    },
+    {
+      "name": "render",
+      "shader": "passes/render.wgsl",
+      "inputs": { "scene": "content" },
+      "when": "after-content",
+      "requires": ["composited_scene"],
+      "output": "output"
+    }
+  ],
+  "letterbox": "always"
+}

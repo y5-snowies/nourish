@@ -1,0 +1,11 @@
+[package]
+name = "compositor_pipeline_host_map_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_pipeline_execute_warpmap_base = { workspace = true }
+compositor_pipeline_host_hit_base = { workspace = true }
+
+[lib]
+path = "lib.rs"

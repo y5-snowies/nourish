@@ -1,0 +1,23 @@
+{
+  "name": "tb-window-tex",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "passes/backdrop.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "shift",
+      "shader": "passes/shift.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "output": "output",
+      "requires": ["window_geometry", "window_textures", "composited_scene"]
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

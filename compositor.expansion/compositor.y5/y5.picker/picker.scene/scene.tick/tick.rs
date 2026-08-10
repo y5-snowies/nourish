@@ -52,9 +52,14 @@ pub fn tick(state: &mut Loop, renderer: &mut GlesRenderer) -> Option<ParallaxBac
     // See `ParallaxBackground::bind_overlay` — the picker builds its own plan, so
     // nothing else supplies the pane, refresh or frame serial.
     bg.map(|mut b| {
+        let out: std::sync::Arc<str> =
+            std::sync::Arc::from(state.inner.current_output_key().as_str());
+        if let Some(w) = b.world.filter(|w| state.inner.worlds.contains(*w)) {
+            b.bind_frame(compositor_pipeline_world_system_base::base::frame(state.inner.worlds.get(w).storage(), &out));
+        }
         b.bind_overlay(
             "picker",
-            &state.inner.current_output_key(),
+            &out,
             state.inner.current_refresh(),
             state.inner.next_frame_serial(),
         );
@@ -81,6 +86,12 @@ fn ensure_distant_parallax(state: &mut Loop, renderer: &mut GlesRenderer) {
                 // `optimized: false` deliberately: the picker is its own world with
                 // its own `Two` slot and no settings UI, so it renders the reference.
                 let mut i = ParallaxBackground::new(renderer, (w as f32, h as f32), sel.as_deref(), &[], false);
+                // The second place an instance is constructed, and so the second
+                // place its world must be stamped — `TwoSystem::buffer` never
+                // runs for this slot (see below), so nothing else would. Without
+                // it the picker's backdrop shares a worker pane with whatever
+                // world is behind it.
+                i.world = Some(PICKER_WORLD);
                 // The picker fills this slot itself, synchronously, during the
                 // render pass — so `TwoSystem`'s rebuild (which only fires on an
                 // empty slot) never runs for this world. Without this the picker's

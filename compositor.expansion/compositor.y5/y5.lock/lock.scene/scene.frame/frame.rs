@@ -63,9 +63,14 @@ pub fn prepare(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Ph
     // plan, so nothing else supplies the pane, refresh or frame serial.
     let background_two = if !pending {
         compositor_background_two_draw_scene::scene::scene(state).map(|mut b| {
+            let out: std::sync::Arc<str> =
+                std::sync::Arc::from(state.inner.current_output_key().as_str());
+            if let Some(w) = b.world.filter(|w| state.inner.worlds.contains(*w)) {
+                b.bind_frame(compositor_pipeline_world_system_base::base::frame(state.inner.worlds.get(w).storage(), &out));
+            }
             b.bind_overlay(
                 "lock",
-                &state.inner.current_output_key(),
+                &out,
                 state.inner.current_refresh(),
                 state.inner.next_frame_serial(),
             );
@@ -74,6 +79,26 @@ pub fn prepare(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Ph
     } else {
         None
     };
+
+    // Same per-frame statement the orchestration scene makes, for the same reason
+    // — the frame driver picks one prepare path, and when the lock screen owns the
+    // frame the orchestration one never runs, so nothing else would state the
+    // facts of the background actually on screen.
+    //
+    // ONLY when this path supplies the background. While `pending`, the regular
+    // scene is still drawing it and has already published; publishing the `None`
+    // above there would overwrite a live world's answers with the neutral ones and
+    // stop the engine collecting a set its bundle needs.
+    if !pending {
+        if let Some(w) = background_two.as_ref().and_then(|b| b.world) {
+            if state.inner.worlds.contains(w) {
+                compositor_pipeline_world_system_base::base::publish_facts(
+                    state.inner.worlds.get_mut(w).storage_mut(),
+                    background_two.as_ref().and_then(|b| b.pipeline.as_deref()),
+                );
+            }
+        }
+    }
 
     LockPrepared {
         surfaces,

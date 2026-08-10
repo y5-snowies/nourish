@@ -358,12 +358,24 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
                 two.params = values.clone();
                 // Map the name-keyed overrides onto the live instance's param
                 // slots (slot = the prop's index in the selected shader's props).
-                let selection = two.background_shader.clone().or_else(
-                    compositor_model_stats_registry_base::base::background_shader_default,
-                );
-                let props = match &selection {
-                    Some(sel) => compositor_background_two_shader_load::properties_for(sel),
-                    None => compositor_background_two_shader_builtin::builtin_props(),
+                //
+                // From the LOADED bundle when there is one. `properties_for` reads
+                // and re-parses the bundle off disk, and this runs on every event
+                // of a slider drag; the running bundle already holds the same list
+                // and cannot be a stale copy of it.
+                let props = match two.props() {
+                    Some(p) => p.to_vec(),
+                    None => {
+                        let selection = two.background_shader.clone().or_else(
+                            compositor_model_stats_registry_base::base::background_shader_default,
+                        );
+                        match &selection {
+                            Some(sel) => {
+                                compositor_pipeline_bundle_load_base::properties_for(sel)
+                            }
+                            None => compositor_pipeline_bundle_builtin_base::builtin_props(),
+                        }
+                    }
                 };
                 if let Some(inst) = two.instance.as_mut() {
                     for (name, val) in &values {
@@ -390,6 +402,12 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
         // Inbound / UI-local — never forwarded to the handler.
         // Tab IS forwarded (so the compositor knows the visible module): gate the
         // live-FPS push on the Performance tab being open.
+        // Purely a view of the shader list — it changes nothing about the world.
+        // It is still forwarded, for the same reason `Tab` is: so the choice
+        // outlives the surface and the panel reopens where it was left.
+        SettingsMessage::SelectShaderCategory(c) => {
+            state.inner.kernel.get_mut(&SETTINGS_MUT).shader_category = c;
+        }
         SettingsMessage::Tab(t) => {
             let st = state.inner.kernel.get_mut(&SETTINGS_MUT);
             st.fps_wanted = matches!(t, Tab::Performance);
@@ -493,7 +511,9 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
         | SettingsMessage::SyncShaders(..)
         | SettingsMessage::SyncShaderProps(..)
         | SettingsMessage::SyncShaderPreview(..)
+        | SettingsMessage::SyncShaderFacts(..)
         | SettingsMessage::SyncShaderStatus(..)
+        | SettingsMessage::SyncShaderNotice(..)
         | SettingsMessage::SyncWorldInvert(..)
         | SettingsMessage::SyncWorldSrgb(..)
         | SettingsMessage::SyncWorldOptimized(..)

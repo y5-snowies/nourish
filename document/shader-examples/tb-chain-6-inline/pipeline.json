@@ -1,0 +1,82 @@
+{
+  "name": "tb-chain-6-inline",
+  "version": 1,
+  "targets": {
+    "a": {
+      "format": "rgba16f",
+      "scale": 1.0
+    },
+    "b": {
+      "format": "rgba16f",
+      "scale": 0.5
+    },
+    "c": {
+      "format": "rgba16f",
+      "scale": 0.5
+    },
+    "d": {
+      "format": "rgba16f",
+      "scale": 0.25
+    },
+    "e": {
+      "format": "rgba16f",
+      "scale": 0.25
+    }
+  },
+  "passes": [
+    {
+      "name": "seed",
+      "shader": "../tb-chain-6/passes/seed.wgsl",
+      "output": "a",
+      "place": "compositor"
+    },
+    {
+      "name": "down1",
+      "shader": "../tb-chain-6/passes/blit.wgsl",
+      "inputs": {
+        "src": "a"
+      },
+      "output": "b",
+      "place": "compositor"
+    },
+    {
+      "name": "warp",
+      "shader": "../tb-chain-6/passes/warp.wgsl",
+      "inputs": {
+        "src": "b"
+      },
+      "output": "c",
+      "place": "compositor"
+    },
+    {
+      "name": "down2",
+      "shader": "../tb-chain-6/passes/blit.wgsl",
+      "inputs": {
+        "src": "c"
+      },
+      "output": "d",
+      "place": "compositor"
+    },
+    {
+      "name": "warp2",
+      "shader": "../tb-chain-6/passes/warp.wgsl",
+      "inputs": {
+        "src": "d"
+      },
+      "output": "e",
+      "place": "compositor"
+    },
+    {
+      "name": "join",
+      "shader": "../tb-chain-6/passes/join.wgsl",
+      "inputs": {
+        "base": "a",
+        "small": "e"
+      },
+      "output": "output",
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

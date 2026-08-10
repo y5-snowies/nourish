@@ -1,0 +1,14 @@
+{
+  "name": "tb-stage-5a",
+  "version": 1,
+  "passes": [
+    {
+      "name": "halo",
+      "shader": "../tb-rects-offload/passes/halo.wgsl",
+      "output": "output",
+      "requires": ["window_geometry"]
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

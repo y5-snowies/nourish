@@ -1,0 +1,11 @@
+[package]
+name = "compositor_pipeline_bundle_locate_base"
+version = "0.0.1"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+compositor_support_system_persist_path_base = { workspace = true }
+compositor_pipeline_bundle_embed_base = { workspace = true }

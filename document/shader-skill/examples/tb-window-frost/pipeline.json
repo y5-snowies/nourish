@@ -1,0 +1,25 @@
+{
+  "name": "tb-window-frost",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "passes/backdrop.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "frost",
+      "shader": "passes/frost.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content",
+        "win": "windows"
+      },
+      "output": "output",
+      "requires": ["window_geometry", "composited_scene", "window_layer"]
+    }
+  ],
+  "windows": "world",
+  "decorations": "off",
+  "letterbox": "always"
+}

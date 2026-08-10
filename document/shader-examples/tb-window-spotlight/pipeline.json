@@ -1,0 +1,23 @@
+{
+  "name": "tb-window-spotlight",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "passes/backdrop.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "spot",
+      "shader": "passes/spot.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "output": "output",
+      "requires": ["window_geometry", "composited_scene"]
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

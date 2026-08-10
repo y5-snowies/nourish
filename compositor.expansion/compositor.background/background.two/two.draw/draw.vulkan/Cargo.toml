@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_pipeline_abi_push_base = { workspace = true }
 compositor_orchestration_draw_dispatch_frame = { workspace = true }
 compositor_model_stats_registry_base = { workspace = true }
 

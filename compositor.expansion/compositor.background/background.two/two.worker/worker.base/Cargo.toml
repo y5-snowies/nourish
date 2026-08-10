@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_background_two_worker_key = { workspace = true }
 compositor_model_environment_background_base = { workspace = true }
 smithay = { workspace = true }
 compositor_background_two_worker_pane = { workspace = true }
@@ -11,6 +12,10 @@ compositor_background_two_worker_serve = { workspace = true }
 compositor_background_two_worker_signal = { workspace = true }
 compositor_background_two_worker_target = { workspace = true }
 compositor_model_debug_instance_record = { workspace = true }
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "The worker handle and its three channels are one unit: the draw signal in, the pane registry out, and the readback out. Splitting the handle from the channels it owns would make them reachable without it, which is exactly the global this feature spent its life removing. The bulk is why each channel exists and which thread writes it."
 
 [lib]
 path = "lib.rs"

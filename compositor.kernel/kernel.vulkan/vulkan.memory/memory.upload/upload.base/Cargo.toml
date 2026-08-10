@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_kernel_vulkan_memory_external_base = { workspace = true }
 ash.workspace = true
 smithay.workspace = true
 compositor_kernel_vulkan_device_factory_base.workspace = true

@@ -1,0 +1,13 @@
+{
+  "name": "tb-heavy-single",
+  "version": 1,
+  "passes": [
+    {
+      "name": "march",
+      "shader": "passes/march.wgsl",
+      "output": "output"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

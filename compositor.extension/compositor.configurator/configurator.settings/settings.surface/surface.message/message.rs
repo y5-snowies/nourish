@@ -97,10 +97,51 @@ impl Tab {
 }
 
 /// How a shader `@prop` is edited in the Current-World panel.
+///
+/// Presentation only: every variant marshals to the same single float in the same
+/// param slot, so nothing downstream knows the difference.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShaderPropKind {
     Float,
     Bool,
+    /// Whole numbers: a slider that steps by one and reads as an integer.
+    Int,
+    /// A named set (`choices=`): one button per entry, entry *i* sends `i`.
+    Choice,
+    /// A colour, edited as its three channels. The slot carries the red channel,
+    /// matching `PropValue::as_f32`'s "primary scalar" rule.
+    Color,
+}
+
+/// One row in the shader picker. Label and heading are resolved by the producer:
+/// the category depends on facts only the background layer has.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShaderEntry {
+    /// The selection value, as persisted. Empty = the built-in parallax.
+    pub value: String,
+    pub label: String,
+    pub category: String,
+}
+
+/// What the selected shader IS, as resolved at load — flattened to strings for
+/// the UI. This is the half of a bundle that was previously invisible: ownership
+/// and placement change how the desktop behaves.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShaderFacts {
+    /// Passes in each band (`before-content`, `after-content`).
+    pub before: usize,
+    pub after: usize,
+    /// How much of the world band the bundle draws itself.
+    pub owns: String,
+    /// Where the graph runs — the background worker, or the compositor thread.
+    pub place: String,
+    /// One line per declared `requires` entry: the entry as the manifest spells
+    /// it, and what it costs.
+    pub requires: Vec<(String, String)>,
+    /// How the bundle displaces the pointer, if it does.
+    pub warp: Option<String>,
+    /// Window chrome the bundle suppressed (border / letterbox), when not default.
+    pub chrome: Option<String>,
 }
 
 /// One editable shader variable, flattened for the iced UI: the control kind,
@@ -115,6 +156,74 @@ pub struct ShaderProp {
     pub min: f32,
     pub max: f32,
     pub value: f32,
+    /// Entry labels for [`ShaderPropKind::Choice`]; empty otherwise.
+    pub choices: Vec<String>,
+    /// The `group=` this variable was declared under, for the panel's headings.
+    /// Empty when the shader declared none.
+    pub group: String,
+}
+
+/// Flatten a shader's declared properties into the UI's rows, with this world's
+/// edited values overlaid by NAME.
+///
+/// Lives beside the DTO because there are two panels showing these rows — the
+/// Settings World tab and the inline shader editor — and the mapping decides
+/// which CONTROL a variable gets. Two copies would eventually disagree, and the
+/// visible result would be the same variable offered as a slider in one panel and
+/// a mode picker in the other, with only one of them matching the branch the
+/// shader actually takes.
+///
+/// The slot is the index into the 16-float param block, which is also the index
+/// into the union the bundle was compiled against — so the order of `props` is
+/// load-bearing, not cosmetic.
+pub fn shader_props(
+    props: &[compositor_pipeline_bundle_property_base::Property],
+    overrides: &[(String, f32)],
+) -> Vec<ShaderProp> {
+    use compositor_pipeline_bundle_property_base::PropValue;
+    let defaults = compositor_pipeline_bundle_property_base::default_params(props);
+    props
+        .iter()
+        .take(16)
+        .enumerate()
+        .map(|(slot, p)| {
+            // A `choices=` list wins over the declared type: it is the shader
+            // explicitly asking for a picker, and it is only meaningful on the
+            // discrete kinds anyway.
+            let kind = match (p.choices.is_empty(), p.default) {
+                (false, _) => ShaderPropKind::Choice,
+                (_, PropValue::Bool(_)) => ShaderPropKind::Bool,
+                (_, PropValue::Int(_)) => ShaderPropKind::Int,
+                (_, PropValue::Color(_)) => ShaderPropKind::Color,
+                _ => ShaderPropKind::Float,
+            };
+            // A picker's range is its entry count, whatever the source declared —
+            // a `min`/`max` that disagreed would render buttons that cannot be
+            // selected, or hide entries the shader branches on.
+            let (min, max) = match kind {
+                ShaderPropKind::Choice => (0.0, (p.choices.len().max(1) - 1) as f32),
+                _ => (
+                    p.min.unwrap_or(0.0),
+                    p.max.unwrap_or(1.0).max(p.min.unwrap_or(0.0) + 0.0001),
+                ),
+            };
+            ShaderProp {
+                name: p.name.clone(),
+                label: p.label.clone().unwrap_or_else(|| p.name.clone()),
+                kind,
+                slot,
+                min,
+                max,
+                value: overrides
+                    .iter()
+                    .find(|(n, _)| n == &p.name)
+                    .map(|(_, v)| *v)
+                    .unwrap_or(defaults[slot]),
+                choices: p.choices.clone(),
+                group: p.group.clone().unwrap_or_default(),
+            }
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug)]
@@ -201,21 +310,40 @@ pub enum SettingsMessage {
     /// Claim (`Some`) or release (`None`) a touch device for a monitor (forwarded):
     /// `(edid_key, device_id)`. Persists to `preferences.json` and re-routes touch.
     ClaimTouch(String, Option<String>),
-    /// Available background-shader bundles + the active world's current selection,
-    /// pushed in by the embed (NOT forwarded): populates the shader picker.
-    SyncShaders(Vec<String>, Option<String>),
+    /// Available background shaders (grouped, in picker order) + the active
+    /// world's current selection, pushed in by the embed (NOT forwarded).
+    SyncShaders(Vec<ShaderEntry>, Option<String>),
     /// Set the CURRENT world's background shader (forwarded: writes the per-world
     /// record + rebuilds the background). Empty string = default/built-in.
     SetWorldShader(String),
+    /// Filter the shader picker to one category (UI-only, NOT forwarded). `None`
+    /// shows every entry. Purely a view of the same list — it changes nothing
+    /// about the world, which is why it never leaves the surface.
+    SelectShaderCategory(Option<String>),
     /// The current shader's editable variables, pushed by the embed (NOT
     /// forwarded): renders the Current-World variable controls.
     SyncShaderProps(Vec<ShaderProp>),
     /// The selected shader's WGSL source for the live preview, pushed by the
-    /// embed (NOT forwarded). Empty until the first sync.
-    SyncShaderPreview(String),
+    /// embed (NOT forwarded).
+    ///
+    /// `None` means this selection HAS no previewable source — a multipass bundle
+    /// renders as a graph across several targets and cannot run in the preview
+    /// widget's single-uniform pipeline. It used to fall back to the built-in
+    /// parallax's source, so every graph bundle previewed as a shader it is not;
+    /// the distinction exists so the panel can say so instead.
+    /// `Some("")` is "not synced yet".
+    SyncShaderPreview(Option<String>),
+    /// What the selected shader declared, pushed by the embed (NOT forwarded).
+    /// `None` for the built-in and for single-pass bundles.
+    SyncShaderFacts(Option<ShaderFacts>),
     /// The selected shader's compile status, pushed by the embed (NOT forwarded):
     /// `Some(error)` when it failed for the active renderer (built-in is running).
     SyncShaderStatus(Option<String>),
+    /// A non-fatal condition about the SELECTED shader: it is correct, compiled and
+    /// drawing, but not in the shape it asked for. Distinct from `SyncShaderStatus`
+    /// on purpose — that one replaces the preview with a failure card, and doing
+    /// that to a bundle which is working would be a lie in the other direction.
+    SyncShaderNotice(Option<String>),
     /// Set the current world's shader variables, keyed by `@prop` name (forwarded:
     /// persists + drives the live background, no rebuild).
     SetWorldShaderParams(Vec<(String, f32)>),

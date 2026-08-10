@@ -1,0 +1,25 @@
+{
+  "name": "tb-stage-4-inline",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../tb-stage-4/passes/backdrop.wgsl",
+      "output": "output",
+      "place": "compositor"
+    },
+    {
+      "name": "decorate",
+      "shader": "../tb-stage-4/passes/decorate.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "requires": ["composited_scene"],
+      "output": "output",
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

@@ -1,0 +1,30 @@
+{
+  "name": "mp-levels",
+  "version": 1,
+  "category": "Multipass",
+  "modules": [
+    "../mp-parallax/lib/parallax.wgsl"
+  ],
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../mp-parallax/passes/backdrop.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "levels",
+      "shader": "passes/levels.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "output": "output",
+      "requires": [
+        "world_geometry",
+        "composited_scene"
+      ]
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "on-resize"
+}

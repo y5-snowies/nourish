@@ -11,5 +11,6 @@ tracing-subscriber = { workspace = true }
 bitflags = { workspace = true }
 smithay = { workspace = true }
 
+
 [lib]
 path = "lib.rs"

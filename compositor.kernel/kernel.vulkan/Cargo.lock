@@ -285,6 +285,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_kernel_graphic_bridge_publish_retire"
+version = "0.0.1"
+
+[[package]]
 name = "compositor_kernel_graphic_color_surface_base"
 version = "0.0.1"
 dependencies = [
@@ -437,6 +441,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_kernel_vulkan_memory_external_base"
+version = "0.0.1"
+dependencies = [
+ "ash",
+ "compositor_kernel_vulkan_device_factory_base",
+ "compositor_kernel_vulkan_renderer_error_base",
+]
+
+[[package]]
 name = "compositor_kernel_vulkan_memory_import_base"
 version = "0.0.1"
 dependencies = [
@@ -468,6 +481,7 @@ dependencies = [
  "ash",
  "compositor_kernel_vulkan_device_factory_base",
  "compositor_kernel_vulkan_format_query_base",
+ "compositor_kernel_vulkan_memory_external_base",
  "compositor_kernel_vulkan_renderer_error_base",
  "smithay",
 ]
@@ -522,6 +536,7 @@ version = "0.0.1"
 dependencies = [
  "ash",
  "compositor_kernel_drm_syncobj_device_base",
+ "compositor_kernel_graphic_bridge_publish_retire",
  "compositor_kernel_graphic_color_surface_base",
  "compositor_kernel_vulkan_capture_blit_base",
  "compositor_kernel_vulkan_command_pool_base",
@@ -535,6 +550,7 @@ dependencies = [
  "compositor_kernel_vulkan_instance_factory_base",
  "compositor_kernel_vulkan_instance_physical_base",
  "compositor_kernel_vulkan_memory_export_base",
+ "compositor_kernel_vulkan_memory_external_base",
  "compositor_kernel_vulkan_memory_import_base",
  "compositor_kernel_vulkan_memory_target_base",
  "compositor_kernel_vulkan_memory_upload_base",
@@ -552,6 +568,12 @@ dependencies = [
  "compositor_model_environment_graphics_base",
  "compositor_model_stats_registry_base",
  "compositor_orchestration_draw_dispatch_frame",
+ "compositor_pipeline_abi_descriptor_base",
+ "compositor_pipeline_abi_seam_base",
+ "compositor_pipeline_abi_worldset_base",
+ "compositor_pipeline_execute_graph_base",
+ "compositor_pipeline_execute_offscreen_base",
+ "compositor_pipeline_execute_warpmap_base",
  "smithay",
 ]
 
@@ -633,6 +655,7 @@ name = "compositor_kernel_vulkan_texture_image_base"
 version = "0.0.1"
 dependencies = [
  "ash",
+ "compositor_kernel_vulkan_memory_external_base",
  "compositor_kernel_vulkan_texture_image_inner",
  "smithay",
 ]
@@ -673,6 +696,7 @@ name = "compositor_model_environment_background_base"
 version = "0.0.1"
 dependencies = [
  "compositor_model_environment_tearing_rate",
+ "compositor_model_stats_registry_counter",
  "serde",
 ]
 
@@ -756,6 +780,93 @@ name = "compositor_orchestration_draw_dispatch_uniforms"
 version = "0.0.1"
 dependencies = [
  "smithay",
+]
+
+[[package]]
+name = "compositor_orchestration_seat_pointer_publish"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_pipeline_abi_clock_base"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_pipeline_abi_descriptor_base"
+version = "0.0.1"
+
+[[package]]
+name = "compositor_pipeline_abi_seam_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_record",
+ "compositor_orchestration_draw_dispatch_frame",
+ "compositor_pipeline_abi_worldset_base",
+ "compositor_pipeline_bundle_require_base",
+]
+
+[[package]]
+name = "compositor_pipeline_abi_worldset_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_kernel_vulkan_memory_external_base",
+ "compositor_model_debug_instance_record",
+ "smithay",
+]
+
+[[package]]
+name = "compositor_pipeline_bundle_require_base"
+version = "0.0.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "compositor_pipeline_execute_effect_base"
+version = "0.0.1"
+dependencies = [
+ "ash",
+ "compositor_kernel_vulkan_device_factory_base",
+ "compositor_kernel_vulkan_renderer_error_base",
+]
+
+[[package]]
+name = "compositor_pipeline_execute_graph_base"
+version = "0.0.1"
+dependencies = [
+ "ash",
+ "compositor_kernel_vulkan_device_factory_base",
+ "compositor_kernel_vulkan_renderer_error_base",
+ "compositor_orchestration_draw_dispatch_frame",
+ "compositor_orchestration_seat_pointer_publish",
+ "compositor_pipeline_abi_clock_base",
+ "compositor_pipeline_abi_seam_base",
+ "compositor_pipeline_abi_worldset_base",
+ "compositor_pipeline_execute_effect_base",
+]
+
+[[package]]
+name = "compositor_pipeline_execute_offscreen_base"
+version = "0.0.1"
+dependencies = [
+ "ash",
+ "compositor_kernel_vulkan_device_factory_base",
+ "compositor_kernel_vulkan_memory_external_base",
+ "compositor_kernel_vulkan_pipeline_composite_base",
+ "compositor_kernel_vulkan_renderer_error_base",
+ "compositor_pipeline_execute_effect_base",
+ "naga",
+]
+
+[[package]]
+name = "compositor_pipeline_execute_warpmap_base"
+version = "0.0.1"
+dependencies = [
+ "ash",
+ "compositor_kernel_vulkan_device_factory_base",
+ "compositor_kernel_vulkan_renderer_error_base",
+ "compositor_model_debug_instance_record",
+ "compositor_pipeline_execute_effect_base",
+ "compositor_pipeline_execute_graph_base",
 ]
 
 [[package]]
@@ -1428,6 +1539,7 @@ dependencies = [
  "log",
  "num-traits",
  "once_cell",
+ "pp-rs",
  "rustc-hash",
  "spirv",
  "thiserror 2.0.18",
@@ -1795,6 +1907,15 @@ dependencies = [
  "pin-project-lite",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "pp-rs"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb458bb7f6e250e6eb79d5026badc10a3ebb8f9a15d1fff0f13d17c71f4d6dee"
+dependencies = [
+ "unicode-xid",
 ]
 
 [[package]]

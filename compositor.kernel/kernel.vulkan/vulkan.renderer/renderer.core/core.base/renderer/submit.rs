@@ -13,8 +13,38 @@ impl VulkanRenderer {
     /// Replay the queued draw ops into one composite pass and submit. Called by
     /// `VulkanFrame::finish`.
     #[allow(clippy::too_many_arguments)]
+    /// Take THIS output's resources for the duration of the pass, and put them
+    /// back however it ends.
+    ///
+    /// Taken rather than borrowed because the body needs `&mut self` throughout
+    /// (`ensure_pipelines`, `import_dmabuf`, …) and a live borrow into
+    /// `self.outputs` would fight every one of them. Reinserted on the error path
+    /// too: a frame that failed still owns real GPU objects, and dropping them on
+    /// the floor would leak the whole intermediate target set.
     pub(crate) fn submit_frame(
         &mut self,
+        image: vk::Image,
+        view: vk::ImageView,
+        format: vk::Format,
+        extent: (u32, u32),
+        clear: [f32; 4],
+        clear_rects: Vec<vk::Rect2D>,
+        acquire: crate::frame::TargetAcquire,
+        ops: Vec<DrawOp>,
+    ) -> Result<SyncPoint, VulkanError> {
+        let key = std::sync::Arc::clone(&self.output);
+        let mut out = self.outputs.remove(&key).unwrap_or_default();
+        let r = self.submit_pass(
+            &mut out, image, view, format, extent, clear, clear_rects, acquire, ops,
+        );
+        self.outputs.insert(key, out);
+        r
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn submit_pass(
+        &mut self,
+        out: &mut super::OutputResources,
         image: vk::Image,
         view: vk::ImageView,
         format: vk::Format,
@@ -57,6 +87,36 @@ impl VulkanRenderer {
         // pins dropped. The frame being submitted keeps its own pins (pushed
         // during record) until the next drain point.
         self.drain_retired();
+        // The warp grid recorded into the frame that just completed. Read HERE
+        // because completion is already proven at the drain above, so this is a
+        // memcpy and never a wait.
+        if let Some(g) =
+            compositor_pipeline_execute_warpmap_base::base::WarpMap::publish(&mut out.warpmap, &self.dev)
+        {
+            out.warp_grid = Some(g);
+        }
+        // The previous frame is provably complete at this point, so its `content`
+        // is safe for another device to sample — the same completion-before-publish
+        // rule the worker's own output follows. Publishing here rather than at the
+        // end of recording is what makes it true.
+        //
+        // Only while there is an offscreen path to publish FROM: with no bundle
+        // there is no `ContentPath`, so this would be two writes per frame storing
+        // `None` over `None`. The latch keeps the WITHDRAWAL — the frame the path
+        // disappears still publishes `None`, so a stale `content` cannot outlive
+        // the bundle that produced it.
+        let share_now = out.offscreen.is_some() || out.shared_content;
+        out.shared_content = out.offscreen.is_some();
+        if share_now {
+            out.content_shared = out.offscreen.as_ref().and_then(|o| o.content_share());
+        }
+        // The window layer rides the same proof and the same drain point. It is
+        // `None` for every bundle that does not sample `windows`, because the
+        // layer itself is consumption-gated — so this costs a refcount, not an
+        // image, on the overwhelmingly common path.
+        if share_now {
+            out.windows_shared = out.offscreen.as_ref().and_then(|o| o.windows_share());
+        }
         // Same proven-complete precondition as the drain above, so cached imports
         // whose dmabuf has died are reclaimed here.
         self.reap_targets();
@@ -95,6 +155,108 @@ impl VulkanRenderer {
         self.frame_counter += 1;
         let value = self.frame_counter;
         stats::frame();
+
+        // What this frame's bundle asks the engine for — the ONE place that is
+        // decided, so the composite below reads flags rather than re-deriving
+        // predicates. Empty with no bundle loaded. See `worldset::Demand`.
+        use compositor_pipeline_execute_offscreen_base::offscreen;
+        let demand = super::worldset::Demand::resolve(&ops, self.facts);
+        let skip_windows = demand.skip_windows();
+        let offscreen_on = demand.offscreen(use_hdr);
+        // Stage 4: the worker's decorated band, imported here so the swapchain can
+        // sample it. Through the ordinary cache, so an unchanged band costs a
+        // lookup. Needs `&mut self`, which is why it is not part of `Demand`.
+        let band_tex = self.after_band.take()
+            .and_then(|b| {
+                use smithay::backend::renderer::ImportDma;
+                self.import_dmabuf(&b, None).ok()
+            });
+        if offscreen_on {
+            let rebuild = out.offscreen.as_ref().map(|o| o.format() != format).unwrap_or(true);
+            if rebuild {
+                if let Some(o) = out.offscreen.take() {
+                    o.destroy(&self.dev);
+                }
+                out.offscreen =
+                    Some(offscreen::ContentPath::new(&self.dev, self.pipeline_cache, format)?);
+            }
+        }
+
+        let collected = demand.gather(&ops, extent);
+        // Handed out through `take_world_set`, so the world that was drawn owns it
+        // rather than every reader sharing one slot. `None` when the bundle asked
+        // for nothing, which withdraws whatever the world was holding.
+        out.world_set = match demand.requires.world_set() {
+            true => Some(std::sync::Arc::new(collected.to_world_set())),
+            false => None,
+        };
+        let bound = collected.bind(&demand.claim);
+
+
+        // A pipeline op in THIS frame means the graph runs inline: build its
+        // intermediates and bind the set to the compositor's own executor.
+        if ops.iter().any(|o| matches!(o, DrawOp::Pipeline(_))) {
+            let mem = unsafe {
+                self.phd
+                    .instance()
+                    .handle()
+                    .get_physical_device_memory_properties(self.phd.handle())
+            };
+            let cache = self.pipeline_cache;
+            for op in &ops {
+                if let DrawOp::Pipeline(p) = op {
+                    out.graph.prepare(&self.dev, &mem, cache, p, extent, format)?;
+                    if compositor_pipeline_execute_warpmap_base::base::WarpMap::sync(
+                        &self.dev, &mem, cache, p.warp_map.as_ref(), &mut out.warpmap, "inline",
+                    )? {
+                        // The producer changed or went: a grid outliving its bundle
+                        // displaces the pointer by an effect no longer on screen.
+                        out.warp_grid = None;
+                    }
+                }
+            }
+            out.graph.set_world_entries(&self.dev, &bound.rects, &bound.srcs, &bound.meta);
+            // Empty unless the bundle declared `window_times`; the call is a no-op
+            // then, so this costs nothing to leave unconditional.
+            out.graph.set_world_times(&self.dev, &bound.life, &bound.state, &bound.drag);
+            if demand.requires.pointer() {
+                out.graph.set_pointer(&self.dev);
+            }
+            out.graph.set_window_textures(&self.dev, &bound.views);
+        } else if !self.facts.active() {
+            // No bundle loaded at all: release this output's intermediates. The
+            // branch above only ever frees as a side effect of building the next
+            // pipeline, so switching from a multipass bundle back to the built-in
+            // parallax left its targets — ~95 MiB per output here — allocated for
+            // the rest of the session.
+            //
+            // Gated on FACTS, not on "this frame carried no pipeline op". A loaded
+            // bundle can miss a frame; tearing down on that would free and rebuild
+            // every target the frame after, which is the thrash the per-output
+            // keying exists to avoid. `Facts::active()` follows the bundle, so it
+            // only goes false when one is genuinely unloaded.
+            if out.graph.release(&self.dev) {
+                info!("pipeline: no bundle — released {} graph intermediates", self.output);
+            }
+            if let Some(w) = out.warpmap.take() {
+                w.destroy(&self.dev);
+            }
+            // And the offscreen path, for the same reason: `content` is allocated
+            // by `record` and `record` only runs while a pipeline does, so an
+            // unloaded bundle left a full output-sized image (~30 MiB) behind. The
+            // whole `ContentPath` goes rather than just the image — it is rebuilt
+            // on demand above whenever `offscreen_on`, and the shares must not
+            // outlive the images they name.
+            if let Some(o) = out.offscreen.take() {
+                o.destroy(&self.dev);
+                out.content_shared = None;
+                out.windows_shared = None;
+                info!("pipeline: no bundle — released {} offscreen content", self.output);
+            }
+            // A grid outliving its producer displaces the pointer by an effect
+            // that is no longer on screen — same reason as the `sync` arm above.
+            out.warp_grid = None;
+        }
 
         let this = &*self;
         let dev = &self.dev;
@@ -158,6 +320,9 @@ impl VulkanRenderer {
                                     Err(e) => warn!("hdr texture set: {e}"),
                                 }
                             }
+                            // Multipass background not yet wired for HDR output;
+                            // the SDR path drives it. Skip rather than mis-draw.
+                            DrawOp::Pipeline(_) => {}
                         }
                     }
                 },
@@ -235,6 +400,18 @@ impl VulkanRenderer {
                 }
                 for op in &ops {
                     match op {
+                        // Owned by the pipeline (§8d): no descriptor set, and no AA
+                        // mip chain — those come from a per-frame capped pool, and
+                        // generating one for a surface the engine never draws would
+                        // starve the surfaces it does.
+                        // Only skip the set + AA mip when NOTHING will draw this
+                        // window: suppressed inline AND not wanted for the layer.
+                        DrawOp::Textured { meta, .. }
+                            if !demand.keep_windows && demand.claim.owns(meta) =>
+                        {
+                            sets.push(None);
+                            aa_op.push(false);
+                        }
                         DrawOp::Textured { view, tex_w, tex_h, meta, .. } => {
                             // Eligible world op? For mip methods, also try to
                             // claim a mip image (None = over the per-frame cap →
@@ -298,90 +475,162 @@ impl VulkanRenderer {
                     old_layout,
                 }
             });
-            compositor_kernel_vulkan_command_record_base::record::record_composition(
+            // The offscreen/multipass path forces a full-frame redraw: after-content
+            // passes sample NEIGHBOURING pixels of `content`, so a damage-scissored
+            // partial update would post-process stale edges.
+            //
+            // An owned band does NOT, though it used to. The pipeline may place
+            // window pixels anywhere, but the band it draws them into is a
+            // full-output element whose own damage is the whole output on every
+            // frame it changes — so the spill is already covered, and collapsing
+            // damage on top of that cost a full composite on every frame that
+            // touched anything. What an owned band does need is for the drawables
+            // it takes over to stop claiming opacity, so the band repaints under
+            // them; see `bridge.window::set::owned_by_bundle`.
+            let damaged = damaged && !offscreen_on;
+            // Detach the content path so the closures below can hold `&*self`
+            // (the graph + the pending-acquire recorder) while it is driven
+            // mutably. Restored right after the record call.
+            let mut off = out.offscreen.take();
+            // Detached for the same reason as `offscreen`: the closures below hold
+            // `&*self` while this is driven mutably. Restored right after.
+            let mut warpmap = out.warpmap.take();
+            let this = &*self;
+            let graph = &out.graph;
+            let pre = |cmd: vk::CommandBuffer| {
+                // Cache-served imports first: the mip pre-pass below samples
+                // them, so their writes must be visible before it runs.
+                this.record_pending_acquires(cmd, &acquires);
+                // Pre-pass: (re)generate the mip chain for each AA mip op.
+                if !mip_jobs.is_empty() {
+                    if let Some(aa) = aa {
+                        let mg = mipgen.borrow();
+                        for (idx, fill) in &mip_jobs {
+                            mg.record(dev, cmd, aa, *fill, *idx);
+                        }
+                    }
+                }
+                // Multipass background: render each pipeline's intermediate passes
+                // into their offscreen targets (outside the composite pass).
+                for op in ops.iter() {
+                    if let DrawOp::Pipeline(p) = op {
+                        graph.record_intermediates(dev, cmd, p, value);
+                        // The warp grid renders into its OWN tiny target, outside
+                        // the composite pass, and copies itself to host memory in
+                        // the same command buffer. Nothing waits — the bytes are
+                        // read at the next drain, where this frame is complete.
+                        if let (Some(w), Some(g)) = (warpmap.as_mut(), p.warp_map.as_ref()) {
+                            w.record(dev, cmd, &g.push);
+                        }
+                    }
+                }
+            };
+            // World/screen split for after-content layering. Everything up to the
+            // last world-ish op (the background pipeline/shader + world windows) is
+            // the WORLD band — composited into `content` and post-processed by the
+            // after-content passes. The trailing ops (layer-shell top, iced-screen
+            // UI, pointer) are the SCREEN band, drawn ON TOP of the post-processed
+            // result so the vignette/glass never darkens the UI or cursor. Only
+            // split when compositing offscreen for an after-content pipeline.
+            let split_at = if demand.has_after {
+                ops.iter()
+                    .rposition(|o| {
+                        matches!(o, DrawOp::Pipeline(_))
+                            || matches!(o, DrawOp::ShaderPass { .. })
+                            || matches!(o, DrawOp::Textured { meta, .. } if meta.is_world())
+                    })
+                    .map(|i| i + 1)
+                    .unwrap_or(ops.len())
+            } else {
+                ops.len()
+            };
+            let composer = super::compose::Composer {
                 dev,
-                cmd,
-                image,
-                view,
-                extent,
-                clear,
                 pipelines,
-                damage_pass,
-                |cmd| {
-                    // Cache-served imports first: the mip pre-pass below samples
-                    // them, so their writes must be visible before it runs.
-                    this.record_pending_acquires(cmd, &acquires);
-                    // Pre-pass: (re)generate the mip chain for each AA mip op.
-                    if !mip_jobs.is_empty() {
-                        if let Some(aa) = aa {
-                            let mg = mipgen.borrow();
-                            for (idx, fill) in &mip_jobs {
-                                mg.record(dev, cmd, aa, *fill, *idx);
-                            }
-                        }
-                    }
+                shader_passes,
+                graph,
+                aa,
+                ops: &ops,
+                sets: &sets,
+                aa_op: &aa_op,
+                clear_rects: &clear_rects,
+                demand: &demand,
+                aa_params: super::compose::Aa {
+                    taps: aa_taps,
+                    spread: aa_spread,
+                    sharpen: aa_sharpen,
+                    lod_bias: aa_lod_bias,
+                    easu: aa_easu,
+                    rcas: aa_rcas,
+                    rcas_strength: aa_rcas_strength,
                 },
-                |cmd| {
-                    // Run each draw once per damage rect under a scissor, instead
-                    // of once over the whole target. On a full redraw, one
-                    // unscissored draw under `begin`'s full-extent scissor.
-                    let scissored = |scissors: &[vk::Rect2D], draw: &dyn Fn()| {
-                        if !damaged {
-                            draw();
-                            return;
-                        }
-                        for s in scissors {
-                            unsafe {
-                                dev.device.cmd_set_scissor(cmd, 0, std::slice::from_ref(s));
-                            }
-                            draw();
-                        }
-                    };
-                    for (i, (op, set)) in ops.iter().zip(sets.iter()).enumerate() {
-                        match op {
-                            DrawOp::Solid { quad, scissors } => {
-                                scissored(scissors, &|| {
-                                    compositor_kernel_vulkan_element_solid_base::solid::draw(
-                                        dev, pipelines, cmd, *quad,
-                                    );
-                                });
-                            }
-                            DrawOp::ShaderPass { sdr, hdr, scissors } => {
-                                let v = if use_hdr { hdr.as_ref().unwrap_or(sdr) } else { sdr };
-                                if let Some(fp) = shader_passes.get(&(v.id, format)) {
-                                    scissored(scissors, &|| fp.draw(dev, cmd, &v.push));
-                                }
-                            }
-                            DrawOp::Textured { quad, tex_w, tex_h, scissors, .. } => {
-                                let set = set.expect("textured op has a set");
-                                if aa_op[i] {
-                                    let aa = aa.expect("aa pipeline present for aa op");
-                                    let push = compositor_kernel_vulkan_pipeline_composite_base::composite::AaPush {
-                                        dst: quad.dst,
-                                        src: quad.src,
-                                        color: quad.color,
-                                        params: [aa_taps as f32, aa_spread, aa_sharpen, aa_lod_bias],
-                                        params2: [
-                                            if aa_easu { 1.0 } else { 0.0 },
-                                            if aa_rcas { aa_rcas_strength } else { 0.0 },
-                                            *tex_w as f32,
-                                            *tex_h as f32,
-                                        ],
-                                    };
-                                    scissored(scissors, &|| aa.draw(dev, cmd, set, push));
-                                } else {
-                                    scissored(scissors, &|| {
-                                        compositor_kernel_vulkan_element_texture_base::texture::draw(
-                                            dev, pipelines, cmd, set, *quad,
-                                        );
-                                    });
-                                }
-                            }
-                        }
+                tick: value,
+                use_hdr,
+                format,
+                damaged,
+                skip_windows,
+                split_at,
+            };
+            let compose = |cmd: vk::CommandBuffer| composer.compose(cmd);
+            let compose_windows = |cmd: vk::CommandBuffer| composer.compose_windows(cmd);
+            let compose_screen = |cmd: vk::CommandBuffer| composer.compose_screen(cmd);
+            if offscreen_on {
+                // Owned memory props (Copy) — borrow of `phd` ends before the
+                // `&mut out.offscreen` borrow below (disjoint fields).
+                let off_mem = unsafe {
+                    self.phd
+                        .instance()
+                        .handle()
+                        .get_physical_device_memory_properties(self.phd.handle())
+                };
+                // After-content pipeline (if any) samples `content` in the post
+                // stage; otherwise the offscreen path does its passthrough.
+                let after_pipe = ops.iter().find_map(|o| match o {
+                    DrawOp::Pipeline(p) if p.has_after() => Some(p.clone()),
+                    _ => None,
+                });
+                let post_pre = |cmd: vk::CommandBuffer,
+                                cv: vk::ImageView,
+                                hv: vk::ImageView,
+                                wv: vk::ImageView| {
+                    if let Some(p) = &after_pipe {
+                        graph.record_after_intermediates(dev, cmd, p, cv, hv, wv, value);
                     }
-                },
-            )
-            .map_err(|e| VulkanError::Vk(format!("record: {e}")))?;
+                };
+                let post_draw = |cmd: vk::CommandBuffer,
+                                 cv: vk::ImageView,
+                                 hv: vk::ImageView,
+                                 wv: vk::ImageView|
+                 -> bool {
+                    match &after_pipe {
+                        Some(p) => {
+                            graph.draw_after_output(dev, cmd, p, cv, hv, wv, value);
+                            true
+                        }
+                        None => false,
+                    }
+                };
+                let r = off
+                    .as_mut()
+                    .expect("offscreen ensured above")
+                    .record(
+                        dev, &off_mem, cmd, image, view, extent, format, clear, demand.keep_history,
+                        demand.keep_windows, band_tex.as_ref().map(|t| t.view()), pre, compose,
+                        compose_windows, compose_screen, post_pre, post_draw,
+                    )
+                    .map_err(|e| VulkanError::Vk(format!("offscreen record: {e}")));
+                out.offscreen = off;
+                out.warpmap = warpmap.take();
+                r?;
+            } else {
+                let r = compositor_kernel_vulkan_command_record_base::record::record_composition(
+                    dev, cmd, image, view, extent, clear, pipelines, damage_pass, pre, compose,
+                )
+                .map_err(|e| VulkanError::Vk(format!("record: {e}")));
+                out.offscreen = off;
+                out.warpmap = warpmap.take();
+                r?;
+            }
         }
 
         if !self.use_native_fence() {

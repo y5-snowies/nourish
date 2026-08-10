@@ -68,6 +68,15 @@ pub static FENCE_FALLBACK: AtomicU64 = AtomicU64::new(0);
 /// Defaults to `false` (GLES) so nothing is skipped before it's set.
 pub static COMPOSITOR_PREFERS_DMABUF: AtomicBool = AtomicBool::new(false);
 
+/// Whether the active Vulkan device enabled descriptor indexing (bindless window
+/// textures). See [`set_descriptor_indexing`].
+pub static DESCRIPTOR_INDEXING: AtomicBool = AtomicBool::new(false);
+
+/// Whether the active Vulkan device enabled fragment-stage storage writes, so a
+/// bundle declaring `storage` can run. See [`set_storage_writes`].
+pub static STORAGE_WRITES: AtomicBool = AtomicBool::new(false);
+
+
 /// One composited frame. Call once per present.
 #[inline]
 pub fn frame() {
@@ -108,6 +117,40 @@ pub static WORLD_CAMERA_ZOOM: AtomicU64 = AtomicU64::new(0x3FF0_0000_0000_0000);
 #[inline]
 pub fn set_compositor_prefers_dmabuf(yes: bool) {
     COMPOSITOR_PREFERS_DMABUF.store(yes, Relaxed);
+}
+
+/// Record whether the active Vulkan device enabled descriptor indexing (the
+/// bindless `binding_array<texture>` capability). Published once at renderer init
+/// from `VulkanDevice::descriptor_indexing`; read by the shader-pipeline producer
+/// to gate the `window-textures` interface (bundles needing it fall back when the
+/// device lacks the feature). Default false (also the GLES / no-Vulkan answer).
+#[inline]
+pub fn set_descriptor_indexing(yes: bool) {
+    DESCRIPTOR_INDEXING.store(yes, Relaxed);
+}
+
+/// True if the active Vulkan device enabled descriptor indexing (bindless window
+/// textures). See [`set_descriptor_indexing`].
+#[inline]
+pub fn descriptor_indexing() -> bool {
+    DESCRIPTOR_INDEXING.load(Relaxed)
+}
+
+/// Record whether the active Vulkan device can write storage buffers from the
+/// fragment stage. Published once at renderer init from
+/// `VulkanDevice::storage_writes`; read by the shader-pipeline producer to refuse
+/// a bundle declaring `storage` on a device that cannot run it. Default false
+/// (also the GLES / no-Vulkan answer).
+#[inline]
+pub fn set_storage_writes(yes: bool) {
+    STORAGE_WRITES.store(yes, Relaxed);
+}
+
+/// True if the active Vulkan device can write storage buffers from a fragment
+/// shader. See [`set_storage_writes`].
+#[inline]
+pub fn storage_writes() -> bool {
+    STORAGE_WRITES.load(Relaxed)
 }
 
 /// Publish the current world-camera zoom (see [`WORLD_CAMERA_ZOOM`]). Called

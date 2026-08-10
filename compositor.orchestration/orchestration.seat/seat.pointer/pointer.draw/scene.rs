@@ -25,7 +25,34 @@ where
     }
 
     let pointer = state.state.seat.seat.get_pointer().unwrap();
-    let cursor_world = pointer.current_location();
+    // The sprite belongs where the user's HAND is — which, under a displacing
+    // bundle, is NOT where `current_location()` points.
+    //
+    // That location is warp-corrected: it names the content the cursor is over,
+    // in un-displaced world space. Projecting it back to the screen therefore
+    // lands the sprite at the PRE-warp position of that content, which is exactly
+    // where the content is not drawn.
+    //
+    // The canvas solid-box cursor needs exactly the same correction, and for the
+    // same reason — it does NOT get it for free by being a world-band element.
+    // Two independent reasons: the pipeline's output pass samples only the
+    // pipeline's own targets, so an engine op drawn after it is never displaced;
+    // and `split_at`'s predicate (`renderer/submit.rs`) ignores `DrawOp::Solid`
+    // entirely, so a cursor solid falls into the SCREEN band regardless of band.
+    // Both cursors are therefore told, from the same value.
+    //
+    // That value carries the gate as well as the position — `None` means no warp
+    // is in effect — so neither reader re-derives it. A frame where one warps and
+    // the other does not is a cursor that renders away from where it clicks.
+    let true_screen = compositor_orchestration_seat_pointer_publish::publish::true_screen();
+    let cursor_world = match true_screen {
+        Some((x, y)) => {
+            let ctx = state.focus_pane_context();
+            let t: Transform = (Point::<f64, Physical>::from((x, y)), ctx).into();
+            t.into_storage_point_f64()
+        }
+        None => pointer.current_location(),
+    };
     // let hotspot = state.inner.pointer_mut().element.get_current_hotspot();
 
     // Project the world pointer location through the pane the cursor is in (not

@@ -32,9 +32,22 @@ pub fn open_help(state: &mut Loop) {
     guide.help_open = true;
 }
 
+/// Open the inline shader editor (the Shader entry was clicked).
+pub fn open_shader(state: &mut Loop) {
+    state.inner.kernel.get_mut(&GUIDE_MUT).shader_open = true;
+}
+
 /// Any key press dismisses an open popup. The key is NOT swallowed — the popup
 /// is an overlay on the canvas, not a modal.
-pub fn on_key(state: &mut Loop) {
+///
+/// The shader editor is the exception, and only Escape closes it. It is meant to
+/// be left up while the desktop it edits is used, so dismissing it on the next
+/// keystroke would take it away in the middle of the job it exists for — whereas
+/// the menu and the help panel are things you look at once and move on from.
+pub fn on_key(state: &mut Loop, sym: u32) {
+    if sym == smithay::input::keyboard::keysyms::KEY_Escape {
+        state.inner.kernel.get_mut(&GUIDE_MUT).shader_open = false;
+    }
     if showing(state) {
         close(state);
     }
@@ -84,12 +97,18 @@ fn empty_canvas_at(state: &Loop) -> Option<(f64, f64)> {
 
 /// True when the pointer is over one of our own popups — that press belongs to
 /// the popup (a button click) and must neither dismiss nor re-summon it.
+///
+/// The shader editor counts. It is not dismissible by an outside click, but a
+/// press ON it must still not be read as a press on bare canvas: without this,
+/// dragging one of its sliders would summon the menu underneath.
 fn over_popup(state: &Loop) -> bool {
     let guide = state.inner.kernel.get(&GUIDE);
     let Some(at) = state.state.seat.seat.get_pointer().map(|p| p.current_location()) else { return false };
     surface_under_filtered(state, at, &|_| true)
         .and_then(|hit| hit.iced_handle())
-        .is_some_and(|id| guide.menu == Some(id) || guide.help == Some(id))
+        .is_some_and(|id| {
+            guide.menu == Some(id) || guide.help == Some(id) || guide.shader == Some(id)
+        })
 }
 
 /// The canvas has to actually be the thing on screen.

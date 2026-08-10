@@ -2,9 +2,10 @@
 //! per-pane draw signals into finished dmabufs the compositor samples.
 //!
 //! Built as if it were a separate process. The compositor shares no Vulkan
-//! object, no command buffer, and no mutable state with it — the only two
-//! channels are the draw signals in ([`Signal`]) and the published slots out
-//! (the pane [`Registry`]). Moving this to a real process later is mechanical.
+//! object, no command buffer, and no mutable state with it — the channels are the
+//! draw signals in ([`Signal`]), the published slots out (the pane [`Registry`])
+//! and the host-side results out (`pane::Readback`). Moving this to a real
+//! process later is mechanical.
 //!
 //! ONE worker, MANY panes. Panes cannot share a buffer: each carries its own
 //! camera and physical size, so on a multi-monitor desktop a shared buffer would
@@ -15,6 +16,7 @@
 //! Pane buffers are allocated lazily on first ping and reallocated when that
 //! pane's size changes, so resize needs no involvement from the caller.
 
+use compositor_background_two_worker_key::key::PaneKey;
 use compositor_background_two_worker_pane::pane::{self, Registry};
 use compositor_background_two_worker_signal::signal::{DrawRequest, Signal};
 use smithay::backend::allocator::dmabuf::Dmabuf;
@@ -26,6 +28,9 @@ pub use compositor_background_two_worker_signal::signal::DrawRequest as Request;
 pub struct Worker {
     signal: Arc<Signal>,
     registry: Registry,
+    /// The worker's return path — see `pane::Readback`. A field, not a global:
+    /// this `Worker` is already an `Arc` the compositor holds.
+    readbacks: compositor_background_two_worker_pane::pane::Readbacks,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -42,11 +47,14 @@ impl Worker {
     pub fn spawn() -> Result<Self, String> {
         let signal = Arc::new(Signal::new());
         let registry: Registry = Arc::new(Mutex::new(Default::default()));
+        let readbacks: compositor_background_two_worker_pane::pane::Readbacks =
+            Arc::new(Mutex::new(Default::default()));
         let (tx, rx) = mpsc::channel::<Result<(), String>>();
         let (s, r) = (Arc::clone(&signal), Arc::clone(&registry));
+        let rb = Arc::clone(&readbacks);
         let thread = std::thread::Builder::new()
             .name("y5-background".into())
-            .spawn(move || compositor_background_two_worker_serve::serve::run(s, r, tx))
+            .spawn(move || compositor_background_two_worker_serve::serve::run(s, r, rb, tx))
             .map_err(|e| format!("background worker thread: {e}"))?;
         rx.recv()
             .map_err(|_| "background worker died during setup".to_string())??;
@@ -58,21 +66,29 @@ impl Worker {
             woken.poke()
         }));
         info!("background worker: ready");
-        Ok(Self { signal, registry, thread: Some(thread) })
+        Ok(Self { signal, registry, readbacks, thread: Some(thread) })
     }
 
     /// Compositor thread: publish `pane`'s latest state and mark it live. This is
     /// NOT a render request — the worker runs at its own rate and only needs the
     /// ping to know the pane still exists, and to be woken if it had parked.
-    pub fn ping(&self, pane: u64, req: DrawRequest) {
+    pub fn ping(&self, pane: &PaneKey, req: DrawRequest) {
         self.signal.ping(pane, req);
+    }
+
+    /// Compositor thread: what this pane's last render computed for us.
+    pub fn readback(
+        &self,
+        pane: &PaneKey,
+    ) -> Option<compositor_background_two_worker_pane::pane::Readback> {
+        self.readbacks.lock().ok()?.get(pane).cloned()
     }
 
     /// Compositor thread: this pane's newest fully-rendered buffer plus the
     /// generation that produced it, or `None` before its first frame completes.
     /// The generation is the compositor's damage key — while it is unchanged the
     /// background is byte-identical and needs no re-compositing.
-    pub fn latest(&self, pane: u64) -> Option<(Dmabuf, usize)> {
+    pub fn latest(&self, pane: &PaneKey) -> Option<(Dmabuf, usize)> {
         let out = pane::latest(&self.registry, pane);
         // Taking a frame IS the acknowledgement the worker's `drained()` gate is
         // waiting on. Telling it here turns a polled wait into an event; a no-op

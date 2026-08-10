@@ -1,0 +1,51 @@
+# `y5-shader` — a thin CLI over the compositor's gRPC `Shader` service.
+#
+# Standalone, like every other harness under `developer.tool`: its own
+# [workspace], its own Cargo.lock, crates.io deps only. It is a CLIENT of the
+# compositor, not part of it, and nothing in the compositor may depend on it.
+#
+# It compiles the SAME `shader.proto` the compositor serves, straight out of the
+# tree — so the wire types cannot drift from the service. There is no vendored
+# copy to update.
+[package]
+name = "y5-shader-cli"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+# Own workspace root so cargo does not walk up into the compositor workspaces.
+[workspace]
+
+[[bin]]
+name = "y5-shader"
+path = "src/main.rs"
+
+[dependencies]
+tonic = "0.14"
+tonic-prost = "0.14"
+prost = "0.14"
+tokio = { version = "1", features = ["macros", "rt", "net"] }
+tower = "0.5"
+hyper-util = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+
+[build-dependencies]
+tonic-prost-build = "0.14"
+
+# The release build is COMMITTED as `../shader-skill/y5-shader-x86`, so it is optimised for
+# size rather than speed: it makes four RPCs and exits, and every byte is a byte
+# in the repository. `strip` and `panic = "abort"` together take it from ~2.9 MB
+# to well under half that; `opt-level = "z"` and one codegen unit let LLVM drop
+# the monomorphised tonic machinery this tool never reaches.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

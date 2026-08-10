@@ -1,0 +1,23 @@
+{
+  "name": "tb-velocity-probe",
+  "version": 1,
+  "passes": [
+    {
+      "name": "probe_before",
+      "shader": "passes/probe_before.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "probe_after",
+      "shader": "passes/probe_after.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "requires": ["composited_scene"],
+      "output": "output"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

@@ -50,6 +50,18 @@ compositor_remote_message_macro_base::define! {
                 fit_aspect => FitAspect(bind::selection::FitAspect) -> bind::selection::FitAspectResponse;
             }
         },
+        Shader { //
+            trait: bind::shader::shader_server::Shader,
+            namespace: shader,
+            enum: Shader,
+            handler_trait: ShaderService,
+            methods: {
+                active => Active(bind::shader::ActiveRequest) -> bind::shader::ActiveResponse;
+                list => List(bind::shader::ListRequest) -> bind::shader::ListResponse;
+                activate => Activate(bind::shader::ActivateRequest) -> bind::shader::ActivateResponse;
+                reload => Reload(bind::shader::ReloadRequest) -> bind::shader::ReloadResponse;
+            }
+        },
         Debug { //
             trait: bind::debug::debug_server::Debug,
             namespace: debug,

@@ -24,7 +24,7 @@ pub fn input_received<I: InputBackend>(
         input_handle.id.clone()
     };
 
-    let Some(ref mut registry) = state.inner.surface_mut().registry else {
+    let Some(registry) = compositor_y5_lock_system_base::base::registry(&mut state.inner.worlds) else {
         return false;
     };
 

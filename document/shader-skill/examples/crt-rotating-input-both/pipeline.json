@@ -1,0 +1,42 @@
+{
+  "name": "crt-rotating-input-both",
+  "version": 1,
+  "windows": "world",
+  "modules": [
+    "lib/warp.wgsl"
+  ],
+  "targets": {
+    "band": {
+      "format": "rgba16f"
+    }
+  },
+  "hit": {
+    "module": "lib/warp.wgsl",
+    "params": [
+      "curve",
+      "tilt"
+    ],
+    "evaluate": "map_static"
+  },
+  "passes": [
+    {
+      "name": "world",
+      "shader": "passes/world.wgsl",
+      "output": "band",
+      "requires": [
+        "window_geometry",
+        "window_textures"
+      ]
+    },
+    {
+      "name": "crt",
+      "shader": "passes/crt.wgsl",
+      "inputs": {
+        "src": "band"
+      },
+      "output": "output"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

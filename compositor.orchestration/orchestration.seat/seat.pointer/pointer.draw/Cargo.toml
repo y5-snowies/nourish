@@ -5,6 +5,8 @@ edition = "2024"
 
 
 [dependencies]
+compositor_orchestration_seat_pointer_publish = { workspace = true }
+compositor_orchestration_seat_pointer_warp = { workspace = true }
 compositor_y5_camera_state_base = { workspace = true }
 compositor_y5_lock_system_base = { workspace = true }
 compositor_y5_camera_system_base = { workspace = true }

@@ -1,0 +1,25 @@
+{
+  "name": "tb-after-trivial-inline",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../tb-after-trivial/passes/backdrop.wgsl",
+      "output": "output",
+      "place": "compositor"
+    },
+    {
+      "name": "tint",
+      "shader": "../tb-after-trivial/passes/tint.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "requires": ["composited_scene"],
+      "output": "output",
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

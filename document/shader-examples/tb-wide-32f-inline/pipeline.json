@@ -1,0 +1,42 @@
+{
+  "name": "tb-wide-32f-inline",
+  "version": 1,
+  "targets": {
+    "hi_a": {
+      "format": "rgba32f",
+      "scale": 1.0
+    },
+    "hi_b": {
+      "format": "rgba32f",
+      "scale": 1.0
+    }
+  },
+  "passes": [
+    {
+      "name": "seed",
+      "shader": "../tb-wide-32f/passes/seed.wgsl",
+      "output": "hi_a",
+      "place": "compositor"
+    },
+    {
+      "name": "wide",
+      "shader": "../tb-wide-32f/passes/wide.wgsl",
+      "inputs": {
+        "src": "hi_a"
+      },
+      "output": "hi_b",
+      "place": "compositor"
+    },
+    {
+      "name": "out",
+      "shader": "../tb-wide-32f/passes/out.wgsl",
+      "inputs": {
+        "src": "hi_b"
+      },
+      "output": "output",
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

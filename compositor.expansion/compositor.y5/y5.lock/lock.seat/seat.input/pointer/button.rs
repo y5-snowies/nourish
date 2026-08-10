@@ -37,7 +37,7 @@ pub fn button<I: InputBackend>(event: &<I as InputBackend>::PointerButtonEvent, 
 
     // Iced pointer-button target.
     let iced_button_target = iced_focus;
-    if let Some(registry) = _loop.inner.surface_mut().registry.as_mut() {
+    if let Some(registry) = compositor_y5_lock_system_base::base::registry(&mut _loop.inner.worlds) {
         registry.set_keyboard_focus(iced_focus);
         registry.dispatch_button(iced_button_target, button, pressed);
     }

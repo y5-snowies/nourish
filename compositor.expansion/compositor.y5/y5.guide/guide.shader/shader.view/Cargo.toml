@@ -1,0 +1,14 @@
+[package]
+name = "compositor_y5_guide_shader_view"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_configurator_settings_surface_message = { workspace = true }
+compositor_monitor_selection_font_base = { workspace = true }
+compositor_support_iced_core_engine_base = { workspace = true }
+iced_core = { workspace = true }
+iced_widget = { workspace = true }
+
+[lib]
+path = "lib.rs"

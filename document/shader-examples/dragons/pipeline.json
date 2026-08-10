@@ -1,0 +1,86 @@
+{
+  "name": "dragons",
+  "version": 1,
+  "category": "Multipass",
+
+  "windows": "world",
+  "decorations": "off",
+
+  "modules": [
+    "lib/common.wgsl"
+  ],
+
+  "textures": {
+    "breath": { "file": "art/breath.png" },
+    "dragon": { "file": "art/dragon.png" },
+    "flame": { "file": "art/flame.png" }
+  },
+
+  "storage": {
+    "field": { "bytes": 331776 }
+  },
+
+  "targets": {
+    "heatmap": { "format": "rgba16f", "scale": 0.2 },
+    "land": { "format": "rgba16f" },
+    "glow_a": { "format": "rgba16f", "scale": 0.25 },
+    "glow_b": { "format": "rgba16f", "scale": 0.25 }
+  },
+
+  "passes": [
+    {
+      "name": "heat",
+      "shader": "passes/heat.wgsl",
+      "output": "heatmap"
+    },
+    {
+      "name": "land",
+      "shader": "passes/land.wgsl",
+      "output": "land"
+    },
+    {
+      "name": "band",
+      "shader": "passes/band.wgsl",
+      "inputs": {
+        "breath": "breath",
+        "dragon": "dragon",
+        "flame": "flame",
+        "heatmap": "heatmap",
+        "land": "land"
+      },
+      "output": "output",
+      "requires": ["window_geometry", "window_textures"]
+    },
+    {
+      "name": "bright",
+      "shader": "passes/bright.wgsl",
+      "when": "after-content",
+      "inputs": { "scene": "content" },
+      "output": "glow_a",
+      "requires": ["composited_scene"]
+    },
+    {
+      "name": "blur_h",
+      "shader": "passes/blur.wgsl",
+      "when": "after-content",
+      "inputs": { "src": "glow_a" },
+      "output": "glow_b",
+      "defines": { "HORIZONTAL": "true" }
+    },
+    {
+      "name": "blur_v",
+      "shader": "passes/blur.wgsl",
+      "when": "after-content",
+      "inputs": { "src": "glow_b" },
+      "output": "glow_a"
+    },
+    {
+      "name": "glow",
+      "shader": "passes/glow.wgsl",
+      "when": "after-content",
+      "inputs": { "bloom": "glow_a", "scene": "content" },
+      "output": "output",
+      "requires": ["composited_scene"]
+    }
+  ]
+}

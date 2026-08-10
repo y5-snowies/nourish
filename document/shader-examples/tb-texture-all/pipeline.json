@@ -1,0 +1,34 @@
+{
+  "name": "tb-texture-all",
+  "version": 1,
+  "windows": "world",
+  "textures": {
+    "sparks": { "file": "sparks.png" },
+    "grade": { "file": "grade.png", "srgb": false },
+    "paper": { "file": "paper.png", "srgb": false }
+  },
+  "passes": [
+    {
+      "name": "world",
+      "shader": "passes/world.wgsl",
+      "inputs": { "paper": "paper", "sparks": "sparks" },
+      "output": "output",
+      "requires": [
+        "window_geometry",
+        "window_textures",
+        "window_times",
+        "pointer_state"
+      ]
+    },
+    {
+      "name": "grade",
+      "shader": "passes/grade.wgsl",
+      "when": "after-content",
+      "inputs": { "lut": "grade", "scene": "content", "sparks": "sparks" },
+      "output": "output",
+      "requires": ["composited_scene", "pointer_state"]
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

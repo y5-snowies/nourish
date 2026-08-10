@@ -59,7 +59,9 @@ where
     );
     let mut out = Vec::new();
     for inner in native {
-        let forced = ElementWindowSurface { inner, zoom: scale };
+        // The overview always suppresses the bundle's claim (its grid sits on a
+        // frozen capture, not the live band), so nothing here is bundle-drawn.
+        let forced = ElementWindowSurface { inner, zoom: scale, covered: false };
         let r = RescaleRenderElement::from_element(forced, Point::from((0, 0)), rescale);
         let l = RelocateRenderElement::from_element(r, reloc, Relocate::Relative);
         let Some(c) = CropRenderElement::from_element(l, Scale::from(scale), cell) else {
@@ -68,6 +70,7 @@ where
         out.push(CanvasElement::Window(WindowElement::WindowFit(ClampOpaque {
             inner: c,
             screen,
+            covered: false,
         })));
     }
     out

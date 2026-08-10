@@ -189,6 +189,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // so the slots exist; the receivers stay local until the wait.
     kernel_data.insert(&compositor_y5_surface_system_base::base::ICED_CONTEXT, None);
     kernel_data.insert(&compositor_background_three_system_base::base::BEVY_CONTEXT, None);
+    // The one iced renderer and the one off-thread host, filled by
+    // `ensure_engine` in the same pass that fills the context above. Seeded here
+    // for the same reason: a slot must exist before it can be written.
+    kernel_data.insert(&compositor_y5_surface_system_base::base::ICED_ENGINE, None);
+    kernel_data.insert(&compositor_y5_surface_system_base::base::ICED_WORKER, None);
     // Remote driver: nudge channel to the background gRPC thread, so the session
     // activate handler can ask it to reclaim the socket after a second TTY.
     kernel_data.insert(&compositor_orchestration_driver_remote_base::base::RPC_REBIND, rpc_transport.rebind_signal);
@@ -205,6 +210,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Box::new(compositor_y5_navigator_system_base::base::NavigatorSystem),
                     Box::new(compositor_y5_camera_system_base::base::CameraSystem::default()),
                     Box::new(compositor_background_two_system_base::base::TwoSystem),
+                    // Maintains THIS world's pipeline descriptors. Registered beside the
+                    // background because it describes what a bundle running in this world
+                    // can read — but it owns none of the background's own state, and a
+                    // world with no bundle simply keeps an empty table.
+                    Box::new(compositor_pipeline_world_system_base::base::PipelineSystem),
                     Box::new(compositor_background_three_system_base::base::ThreeSystem),
                     Box::new(compositor_y5_window_system_base::base::WindowSystem),
                     Box::new(compositor_y5_surface_system_base::base::SurfaceSystem),
@@ -232,6 +242,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // The lock world OWNS its bevy registry (prewarmed from the shared
                 // context), rather than borrowing the session world's.
                 Box::new(compositor_background_three_system_base::base::ThreeSystem),
+                // And its ICED registry, for the same reason and a sharper one:
+                // the auth panel must not live in a registry the session can move
+                // out from under it. See `lock_system_base::surface`.
+                Box::new(compositor_y5_surface_system_base::base::SurfaceSystem),
                 Box::new(compositor_y5_lock_system_base::base::LockSystem),
             ],
             &kernel_data,
@@ -246,6 +260,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Own parallax background (a NEW instance, distinct from the
                 // active world's) drawn behind the sphere.
                 Box::new(compositor_background_two_system_base::base::TwoSystem),
+                // Maintains THIS world's pipeline descriptors. Registered beside the
+                // background because it describes what a bundle running in this world
+                // can read — but it owns none of the background's own state, and a
+                // world with no bundle simply keeps an empty table.
+                Box::new(compositor_pipeline_world_system_base::base::PipelineSystem),
                 // The picker world OWNS its bevy registry (prewarmed from the
                 // shared context) — the sphere scene is proprietary to it.
                 Box::new(compositor_background_three_system_base::base::ThreeSystem),
@@ -397,6 +416,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("wgpu contexts received — pre-creating driver registries");
 
         *state.inner.kernel.get_mut(&compositor_y5_surface_system_base::base::ICED_CONTEXT_MUT) = Some(iced_ctx);
+        // BEFORE the prewarm loop below: every world's registry takes a clone of
+        // this one renderer, so it has to exist first.
+        compositor_y5_surface_system_base::base::ensure_engine(&mut state.inner.kernel);
         *state.inner.kernel.get_mut(&compositor_background_three_system_base::base::BEVY_CONTEXT_MUT) = Some(bevy_ctx.clone());
 
         // Capture registry — kernel driver data shared by every backend.

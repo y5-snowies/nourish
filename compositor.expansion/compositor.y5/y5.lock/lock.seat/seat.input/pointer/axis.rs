@@ -43,7 +43,7 @@ pub fn axis<I: InputBackend>(event: &<I as InputBackend>::PointerAxisEvent, _loo
     //      }
     //  }
 
-    //  if let Some(registry) = _loop.inner.surface_mut().registry.as_mut() {
+    //  if let Some(registry) = compositor_y5_lock_system_base::base::registry(&mut _loop.inner.worlds) {
     //      // ── Iced axis ─────────────────────────────────────────────────
     //      let iced_target = registry.pointer_target();
     //      let discrete_x = horizontal_amount_discrete

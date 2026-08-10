@@ -5,6 +5,8 @@ edition = "2024"
 
 
 [dependencies]
+compositor_pipeline_bundle_manifest_base = { workspace = true }
+compositor_background_two_storage_base = { workspace = true }
 compositor_orchestration_driver_capture_base = { workspace = true }
 compositor_y5_camera_state_base = { workspace = true }
 compositor_y5_lock_system_base = { workspace = true }

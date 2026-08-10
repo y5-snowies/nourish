@@ -1,0 +1,49 @@
+{
+  "name": "mp-effects",
+  "version": 1,
+  "windows": "world",
+  "category": "Multipass",
+  "modules": [
+    "../mp-parallax/lib/parallax.wgsl"
+  ],
+  "targets": {
+    "picture": {
+      "format": "rgba16f"
+    }
+  },
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../mp-parallax/passes/backdrop.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "compose",
+      "shader": "passes/effects.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "output": "picture",
+      "requires": [
+        "window_geometry",
+        "window_textures",
+        "composited_scene"
+      ]
+    },
+    {
+      "name": "finish",
+      "shader": "passes/finish.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "picture": "picture"
+      },
+      "output": "output",
+      "requires": [
+        "window_geometry"
+      ]
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "on-resize"
+}

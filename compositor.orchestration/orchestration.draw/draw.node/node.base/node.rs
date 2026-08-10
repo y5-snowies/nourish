@@ -37,7 +37,16 @@ pub enum DrawNode<R: Renderer> {
     Surface(SurfaceNode),
     Pointer(compositor_orchestration_seat_pointer_element::element::PointerRenderElement<R>),
     Layershell(WaylandSurfaceRenderElement<R>),
-    Canvas(compositor_y5_canvas_draw_element::element::Element<R>),
+    /// Canvas content: a window's surfaces and decorations, the select box, the
+    /// cursor solid. `flags` are the `window.descriptor` bits of the WINDOW this
+    /// element belongs to, or zero for the canvas furniture that belongs to none —
+    /// the one thing about a canvas node that cannot be recovered from its variant
+    /// at `lower()` time. See `ElementMeta::flags`.
+    Canvas {
+        elem: compositor_y5_canvas_draw_element::element::Element<R>,
+        flags: u32,
+        times: [f32; 12],
+    },
     /// iced UI surface (world or screen); imported via dmabuf on native renderers.
     Iced(Iced),
     /// World iced surface clipped to a viewport pane's physical rect.
@@ -95,9 +104,10 @@ where
     /// Order topmost-first (higher Layer drawn on top → emitted first, matching
     /// smithay's first-is-front element order) and lower each node. Nodes whose
     /// dmabuf import fails are dropped for this frame. Returns the elements plus a
-    /// lockstep [`ElementMeta`] per element (its space — `World` for client
-    /// windows + iced-world panels — so the renderer can restrict effects like
-    /// AA to world content).
+    /// lockstep [`ElementMeta`] per element: its space (`World` for client
+    /// windows + iced-world panels, so the renderer can restrict AA to world
+    /// content) and whether it's a client `window` (only those feed the shader
+    /// pipeline's window-rects/window-textures set).
     pub fn lower(
         mut self,
         renderer: &mut R,
@@ -109,11 +119,18 @@ where
         for (_, node) in self.nodes {
             // World content is exactly windows + iced-world panels; everything
             // else (bevy, parallax, screen iced, layershell, pointer, solids) is
-            // screen-space.
-            let m = if matches!(node, DrawNode::Canvas(_) | DrawNode::IcedCropped { .. }) {
-                ElementMeta::WORLD
-            } else {
-                ElementMeta::SCREEN
+            // screen-space. Client windows are tagged WINDOW (a subset of world):
+            // only they feed the shader pipeline's window-rects/window-textures
+            // set. Iced-world panels/placeholders stay WORLD — AA-eligible, but
+            // kept out of the window-set so glass/window-glow never treat a
+            // placeholder as a window.
+            let m = match &node {
+                DrawNode::Canvas { flags, times, .. } => ElementMeta::window(*flags, *times),
+                DrawNode::IcedCropped { .. } => ElementMeta::WORLD,
+                DrawNode::Background2D(_) | DrawNode::Background2DCropped { .. } => {
+                    ElementMeta::BACKGROUND
+                }
+                _ => ElementMeta::SCREEN,
             };
             for e in node.lower(renderer) {
                 elements.push(e);
@@ -144,7 +161,7 @@ where
             .collect(),
             DrawNode::Pointer(e) => vec![SceneElement::Pointer(e)],
             DrawNode::Layershell(e) => vec![SceneElement::Layershell(e)],
-            DrawNode::Canvas(e) => vec![SceneElement::Canvas(e)],
+            DrawNode::Canvas { elem, .. } => vec![SceneElement::Canvas(elem)],
             // Off-thread background: the worker already rendered this pane, so
             // sample its dmabuf instead of running the shader inside the
             // compositor's own command buffer. `worker_frame` is `None` both when
@@ -152,7 +169,10 @@ where
             // first frame lands — in the latter case we draw nothing at all
             // rather than sample a buffer that was never written.
             DrawNode::Background2D(e) => {
-                if R::prefers_dmabuf() && e.offthread {
+                // `worker_can_render` keeps a multipass bundle off the worker,
+                // which renders a single pass and would silently draw the wrong
+                // background for it. See `ParallaxBackground::worker_can_render`.
+                if R::prefers_dmabuf() && e.offthread && e.worker_can_render() {
                     let Some((dmabuf, generation)) = e.worker_frame() else { return vec![] };
                     // Commit from the worker's publish generation, NOT the
                     // element's own per-frame counter: unchanged generation ⇒ no
@@ -165,11 +185,18 @@ where
                     .into_iter()
                     .collect();
                 }
+                // Stage 4: the worker decorates rather than replaces, so the
+                // element still draws its head band here — but the worker has to
+                // keep being pumped, and its decorated band published, or the
+                // compositor has nothing to present.
+                if R::prefers_dmabuf() && e.offloads_after_band() {
+                    renderer.set_after_band(e.after_band());
+                }
                 vec![SceneElement::Background2D(e)]
             }
             DrawNode::Background2DCropped { elem, crop } => {
                 use smithay::backend::renderer::element::utils::CropRenderElement;
-                if R::prefers_dmabuf() && elem.offthread {
+                if R::prefers_dmabuf() && elem.offthread && elem.worker_can_render() {
                     let Some((dmabuf, generation)) = elem.worker_frame() else { return vec![] };
                     let Some(pre) = import_pre(
                         renderer, &dmabuf, elem.location(Scale::from(1.0)),

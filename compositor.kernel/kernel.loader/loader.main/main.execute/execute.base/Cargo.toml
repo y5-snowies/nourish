@@ -10,6 +10,7 @@ readme = "../../../../../README.md"
 
 
 [dependencies]
+compositor_pipeline_world_system_base = { workspace = true }
 compositor_support_library_process_child_hygiene = { workspace = true }
 compositor_background_three_system_prewarm = { workspace = true }
 compositor_orchestration_driver_capture_base = { workspace = true }

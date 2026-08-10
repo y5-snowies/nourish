@@ -354,8 +354,66 @@ impl Orchestrator {
     /// `WORLD_SWITCHED` so the foreign-toplevel mirror re-advertises the now-hosted
     /// world's windows. Use this instead of `self.worlds.set_spawn_target` directly.
     pub fn set_spawn_target_world(&mut self, id: uuid::Uuid) {
+        let previous = self.worlds.spawn_target();
         if self.worlds.set_spawn_target(id) {
+            // The outgoing world's off-thread background panes are now nobody's:
+            // per-pane targets, a `history` image and a persistent ping-pong pair
+            // are the largest thing that feature owns, and without a deterministic
+            // signal they sit until the worker's 30s backstop. Passing through the
+            // picker touches several worlds in seconds, so that is hundreds of
+            // megabytes of fullscreen dmabuf held for nothing.
+            //
+            // GUARDED ON `active_id`, and this is the load-bearing part. A world
+            // that is no longer the spawn target but IS still active is still on
+            // screen. Retiring on `WorldManager::switch` instead would free the
+            // session world's ring the moment the lock screen took over — the very
+            // ring the lock screen then samples through the spawn-target fallback.
+            // Lock never calls this function at all, which is why the session world
+            // survives it; the guard covers the rest.
+            if previous != self.worlds.active_id() {
+                compositor_kernel_graphic_bridge_publish_retire::retire::retire_world(
+                    previous.as_u128(),
+                );
+                self.release_world_surfaces(previous);
+            }
             self.bus.send(&WORLD_SWITCHED_TX, WorldSwitched);
+        }
+    }
+
+    /// Release the iced GPU backings of a world that is no longer on screen.
+    ///
+    /// The same argument as the pane retirement above, for the other per-world
+    /// pool. `IcedRegistry::manage_backings` — the thing that frees a hidden
+    /// surface's dmabuf — is called once per frame on the registry resolved
+    /// through `surface_mut()`, i.e. the SPAWN TARGET's. Every other world's
+    /// registry is never passed to it, so its surfaces stay resident: visit a
+    /// world, allocate its placeholders and chrome, leave, and that memory is
+    /// held for the life of the session. Tens of MiB per world in practice —
+    /// worth reclaiming, but not the dominant term in any measurement.
+    ///
+    /// Called under the same `previous != active_id()` guard: a world that is
+    /// not the spawn target but IS still active is on screen and must keep its
+    /// backings.
+    fn release_world_surfaces(&mut self, world: uuid::Uuid) {
+        // Honour the same preference `manage_backings` does — with
+        // `release_hidden_surfaces` off, nothing is ever released anywhere.
+        if !self.preference.release_hidden_surfaces || !self.worlds.contains(world) {
+            return;
+        }
+        let Some(surface) = self
+            .worlds
+            .get_mut(world)
+            .storage_mut()
+            .try_get_mut(&compositor_y5_surface_system_base::base::SURFACE_MUT)
+        else {
+            return;
+        };
+        let Some(registry) = surface.registry.as_mut() else {
+            return;
+        };
+        let freed = registry.release_all_backings();
+        if freed > 0 {
+            info!("world {world}: released {freed} iced backing(s) — left the screen");
         }
     }
 

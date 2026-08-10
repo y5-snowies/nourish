@@ -47,6 +47,28 @@ pub fn prepare(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Ph
     // every output so the parallax fills each monitor behind the picker.
     let background_two = compositor_y5_picker_scene_tick::tick::tick(state, renderer);
 
+    // The per-frame statement of what THIS world's background needs from the
+    // engine — the same call the orchestration scene makes, through the same
+    // helper, because the picker is a world drawing its own bundle.
+    //
+    // It has to be here as well: the frame driver picks ONE prepare path, and
+    // when the picker owns the frame the orchestration one never runs. Without
+    // this the picker's facts were stated exactly once, by the selection-time
+    // floor, when `ensure_distant_parallax` first built the instance — so from
+    // the second picker open onwards its bundle drew under whatever the last
+    // ordinary frame published, which is the session world's answers.
+    //
+    // Before the active-output early return below, so every monitor's pass
+    // states it rather than only the one showing the sphere.
+    if let Some(w) = background_two.as_ref().and_then(|b| b.world) {
+        if state.inner.worlds.contains(w) {
+            compositor_pipeline_world_system_base::base::publish_facts(
+                state.inner.worlds.get_mut(w).storage_mut(),
+                background_two.as_ref().and_then(|b| b.pipeline.as_deref()),
+            );
+        }
+    }
+
     // Non-active output: parallax only. Skip the (size-baked) bevy sphere and iced
     // details panel so they render exclusively on the active monitor.
     if !on_active_output(state) {

@@ -76,6 +76,12 @@ pub fn open(state: &mut Loop, renderer: &mut GlesRenderer) {
 }
 
 pub fn close(state: &mut Loop) {
+    // THE overview close, reached from the surface pump's reconcile and from
+    // `activate_world`. Hand the worker the overlay's backdrop pane back here
+    // rather than leaving a fullscreen ring to the 30s backstop: the pane is
+    // keyed under the session world, which is still very much alive, so no
+    // world retirement will ever name it.
+    compositor_kernel_graphic_bridge_publish_retire::retire::retire_overlay("overview");
     close_logout(state);
     if let Some(id) = state.inner.overview_mut().menu.take() {
         if let Some(registry) = state.inner.surface_mut().registry.as_mut() {

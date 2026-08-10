@@ -1,0 +1,13 @@
+[package]
+name = "compositor_pipeline_abi_worldset_base"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_kernel_vulkan_memory_external_base = { workspace = true }
+smithay = { workspace = true }
+# Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+compositor_model_debug_instance_record = { workspace = true }
+
+[lib]
+path = "lib.rs"

@@ -43,8 +43,8 @@ fn is_false(b: &bool) -> bool { !*b }
 /// yet, and forgetting the user's choice for that would be worse than a
 /// temporarily wrong panel.
 fn selection_exists(id: &str) -> bool {
-    !id.starts_with(compositor_background_two_shader_builtin::BUILTIN_PREFIX)
-        || compositor_background_two_shader_builtin::source(id).is_some()
+    !id.starts_with(compositor_pipeline_bundle_builtin_base::BUILTIN_PREFIX)
+        || compositor_pipeline_bundle_builtin_base::source(id).is_some()
 }
 
 /// Transforms the per-world `Two` slot to/from its persisted form (a single

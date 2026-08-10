@@ -1,0 +1,17 @@
+{
+  "name": "window-glow",
+  "version": 1,
+
+  "passes": [
+    { "name": "backdrop", "shader": "passes/backdrop.wgsl", "output": "output" },
+
+    {
+      "name": "glow",
+      "shader": "passes/glow.wgsl",
+      "when": "after-content",
+      "inputs": { "scene": "content" },
+      "output": "output",
+      "requires": ["window_geometry", "composited_scene"]
+    }
+  ]
+}

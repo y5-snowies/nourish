@@ -1,0 +1,108 @@
+syntax = "proto3";
+package y5.compositor.rpc.protocol.client.shader;
+
+// Read and drive the ACTIVE WORLD's background shader.
+//
+// Scoped to the active world on purpose: a background is a per-world setting, and
+// every one of these calls means "the world the user is looking at". A world id
+// would be a second way to say something the compositor already knows, and a
+// stale one would edit a world nobody can see.
+
+message ActiveRequest {}
+
+// What the active world is running right now.
+message ActiveResponse {
+  // The selection string, exactly as it is stored: a bundle folder name, an
+  // absolute path, or `builtin:<name>` for a compiled-in bundle. EMPTY means no
+  // override — the world is on the built-in parallax.
+  string selection = 1;
+  // Where the bundle's sources are, when they are on disk and therefore
+  // editable. Empty for the built-in parallax and for `builtin:` bundles, which
+  // are compiled into the binary and cannot be edited in place.
+  string path = 2;
+  // True when the selection resolves to a compiled-in bundle.
+  bool builtin = 3;
+  // The compile/load error for this selection, if it failed. When this is set
+  // the desktop is showing the fallback, not what `selection` names.
+  string error = 4;
+
+  // Shape of the loaded graph. All zero for a single-pass or built-in shader.
+  uint32 before_passes = 5;
+  uint32 after_passes = 6;
+  uint32 targets = 7;
+  // `requires` entries, spelled as the manifest spells them.
+  repeated string requires = 8;
+  // `engine`, `pipeline` or `world`.
+  string windows = 9;
+
+  // Every `@prop` the bundle exposes, with the value this world is using.
+  repeated Prop props = 10;
+}
+
+message Prop {
+  string name = 1;
+  string kind = 2;      // float | int | bool | vec2 | vec3 | vec4 | color
+  string label = 3;
+  string group = 4;
+  float value = 5;      // the LIVE value for this world
+  float default = 6;
+  float min = 7;
+  float max = 8;
+  float step = 9;
+  repeated string choices = 10;
+}
+
+message ListRequest {}
+
+message ListResponse {
+  repeated Bundle bundles = 1;
+}
+
+message Bundle {
+  // What to pass to `activate`.
+  string selection = 1;
+  // The bare name, for display.
+  string name = 2;
+  // The picker heading it declares, or "User".
+  string category = 3;
+  // Compiled into the binary: selectable, not editable.
+  bool builtin = 4;
+  // Source directory, empty for a built-in.
+  string path = 5;
+  // True when this bundle carries a `pipeline.json`.
+  bool multipass = 6;
+}
+
+message ActivateRequest {
+  // A bundle folder name, an absolute path, or `builtin:<name>`. EMPTY selects
+  // the built-in parallax, i.e. clears the world's override.
+  string selection = 1;
+}
+
+message ActivateResponse {
+  // The selection was written to the world. It does NOT mean the bundle
+  // compiled — the load happens on the next frame. Call `active` afterwards and
+  // read `error` to find out.
+  bool applied = 1;
+  string error = 2;
+}
+
+// Drop the loaded instance so the SAME selection is read from disk again.
+//
+// This is the edit-and-see-it loop: rewrite the bundle's files, call `reload`,
+// and the next frame compiles what is now on disk. Nothing else invalidates —
+// the compositor has no reason to stat a bundle it has already loaded.
+message ReloadRequest {}
+
+message ReloadResponse {
+  bool applied = 1;
+  // Set when there is nothing to reload (the world has no override).
+  string error = 2;
+}
+
+service Shader {
+  rpc active (ActiveRequest) returns (ActiveResponse);
+  rpc list (ListRequest) returns (ListResponse);
+  rpc activate (ActivateRequest) returns (ActivateResponse);
+  rpc reload (ReloadRequest) returns (ReloadResponse);
+}

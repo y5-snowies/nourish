@@ -29,7 +29,7 @@ pub fn scene(
     let camera_transform = _loop.inner.camera().transform.clone();
     let gpu = _loop.inner.environment.GPU.clone();
     let mut wants_frame = false;
-    if let Some(ref mut iced) = _loop.inner.surface_mut().registry {
+    if let Some(iced) = compositor_y5_lock_system_base::base::registry(&mut _loop.inner.worlds) {
         let transform = compositor_monitor_compositor_iced_base::Transform {
             zoom: camera_transform.zoom,
             position: Point::new(

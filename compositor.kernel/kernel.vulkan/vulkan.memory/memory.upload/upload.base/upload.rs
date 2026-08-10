@@ -19,6 +19,9 @@ pub struct UploadedImage {
     pub format: vk::Format,
     pub width: u32,
     pub height: u32,
+    /// The allocation size, needed by a second device importing this memory: the
+    /// importer must allocate exactly this rather than its own requirement.
+    pub size: u64,
 }
 
 /// A host-visible staging buffer reused across uploads. Grows on demand; never
@@ -180,6 +183,10 @@ pub fn create_and_upload(
     data: &[u8],
     format: Fourcc,
     size: Size<i32, BufferCoord>,
+    // `shareable`: create the image `OPAQUE_FD`-exportable so a second device can
+    // sample it. A PARAMETER rather than a flag this crate reads, because the answer
+    // changes with the selected bundle and only the caller knows it.
+    shareable: bool,
 ) -> Result<UploadedImage, VulkanError> {
     let vk_format = compositor_kernel_vulkan_format_query_base::query::vk_format(format)
         .ok_or(VulkanError::UnsupportedFormat(format))?;
@@ -194,32 +201,45 @@ pub fn create_and_upload(
 
     let device = &dev.device;
 
-    // Device-local sampled image (TRANSFER_DST for the upload).
-    let image_info = vk::ImageCreateInfo::default()
-        .image_type(vk::ImageType::TYPE_2D)
-        .format(vk_format)
-        .extent(vk::Extent3D {
-            width,
-            height,
-            depth: 1,
-        })
-        .mip_levels(1)
-        .array_layers(1)
-        .samples(vk::SampleCountFlags::TYPE_1)
-        .tiling(vk::ImageTiling::OPTIMAL)
-        .usage(vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST)
-        .sharing_mode(vk::SharingMode::EXCLUSIVE)
-        .initial_layout(vk::ImageLayout::UNDEFINED);
+    // Device-local sampled image (TRANSFER_DST for the upload), created SHAREABLE
+    // only when the selected bundle asked for window textures.
+    //
+    // A SHM surface has no dmabuf, so this image is the only handle on its pixels
+    // — and the background worker needs to sample it. `OPAQUE_FD` external memory
+    // makes that possible between two logical devices on the same physical device,
+    // which is exactly this arrangement (`worker.physical` picks the compositor's
+    // node, no fallback). Unlike a dmabuf export it needs no DRM format modifier
+    // and keeps OPTIMAL tiling.
+    //
+    // But it is NOT free, which is why `shareable` is asked rather than assumed —
+    // see the parameter. Changing it mid-session does NOT strand already-uploaded
+    // surfaces: `shm_cache` refuses to reuse a cached texture whose shareability no
+    // longer matches, so the next commit reallocates it correctly, in either
+    // direction.
+    let mut ext_image = vk::ExternalMemoryImageCreateInfo::default()
+        .handle_types(vk::ExternalMemoryHandleTypeFlags::OPAQUE_FD);
+    let image_info = compositor_kernel_vulkan_memory_external_base::external::image_info(
+        vk_format,
+        width,
+        height,
+        shareable.then_some(&mut ext_image),
+    );
     let image = unsafe { device.create_image(&image_info, None)? };
     let req = unsafe { device.get_image_memory_requirements(image) };
     let mem_idx = find_memory_type(dev, phd, req.memory_type_bits, vk::MemoryPropertyFlags::DEVICE_LOCAL)
         .ok_or(VulkanError::Import("no device-local memory type".into()))?;
+    let mut ext_alloc = vk::ExportMemoryAllocateInfo::default()
+        .handle_types(vk::ExternalMemoryHandleTypeFlags::OPAQUE_FD);
+    let mut alloc_info = vk::MemoryAllocateInfo::default()
+        .allocation_size(req.size)
+        .memory_type_index(mem_idx);
+    if shareable {
+        alloc_info = alloc_info.push_next(&mut ext_alloc);
+    }
     let memory = unsafe {
         device
             .allocate_memory(
-                &vk::MemoryAllocateInfo::default()
-                    .allocation_size(req.size)
-                    .memory_type_index(mem_idx),
+                &alloc_info,
                 None,
             )
             .inspect_err(|_| {
@@ -311,6 +331,7 @@ pub fn create_and_upload(
         format: vk_format,
         width,
         height,
+        size: req.size,
     })
 }
 

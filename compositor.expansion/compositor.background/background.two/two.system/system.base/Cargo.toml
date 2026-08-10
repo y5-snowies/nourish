@@ -4,6 +4,8 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_pipeline_abi_worldset_base = { workspace = true }
+compositor_pipeline_world_system_base = { workspace = true }
 compositor_background_three_system_base = { workspace = true }
 compositor_orchestration_draw_platform_base = { workspace = true }
 compositor_orchestration_smithay_data_base = { workspace = true }

@@ -1,0 +1,20 @@
+[package]
+name = "compositor_pipeline_abi_descriptor_base"
+version = "0.0.1"
+edition = "2024"
+
+# Deliberately empty. This crate is a LAYOUT, and every producer and consumer of
+# it names it: the per-world observer, the graph executor, the CPU warp
+# evaluator. A dependency here is a dependency each of them inherits, so the
+# descriptor vocabulary depends on nothing.
+#
+# (It was dependency-free in its previous home too, but for the wrong reason —
+# see `abi.clock`'s manifest.)
+[dependencies]
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "An ABI definition and the one function that writes it. The bulk is the rationale for each lane and each flag, which is the whole value of the file: every shipped bundle restates this layout in WGSL and none of them can be recompiled from here, so what a lane means has to be written down beside it. Splitting the flags from the packer would put a constant and its only writer in different crates."
+
+[lib]
+path = "lib.rs"

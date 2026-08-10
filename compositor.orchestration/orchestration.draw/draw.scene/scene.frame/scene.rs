@@ -147,6 +147,23 @@ fn update_fractional(state: &mut Loop) {
 }
 
 
+/// What the renderer produced for `world` on `output`, or nothing.
+///
+/// Resolved at BIND time because it is per output — `collect` normalises every
+/// rect to the pass's own extent, so the other monitor's set describes the same
+/// window in the wrong UV space.
+fn bind_frame_for(
+    state: &Loop,
+    world: Option<uuid::Uuid>,
+    output: &std::sync::Arc<str>,
+) -> compositor_pipeline_world_system_base::base::OutputFrame {
+    let Some(w) = world else { return Default::default() };
+    match state.inner.worlds.contains(w) {
+        true => compositor_pipeline_world_system_base::base::frame(state.inner.worlds.get(w).storage(), output),
+        false => Default::default(),
+    }
+}
+
 /// Grace margin for the "full" fractional strategy, in world-logical units,
 /// zoom-scaled the same way as the snap ranges (divided by zoom — so it is a
 /// CONSTANT screen-space band around each pane, `range × output_scale` px,
@@ -418,6 +435,30 @@ pub fn prepare(
     if background_two.is_none() {
         background_two = compositor_background_two_draw_scene::scene::scene(state);
     }
+    // THE per-frame statement of what the background on screen needs from the
+    // engine: collect the world set, leave the band to the shader, redraw whole.
+    //
+    // Here, and not at selection time, because selection happens once per BUNDLE
+    // while these are properties of the WORLD BEING DRAWN. `load_multipass` runs
+    // only when a world builds its `ParallaxBackground`, so a world returning to
+    // the screen with an already-compiled bundle never restated them and the
+    // engine went on following whichever world built last — open the picker, come
+    // back, and the session world is drawn under the picker's answers.
+    //
+    // And here specifically, after BOTH branches above, because this is where the
+    // two ways a background can arrive converge: the active world's own draw, and
+    // the `spawn_target` fallback an overlay world takes. Publishing inside the
+    // fallback alone reaches only the overlay case — which blanks the screen for
+    // the ordinary one, since a band-owning bundle then draws with an empty world
+    // set while the engine has been told to leave the band alone.
+    if let Some(w) = background_two.as_ref().and_then(|b| b.world) {
+        if state.inner.worlds.contains(w) {
+            compositor_pipeline_world_system_base::base::publish_facts(
+                state.inner.worlds.get_mut(w).storage_mut(),
+                background_two.as_ref().and_then(|b| b.pipeline.as_deref()),
+            );
+        }
+    }
     if background_two.is_some() {
         state.schedule_redraw_post_vblank();
     }
@@ -496,7 +537,11 @@ where
     let render_key = state.inner.render_output.clone();
     // Hoisted: the background pane key is derived from it once per output pass,
     // not once per pane per frame.
-    let pane_output = render_key.clone().unwrap_or_default();
+    // An `Arc<str>`, not a `String`: every region of this pass binds a pane key
+    // from it, so they share one allocation instead of copying the key each. This
+    // line already cloned a `String`, so the cost is unchanged.
+    let pane_output: std::sync::Arc<str> =
+        std::sync::Arc::from(render_key.clone().unwrap_or_default().as_str());
     let draw_screen = match &render_key {
         None => true,
         Some(key) => {
@@ -594,6 +639,7 @@ where
                 // rect only while the viewport is unsplit. Sharing the key would
                 // have `ensure` reallocate the ring to the full output on every
                 // overview open and back to the sub-rect on every close.
+                bg.bind_frame(bind_frame_for(state, bg.world, &pane_output));
                 bg.bind_overlay("overview", &pane_output, refresh, frame_serial);
                 plan.push(layer::BACKGROUND, DrawNode::Background2D(bg));
             }
@@ -639,6 +685,7 @@ where
                         (t.position.x as f32, t.position.y as f32, t.zoom as f32)
                     };
                     let mut bg = base.clone();
+                    bg.bind_frame(bind_frame_for(state, bg.world, &pane_output));
                     bg.bind_pane(
                         (region.rect.loc.x, region.rect.loc.y),
                         (region.rect.size.w as f32, region.rect.size.h as f32),
@@ -654,10 +701,13 @@ where
                         // camera, one size for all of them, and on mixed
                         // resolutions `ensure` reallocated the ring twice a frame
                         // as the two sizes fought over it.
-                        compositor_background_two_draw_element::element::pane_key(
-                            &pane_output,
-                            region_index,
-                        ),
+                        //
+                        // The third component, the world, is NOT supplied here: it
+                        // is stamped on the element where it was built, because an
+                        // overlay draws the spawn target's background rather than
+                        // the active world's. `bind_pane` assembles the key.
+                        &pane_output,
+                        region_index,
                         // This monitor's refresh + retrace count: the worker paces
                         // each pane against the display it is actually shown on.
                         refresh,
@@ -699,8 +749,8 @@ where
                     // cursor builders (they read `render_target` and crop to the
                     // pane rect), where the element geometry is well-defined.
                     match item {
-                        compositor_y5_canvas_draw_scene::scene::ContentItem::Canvas(e) => {
-                            plan.push(content_layer, DrawNode::Canvas(e))
+                        compositor_y5_canvas_draw_scene::scene::ContentItem::Canvas { elem, flags, times } => {
+                            plan.push(content_layer, DrawNode::Canvas { elem, flags, times })
                         }
                         compositor_y5_canvas_draw_scene::scene::ContentItem::Iced(e) => {
                             // World-space iced surfaces clip to the pane (native +

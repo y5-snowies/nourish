@@ -31,6 +31,25 @@ where
     let is_active = state.inner.select().get(window.clone());
     let is_primary = state.inner.select().primary(window.clone());
 
+    // A shader bundle can suppress the border entirely. It is opaque and sits
+    // OUTSIDE the slot, so any effect reading window edges — a glow, a field
+    // between windows, a refraction — samples the border instead of whatever is
+    // actually behind the window. Checked before the focus logic below, because
+    // the selected-window case draws a THICKER border, not a smaller one.
+    // THIS world's bundle, not a process-global copy of the last one selected.
+    let target = state.inner.worlds.spawn_target();
+    let border = state
+        .inner
+        .worlds
+        .get(target)
+        .storage()
+        .try_get(&compositor_background_two_storage_base::base::BG_TWO)
+        .map(|t| t.border())
+        .unwrap_or(true);
+    if !border {
+        return elements;
+    }
+
     // Fullscreen owns its whole region, and the border is drawn OUTSIDE the slot
     // (top at `y - 1`, right at `x + w` below) — into the very area the window was
     // told it fills. Selection overrides that: the frame is how a selected window

@@ -1,0 +1,37 @@
+{
+  "name": "mp-crt",
+  "version": 1,
+  "category": "Multipass",
+  "modules": [
+    "../mp-parallax/lib/parallax.wgsl",
+    "lib/warp.wgsl"
+  ],
+  "hit": {
+    "module": "lib/warp.wgsl",
+    "params": [
+      "curve"
+    ],
+    "evaluate": "map_static"
+  },
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "../mp-parallax/passes/backdrop.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "crt",
+      "shader": "passes/crt.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "output": "output",
+      "requires": [
+        "composited_scene"
+      ]
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "on-resize"
+}

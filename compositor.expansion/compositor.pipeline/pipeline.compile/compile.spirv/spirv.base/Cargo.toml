@@ -1,0 +1,10 @@
+[package]
+name = "compositor_pipeline_compile_spirv_base"
+version = "0.0.1"
+edition = "2024"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+naga = { workspace = true }

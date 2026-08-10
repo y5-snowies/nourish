@@ -1,0 +1,20 @@
+[package]
+name = "compositor_orchestration_seat_pointer_warp"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+compositor_pipeline_world_system_base = { workspace = true }
+compositor_pipeline_abi_worldset_base = { workspace = true }
+compositor_pipeline_build_seam_base = { workspace = true }
+compositor_background_two_draw_select = { workspace = true }
+compositor_background_two_storage_base = { workspace = true }
+compositor_orchestration_core_state_base = { workspace = true }
+compositor_y5_picker_system_base = { workspace = true }
+
+[package.metadata.lint]
+allow = ["size"]
+reason = "Un-warping a pointer is one function with three conditions on it: whether a warp applies at all, which of the two grid producers answered for this world, and undoing the chain in reverse of how the picture was built. The bulk is that reasoning; a cursor that renders away from where it clicks is the cost of getting any of it wrong."
+
+[lib]
+path = "lib.rs"

@@ -19,13 +19,17 @@ const CELL: f32 = 32.0;
 pub enum GuideItem {
     Settings,
     Help,
+    Shader,
 }
 
-/// `Hover` never leaves the surface; the other two are the actionable clicks.
+/// `Hover` never leaves the surface; the other three are the actionable clicks.
 #[derive(Clone, Debug)]
 pub enum GuideMessage {
     OpenSettings,
     OpenHelp,
+    /// Open the inline shader editor — the world's background variables, adjustable
+    /// against the live desktop rather than against a 320px preview pane.
+    OpenShader,
     Hover(Option<GuideItem>),
 }
 
@@ -35,6 +39,7 @@ pub struct GuideMenu {
     /// Tooltip text for each entry — the bare shortcut, nothing else.
     pub settings_hint: String,
     pub help_hint: String,
+    pub shader_hint: String,
 }
 
 fn icon<'a>(g: &'static str, m: GuideMessage, item: GuideItem, on: bool) -> Element<'a, GuideMessage, Theme, Renderer> {
@@ -66,6 +71,7 @@ impl IcedUi for GuideMenu {
         let content = row![
             icon(font_map::Settings, GuideMessage::OpenSettings, GuideItem::Settings, h == Some(GuideItem::Settings)),
             icon(font_map::QuestionMark, GuideMessage::OpenHelp, GuideItem::Help, h == Some(GuideItem::Help)),
+            icon(font_map::Tune, GuideMessage::OpenShader, GuideItem::Shader, h == Some(GuideItem::Shader)),
         ]
         .spacing(12);
         container(content)
@@ -92,6 +98,7 @@ impl IcedSnapshot for GuideMenu {
         match self.hovered? {
             GuideItem::Settings => Some(self.settings_hint.clone()),
             GuideItem::Help => Some(self.help_hint.clone()),
+            GuideItem::Shader => Some(self.shader_hint.clone()),
         }
     }
 }

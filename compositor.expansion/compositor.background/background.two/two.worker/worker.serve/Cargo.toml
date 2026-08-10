@@ -4,6 +4,15 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_pipeline_abi_seam_base = { workspace = true }
+compositor_pipeline_build_seam_base = { workspace = true }
+compositor_pipeline_execute_warpmap_base = { workspace = true }
+compositor_pipeline_execute_graph_base = { workspace = true }
+compositor_background_two_worker_chain = { workspace = true }
+compositor_background_two_worker_import = { workspace = true }
+compositor_pipeline_build_place_base = { workspace = true }
+compositor_pipeline_bundle_require_base = { workspace = true }
+ash = { workspace = true }
 compositor_background_two_worker_format = { workspace = true }
 compositor_kernel_graphic_bridge_publish_thread = { workspace = true }
 smithay = { workspace = true }
@@ -23,6 +32,8 @@ compositor_background_two_worker_render = { workspace = true }
 compositor_background_two_worker_signal = { workspace = true }
 compositor_background_two_worker_target = { workspace = true }
 compositor_model_debug_instance_record = { workspace = true }
+compositor_background_two_worker_history.workspace = true
 
+compositor_pipeline_abi_clock_base.workspace = true
 [lib]
 path = "lib.rs"

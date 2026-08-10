@@ -1,0 +1,16 @@
+{
+  "name": "tb-window-chroma-inline",
+  "version": 1,
+  "windows": "world",
+  "passes": [
+    {
+      "name": "keyed",
+      "shader": "../tb-window-chroma/passes/keyed.wgsl",
+      "output": "output",
+      "requires": ["window_geometry", "window_textures"],
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

@@ -19,20 +19,35 @@ pub(crate) fn create(
     let x = (size.w / 2 - width / 2);
     let y = (size.h / 2 - height / 2);
 
-    let handle = compositor_y5_surface_draw_handle::handle::load(
-        state,
-        renderer,
-        LockSurface::new(),
-        Rectangle::new(Point::from((x, y)), Size::new(width, height)),
-        compositor_monitor_compositor_iced_base::IcedSpace::Screen,
-        compositor_orchestration_draw_layer_base::base::Layer::LOCK_SCENE.bits(),
-    );
-
+    // Built in the LOCK world's own registry, not `surface_mut()`'s — see
+    // `lock_system_base::surface`. Created directly rather than through
+    // `handle::load`, which resolves the spawn target; its draw-order `register`
+    // is a no-op here anyway, because a `Screen`-space surface keeps its own band
+    // and never interleaves with windows.
+    let gpu = state.inner.environment.GPU.clone();
     // Clone the sender first: the registry borrow pins the same slot.
-    let tx = state.inner.surface_mut().surface_message_buffer_channel.0.clone();
-    let Some(registry) = state.inner.surface_mut().registry.as_mut() else {
+    let tx = {
+        let Some(surface) = compositor_y5_lock_system_base::base::surface(&mut state.inner.worlds)
+        else {
+            return None;
+        };
+        surface.surface_message_buffer_channel.0.clone()
+    };
+    let Some(registry) = compositor_y5_lock_system_base::base::registry(&mut state.inner.worlds)
+    else {
         return None;
     };
+    let handle = registry
+        .create_in_space(
+            gpu.as_str(),
+            LockSurface::new(),
+            renderer,
+            Point::from((x, y)),
+            Size::new(width, height),
+            compositor_monitor_compositor_iced_base::IcedSpace::Screen,
+            compositor_orchestration_draw_layer_base::base::Layer::LOCK_SCENE.bits(),
+        )
+        .ok()?;
     registry.set_message_handler(handle, move |message: &LockMessage| {
         lock_surface_dispatch(message, &tx);
     });

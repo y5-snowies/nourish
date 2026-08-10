@@ -1,0 +1,24 @@
+{
+  "name": "tb-stage-4",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "passes/backdrop.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "decorate",
+      "shader": "passes/decorate.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content"
+      },
+      "requires": ["composited_scene"],
+      "output": "output",
+      "place": "worker"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

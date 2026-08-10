@@ -19,7 +19,7 @@ pub fn render(
     d: &Device,
     passes: &mut Passes,
     target: &Target,
-    v: &ShaderVariant<'_>,
+    v: &ShaderVariant,
     extent: (u32, u32),
     cmd: vk::CommandBuffer,
     fence: vk::Fence,

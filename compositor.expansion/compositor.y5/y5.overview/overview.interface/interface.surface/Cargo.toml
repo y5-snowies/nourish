@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+compositor_kernel_graphic_bridge_publish_retire = { workspace = true }
 smithay = { workspace = true }
 compositor_orchestration_core_state_base = { workspace = true }
 compositor_monitor_compositor_iced_base = { workspace = true }

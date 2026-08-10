@@ -23,6 +23,10 @@ pub fn hooks(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Phys
     compositor_y5_guide_menu_create::create::per_frame(state, renderer);
     compositor_y5_guide_menu_hover::hover::per_frame(state, size);
     compositor_y5_guide_help_create::create::per_frame(state, renderer, size);
+    // …and the inline shader editor the menu's third entry opens. Also the push of
+    // what it displays, which is why it runs every frame rather than only on the
+    // open/close edge.
+    compositor_y5_guide_shader_create::create::per_frame(state, renderer, size);
     // Per-frame screen context for systems (KernelData). Background systems read
     // physical output size from here (SCREEN) — the former background.shared
     // OUTPUT_SIZE world token is gone.

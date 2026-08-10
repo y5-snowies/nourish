@@ -1,0 +1,44 @@
+{
+  "name": "tb-chain-bleed",
+  "version": 1,
+
+  "targets": {
+    "l1_a": { "format": "rgba16f", "scale": 0.5 },
+    "l1_b": { "format": "rgba16f", "scale": 0.5 },
+    "l2_a": { "format": "rgba16f", "scale": 0.25 },
+    "l2_b": { "format": "rgba16f", "scale": 0.25 },
+    "l3_a": { "format": "rgba16f", "scale": 0.125 },
+    "l3_b": { "format": "rgba16f", "scale": 0.125 }
+  },
+
+  "passes": [
+    { "name": "extract", "shader": "passes/extract.wgsl", "when": "after-content",
+      "inputs": { "src": "content" }, "requires": ["composited_scene"], "output": "l1_a" },
+
+    { "name": "l1_h", "shader": "passes/blur.wgsl", "when": "after-content",
+      "inputs": { "src": "l1_a" }, "output": "l1_b", "defines": { "HORIZONTAL": "true" } },
+    { "name": "l1_v", "shader": "passes/blur.wgsl", "when": "after-content",
+      "inputs": { "src": "l1_b" }, "output": "l1_a" },
+
+    { "name": "down2", "shader": "passes/down.wgsl", "when": "after-content",
+      "inputs": { "src": "l1_a" }, "output": "l2_a" },
+    { "name": "l2_h", "shader": "passes/blur.wgsl", "when": "after-content",
+      "inputs": { "src": "l2_a" }, "output": "l2_b", "defines": { "HORIZONTAL": "true" } },
+    { "name": "l2_v", "shader": "passes/blur.wgsl", "when": "after-content",
+      "inputs": { "src": "l2_b" }, "output": "l2_a" },
+
+    { "name": "down3", "shader": "passes/down.wgsl", "when": "after-content",
+      "inputs": { "src": "l2_a" }, "output": "l3_a", "cadence": 2 },
+    { "name": "l3_h", "shader": "passes/blur.wgsl", "when": "after-content",
+      "inputs": { "src": "l3_a" }, "output": "l3_b", "cadence": 2,
+      "defines": { "HORIZONTAL": "true" } },
+    { "name": "l3_v", "shader": "passes/blur.wgsl", "when": "after-content",
+      "inputs": { "src": "l3_b" }, "output": "l3_a", "cadence": 2 },
+
+    { "name": "combine", "shader": "passes/combine.wgsl", "when": "after-content",
+      "inputs": { "scene": "content", "l1": "l1_a", "l2": "l2_a", "l3": "l3_a" },
+      "requires": ["composited_scene"], "output": "output" }
+  ],
+
+  "letterbox": "on-resize"
+}

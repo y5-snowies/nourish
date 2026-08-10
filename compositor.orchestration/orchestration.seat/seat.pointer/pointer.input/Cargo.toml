@@ -5,6 +5,7 @@ edition = "2024"
 
 
 [dependencies]
+compositor_orchestration_seat_pointer_warp = { workspace = true }
 compositor_y5_guide_interface_base = { workspace = true }
 uuid = { workspace = true }
 compositor_y5_camera_state_base = { workspace = true }
@@ -39,5 +40,7 @@ compositor_support_smithay_dispatch_state_base.workspace = true
 compositor_support_smithay_dispatch_wire_tablet.workspace = true
 compositor_model_environment_config_base.workspace = true
 compositor_model_environment_preference_base.workspace = true
+compositor_orchestration_seat_pointer_publish.workspace = true
+compositor_pipeline_abi_clock_base.workspace = true
 [lib]
 path = "lib.rs"

@@ -1,0 +1,25 @@
+{
+  "name": "tb-worker-windows",
+  "version": 1,
+  "passes": [
+    {
+      "name": "backdrop",
+      "shader": "passes/backdrop.wgsl",
+      "output": "output"
+    },
+    {
+      "name": "mark",
+      "shader": "passes/mark.wgsl",
+      "when": "after-content",
+      "inputs": {
+        "scene": "content",
+        "win": "windows"
+      },
+      "requires": ["composited_scene", "window_layer"],
+      "output": "output",
+      "place": "worker"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

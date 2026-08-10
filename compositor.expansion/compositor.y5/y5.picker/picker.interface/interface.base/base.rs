@@ -13,7 +13,11 @@ pub fn open(state: &mut Loop) {
     if state.inner.worlds.active_id() == PICKER_WORLD {
         return;
     }
-    let origin = state.inner.worlds.active_id();
+    // The SESSION world, not `active_id()`: this open is deferred over several
+    // frames, so `active` may have become an OVERLAY world (lock) in between — and
+    // `ensure_cell` below writes `origin` into the grid, which holds scene worlds
+    // only. `spawn_target` is the world the picker was opened from either way.
+    let origin = state.inner.worlds.spawn_target();
 
     {
         let (worlds, kernel) = (&mut state.inner.worlds, &state.inner.kernel);

@@ -1,0 +1,28 @@
+{
+  "name": "tb-stage-6",
+  "version": 1,
+  "targets": {
+    "slow": {
+      "format": "rgba16f",
+      "scale": 1.0
+    }
+  },
+  "passes": [
+    {
+      "name": "slow",
+      "shader": "../tb-cadence/passes/slow.wgsl",
+      "output": "slow",
+      "cadence": 8
+    },
+    {
+      "name": "out",
+      "shader": "../tb-cadence/passes/out.wgsl",
+      "inputs": {
+        "held": "slow"
+      },
+      "output": "output"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

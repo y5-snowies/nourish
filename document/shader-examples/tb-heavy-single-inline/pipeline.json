@@ -1,0 +1,14 @@
+{
+  "name": "tb-heavy-single-inline",
+  "version": 1,
+  "passes": [
+    {
+      "name": "march",
+      "shader": "../tb-heavy-single/passes/march.wgsl",
+      "output": "output",
+      "place": "compositor"
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}

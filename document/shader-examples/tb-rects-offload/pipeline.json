@@ -1,0 +1,14 @@
+{
+  "name": "tb-rects-offload",
+  "version": 1,
+  "passes": [
+    {
+      "name": "halo",
+      "shader": "passes/halo.wgsl",
+      "output": "output",
+      "requires": ["window_geometry"]
+    }
+  ],
+  "decorations": "off",
+  "letterbox": "always"
+}
