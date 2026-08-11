@@ -64,7 +64,7 @@ For example: "Create a world of warcraft shader" ( the example below was created
 
 https://github.com/user-attachments/assets/cc822a51-01da-42a9-94da-7a8b0679564a
 
-[[Watch the demo on YouTube]](https://www.youtube.com/watch?v=IjxyrTLkHyI)
+[[Watch the full demo on YouTube]](https://www.youtube.com/watch?v=IjxyrTLkHyI)
 
 ## Install
 
