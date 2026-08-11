@@ -59,7 +59,11 @@ like and the full list of features.
 For example: "Create a world of warcraft shader" ( the example below was created and activated with a single prompt )
 ```
 
-https://github.com/user-attachments/assets/9da361ad-c263-4fab-8813-c7db146d3cb4
+
+
+https://github.com/user-attachments/assets/cc822a51-01da-42a9-94da-7a8b0679564a
+
+
 
 
 ## Install
