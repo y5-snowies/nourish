@@ -50,7 +50,8 @@ It fully supports NVIDIA,Intel and AMD, as well as supporting ARM-based devices 
 Visit **[nourish.snowies.com](https://nourish.snowies.com)** to see what it looks
 like and the full list of features.
 
-## Juice
+## Juice ( and more ... )
+_A couple of built-in shader pipelines were included for all installations. the shader pipeline feature is not limited to special effects, and extends to color filters, per window exposure, etc._
 > [!TIP]
 > Easily create your own shaders with the included skill
 ```
@@ -63,8 +64,7 @@ For example: "Create a world of warcraft shader" ( the example below was created
 
 https://github.com/user-attachments/assets/cc822a51-01da-42a9-94da-7a8b0679564a
 
-
-
+[[Watch the demo on YouTube]](https://www.youtube.com/watch?v=IjxyrTLkHyI)
 
 ## Install
 
