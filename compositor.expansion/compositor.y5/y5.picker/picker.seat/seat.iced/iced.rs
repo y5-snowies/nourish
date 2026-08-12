@@ -41,10 +41,24 @@ pub fn route_button(state: &mut Loop, code: u32, pressed: bool) -> bool {
     }
 }
 
+/// The focused surface, but only when it is one of the PICKER's own.
+///
+/// The registry is the spawn-target world's and is shared with everything that
+/// world draws, so whatever held keyboard focus before the picker opened — a
+/// guide popup, the settings window, a launcher tile — is still recorded in it.
+/// Treating that as "the panel has focus" sent the picker's own arrows, Enter and
+/// Super+K to an off-screen surface, which is why the picker looked dead to the
+/// keyboard until a click or Escape happened to clear the stale focus.
+fn panel_focus(state: &Loop) -> Option<compositor_monitor_compositor_iced_base::HandleId> {
+    let reg = state.inner.surface().registry.as_ref()?;
+    reg.keyboard_focus()
+        .filter(|id| reg.get(*id).is_some_and(|i| (i.layer & Layer::PICKER_SCENE.bits()) != 0))
+}
+
 /// Route a key to the focused panel field (text editing). Returns true if the
 /// panel has focus (caller skips cell navigation). Escape defocuses it.
 pub fn route_key(state: &mut Loop, keysym: Keysym, key_state: KeyState) -> bool {
-    if state.inner.surface_mut().registry.as_ref().and_then(|r| r.keyboard_focus()).is_none() {
+    if panel_focus(state).is_none() {
         return false;
     }
     if keysym.raw() == smithay::input::keyboard::keysyms::KEY_Escape {
