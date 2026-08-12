@@ -5116,15 +5116,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_kernel_winit_input_capture_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_model_debug_instance_record",
+ "smithay",
+]
+
+[[package]]
 name = "compositor_kernel_winit_input_route_base"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.13.0",
  "compositor_kernel_graphic_seat_modifier_clear",
+ "compositor_kernel_winit_input_capture_base",
  "compositor_kernel_winit_scene_compose_base",
  "compositor_model_debug_instance_record",
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_draw_state_lifecycle",
+ "compositor_orchestration_seat_pointer_input",
  "smithay",
 ]
 
@@ -6061,6 +6071,7 @@ dependencies = [
  "compositor_orchestration_input_drive_base",
  "compositor_orchestration_seat_gesture_touch",
  "compositor_orchestration_seat_pointer_publish",
+ "compositor_orchestration_seat_pointer_state",
  "compositor_orchestration_seat_pointer_warp",
  "compositor_orchestration_seat_system_pointer",
  "compositor_pipeline_abi_clock_base",

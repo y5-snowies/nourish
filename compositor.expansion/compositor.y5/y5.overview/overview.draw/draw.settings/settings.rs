@@ -432,6 +432,9 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     state.inner.keybinding = compositor_model_environment_keybinding_base::base::load();
     let cursor = state.inner.preference.cursor_sensitivity as f32;
     let natural = state.inner.preference.input_natural_scroll;
+    let edge_pan = state.inner.preference.input_edge_pan;
+    let edge_pan_speed = state.inner.preference.input_edge_pan_speed as f32;
+    let edge_pan_continuous = state.inner.preference.input_edge_pan_continuous;
     let touch_pan_speed = state.inner.preference.input_touch_pan_speed as f32;
     let touch_linear_pan = state.inner.preference.input_touch_linear_pan;
     let osk_size = state.inner.preference.osk_size as f32;
@@ -455,7 +458,7 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     let protocol_foreign = state.inner.preference.protocol_foreign.clone();
     let protocol_foreign_all_worlds = state.inner.preference.protocol_foreign_all_worlds;
     let pen = state.inner.preference.pen.clone();
-    let ui = Settings::new(env, cursor, natural, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, show_fps, release_hidden, fractional_invisible, background_triple_buffer, interface_triple_buffer, flip, snap, keys, tab, layout, cyclic, ime, keyboard, protocol_foreign, protocol_foreign_all_worlds, pen);
+    let ui = Settings::new(env, cursor, natural, edge_pan, edge_pan_speed, edge_pan_continuous, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, show_fps, release_hidden, fractional_invisible, background_triple_buffer, interface_triple_buffer, flip, snap, keys, tab, layout, cyclic, ime, keyboard, protocol_foreign, protocol_foreign_all_worlds, pen);
     let handle = load(state, renderer, ui, rect, IcedSpace::Screen, Layer::SCENE.bits());
     install_handler(state, handle);
     // Restore the shader-picker category, the same way `tab` is restored above.

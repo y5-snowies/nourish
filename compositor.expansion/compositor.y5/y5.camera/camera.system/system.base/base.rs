@@ -160,6 +160,17 @@ impl System for CameraSystem {
             return InputFlow::Pass;
         }
 
+        // Edge pan: the cursor is pinned to a screen extent and the push past it
+        // becomes canvas travel. Strict (no coast) — the pan must stop the instant
+        // the user stops pushing, and it is already 1:1 with the pointer delta.
+        // The seat only emits this when the extent policy resolved to a pan, so
+        // there is no ownership test here.
+        if let InputEvent::PointerEdgePush { dx, dy } = event {
+            cancel_travel(cx);
+            cx.write(&CAM_BUF, CamCmd::PanByStrict(*dx, *dy));
+            return InputFlow::Consume;
+        }
+
         // Touchpad pinch: cursor-anchored zoom. Gated like axis-zoom, except a
         // pinch ALWAYS zooms the canvas in hand mode (`canvas_owns_gesture`).
         // When the canvas does not own the gesture (a window under the cursor in

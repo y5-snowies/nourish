@@ -13,6 +13,8 @@ compositor_kernel_winit_scene_compose_base.workspace = true
 compositor_kernel_graphic_seat_modifier_clear.workspace = true
 compositor_orchestration_core_state_base.workspace = true
 compositor_orchestration_draw_state_lifecycle.workspace = true
+compositor_orchestration_seat_pointer_input.workspace = true
+compositor_kernel_winit_input_capture_base.workspace = true
 
 [lib]
 path = "lib.rs"

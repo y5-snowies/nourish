@@ -18,6 +18,13 @@ pub fn button<I: InputBackend>(event: &<I as InputBackend>::PointerButtonEvent, 
         compositor_pipeline_abi_clock_base::base::now(),
     );
 
+    // A release ends an edge pan that the host's implicit DRAG grab was feeding.
+    // Before every early return below, so no path can leave the camera scrolling.
+    // A relative pointer's continuous pan is untouched — see `extent::release_absolute`.
+    if event.state() == ButtonState::Released {
+        crate::extent::release_absolute(_loop);
+    }
+
     // Overview overlay open → the overview layer handles + swallows the click
     // (menu bar / grid cell / globe); windows never receive it.
     if compositor_y5_overview_input_pointer::pointer::button::<I>(event, _loop) {

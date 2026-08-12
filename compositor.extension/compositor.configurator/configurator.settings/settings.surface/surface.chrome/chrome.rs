@@ -636,7 +636,7 @@ fn vscroll<'a>(body: El<'a>) -> El<'a> {
 }
 
 fn input_body<'a>(
-    sub: InputTab, cursor_sensitivity: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool,
+    sub: InputTab, cursor_sensitivity: f32, natural: bool, edge_pan: bool, edge_pan_speed: f32, edge_pan_continuous: bool, touch_pan_speed: f32, touch_linear_pan: bool,
     osk_size: f32, osk_world_position: bool,
     keys: &'a [KeyRow], touch_devices: &'a [TouchDeviceInfo], displays: &'a [DisplayInfo], pen: &'a PenConfig,
     pen_capturing: bool,
@@ -655,7 +655,7 @@ fn input_body<'a>(
         tab("Keyboard", InputTab::Keyboard),
     ].spacing(6);
     let body: El<'a> = match sub {
-        InputTab::Mouse => vscroll(cursor::build(cursor_sensitivity, natural)),
+        InputTab::Mouse => vscroll(cursor::build(cursor_sensitivity, natural, edge_pan, edge_pan_speed, edge_pan_continuous)),
         InputTab::Touch => vscroll(touch_input(touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, touch_devices, displays)),
         InputTab::Pen => pen::build(pen, pen_capturing),
         InputTab::Keyboard => keybinds::build(keys),
@@ -750,7 +750,7 @@ fn touch_input<'a>(
 
 #[allow(clippy::too_many_arguments)]
 pub fn render<'a>(
-    tab: Tab, dirty: bool, cursor_sensitivity: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, fractional_invisible: &'a str, tb: TripleBufferBackground, its: TripleBufferUI, flip: Config, env: &'a Environment,
+    tab: Tab, dirty: bool, cursor_sensitivity: f32, natural: bool, edge_pan: bool, edge_pan_speed: f32, edge_pan_continuous: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, fractional_invisible: &'a str, tb: TripleBufferBackground, its: TripleBufferUI, flip: Config, env: &'a Environment,
     displays: &'a [DisplayInfo], touch_devices: &'a [TouchDeviceInfo], active_edid: &'a str, selected_display: &'a str,
     selected_mode: Option<ModeInfo>, pending: Option<&'a Applied>,
     staged_active: Option<&'a (String, Option<ModeInfo>)>, confirming: bool,
@@ -781,7 +781,7 @@ pub fn render<'a>(
         let body: El<'a> = match tab {
             Tab::Display => vscroll(display::build(displays, touch_devices, active_edid, selected_display, selected_mode, confirming, pending, staged_active, layout, selected_placement, cyclic, selected_inactive)),
             Tab::Audio => vscroll(audio_tab::build(audio)),
-            Tab::Input(sub) => input_body(sub, cursor_sensitivity, natural, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, keys, touch_devices, displays, pen, pen_capturing),
+            Tab::Input(sub) => input_body(sub, cursor_sensitivity, natural, edge_pan, edge_pan_speed, edge_pan_continuous, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, keys, touch_devices, displays, pen, pen_capturing),
             Tab::Network => network_tab::build(wifi, wifi_selected, wifi_password),
             Tab::Bluetooth => bluetooth_tab::build(bt),
             Tab::Performance => vscroll(performance(fps, show_fps, release_hidden, fractional_invisible, tb, its)),

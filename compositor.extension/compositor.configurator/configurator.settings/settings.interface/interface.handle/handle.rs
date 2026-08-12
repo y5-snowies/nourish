@@ -165,6 +165,20 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
             state.inner.preference.input_natural_scroll = b;
             let _ = pref::save(&state.inner.preference);
         }
+        // Read live by the relative-motion path (`pointer.input/extent`), so this
+        // applies immediately; save persists it for the next launch.
+        SettingsMessage::EdgePan(b) => {
+            state.inner.preference.input_edge_pan = b;
+            let _ = pref::save(&state.inner.preference);
+        }
+        SettingsMessage::EdgePanSpeed(v) => {
+            state.inner.preference.input_edge_pan_speed = v as f64;
+            let _ = pref::save(&state.inner.preference);
+        }
+        SettingsMessage::EdgePanContinuous(b) => {
+            state.inner.preference.input_edge_pan_continuous = b;
+            let _ = pref::save(&state.inner.preference);
+        }
         SettingsMessage::TouchPanSpeed(v) => {
             // Read live per touch event, so this takes effect immediately; save
             // persists it for the next launch.

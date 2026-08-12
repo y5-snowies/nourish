@@ -15,6 +15,7 @@ compositor_y5_surface_system_base = { workspace = true }
 compositor_y5_canvas_system_base = { workspace = true }
 compositor_y5_canvas_input_state = { workspace = true }
 compositor_orchestration_seat_system_pointer = { workspace = true }
+compositor_orchestration_seat_pointer_state = { workspace = true }
 compositor_support_system_input_event_base = { workspace = true }
 compositor_orchestration_input_drive_base = { workspace = true }
 compositor_orchestration_draw_layer_base.workspace = true

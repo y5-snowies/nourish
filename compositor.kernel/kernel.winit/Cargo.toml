@@ -351,6 +351,7 @@ compositor_kernel_vulkan_texture_cache_base = { path = "../kernel.vulkan/vulkan.
 compositor_kernel_vulkan_texture_image_base = { path = "../kernel.vulkan/vulkan.texture/texture.image/image.base" }
 compositor_kernel_vulkan_texture_image_inner = { path = "../kernel.vulkan/vulkan.texture/texture.image/image.inner" }
 compositor_kernel_winit_frame_submit_base = { path = "winit.frame/frame.submit/submit.base" }
+compositor_kernel_winit_input_capture_base = { path = "winit.input/input.capture/capture.base" }
 compositor_kernel_winit_input_route_base = { path = "winit.input/input.route/route.base" }
 compositor_kernel_winit_scene_compose_base = { path = "winit.scene/scene.compose/compose.base" }
 compositor_kernel_winit_window_factory_base = { path = "winit.window/window.factory/factory.base" }

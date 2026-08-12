@@ -242,6 +242,15 @@ pub enum SettingsMessage {
     Cursor(f32),
     /// Live touchpad natural-scroll (forwarded).
     NaturalScroll(bool),
+    /// Toggle edge pan: pushing the cursor past a screen extent pans the canvas,
+    /// and monitor teleport becomes Super-held-only (forwarded; persisted, read
+    /// live per motion event).
+    EdgePan(bool),
+    /// Edge-pan speed multiplier, on top of the pointer speed (forwarded;
+    /// persisted, read live).
+    EdgePanSpeed(f32),
+    /// Toggle continuous (RTS-style) edge pan (forwarded; persisted, read live).
+    EdgePanContinuous(bool),
     /// Live touch pan-speed multiplier (forwarded: persisted to preferences.json,
     /// read live per touch event).
     TouchPanSpeed(f32),

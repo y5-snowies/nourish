@@ -1,6 +1,7 @@
 pub mod axis;
 pub mod button;
 pub mod constraint;
+pub mod extent;
 pub mod motion;
 pub mod native_axis;
 pub mod native_motion;

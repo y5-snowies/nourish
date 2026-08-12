@@ -67,6 +67,15 @@ pub enum InputEvent {
         /// so the coast never runs faster than the drag.
         from_touch: bool,
     },
+    /// The cursor was pushed PAST an output extent and the edge-pan preference
+    /// resolved that push to a camera pan (see the seat's `pointer.input/extent`).
+    /// Carries the outward overflow in physical screen pixels — right/down
+    /// positive — for the camera owner to apply; the cursor itself stays pinned to
+    /// the edge, so the view scrolls out from under it.
+    PointerEdgePush {
+        dx: f64,
+        dy: f64,
+    },
     /// Touchpad pinch gesture, translated from the libinput pinch lifecycle.
     /// Carries the cursor location (the zoom anchor) and, on `Update`, the
     /// incremental scale factor relative to the previous update (1.0 = no
