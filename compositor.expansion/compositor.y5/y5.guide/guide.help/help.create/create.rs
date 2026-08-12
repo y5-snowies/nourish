@@ -13,25 +13,27 @@ use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_draw_layer_base::base::Layer;
 use compositor_y5_guide_help_view::HelpPanel;
 use compositor_y5_guide_interface_surface::surface;
-use compositor_y5_guide_state_base::state::{GUIDE, GUIDE_MUT, HELP_H, HELP_W};
+use compositor_y5_guide_state_base::state::{HELP_H, HELP_W};
 use compositor_monitor_compositor_iced_base::IcedSpace;
 
 pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physical>) {
-    let want = state.inner.kernel.get(&GUIDE).help_open;
+    let want = state.inner.guide().help_open;
     let live = surface::live(state, |g| g.help);
-    if !want && live.is_none() {
+    // Teardown is ungated — see the note in `shader.create`: `destroy_by_id` is
+    // output-independent, and gating it stranded the panel whenever the cursor's
+    // output stopped being drawn.
+    if !want {
+        if let Some(id) = live {
+            surface::destroy(state, id);
+            state.inner.guide_mut().help = None;
+        }
         return;
     }
     if !surface::on_active_output(state) {
         return;
     }
-    match (want, live) {
-        (true, None) => create(state, renderer, size),
-        (false, Some(id)) => {
-            surface::destroy(state, id);
-            state.inner.kernel.get_mut(&GUIDE_MUT).help = None;
-        }
-        _ => {}
+    if live.is_none() {
+        create(state, renderer, size);
     }
 }
 
@@ -55,5 +57,5 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
             reg.set_output_affinity_by_id(handle.id, Some(out));
         }
     }
-    state.inner.kernel.get_mut(&GUIDE_MUT).help = Some(handle.id);
+    state.inner.guide_mut().help = Some(handle.id);
 }

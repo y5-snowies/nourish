@@ -230,6 +230,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Box::new(compositor_y5_group_system_base::base::GroupSystem),
                     // Seeds the overview-mode slot (Super+Tab overlay).
                     Box::new(compositor_y5_overview_system_base::base::OverviewSystem),
+                    // Seeds the guide-popup slot (context menu, help, shader editor)
+                    // — per-world, beside the iced registry holding its surfaces.
+                    Box::new(compositor_y5_guide_system_base::base::GuideSystem),
                 ],
                 &kernel_data,
             ),

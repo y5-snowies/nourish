@@ -284,10 +284,6 @@ impl Orchestrator {
         // On-screen-keyboard driver state (shown/pinned/mods/placement).
         kernel_data.insert(&compositor_y5_osk_board_state::state::OSK, Default::default());
 
-        // Empty-canvas guide popups (context menu + help panel): the DESIRE the
-        // input rim writes and the render path reconciles.
-        kernel_data.insert(&compositor_y5_guide_state_base::state::GUIDE, Default::default());
-
         // Output-mode driver: rim-issued mode request + kernel-written advertised
         // modes snapshot and apply result (settings window ↔ DRM, like the lid).
         kernel_data.insert(&compositor_orchestration_driver_output_base::base::OUTPUT_MODE_REQUEST, None);
@@ -779,6 +775,20 @@ impl Orchestrator {
     pub fn surface_mut(&mut self) -> &mut compositor_y5_surface_state_base::state::SurfaceState {
         let target = self.worlds.spawn_target();
         self.worlds.get_mut(target).storage_mut().get_mut(&compositor_y5_surface_system_base::base::SURFACE_MUT)
+    }
+
+    /// FOCUS ACCESSOR: the focused world's guide-popup slot (the empty-canvas
+    /// context menu, the help panel and the inline shader editor). Per-world
+    /// because it stores handles into `surface()`'s registry, which is per-world —
+    /// the two must resolve to the same world or a switch strands the surfaces.
+    pub fn guide(&self) -> &compositor_y5_guide_state_base::state::GuideState {
+        let target = self.worlds.spawn_target();
+        self.worlds.get(target).storage().get(&compositor_y5_guide_state_base::state::GUIDE)
+    }
+
+    pub fn guide_mut(&mut self) -> &mut compositor_y5_guide_state_base::state::GuideState {
+        let target = self.worlds.spawn_target();
+        self.worlds.get_mut(target).storage_mut().get_mut(&compositor_y5_guide_state_base::state::GUIDE_MUT)
     }
 
     /// FOCUS ACCESSOR: the focused world's overview-mode slot (Super+Tab overlay).

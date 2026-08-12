@@ -758,6 +758,7 @@ compositor_y5_guide_shader_handle = { path = "../compositor.expansion/compositor
 compositor_y5_guide_shader_state = { path = "../compositor.expansion/compositor.y5/y5.guide/guide.shader/shader.state" }
 compositor_y5_guide_shader_view = { path = "../compositor.expansion/compositor.y5/y5.guide/guide.shader/shader.view" }
 compositor_y5_guide_state_base = { path = "../compositor.expansion/compositor.y5/y5.guide/guide.state/state.base" }
+compositor_y5_guide_system_base = { path = "../compositor.expansion/compositor.y5/y5.guide/guide.system/system.base" }
 compositor_y5_launcher_draw_state = { path = "../compositor.expansion/compositor.y5/y5.launcher/launcher.draw/draw.state" }
 compositor_y5_launcher_input_base = { path = "../compositor.expansion/compositor.y5/y5.launcher/launcher.input/input.base" }
 compositor_y5_launcher_interface_base = { path = "../compositor.expansion/compositor.y5/y5.launcher/launcher.interface/interface.base" }

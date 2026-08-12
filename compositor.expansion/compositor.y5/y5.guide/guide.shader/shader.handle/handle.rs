@@ -10,7 +10,6 @@
 use compositor_configurator_settings_surface_message::message::SettingsMessage;
 use compositor_orchestration_core_state_base::Loop;
 use compositor_y5_guide_shader_view::ShaderMessage;
-use compositor_y5_guide_state_base::state::GUIDE_MUT;
 use smithay::backend::renderer::gles::GlesRenderer;
 
 pub fn delegate(state: &mut Loop, renderer: &mut GlesRenderer, message: ShaderMessage) {
@@ -35,5 +34,5 @@ pub fn delegate(state: &mut Loop, renderer: &mut GlesRenderer, message: ShaderMe
 
 /// Clear the DESIRE only; the reconciler tears the surface down next frame.
 pub fn close(state: &mut Loop) {
-    state.inner.kernel.get_mut(&GUIDE_MUT).shader_open = false;
+    state.inner.guide_mut().shader_open = false;
 }

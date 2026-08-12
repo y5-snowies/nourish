@@ -22,6 +22,7 @@ compositor_support_world_host_space_base = { workspace = true }
 compositor_y5_select_system_base = { workspace = true }
 compositor_y5_select_overlay_system = { workspace = true }
 compositor_y5_group_system_base = { workspace = true }
+compositor_y5_guide_system_base = { workspace = true }
 compositor_y5_overview_system_base = { workspace = true }
 compositor_y5_launcher_system_base = { workspace = true }
 compositor_y5_placeholder_system_base = { workspace = true }

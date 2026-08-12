@@ -5,7 +5,7 @@
 
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_core_state_base::state::Status;
-use compositor_y5_guide_state_base::state::{DOUBLE_CLICK_MS, DOUBLE_CLICK_SLOP, GUIDE, GUIDE_MUT};
+use compositor_y5_guide_state_base::state::{DOUBLE_CLICK_MS, DOUBLE_CLICK_SLOP};
 use compositor_y5_surface_interface_base::hit::surface_under_filtered;
 use compositor_y5_window_interface_draw::visible::DrawWindow;
 
@@ -14,27 +14,27 @@ const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 
 pub fn showing(state: &Loop) -> bool {
-    state.inner.kernel.get(&GUIDE).showing()
+    state.inner.guide().showing()
 }
 
 /// Dismiss both popups. Clears the DESIRE only (the reconciler destroys the
 /// surfaces next frame), so this is safe to call from anywhere.
 pub fn close(state: &mut Loop) {
-    let guide = state.inner.kernel.get_mut(&GUIDE_MUT);
+    let guide = state.inner.guide_mut();
     guide.menu_at = None;
     guide.help_open = false;
 }
 
 /// Swap the menu for the help panel (the Help entry was clicked).
 pub fn open_help(state: &mut Loop) {
-    let guide = state.inner.kernel.get_mut(&GUIDE_MUT);
+    let guide = state.inner.guide_mut();
     guide.menu_at = None;
     guide.help_open = true;
 }
 
 /// Open the inline shader editor (the Shader entry was clicked).
 pub fn open_shader(state: &mut Loop) {
-    state.inner.kernel.get_mut(&GUIDE_MUT).shader_open = true;
+    state.inner.guide_mut().shader_open = true;
 }
 
 /// Any key press dismisses an open popup. The key is NOT swallowed — the popup
@@ -46,7 +46,7 @@ pub fn open_shader(state: &mut Loop) {
 /// the menu and the help panel are things you look at once and move on from.
 pub fn on_key(state: &mut Loop, sym: u32) {
     if sym == smithay::input::keyboard::keysyms::KEY_Escape {
-        state.inner.kernel.get_mut(&GUIDE_MUT).shader_open = false;
+        state.inner.guide_mut().shader_open = false;
     }
     if showing(state) {
         close(state);
@@ -67,20 +67,20 @@ pub fn on_press(state: &mut Loop, button: u32, time: u32) -> bool {
         return false;
     }
     let Some(cursor) = empty_canvas_at(state) else {
-        state.inner.kernel.get_mut(&GUIDE_MUT).last_click = None;
+        state.inner.guide_mut().last_click = None;
         return false;
     };
-    let repeat = matches!(state.inner.kernel.get(&GUIDE).last_click, Some((t, x, y))
+    let repeat = matches!(state.inner.guide().last_click, Some((t, x, y))
         if time.saturating_sub(t) <= DOUBLE_CLICK_MS && (cursor.0 - x).hypot(cursor.1 - y) <= DOUBLE_CLICK_SLOP);
     if button == BTN_RIGHT || (button == BTN_LEFT && repeat) {
-        let guide = state.inner.kernel.get_mut(&GUIDE_MUT);
+        let guide = state.inner.guide_mut();
         guide.menu_at = Some(cursor);
         guide.help_open = false;
         guide.last_click = None;
         return true;
     }
     if button == BTN_LEFT {
-        state.inner.kernel.get_mut(&GUIDE_MUT).last_click = Some((time, cursor.0, cursor.1));
+        state.inner.guide_mut().last_click = Some((time, cursor.0, cursor.1));
     }
     false
 }
@@ -102,7 +102,7 @@ fn empty_canvas_at(state: &Loop) -> Option<(f64, f64)> {
 /// press ON it must still not be read as a press on bare canvas: without this,
 /// dragging one of its sliders would summon the menu underneath.
 fn over_popup(state: &Loop) -> bool {
-    let guide = state.inner.kernel.get(&GUIDE);
+    let guide = state.inner.guide();
     let Some(at) = state.state.seat.seat.get_pointer().map(|p| p.current_location()) else { return false };
     surface_under_filtered(state, at, &|_| true)
         .and_then(|hit| hit.iced_handle())

@@ -3928,6 +3928,7 @@ dependencies = [
  "compositor_y5_graphic_capture_registry",
  "compositor_y5_group_interface_base",
  "compositor_y5_group_system_base",
+ "compositor_y5_guide_system_base",
  "compositor_y5_launcher_system_base",
  "compositor_y5_lock_system_base",
  "compositor_y5_navigator_system_base",
@@ -9716,6 +9717,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_y5_guide_system_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_system_trait_system_base",
+ "compositor_y5_guide_state_base",
+]
+
+[[package]]
 name = "compositor_y5_launcher_draw_state"
 version = "0.0.1"
 dependencies = [
@@ -10965,6 +10974,7 @@ dependencies = [
  "compositor_y5_camera_system_base",
  "compositor_y5_canvas_system_base",
  "compositor_y5_group_system_base",
+ "compositor_y5_guide_system_base",
  "compositor_y5_launcher_system_base",
  "compositor_y5_navigator_system_base",
  "compositor_y5_overview_system_base",

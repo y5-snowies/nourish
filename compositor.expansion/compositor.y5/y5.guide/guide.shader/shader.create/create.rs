@@ -18,7 +18,7 @@ use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_draw_layer_base::base::Layer;
 use compositor_y5_guide_interface_surface::surface;
 use compositor_y5_guide_shader_view::{ShaderEditor, ShaderMessage, ShaderSnapshot};
-use compositor_y5_guide_state_base::state::{GUIDE, GUIDE_MUT, SHADER_H, SHADER_W};
+use compositor_y5_guide_state_base::state::{SHADER_H, SHADER_W};
 
 use std::cell::RefCell;
 
@@ -30,23 +30,28 @@ thread_local! {
 }
 
 pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physical>) {
-    let want = state.inner.kernel.get(&GUIDE).shader_open;
+    let want = state.inner.guide().shader_open;
     let live = surface::live(state, |g| g.shader);
-    if !want && live.is_none() {
+    // Teardown runs UNGATED. `destroy_by_id` does not care which output is being
+    // drawn, and gating it behind the cursor's output left the panel up whenever
+    // that output stopped being drawn (unplug, DPMS, a monitor going idle): the
+    // desire was cleared but the only frame allowed to honour it never came.
+    // Everything below — creation and the per-frame push — is placement work and
+    // does need the gate.
+    if !want {
+        if let Some(id) = live {
+            surface::destroy(state, id);
+            state.inner.guide_mut().shader = None;
+            LAST.with(|l| *l.borrow_mut() = None);
+        }
         return;
     }
     if !surface::on_active_output(state) {
         return;
     }
-    match (want, live) {
-        (true, None) => create(state, renderer, size),
-        (true, Some(id)) => sync(state, id),
-        (false, Some(id)) => {
-            surface::destroy(state, id);
-            state.inner.kernel.get_mut(&GUIDE_MUT).shader = None;
-            LAST.with(|l| *l.borrow_mut() = None);
-        }
-        (false, None) => {}
+    match live {
+        None => create(state, renderer, size),
+        Some(id) => sync(state, id),
     }
 }
 
@@ -88,7 +93,7 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
             });
         });
     }
-    state.inner.kernel.get_mut(&GUIDE_MUT).shader = Some(handle.id);
+    state.inner.guide_mut().shader = Some(handle.id);
 }
 
 /// Push the world's resolved state in, when it has moved.
