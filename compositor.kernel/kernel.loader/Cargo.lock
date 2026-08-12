@@ -10483,6 +10483,7 @@ name = "compositor_y5_overview_system_base"
 version = "0.0.1"
 dependencies = [
  "compositor_model_debug_instance_record",
+ "compositor_orchestration_driver_settings_base",
  "compositor_support_system_trait_system_base",
  "compositor_y5_overview_state_base",
 ]

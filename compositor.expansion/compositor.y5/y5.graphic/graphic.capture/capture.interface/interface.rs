@@ -572,10 +572,8 @@ fn teardown(state: &mut Loop) {
         c.windows_bbox = None;
         c.setup_selection.clear();
     }
+    destroy_anywhere(state, &ids);
     if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-        for id in ids {
-            reg.destroy_by_id(id);
-        }
         reg.set_keyboard_focus(None);
     }
 }
@@ -1045,11 +1043,7 @@ fn destroy_indicators(state: &mut Loop) {
         c.stop_hud_ids.clear();
         c.continue_dialog_id = None;
     }
-    if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-        for id in ids {
-            reg.destroy_by_id(id);
-        }
-    }
+    destroy_anywhere(state, &ids);
 }
 
 // ---------------------------------------------------------------------------
@@ -1457,7 +1451,40 @@ where
 
 fn destroy(state: &mut Loop, id: Option<HandleId>) {
     let Some(id) = id else { return };
-    if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
-        reg.destroy_by_id(id);
+    destroy_anywhere(state, &[id]);
+}
+
+/// Destroy capture overlays in whichever world's registry actually holds them.
+///
+/// A capture SESSION is global — it outlives world switches, which is the whole
+/// point of `overlay_per_frame` — but the registry its overlays were built in is
+/// the spawn target's AT CREATE TIME, and that is per-world. Tearing down through
+/// `surface_mut()` therefore aims at the focused world, and after a switch that
+/// registry has never heard of these ids: `destroy_by_id` no-ops and the border,
+/// dim and Stop HUD are stranded in the world that built them, with nothing left
+/// holding their ids to try again.
+///
+/// Handle ids are globally unique, so sweeping every world is unambiguous: at
+/// most one registry contains a given id and the rest are no-ops. Only teardown
+/// paths need this — creation and per-frame pushes act on the focused world by
+/// design.
+fn destroy_anywhere(state: &mut Loop, ids: &[HandleId]) {
+    if ids.is_empty() {
+        return;
+    }
+    for world in state.inner.worlds.ids() {
+        let Some(surface) = state
+            .inner
+            .worlds
+            .get_mut(world)
+            .storage_mut()
+            .try_get_mut(&compositor_y5_surface_system_base::base::SURFACE_MUT)
+        else {
+            continue;
+        };
+        let Some(reg) = surface.registry.as_mut() else { continue };
+        for id in ids {
+            reg.destroy_by_id(*id);
+        }
     }
 }

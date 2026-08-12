@@ -3,7 +3,9 @@ use std::any::Any;
 use compositor_support_system_buffer_token_base::y5_buffer;
 use compositor_support_system_trait_system_base::base::{BufferCx, System, SystemCx, WorldBuilder};
 use compositor_y5_select_system_base::base::{SelectionChanged, SELECTION_CHANGED};
-use compositor_orchestration_driver_selection_base::base::{SELECTION_REANCHOR, SELECTION_REANCHOR_MUT};
+use compositor_orchestration_driver_selection_base::base::{
+    SelectionOverlayState, SELECTION_OVERLAY, SELECTION_REANCHOR, SELECTION_REANCHOR_MUT,
+};
 
 /// Self-buffer signal: re-anchor the toolbar to the cursor.
 struct Reanchor;
@@ -27,6 +29,10 @@ impl System for SelectionOverlaySystem {
     }
 
     fn register(&mut self, builder: &mut WorldBuilder) {
+        // The toolbar's own slot lives here too, beside the iced registry that
+        // holds its surfaces and the selection it is reconciled against — all
+        // three per-world, all three resolved through the same spawn target.
+        builder.storage.insert(&SELECTION_OVERLAY, SelectionOverlayState::default());
         builder.storage.insert(&SELECTION_REANCHOR, false);
         builder.receive(&SELECTION_CHANGED, Self::on_selection_changed);
     }

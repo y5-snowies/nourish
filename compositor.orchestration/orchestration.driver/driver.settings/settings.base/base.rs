@@ -26,7 +26,6 @@ pub enum PenCapture {
 #[derive(Default)]
 pub struct SettingsState {
     pub open: bool,
-    pub handle: Option<HandleId>,
     pub dirty: bool,
     /// True only while the Performance tab is the visible settings module — the
     /// gate for pushing live FPS (so other tabs don't buffer per-frame updates).
@@ -51,3 +50,21 @@ pub struct SettingsState {
 
 pub static SETTINGS: Token<SettingsState> = Token::new();
 pub static SETTINGS_MUT: TokenMut<SettingsState> = TokenMut::new(&SETTINGS);
+
+/// The live settings surface — PER-WORLD, unlike the rest of `SettingsState`.
+///
+/// The state above is genuinely session-wide (the desired-open flag, the tab and
+/// shader category to restore, the pen capture in flight); the surface is not. It
+/// lives in `surface()`'s registry and is gated on `overview()`, both per-world,
+/// so a handle kept beside the session state resolved to the wrong registry after
+/// a world switch: the reconciler's `(false, Some(id), _) => destroy` fired
+/// against the focused world, no-oped, cleared the handle, and left the panel
+/// alive and unreachable in the world that built it — with the next open there
+/// stacking a second one on top. Registered by `OverviewSystem`, which owns the
+/// per-world overview slot the panel is a tab of.
+/// Named so the core focus accessor can spell the slot's type without taking a
+/// dependency on the iced crate just for `HandleId`.
+pub type SettingsSurface = Option<HandleId>;
+
+pub static SETTINGS_SURFACE: Token<SettingsSurface> = Token::new();
+pub static SETTINGS_SURFACE_MUT: TokenMut<SettingsSurface> = TokenMut::new(&SETTINGS_SURFACE);

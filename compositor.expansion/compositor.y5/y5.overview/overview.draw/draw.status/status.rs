@@ -125,10 +125,8 @@ fn fps(state: &mut Loop) {
     }
     // Only push while the Performance tab is the visible module (gate set by the
     // forwarded Tab message) — other tabs shouldn't buffer per-frame FPS updates.
-    let (wanted, handle) = {
-        let st = state.inner.kernel.get(&SETTINGS);
-        (st.fps_wanted, st.handle)
-    };
+    let wanted = state.inner.kernel.get(&SETTINGS).fps_wanted;
+    let handle = state.inner.settings_surface();
     if !wanted {
         return;
     }

@@ -69,7 +69,7 @@ pub fn axis<I: InputBackend>(event: &<I as InputBackend>::PointerAxisEvent, stat
     } else if state.inner.overview().is_settings() {
         // Settings screen has its own scroll lists → forward the wheel to the iced
         // surface (don't swallow it as grid scroll).
-        let handle = state.inner.kernel.get(&compositor_orchestration_driver_settings_base::base::SETTINGS).handle;
+        let handle = state.inner.settings_surface();
         if let Some(handle) = handle {
             let dxd = event.amount_v120(Axis::Horizontal).map(|v| (v / 120.0) as i32).unwrap_or(0);
             let dyd = event.amount_v120(Axis::Vertical).map(|v| (v / 120.0) as i32).unwrap_or(0);

@@ -271,9 +271,6 @@ impl Orchestrator {
         // input/draw systems can read it via `cx.kernel`.
         kernel_data.insert(&compositor_orchestration_storage_state_base::state::NESTED, nested);
 
-        // Selection-overlay driver: the align/distribute toolbar instance.
-        kernel_data.insert(&compositor_orchestration_driver_selection_base::base::SELECTION_OVERLAY, Default::default());
-
         // Overview overlay: the session-wide last-active tab (the overview slot
         // itself is per-world; only the tab preference crosses worlds).
         kernel_data.insert(
@@ -750,6 +747,37 @@ impl Orchestrator {
     pub fn select_mut(&mut self) -> &mut compositor_y5_select_state_base::select::CanvasSelect {
         let target = self.worlds.spawn_target();
         self.worlds.get_mut(target).storage_mut().get_mut(&compositor_y5_select_state_base::select::SELECT_MUT)
+    }
+
+    /// FOCUS ACCESSOR: the focused world's settings-panel surface. Per-world for the
+    /// same reason as the toolbar below; the rest of `SETTINGS` is session-wide and
+    /// stays in the kernel store. See `SETTINGS_SURFACE`.
+    pub fn settings_surface(&self) -> compositor_orchestration_driver_settings_base::base::SettingsSurface {
+        let target = self.worlds.spawn_target();
+        *self.worlds.get(target).storage().get(&compositor_orchestration_driver_settings_base::base::SETTINGS_SURFACE)
+    }
+
+    pub fn settings_surface_mut(&mut self) -> &mut compositor_orchestration_driver_settings_base::base::SettingsSurface {
+        let target = self.worlds.spawn_target();
+        self.worlds.get_mut(target).storage_mut().get_mut(&compositor_orchestration_driver_settings_base::base::SETTINGS_SURFACE_MUT)
+    }
+
+    /// FOCUS ACCESSOR: the focused world's align/distribute toolbar slot. Per-world
+    /// because it stores handles into `surface()`'s registry AND is reconciled
+    /// against `select()`, both of which are per-world — all three must resolve to
+    /// the same world or a switch strands the toolbar in the world that built it.
+    pub fn selection_overlay(
+        &self,
+    ) -> &compositor_orchestration_driver_selection_base::base::SelectionOverlayState {
+        let target = self.worlds.spawn_target();
+        self.worlds.get(target).storage().get(&compositor_orchestration_driver_selection_base::base::SELECTION_OVERLAY)
+    }
+
+    pub fn selection_overlay_mut(
+        &mut self,
+    ) -> &mut compositor_orchestration_driver_selection_base::base::SelectionOverlayState {
+        let target = self.worlds.spawn_target();
+        self.worlds.get_mut(target).storage_mut().get_mut(&compositor_orchestration_driver_selection_base::base::SELECTION_OVERLAY_MUT)
     }
 
     /// FOCUS ACCESSOR: the focused world's window-grouping slot.

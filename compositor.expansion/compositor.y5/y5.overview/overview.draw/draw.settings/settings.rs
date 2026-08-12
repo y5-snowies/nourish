@@ -285,7 +285,7 @@ pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, 
     let shown = state.inner.overview().visible
         && state.inner.overview().overlay_ready()
         && state.inner.overview().is_settings();
-    match (shown, state.inner.kernel.get(&SETTINGS).handle, state.inner.kernel.get(&SETTINGS).open) {
+    match (shown, state.inner.settings_surface(), state.inner.kernel.get(&SETTINGS).open) {
         (true, None, _) => create(state, renderer, size),
         (true, Some(id), false) => { destroy(state, id); compositor_y5_overview_interface_base::base::request_close(state); } // panel Close
         (true, Some(id), true) => sync(state, id, size),
@@ -464,9 +464,8 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     }
     let untyped = handle.untyped();
     if let Some(reg) = state.inner.surface_mut().registry.as_mut() { reg.set_keyboard_focus(Some(untyped)); }
-    let st = state.inner.kernel.get_mut(&SETTINGS_MUT);
-    st.handle = Some(untyped);
-    st.open = true;
+    *state.inner.settings_surface_mut() = Some(untyped);
+    state.inner.kernel.get_mut(&SETTINGS_MUT).open = true;
     if let Some(a) = state.inner.kernel.get(&AUDIO) { let _ = a.refresh(); }
     wifi::command(WifiCmd::Scan);
     bt::command(BtCmd::Scan(true));
@@ -485,9 +484,8 @@ fn destroy(state: &mut Loop, id: HandleId) {
     // Drop our audio subscription — unsubscribes until the surface reopens.
     AUDIO_WATCH.with(|w| *w.borrow_mut() = None);
     bt::command(BtCmd::Scan(false));
-    let st = state.inner.kernel.get_mut(&SETTINGS_MUT);
-    st.handle = None;
-    st.open = false;
+    *state.inner.settings_surface_mut() = None;
+    state.inner.kernel.get_mut(&SETTINGS_MUT).open = false;
 }
 
 fn install_handler(state: &mut Loop, handle: IcedHandle<Settings>) {
