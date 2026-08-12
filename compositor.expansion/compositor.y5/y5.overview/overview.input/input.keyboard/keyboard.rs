@@ -1,8 +1,8 @@
 //! Overview keyboard handling. The canvas router calls `handle` first; returning
 //! true INTERCEPTs (see canvas `input.rs`). While open the overview consumes ALL
 //! keys: Super+Tab toggles, Super+Left/Right cycle tabs, the World globe takes
-//! arrows/Enter, Escape closes, every other key routes to the overview's own
-//! screen-space iced surfaces (menu bar / settings) — never a client window.
+//! arrows/Enter (unless its details panel has focus), Escape closes, everything
+//! else goes to the overview's own screen iced surfaces — never a client window.
 
 use smithay::backend::input::KeyState;
 use smithay::input::keyboard::{Keysym, ModifiersState};
@@ -29,6 +29,13 @@ pub fn handle(
     if !state.inner.overview().visible {
         return false;
     }
+    // World tab: the panel's name field takes the key whenever it holds focus, or
+    // the globe navigation below swallows every keystroke and rename does nothing.
+    // Both edges (modifier tracking); modkey combos stay with the tab/globe binds.
+    if !modkey && state.inner.overview().is_world()
+        && compositor_y5_picker_seat_iced::iced::route_key(state, keysym, key_state) {
+        return true;
+    }
     if press {
         // Escape dismisses the logout popup first (before closing the overlay).
         if key == Some(Key::Escape) && state.inner.overview().logout.is_some() {
@@ -36,25 +43,18 @@ pub fn handle(
             return true;
         }
         // Super+Left/Right cycle the tabs in any tab.
-        if modkey && key == Some(Key::Left) {
-            compositor_y5_overview_interface_surface::surface::cycle_tab(state, false);
-            return true;
-        }
-        if modkey && key == Some(Key::Right) {
-            compositor_y5_overview_interface_surface::surface::cycle_tab(state, true);
+        if modkey && matches!(key, Some(Key::Left) | Some(Key::Right)) {
+            compositor_y5_overview_interface_surface::surface::cycle_tab(state, key == Some(Key::Right));
             return true;
         }
         if state.inner.overview().is_world() {
-            // World tab → drive the embedded globe (no text fields here).
             match key {
                 Some(Key::Left) => compositor_y5_picker_interface_embed::embed::select_direction(state, -1, 0),
                 Some(Key::Right) => compositor_y5_picker_interface_embed::embed::select_direction(state, 1, 0),
                 Some(Key::Up) => compositor_y5_picker_interface_embed::embed::select_direction(state, 0, 1),
                 Some(Key::Down) => compositor_y5_picker_interface_embed::embed::select_direction(state, 0, -1),
                 Some(Key::Return) => compositor_y5_overview_interface_activate::activate::activate_world(state),
-                Some(Key::Escape) => {
-                    compositor_y5_overview_interface_base::base::request_close(state);
-                }
+                Some(Key::Escape) => { compositor_y5_overview_interface_base::base::request_close(state); }
                 _ => {}
             }
             return true;
@@ -64,14 +64,13 @@ pub fn handle(
             return true;
         }
     }
-    // Non-world tabs (e.g. Settings): delegate to the focused screen-space iced
-    // surface (text fields). Runs on press AND release; the overlay owns the key.
+    // Non-world tabs (e.g. Settings): the focused screen iced surface. Press AND
+    // release; the overlay owns the key either way.
     route_screen_iced(state, keysym, key_state);
     true
 }
 
-/// Forward a key to the focused iced surface IFF it lives in screen space (the
-/// overview's menu bar / settings). Modifiers update the registry; others dispatch.
+/// Forward a key to the focused SCREEN-space iced surface (menu bar / settings).
 fn route_screen_iced(state: &mut Loop, keysym: Keysym, key_state: KeyState) {
     let Some(reg) = state.inner.surface_mut().registry.as_mut() else { return };
     let Some(focus) = reg.keyboard_focus() else { return };

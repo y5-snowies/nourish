@@ -1,8 +1,6 @@
-//! Pointer button for the embedded globe (overview World tab): route to the
-//! picker's own button handler (drag rotates, click focuses a cell) and report
-//! whether this was a CLICK on the already-focused cell — the caller then enters
-//! that world ("click a selected cell again to enter", instead of pressing
-//! Enter).
+//! Pointer for the embedded globe (overview World tab): route to the picker's own
+//! handlers (drag rotates, click focuses a cell) and report whether this was a
+//! CLICK on the already-focused cell — the caller then enters that world.
 
 use smithay::backend::input::{ButtonState, InputBackend, PointerButtonEvent};
 use smithay::utils::{Logical, Physical, Point};
@@ -28,14 +26,14 @@ fn seat_pointer_physical(state: &mut Loop) -> Option<(f64, f64)> {
     Some((phys.x, phys.y))
 }
 
-/// Embedded-globe pointer motion: sync the picker pointer FROM the real seat
-/// cursor and rotate while dragging. The full-screen picker dead-reckons
-/// `active.pointer` from relative deltas (starting at 0,0) and warps the seat
-/// cursor to match — but in the embed the seat keeps owning the cursor, so the
-/// dead-reckoned position diverges and the warp fights the seat (the globe
-/// ignored the mouse until a tab round-trip re-aligned it).
+/// Sync the picker pointer FROM the real seat cursor, hover the panel, and rotate
+/// while dragging. The full-screen picker dead-reckons `active.pointer` and warps
+/// the seat cursor to match; here the seat keeps owning it, so that would fight.
 pub fn embed_motion(state: &mut Loop) {
     let Some((x, y)) = seat_pointer_physical(state) else { return };
+    // Hover the panel too: without a `CursorMoved` iced highlights nothing and a
+    // press has no position to resolve the widget under it against.
+    compositor_y5_picker_seat_iced::iced::route_motion(state, Point::from((x, y)));
     let (_, h) = state.size_ctx_all().screen_size_physical;
     let k = compositor_y5_picker_three_constant::ROTATE_SENSITIVITY as f64 / h.max(1.0);
     let inc = active(state).and_then(|a| {
@@ -75,11 +73,14 @@ pub fn embed_button<I: InputBackend>(
         }
         None => (None, false),
     };
-    // Hit-test the release EXPLICITLY. Comparing `selected` before/after the
-    // routed release is not enough: a click that misses the sphere leaves
-    // `selected` untouched, so "unchanged" read as "re-clicked the focused cell"
-    // and dropped the user into that world. Entering requires landing ON it.
-    let hit = if was_click { picked(state) } else { None };
+    // Hit-test the release EXPLICITLY: a miss leaves `selected` untouched, which
+    // read as "re-clicked the focused cell". And a release ON the panel is the
+    // panel's — it overlaps the silhouette, which is all `picked` asks about.
+    let hit = if was_click && !compositor_y5_picker_seat_iced::iced::over_panel(state) {
+        picked(state)
+    } else {
+        None
+    };
     compositor_y5_picker_seat_pointer::pointer::button::<I>(event, state);
     hit.is_some() && hit == prev
 }

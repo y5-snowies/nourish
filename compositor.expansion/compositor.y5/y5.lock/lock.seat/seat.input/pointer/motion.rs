@@ -42,6 +42,11 @@ pub fn relative<I: InputBackend>(
     event: &<I as InputBackend>::PointerMotionEvent,
     _loop: &mut Loop,
 ) {
+    // No warp applies to the lock scene — and this path, not the spatial one, owns
+    // the pointer while locked. The slot is a seat-wide latch, so without this a
+    // bundle that was warping at lock time freezes the cursor sprite where the hand
+    // last was on the desktop. Same reason as `picker.seat/seat.cursor`.
+    compositor_orchestration_seat_pointer_publish::publish::set_true_screen(None);
     let ctx = _loop.size_ctx_all();
     let dt = event.delta();
     let previous_phys = _loop.inner.pointer_mut().motion.clone();

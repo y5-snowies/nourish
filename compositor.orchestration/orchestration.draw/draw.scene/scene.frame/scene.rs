@@ -322,7 +322,7 @@ pub struct PreparedGles {
     pub background_two: Option<compositor_background_two_draw_element::element::ParallaxBackground>,
     pub background_three: Vec<compositor_support_bevy_core_compositor_base::BevyRenderElement>,
     /// The embedded picker globe for the overview's World tab (empty otherwise).
-    pub overview_world: Vec<compositor_support_bevy_core_compositor_base::BevyRenderElement>,
+    pub overview_world: compositor_y5_overview_draw_frame::frame::Prepared,
 }
 
 /// Per-pane cameras + sub-rects for the current output, matching how the content

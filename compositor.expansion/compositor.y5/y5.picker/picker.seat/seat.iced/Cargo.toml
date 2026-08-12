@@ -6,8 +6,7 @@ edition = "2024"
 [dependencies]
 compositor_model_debug_instance_record = { workspace = true }
 compositor_orchestration_core_state_base = { workspace = true }
-compositor_orchestration_draw_layer_base = { workspace = true }
-compositor_y5_surface_interface_base = { workspace = true }
+compositor_y5_picker_system_base = { workspace = true }
 compositor_monitor_compositor_iced_base = { workspace = true }
 smithay = { workspace = true }
 

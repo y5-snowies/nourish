@@ -98,7 +98,7 @@ pub fn prepare(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Ph
     };
 
     let mut iced_wants_frame = false;
-    let surfaces = if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
+    let surfaces = if let Some(reg) = compositor_y5_picker_system_base::base::registry(&mut state.inner.worlds) {
         let t = compositor_monitor_compositor_iced_base::Transform {
             zoom: 1.0,
             position: Point::new(0.0, 0.0),

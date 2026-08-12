@@ -271,6 +271,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // The picker world OWNS its bevy registry (prewarmed from the
                 // shared context) — the sphere scene is proprietary to it.
                 Box::new(compositor_background_three_system_base::base::ThreeSystem),
+                // ...and its ICED registry, for the same reason as lock's: the
+                // details panel belongs to the picker, not to whichever world the
+                // picker happens to be sitting on top of. Holding it in the session
+                // registry meant the panel's teardown resolved through
+                // `spawn_target`, which the picker itself moves when a cell is
+                // entered — correct only by the order of two statements in
+                // `picker.world::start`. See `picker_system_base::surface`.
+                Box::new(compositor_y5_surface_system_base::base::SurfaceSystem),
                 Box::new(compositor_y5_picker_system_base::base::PickerSystem),
             ],
             &kernel_data,

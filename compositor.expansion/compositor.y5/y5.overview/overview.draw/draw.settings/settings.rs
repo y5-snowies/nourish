@@ -290,7 +290,10 @@ pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, 
         (true, Some(id), false) => { destroy(state, id); compositor_y5_overview_interface_base::base::request_close(state); } // panel Close
         (true, Some(id), true) => sync(state, id, size),
         (false, Some(id), _) => destroy(state, id),
-        (false, None, _) => {}
+        // The panel was torn down by `OverviewSystem::on_disable` (this world went
+        // inactive), which owns the surface but not the process-wide resources.
+        (false, None, true) => release(state),
+        (false, None, false) => {}
     }
 }
 
@@ -476,11 +479,27 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
 }
 
 fn destroy(state: &mut Loop, id: HandleId) {
-    // Closing settings (Esc / overview-tab switch / overview close) abandons any
-    // provisional mode change → revert it (no-op if nothing is pending).
+    if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
+        reg.destroy_by_id(id);
+        reg.set_keyboard_focus(None);
+    }
+    release(state);
+}
+
+/// The PROCESS-WIDE half of closing settings: the one audio subscription, the one
+/// bluetooth scan, the one provisional-mode confirm, the de-dup caches, and the
+/// session-wide `open` flag. None of it is per-world, and all of it is paired
+/// against a single live panel.
+///
+/// Split out because the panel can also be closed by `OverviewSystem::on_disable`
+/// when its world goes inactive — a system reaches its own storage but not this.
+/// So it destroys the surface and clears the slot, `open` outlives the handle, and
+/// the reconciler's `(false, None, true)` arm lands here on the next frame.
+fn release(state: &mut Loop) {
+    // Closing settings abandons any provisional mode change → revert it (no-op if
+    // nothing is pending).
     *state.inner.kernel.get_mut(&OUTPUT_MODE_REQUEST_MUT) = Some(OutputModeRequest::Revert);
     state.inner.ping_control();
-    if let Some(reg) = state.inner.surface_mut().registry.as_mut() { reg.destroy_by_id(id); reg.set_keyboard_focus(None); }
     // Drop our audio subscription — unsubscribes until the surface reopens.
     AUDIO_WATCH.with(|w| *w.borrow_mut() = None);
     bt::command(BtCmd::Scan(false));

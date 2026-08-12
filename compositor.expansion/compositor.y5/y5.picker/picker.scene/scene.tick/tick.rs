@@ -9,22 +9,7 @@ use compositor_orchestration_core_state_base::Loop;
 use compositor_y5_picker_system_base::base::{PICKER_MUT, PICKER_WORLD};
 
 pub fn tick(state: &mut Loop, renderer: &mut GlesRenderer) -> Option<ParallaxBackground> {
-    // Drain the session surface channel; act on picker-panel messages.
-    let messages: Vec<_> = {
-        let surface = state.inner.surface_mut();
-        let mut v = Vec::new();
-        while let Ok(m) = surface.surface_message_buffer_channel.1.try_recv() {
-            v.push(m);
-        }
-        v
-    };
-    for m in messages {
-        if let compositor_y5_surface_protocol_base::protocol::SurfaceMessageType::Picker(pm) =
-            m.message
-        {
-            compositor_y5_picker_surface_handle::handle::delegate(state, pm);
-        }
-    }
+    compositor_y5_picker_surface_handle::handle::drain(state);
 
     // Momentum / re-face glide + transform push (shared with the overview's
     // embedded globe, so both advance in wall time).
