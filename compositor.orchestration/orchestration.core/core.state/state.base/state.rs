@@ -103,6 +103,12 @@ pub struct Orchestrator {
     /// than per world, because a window keeps its uuid across a world move and the
     /// state it carries should not reset when it does.
     pub last_on_pane_awake: std::collections::HashMap<uuid::Uuid, f32>,
+    /// Windows currently TOLD they are `xdg_toplevel.suspended`, by uuid — what makes
+    /// that sweep edge-triggered rather than a per-frame re-assertion. Kept here rather
+    /// than read back off the toplevel because the honest question is "what have we
+    /// published", and the surface's own state answers a different one: it lags by a
+    /// configure round-trip, so a window would be re-set on every frame until it acked.
+    pub suspended: std::collections::HashSet<uuid::Uuid>,
     /// Active per-region render override (see [`RenderTarget`]). Set only inside
     /// the `scene.frame` region loop.
     pub render_target: Option<RenderTarget>,
@@ -364,6 +370,7 @@ impl Orchestrator {
             bus: compositor_orchestration_bus_legacy_base::legacy::LegacyBus::new(),
             pilot_tick: 0,
             last_on_pane_awake: std::collections::HashMap::new(),
+            suspended: std::collections::HashSet::new(),
             // Seed the live preference object from preferences.json (one disk read
             // at startup; refreshed on each settings-window open). Missing file →
             // sane defaults.
@@ -549,8 +556,8 @@ impl Orchestrator {
     /// because a pan drags windows through occlusion continuously and every crossing
     /// would otherwise be a configure; one sighting to clear, because a suspended
     /// client may have stopped drawing entirely and this configure is what wakes it.
-    /// `send_pending_configure` is a no-op where nothing changed, so steady state costs
-    /// a flag compare per window and emits nothing.
+    /// Edge-triggered against [`Self::suspended`], so steady state is one set lookup per
+    /// window and no protocol work at all.
     pub fn refresh_suspended(&mut self) {
         use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
         let now = compositor_pipeline_abi_clock_base::base::now();
@@ -585,6 +592,15 @@ impl Orchestrator {
                 // terms as one that scrolled away rather than instantly.
                 let since = *self.last_on_pane_awake.entry(uuid).or_insert(now);
                 let suspend = now - since >= SUSPEND_DWELL;
+                // EDGE-triggered. `with_pending_state` is not free even when the closure
+                // changes nothing: it takes the surface's lock and materialises a
+                // `server_pending` clone of the whole state set, which `send_pending_configure`
+                // then has to diff and discard. Running that for every window of every
+                // world on every frame, to re-assert a flag that flips a few times a
+                // session, is the sort of cost that only shows up under a hundred windows.
+                if suspend == self.suspended.contains(&uuid) {
+                    continue;
+                }
                 toplevel.with_pending_state(|s| match suspend {
                     true => s.states.set(xdg_toplevel::State::Suspended),
                     false => s.states.unset(xdg_toplevel::State::Suspended),
@@ -592,12 +608,17 @@ impl Orchestrator {
                 // Clients below xdg_wm_base v6 never see the state — smithay filters it
                 // per client version (`into_filtered_states`) — so nothing to gate here.
                 toplevel.send_pending_configure();
+                match suspend {
+                    true => self.suspended.insert(uuid),
+                    false => self.suspended.remove(&uuid),
+                };
             }
         }
-        // Keyed by uuid rather than held in the window's user data, so it has to be
+        // Keyed by uuid rather than held in the window's user data, so both have to be
         // swept: a window that closed while its world was parked would otherwise leave
-        // an entry behind for the life of the session.
+        // entries behind for the life of the session.
         self.last_on_pane_awake.retain(|uuid, _| live.contains(uuid));
+        self.suspended.retain(|uuid| live.contains(uuid));
     }
 
     /// Set the `activated` xdg state exclusively on `keep` — true on it, false on every
