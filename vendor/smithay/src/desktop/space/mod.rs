@@ -422,11 +422,44 @@ impl<E: SpaceElement + PartialEq> Space<E> {
     ///
     /// Needs to be called periodically, at best before every
     /// wayland socket flush.
+    ///
+    /// This runs [`refresh_alive`](Self::refresh_alive), [`refresh_outputs`](Self::refresh_outputs)
+    /// and [`refresh_elements`](Self::refresh_elements) in that order.
+    ///
+    /// A compositor whose element coordinates are NOT screen coordinates — anything
+    /// with a camera, or a pannable / zoomable workspace larger than the outputs —
+    /// should call the three separately and substitute
+    /// [`refresh_outputs_with`](Self::refresh_outputs_with) for the middle one. The
+    /// default policy decides output membership by intersecting an element's bounding
+    /// box with the output's geometry, which is only meaningful when the space IS the
+    /// screen; anywhere else it sends `wl_surface.leave` to windows that are plainly
+    /// visible, and clients that gate rendering on being on an output then stop drawing.
+    /// Where several outputs each view the same space through their own camera, an
+    /// element is reachable from every one of them and the substitute policy is simply
+    /// a constant.
     #[profiling::function]
     pub fn refresh(&mut self) {
-        self.elements.retain(|e| e.alive());
+        self.refresh_alive();
+        self.refresh_outputs();
+        self.refresh_elements();
+    }
 
-        let outputs = self
+    /// Drop elements that are no longer alive.
+    ///
+    /// One third of [`refresh`](Self::refresh); see it for when to call the parts
+    /// individually.
+    pub fn refresh_alive(&mut self) {
+        self.elements.retain(|e| e.alive());
+    }
+
+    /// Send output enter/leave to elements, deciding membership by position: an element
+    /// is on an output when its bounding box intersects that output's geometry.
+    ///
+    /// One third of [`refresh`](Self::refresh). This is the part that assumes space
+    /// coordinates are screen coordinates — use
+    /// [`refresh_outputs_with`](Self::refresh_outputs_with) when they are not.
+    pub fn refresh_outputs(&mut self) {
+        let geometries = self
             .outputs
             .iter()
             .cloned()
@@ -435,14 +468,50 @@ impl<E: SpaceElement + PartialEq> Space<E> {
                 (o, geo)
             })
             .collect::<Vec<_>>();
-        for e in &mut self.elements {
+        self.refresh_outputs_inner(|e, output| {
             let bbox = e.bbox();
+            let (_, output_geometry) = geometries.iter().find(|(o, _)| o == output)?;
+            // Check if the bounding box of the toplevel intersects with the output
+            let mut overlap = output_geometry.intersection(bbox)?;
+            // output_enter expects the overlap to be relative to the element
+            overlap.loc -= bbox.loc;
+            Some(overlap)
+        })
+    }
 
-            for (output, output_geometry) in &outputs {
-                // Check if the bounding box of the toplevel intersects with the output
-                if let Some(mut overlap) = output_geometry.intersection(bbox) {
-                    // output_enter expects the overlap to be relative to the element
-                    overlap.loc -= bbox.loc;
+    /// Send output enter/leave to elements, deciding membership with `overlap_for`.
+    ///
+    /// One third of [`refresh`](Self::refresh), replacing
+    /// [`refresh_outputs`](Self::refresh_outputs) for compositors whose element
+    /// coordinates are not screen coordinates.
+    ///
+    /// `overlap_for` is asked, for every element / mapped-output pair, whether that
+    /// element is on that output: `None` means it is not (and produces a leave if it
+    /// was), `Some(overlap)` means it is. The returned rectangle is handed to
+    /// [`SpaceElement::output_enter`] verbatim and is expected to be **relative to the
+    /// element**; it is also what the element replays on every later
+    /// [`refresh_elements`](Self::refresh_elements), which re-tests each individual
+    /// surface in the tree against it — so a rectangle that does not cover the whole
+    /// element will leave its outlying subsurfaces even while the element is entered.
+    pub fn refresh_outputs_with<F>(&mut self, mut overlap_for: F)
+    where
+        F: FnMut(&E, &Output) -> Option<Rectangle<i32, Logical>>,
+    {
+        self.refresh_outputs_inner(|e, output| overlap_for(&e.element, output))
+    }
+
+    /// Shared enter/leave bookkeeping for the two `refresh_outputs*` policies. Keeps
+    /// the per-element `outputs` map (which [`unmap_elem`](Self::unmap_elem) and
+    /// [`elements_for_output`](Self::elements_for_output) read) authoritative whichever
+    /// policy decided membership.
+    fn refresh_outputs_inner<F>(&mut self, mut overlap_for: F)
+    where
+        F: FnMut(&InnerElement<E>, &Output) -> Option<Rectangle<i32, Logical>>,
+    {
+        let outputs = self.outputs.clone();
+        for e in &mut self.elements {
+            for output in &outputs {
+                if let Some(overlap) = overlap_for(e, output) {
                     let old = e.outputs.insert(output.clone(), overlap);
                     if old.is_none() || matches!(old, Some(old_overlap) if old_overlap != overlap) {
                         e.element.output_enter(output, overlap);
@@ -452,7 +521,7 @@ impl<E: SpaceElement + PartialEq> Space<E> {
                 }
             }
             e.outputs.retain(|output, _| {
-                if !outputs.iter().any(|(o, _)| o == output) {
+                if !outputs.iter().any(|o| o == output) {
                     e.element.output_leave(output);
                     false
                 } else {
@@ -460,9 +529,17 @@ impl<E: SpaceElement + PartialEq> Space<E> {
                 }
             });
         }
+    }
 
+    /// Update each element's own internal state and run per-output cleanup.
+    ///
+    /// One third of [`refresh`](Self::refresh). Note this re-sends the enter/leave
+    /// decision taken by `refresh_outputs*` — it replays each element's stored overlap
+    /// rectangle against its surface tree — so it belongs AFTER whichever of those two
+    /// the compositor uses.
+    pub fn refresh_elements(&self) {
         self.elements.iter().for_each(|e| e.element.refresh());
-        for (output, _) in outputs {
+        for output in &self.outputs {
             output.cleanup();
         }
     }

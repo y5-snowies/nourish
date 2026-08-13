@@ -7,7 +7,9 @@ use compositor_orchestration_core_state_base::Loop;
 pub fn register(_loop: &mut Loop, output: &Output) {
     let _global = output.create_global::<compositor_support_smithay_dispatch_state_base::state::Dispatch>(&_loop.state.output.display_handle);
 
-    _loop.inner.space_state_mut().state.map_output(output, (0, 0));
+    // Every world's Space, not just the hosted one — a world parked when a monitor
+    // appears would otherwise never learn about it (`map_output_everywhere`).
+    _loop.inner.map_output_everywhere(output, smithay::utils::Point::from((0, 0)));
 }
 
 pub fn register_dmabuf(_loop: &mut Loop, backend_loader: &mut dyn Backend) {

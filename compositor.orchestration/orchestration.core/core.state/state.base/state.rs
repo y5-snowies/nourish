@@ -68,6 +68,24 @@ pub fn output_key(output: &smithay::output::Output) -> compositor_orchestration_
     format!("{} {} {}", p.make, p.model, p.serial_number)
 }
 
+/// The overlap rect handed to `SpaceElement::output_enter` for a window that IS on an
+/// output — deliberately unbounded (see [`Orchestrator::refresh_space`]).
+///
+/// smithay does not treat that rect as a one-off: it stores it and, on every later
+/// `refresh_elements`, re-tests each individual surface of the window's tree against it
+/// — and each popup against it SHIFTED by the popup's offset — sending
+/// `wl_surface.leave` to whatever falls outside. Membership has already been decided by
+/// then, so the rect must only say "all of it", and no rect derived from world
+/// coordinates can promise that for a tree whose subsurfaces and popups reach
+/// arbitrarily far. Kept well inside `i32` so the saturating arithmetic in
+/// `Rectangle::overlaps` never clamps it back.
+fn unclipped() -> smithay::utils::Rectangle<i32, smithay::utils::Logical> {
+    smithay::utils::Rectangle::new(
+        smithay::utils::Point::from((i32::MIN / 4, i32::MIN / 4)),
+        smithay::utils::Size::from((i32::MAX / 2, i32::MAX / 2)),
+    )
+}
+
 pub struct Orchestrator {
     pub start_time: std::time::Instant,
     /// Active per-region render override (see [`RenderTarget`]). Set only inside
@@ -430,6 +448,57 @@ impl Orchestrator {
         self.set_spawn_target_world(id);
     }
 
+    /// Map `output` into EVERY world's Space, not just the hosted one.
+    ///
+    /// Hotplug is a fact about the machine, but a world only ever learns about it while
+    /// it is HOSTED: the plain `space_state_mut()` route resolves to the spawn target, so
+    /// a monitor plugged in or pulled out while a world was parked never reached that
+    /// world's Space. It came back holding a dead `Output` and missing the live one —
+    /// which is load-bearing, because `active_output` / `current_output` pick from that
+    /// same list and [`Self::refresh_space`] sends `wl_output` enter/leave over it. Swap
+    /// every monitor while a world is parked and its windows come back entered on
+    /// nothing but a monitor that is gone.
+    ///
+    /// A world's Space keeps its OWN location for the output (smithay keys that per
+    /// space), so this sets the same layout in each. Overlay worlds hold no Space and
+    /// are skipped. A world created LATER still starts empty and is seeded on first
+    /// entry by the world-switch paths.
+    pub fn map_output_everywhere(
+        &mut self,
+        output: &smithay::output::Output,
+        location: smithay::utils::Point<i32, smithay::utils::Logical>,
+    ) {
+        for id in self.worlds.ids() {
+            if let Some(host) = self
+                .worlds
+                .get_mut(id)
+                .storage_mut()
+                .try_get_mut(&compositor_support_world_host_space_base::base::SPACE_MUT)
+            {
+                host.inner.state.map_output(output, location);
+            }
+        }
+    }
+
+    /// Unmap `output` from EVERY world's Space — the counterpart of
+    /// [`Self::map_output_everywhere`]; see it for why this is not the hosted world only.
+    ///
+    /// The `wl_surface.leave` this produces for each world's windows is smithay's
+    /// business: `Space::unmap_output` only drops the output from the list, and the
+    /// retain pass inside the next `refresh_outputs*` is what tells the clients.
+    pub fn unmap_output_everywhere(&mut self, output: &smithay::output::Output) {
+        for id in self.worlds.ids() {
+            if let Some(host) = self
+                .worlds
+                .get_mut(id)
+                .storage_mut()
+                .try_get_mut(&compositor_support_world_host_space_base::base::SPACE_MUT)
+            {
+                host.inner.state.unmap_output(output);
+            }
+        }
+    }
+
     /// Set the `activated` xdg state exclusively on `keep` — true on it, false on every
     /// other mapped window across ALL worlds — sending each a pending configure. Pass
     /// `None` to deactivate everything (e.g. switching into a world with no remembered
@@ -692,6 +761,56 @@ impl Orchestrator {
     pub fn output_views(&self) -> &compositor_y5_viewport_state_base::state::OutputViews {
         let target = self.worlds.spawn_target();
         self.worlds.get(target).storage().get(&compositor_y5_viewport_state_base::state::OUTPUT_VIEWS)
+    }
+
+    /// The Space refresh, with `wl_output` membership as y5 actually models it: every
+    /// window is on every output.
+    ///
+    /// Stands in for `Space::refresh()`, whose `refresh_outputs` third decides which
+    /// outputs a window is on by intersecting the window's STORED position with the
+    /// output's geometry. That is right for a compositor whose Space is the screen, and
+    /// meaningless here twice over.
+    ///
+    /// First the position is a y5-WORLD coordinate — the camera is applied at render
+    /// time, see `document/TRANSFORM.md` — while the outputs are mapped into that same
+    /// Space from the origin. A window at negative world x or y intersects no output and
+    /// is sent `wl_surface.leave`; a client that gates its render loop on being on an
+    /// output then stops drawing, frozen from its first frame and released only by
+    /// dragging it back over the origin. With several monitors it is worse than wrong —
+    /// the outputs tile side by side, so a window's world x picks whose scale and refresh
+    /// the client renders for.
+    ///
+    /// Second — and this is why the answer is a constant rather than a better geometric
+    /// test — no window BELONGS to an output. Every monitor renders the same world
+    /// through its own camera, so any monitor can bring any window into view on the next
+    /// frame, with no commit and no protocol event to hang a re-entry off. There is
+    /// nothing to test: the truthful `enter` set is every mapped output, and the only
+    /// `leave` is an output going away, which the retain pass inside
+    /// `refresh_outputs_with` still does.
+    ///
+    /// This deliberately does NOT double as a visibility signal. A window outside every
+    /// camera is still ON its outputs — it is one pan away, and nothing about it has
+    /// changed. `wl_output` membership is a rendering contract, and a client may stop
+    /// drawing entirely on `leave`, so driving it from an off-screen test is a far
+    /// blunter instrument than the one y5 already aims at invisible windows
+    /// (`fractional_invisible`, which only decides what scale to publish and defaults to
+    /// "keep publishing"). Only one mechanism gets to decide whether a client renders at
+    /// all, and it should not be this one. The foreign-toplevel mirror answers the same
+    /// question the same way, so a dock and the client are never told different things.
+    ///
+    /// Applies to EVERY element of the space and, through `output_update`, to every
+    /// surface of each one's tree — subsurfaces and popups included. There is no
+    /// toplevel filter: a `wl_output` is entered by surfaces, not by windows. (Layer
+    /// surfaces are not space elements; `LayerMap::arrange` drives theirs, and for those
+    /// the geometric test IS right — they are screen-space by definition.)
+    ///
+    /// Nothing else changes: the alive sweep and the per-element refresh are smithay's,
+    /// in smithay's order.
+    pub fn refresh_space(&mut self) {
+        let space = &mut self.space_state_mut().state;
+        space.refresh_alive();
+        space.refresh_outputs_with(|_window, _output| Some(unclipped()));
+        space.refresh_elements();
     }
 
     /// Cursor teleportation between monitors is currently suppressed: some system holds
