@@ -77,6 +77,7 @@ compositor_y5_navigator_state_base.workspace = true
 tokio.workspace = true
 uuid.workspace = true
 compositor_y5_window_interface_record.workspace = true
+compositor_pipeline_abi_clock_base.workspace = true
 compositor_y5_placeholder_state_base.workspace = true
 compositor_y5_window_lifecycle_state.workspace = true
 compositor_y5_window_lifecycle_event.workspace = true

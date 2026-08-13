@@ -13,7 +13,7 @@ use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_draw_dispatch_frame::SceneDispatch;
 use compositor_orchestration_draw_node_base::node::{DrawNode, Plan};
 use compositor_orchestration_draw_scene_element::element::PreImported;
-use compositor_support_bevy_core_compositor_base::BevyRenderElement;
+pub use compositor_y5_overview_draw_world::world::Prepared;
 use compositor_support_system_world_frame_base::base as layer;
 use compositor_y5_overview_state_base::base::Tab;
 
@@ -32,9 +32,9 @@ fn on_active_output(s: &Loop) -> bool {
 /// GLES phase: advance the freeze-backdrop capture, and on the World tab render
 /// the embedded picker globe (else tear it down). Returns the globe's bevy
 /// elements for `band`.
-pub fn prepare(state: &mut Loop, gles: &mut GlesRenderer, size: Size<i32, Physical>) -> Vec<BevyRenderElement> {
+pub fn prepare(state: &mut Loop, gles: &mut GlesRenderer, size: Size<i32, Physical>) -> Prepared {
     // Active monitor only (keeps the embedded globe's GLOBE_SIZE stable).
-    if !on_active_output(state) { return Vec::new(); }
+    if !on_active_output(state) { return Prepared::default(); }
     compositor_y5_overview_draw_backdrop::backdrop::arm(state, gles, size);
     // Settings tab: reconcile the embedded settings iced surface (no-op off-tab).
     compositor_y5_overview_draw_settings::settings::per_frame(state, gles, size);
@@ -44,7 +44,7 @@ pub fn prepare(state: &mut Loop, gles: &mut GlesRenderer, size: Size<i32, Physic
         compositor_y5_overview_draw_world::world::prepare_world(state, gles, size)
     } else {
         compositor_y5_picker_interface_embed::embed::embed_close(state);
-        Vec::new()
+        Prepared::default()
     }
 }
 
@@ -57,7 +57,7 @@ pub fn band<R>(
     renderer: &mut R,
     size: Size<i32, Physical>,
     plan: &mut Plan<R>,
-    world: Vec<BevyRenderElement>,
+    world: Prepared,
 ) -> Option<Vec<Window>>
 where
     R: Renderer + ImportAll + ImportDma + ImportMem + SceneDispatch,
@@ -99,8 +99,12 @@ where
             windows
         }
         Tab::World => {
-            for e in world {
+            for e in world.bevy {
                 plan.push(layer::CANVAS, DrawNode::Background3D(e));
+            }
+            // Details panel above the globe, mirroring the picker's own scene.
+            for e in world.iced {
+                plan.push(layer::ICED_SCREEN, DrawNode::Iced(e));
             }
             Vec::new()
         }

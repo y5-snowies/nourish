@@ -1,9 +1,12 @@
 //! Create the picker's bottom-right details panel as a screen-space iced surface
-//! in the session world's registry (like the lock surface), and wire its
-//! messages back to the compositor.
+//! in the PICKER world's own registry (like the lock surface), and wire its
+//! messages back to the compositor through that world's own channel.
+//!
+//! Nothing here touches `surface_mut()` / `camera()` / the spawn target: the panel
+//! belongs to the picker, which MOVES the spawn target when a cell is entered.
 
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::utils::{Physical, Point, Rectangle, Size};
+use smithay::utils::{Physical, Point, Size};
 use std::sync::mpsc::Sender;
 
 use compositor_monitor_compositor_iced_base::IcedHandle;
@@ -22,20 +25,25 @@ pub fn create(
 ) -> Option<IcedHandle<PickerSurface>> {
     let x = (size.w - PANEL_W - MARGIN).max(0);
     let y = (size.h - PANEL_H - MARGIN).max(0);
+    let gpu = state.inner.environment.GPU.clone();
 
-    let handle = compositor_y5_surface_draw_handle::handle::load(
-        state,
-        renderer,
-        PickerSurface::new(),
-        Rectangle::new(Point::from((x, y)), Size::new(PANEL_W, PANEL_H)),
-        compositor_monitor_compositor_iced_base::IcedSpace::Screen,
-        compositor_orchestration_draw_layer_base::base::Layer::PICKER_SCENE.bits(),
-    );
-
-    let tx = state.inner.surface_mut().surface_message_buffer_channel.0.clone();
-    let registry = state.inner.surface_mut().registry.as_mut()?;
-    registry
-        .set_message_handler(handle, move |m: &PickerSurfaceMessage| dispatch(m, &tx));
+    // Screen-space, so no `DrawOrder` registration is owed (that is world-space
+    // only) — which is the whole of what `surface.draw/draw.handle::load` adds
+    // over `create_screen`, and it resolves the session registry. So: direct.
+    let surface = compositor_y5_picker_system_base::base::surface(&mut state.inner.worlds)?;
+    let tx = surface.surface_message_buffer_channel.0.clone();
+    let registry = surface.registry.as_mut()?;
+    let handle = registry
+        .create_screen(
+            &gpu.as_str(),
+            PickerSurface::new(),
+            renderer,
+            Point::from((x, y)),
+            Size::new(PANEL_W, PANEL_H),
+            compositor_orchestration_draw_layer_base::base::Layer::PICKER_SCENE.bits(),
+        )
+        .ok()?;
+    registry.set_message_handler(handle, move |m: &PickerSurfaceMessage| dispatch(m, &tx));
     Some(handle)
 }
 

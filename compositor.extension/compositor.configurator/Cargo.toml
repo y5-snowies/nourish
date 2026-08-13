@@ -354,6 +354,7 @@ compositor_kernel_vulkan_texture_cache_base = { path = "../../compositor.kernel/
 compositor_kernel_vulkan_texture_image_base = { path = "../../compositor.kernel/kernel.vulkan/vulkan.texture/texture.image/image.base" }
 compositor_kernel_vulkan_texture_image_inner = { path = "../../compositor.kernel/kernel.vulkan/vulkan.texture/texture.image/image.inner" }
 compositor_kernel_winit_frame_submit_base = { path = "../../compositor.kernel/kernel.winit/winit.frame/frame.submit/submit.base" }
+compositor_kernel_winit_input_capture_base = { path = "../../compositor.kernel/kernel.winit/winit.input/input.capture/capture.base" }
 compositor_kernel_winit_input_route_base = { path = "../../compositor.kernel/kernel.winit/winit.input/input.route/route.base" }
 compositor_kernel_winit_scene_compose_base = { path = "../../compositor.kernel/kernel.winit/winit.scene/scene.compose/compose.base" }
 compositor_kernel_winit_window_factory_base = { path = "../../compositor.kernel/kernel.winit/winit.window/window.factory/factory.base" }
@@ -771,6 +772,7 @@ compositor_y5_guide_shader_handle = { path = "../../compositor.expansion/composi
 compositor_y5_guide_shader_state = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.shader/shader.state" }
 compositor_y5_guide_shader_view = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.shader/shader.view" }
 compositor_y5_guide_state_base = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.state/state.base" }
+compositor_y5_guide_system_base = { path = "../../compositor.expansion/compositor.y5/y5.guide/guide.system/system.base" }
 compositor_y5_launcher_draw_state = { path = "../../compositor.expansion/compositor.y5/y5.launcher/launcher.draw/draw.state" }
 compositor_y5_launcher_input_base = { path = "../../compositor.expansion/compositor.y5/y5.launcher/launcher.input/input.base" }
 compositor_y5_launcher_interface_base = { path = "../../compositor.expansion/compositor.y5/y5.launcher/launcher.interface/interface.base" }

@@ -1,4 +1,5 @@
 use crate::constraint::apply_pointer_constraint;
+use crate::extent;
 use crate::native_motion;
 use smithay::backend::input::{AbsolutePositionEvent, Event, InputBackend, PointerMotionEvent};
 use smithay::utils::{Logical, Physical, Point};
@@ -31,6 +32,23 @@ pub fn absolute<I: InputBackend>(
 
     // The numbers are in physical units; re-tag.
     let position_screen = Point::<f64, Physical>::from((raw_pos.x, raw_pos.y));
+
+    // Screen extents, ABSOLUTE half (see `extent.rs`): an absolute pointer has no
+    // overflow to pan by — the host clamps it to the window — so entering the edge
+    // band ARMS a simulated pan that the per-frame tick runs, and the cursor is
+    // pinned to the extent while it is armed (a winit drag reports positions well
+    // outside the window; those belong to the camera). No-op when the extent isn't
+    // a pan, or for a direct device.
+    let (pw, ph) = screen.screen_size_physical;
+    let position_screen = extent::hold(
+        _loop,
+        position_screen,
+        (raw_pos.x / pw.max(1.0), raw_pos.y / ph.max(1.0)),
+        pw,
+        ph,
+    );
+    // Carry the pinning into the value the bus + native motion are given.
+    let raw_pos = Point::<f64, Logical>::from((position_screen.x, position_screen.y));
 
     // Resolve the pane under the cursor (records it as the `pointer` slot) and map
     // physical → world through THAT pane's camera/region, so input follows the
@@ -203,6 +221,11 @@ pub fn relative<I: InputBackend>(
     // Full-output context for the physical-accumulator clamp bounds.
     let screen = _loop.size_ctx_all();
 
+    // A relative pointer is driving, so no ABSOLUTE one is holding an edge pan —
+    // drop that kind only, or this would tear down the continuous pan re-armed at
+    // the end of this very function (see `extent.rs`). Cheap no-op normally.
+    extent::release_absolute(_loop);
+
     let dt = event.delta();
     let dt_unaccelerated = event.delta_unaccel();
 
@@ -258,15 +281,39 @@ pub fn relative<I: InputBackend>(
         };
         _loop.inner.pointer_mut().motion.x = final_phys.x;
         _loop.inner.pointer_mut().motion.y = final_phys.y;
+        // A client holds the pointer (lock/confine): the extent is its business now,
+        // so stop any edge pan still running from before the grab.
+        extent::release(_loop);
         constrained_world
     } else {
-        // No constraint. If the cursor left this output's bounds and a teleport
-        // layout places an adjacent monitor across that edge, cross to it; else
-        // clamp to this output's bounds (the edge is a layout boundary).
+        // No constraint. The cursor may have left this output's bounds — `extent`
+        // decides what that push MEANS (cross to the monitor across that edge, pan
+        // the camera by it, or just pin the cursor); see `extent.rs` for the policy.
         let (pw, ph) = screen.screen_size_physical;
         let mx = _loop.inner.pointer_mut().motion.x;
         let my = _loop.inner.pointer_mut().motion.y;
-        match teleport_cross(_loop, mx, my, pw, ph) {
+        // AT or past an extent. `>=`, not `>`: the accumulator was clamped exactly
+        // onto the boundary by the previous event, so a cursor already parked there
+        // reports no further overflow — yet it is still asking to pan (that is what
+        // the continuous mode rides on, and it keeps working when the cursor slides
+        // ALONG an edge). The teleport/push below still take the strict test, since
+        // both are driven by actual overflow.
+        let at_extent = mx <= 0.0 || mx >= pw || my <= 0.0 || my >= ph;
+        let mut policy = if at_extent { extent::resolve(_loop) } else { extent::Extent::Clamp };
+        // Super with no grab means "cross to the next monitor" — so a cursor merely
+        // RESTING against the edge under it must not start a continuous pan instead.
+        let teleport_intent = policy == extent::Extent::Teleport;
+        let crossed = if policy == extent::Extent::Teleport {
+            let crossed = teleport_cross(_loop, mx, my, pw, ph);
+            if crossed.is_none() {
+                // Nothing placed across that edge (or teleport is suppressed).
+                policy = extent::fallback(_loop);
+            }
+            crossed
+        } else {
+            None
+        };
+        match crossed {
             Some((entry, new_ctx)) => {
                 _loop.inner.pointer_mut().motion.x = entry.x;
                 _loop.inner.pointer_mut().motion.y = entry.y;
@@ -281,6 +328,33 @@ pub fn relative<I: InputBackend>(
                     _loop.inner.pointer_mut().motion.x,
                     _loop.inner.pointer_mut().motion.y,
                 ));
+                // Continuous (RTS) mode FIRST: the cursor is now pinned to the
+                // extent, so hand the frame clock a travel to keep applying — a mouse
+                // that stops moving stops sending events, and the pan should not stop
+                // with it. Dropped again the moment the cursor steps off the extent.
+                // The accumulator advance is the arrival measurement: how hard the
+                // pointer drove in sets how fast the sustained pan runs.
+                //
+                // Ahead of the push below so that even the ARRIVING event is netted
+                // against the speed it just seeded, instead of landing on top of it.
+                let step = extent::sustain(
+                    _loop,
+                    pt,
+                    pw,
+                    ph,
+                    !teleport_intent && policy == extent::Extent::Pan,
+                    (dt.x * sensitivity, dt.y * sensitivity),
+                );
+                // Then the push, for whatever it EXCEEDS that travel. Applied before
+                // the world point is taken, so this very event already reports the
+                // cursor's world position under the panned camera — an in-progress
+                // move/scale grab then drags along with the canvas instead of lagging
+                // a frame behind it.
+                let panned =
+                    policy == extent::Extent::Pan && extent::pan(_loop, mx, my, pw, ph, step);
+                // `ctx` was built against the pre-pan camera; re-derive it when the
+                // camera just moved, else the world point is a pan step stale.
+                let ctx = if panned { _loop.pointer_context(pt) } else { ctx };
                 let t: Transform = (pt, ctx).into();
                 t.into_storage_point_f64()
             }

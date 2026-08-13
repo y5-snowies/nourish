@@ -73,8 +73,15 @@ pub fn send_layer_frames(state: &Loop, output: &Output) {
 
 /// Post-frame housekeeping: space refresh, popup cleanup, client flush.
 /// Runs every frame, damage or no damage.
+///
+/// `refresh_space` rather than smithay's `Space::refresh()`: the latter derives
+/// `wl_output` enter/leave from the window's stored position, which in y5 is a WORLD
+/// coordinate and not a screen one — and no window belongs to one output anyway, since
+/// every monitor renders the same world through its own camera.
 pub fn housekeeping(state: &mut Loop) {
-    state.inner.space_state_mut().state.refresh();
+    state.inner.refresh_space();
+    // After the frame, so it reads the presence stamps this frame just wrote.
+    state.inner.refresh_suspended();
     state.state.popup.state.cleanup();
     let _ = state.inner.loader.display_handle.flush_clients();
 }

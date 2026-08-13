@@ -50,6 +50,22 @@ It fully supports NVIDIA,Intel and AMD, as well as supporting ARM-based devices 
 Visit **[nourish.snowies.com](https://nourish.snowies.com)** to see what it looks
 like and the full list of features.
 
+## Juice ( and more ... )
+_A couple of built-in shader pipelines were included for all installations. the shader pipeline feature is not limited to special effects, and extends to color filters, per window exposure, etc._
+> [!TIP]
+> Easily create your own shaders with the included skill
+```
+1. Tell claude: Load: https://github.com/y5-snowies/nourish/blob/upstream-integration/document/shader-skill/SKILL.md
+2. Claude will load the skill, then you'll be able to ask it which shader you want. Claude will activate the shader when its done.
+For example: "Create a world of warcraft shader" ( the example below was created and activated with a single prompt )
+```
+
+
+
+https://github.com/user-attachments/assets/cc822a51-01da-42a9-94da-7a8b0679564a
+
+[[Watch the full demo on YouTube]](https://www.youtube.com/watch?v=IjxyrTLkHyI)
+
 ## Install
 
 It's one command. You get a prebuilt build, so there's no toolchain to set up — the

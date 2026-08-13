@@ -10,6 +10,9 @@ compositor_support_system_trait_system_base = { workspace = true }
 compositor_y5_picker_state_base = { workspace = true }
 
 compositor_orchestration_world_manager_base = { workspace = true }
+compositor_y5_surface_state_base = { workspace = true }
+compositor_y5_surface_system_base = { workspace = true }
+compositor_monitor_compositor_iced_base = { workspace = true }
 
 compositor_y5_picker_persist_world = { workspace = true }
 

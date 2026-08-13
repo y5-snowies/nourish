@@ -8,7 +8,7 @@ use std::sync::Once;
 use compositor_monitor_compositor_iced_base::HandleId;
 use compositor_orchestration_core_state_base::Loop;
 use compositor_y5_guide_menu_view::GuideMessage;
-use compositor_y5_guide_state_base::state::{GuideState, GUIDE};
+use compositor_y5_guide_state_base::state::GuideState;
 use compositor_y5_surface_protocol_base::protocol::{SurfaceMessage, SurfaceMessageType};
 
 /// Register the Material Symbols font into iced's global DB once (shared with
@@ -27,11 +27,12 @@ pub fn on_active_output(state: &Loop) -> bool {
     state.inner.render_output.as_ref().is_none_or(|k| *k == state.inner.active_output_key())
 }
 
-/// The stored handle, but only while the CURRENT world's registry still holds
-/// it. A world switch swaps the registry out from under us, so a bare `Option`
-/// would name a surface that no longer exists.
+/// The stored handle, but only while the world's registry still holds it. Slot
+/// and registry are both per-world and resolve through the same spawn target, so
+/// this is now only guarding against a surface destroyed from elsewhere (a
+/// registry teardown, a released backing) rather than against a world switch.
 pub fn live(state: &Loop, pick: fn(&GuideState) -> Option<HandleId>) -> Option<HandleId> {
-    let id = pick(state.inner.kernel.get(&GUIDE))?;
+    let id = pick(state.inner.guide())?;
     state.inner.surface().registry.as_ref().filter(|r| r.contains(id)).map(|_| id)
 }
 

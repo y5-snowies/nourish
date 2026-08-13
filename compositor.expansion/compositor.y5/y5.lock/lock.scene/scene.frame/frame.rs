@@ -157,7 +157,10 @@ where
     R: Renderer + ImportAll + ImportDma + ImportMem + SceneDispatch,
     R::TextureId: Texture + Clone + Send + 'static,
 {
-    if !R::prefers_dmabuf() {
+    // `texture.is_some()` for the same reason `bevy_to_lock` below checks it: an
+    // off-thread (worker-rasterized) surface has no GLES view, and drawing it is a
+    // silent no-op. Winit's lock pass is GLES even when the scene pass is Vulkan.
+    if !R::prefers_dmabuf() && e.texture.is_some() {
         return Some(LockSceneElement::Surface(e));
     }
     match renderer.import_dmabuf(&e.dmabuf, None) {

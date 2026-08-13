@@ -31,9 +31,11 @@ pub fn destroy(state: &mut Loop) {
             reg.destroy_by_id(id);
         }
     }
-    // Details panel — session iced registry.
+    // Details panel — the picker world's OWN iced registry, beside the sphere.
+    // Order-independent now: this no longer resolves through the spawn target,
+    // which `picker.world::start` moves in the same breath as calling us.
     if let Some(id) = surface_id {
-        if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
+        if let Some(reg) = compositor_y5_picker_system_base::base::registry(&mut state.inner.worlds) {
             reg.destroy_by_id(id);
         }
     }

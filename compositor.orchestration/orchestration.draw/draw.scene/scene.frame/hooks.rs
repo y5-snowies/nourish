@@ -77,6 +77,12 @@ pub fn hooks(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Phys
     // seamlessly. Runs after `update()` so it sees this frame's pan/coast step.
     compositor_orchestration_seat_pointer_pan::pan::reconcile_finger_pan(state);
 
+    // Simulated edge pan for an ABSOLUTE pointer (winit) sitting in the edge band:
+    // it reports nothing while it holds still, so the pan — and the replayed motion
+    // that keeps the world point under it current — runs off this frame clock.
+    // A no-op unless one is armed.
+    compositor_orchestration_seat_pointer_input::extent::tick(state);
+
     // Frame-end persistence commit — PATH 2 (rim catch-all): a mutation outside
     // `buffer()` flags its world via `mark_world`; here we commit the marked worlds
     // whose debounce is due (immediate, or batched up to 1s), e.g. an overlay world

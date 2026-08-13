@@ -11,6 +11,34 @@ pub use compositor_orchestration_world_manager_base::manager::PICKER_WORLD;
 /// legacy interface / scene / seat paths can resolve them through this crate.
 pub use compositor_y5_picker_state_base::base::{PICKER, PICKER_MUT};
 
+/// The PICKER world's own surface slot — where its details panel lives.
+///
+/// Every iced path in the picker resolves through here, and NONE of them may go
+/// through `surface()`/`camera()`/`active` or any other focus accessor: those name
+/// the session world, which the picker is merely drawn on top of and which the
+/// picker itself moves the moment a cell is entered. A panel in the session
+/// registry outlived that move only because `picker.world::start` happened to tear
+/// down before `set_spawn_target_world`.
+///
+/// Takes `WorldManager` rather than `Loop` deliberately: `orchestration.core.state`
+/// depends on this crate, so naming `Loop` here would be a cycle. (Same shape as
+/// `lock_system_base::surface`.)
+pub fn surface(
+    worlds: &mut compositor_orchestration_world_manager_base::manager::WorldManager,
+) -> Option<&mut compositor_y5_surface_state_base::state::SurfaceState> {
+    worlds
+        .get_mut(PICKER_WORLD)
+        .storage_mut()
+        .try_get_mut(&compositor_y5_surface_system_base::base::SURFACE_MUT)
+}
+
+/// The PICKER world's iced registry, or `None` before the prewarm has built it.
+pub fn registry(
+    worlds: &mut compositor_orchestration_world_manager_base::manager::WorldManager,
+) -> Option<&mut compositor_monitor_compositor_iced_base::IcedRegistry> {
+    surface(worlds).and_then(|s| s.registry.as_mut())
+}
+
 /// Owns the world-selection screen state slot — registered in the PICKER world,
 /// not main. While the picker is on screen the session world is suspended (its
 /// systems got `on_disable`) but kept intact; cancelling switches back.

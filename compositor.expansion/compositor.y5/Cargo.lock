@@ -7936,6 +7936,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_y5_guide_system_base"
+version = "0.0.1"
+dependencies = [
+ "compositor_support_system_trait_system_base",
+ "compositor_y5_guide_state_base",
+]
+
+[[package]]
 name = "compositor_y5_launcher_draw_state"
 version = "0.0.1"
 dependencies = [
@@ -8159,6 +8167,7 @@ dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_draw_layer_base",
  "compositor_orchestration_seat_pointer_input",
+ "compositor_orchestration_seat_pointer_publish",
  "compositor_orchestration_seat_system_pointer",
  "compositor_support_smithay_dispatch_state_base",
  "compositor_y5_camera_transform_state",
@@ -8564,7 +8573,9 @@ dependencies = [
  "compositor_y5_overview_state_base",
  "compositor_y5_surface_draw_handle",
  "compositor_y5_surface_protocol_base",
+ "compositor_y5_surface_system_base",
  "smithay",
+ "uuid",
 ]
 
 [[package]]
@@ -8590,6 +8601,7 @@ version = "0.0.1"
 dependencies = [
  "compositor_background_three_system_base",
  "compositor_model_debug_instance_record",
+ "compositor_monitor_compositor_iced_base",
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_draw_layer_base",
  "compositor_support_bevy_core_compositor_base",
@@ -8694,6 +8706,7 @@ name = "compositor_y5_overview_system_base"
 version = "0.0.1"
 dependencies = [
  "compositor_model_debug_instance_record",
+ "compositor_orchestration_driver_settings_base",
  "compositor_support_system_trait_system_base",
  "compositor_y5_overview_state_base",
 ]
@@ -8919,8 +8932,8 @@ version = "0.0.1"
 dependencies = [
  "compositor_model_debug_instance_record",
  "compositor_orchestration_core_state_base",
- "compositor_orchestration_draw_layer_base",
- "compositor_y5_surface_interface_base",
+ "compositor_orchestration_seat_pointer_publish",
+ "compositor_y5_picker_seat_iced",
  "smithay",
 ]
 
@@ -8959,8 +8972,7 @@ dependencies = [
  "compositor_model_debug_instance_record",
  "compositor_monitor_compositor_iced_base",
  "compositor_orchestration_core_state_base",
- "compositor_orchestration_draw_layer_base",
- "compositor_y5_surface_interface_base",
+ "compositor_y5_picker_system_base",
  "smithay",
 ]
 
@@ -9035,6 +9047,7 @@ dependencies = [
  "compositor_orchestration_core_state_base",
  "compositor_orchestration_draw_layer_base",
  "compositor_y5_picker_surface_view",
+ "compositor_y5_picker_system_base",
  "compositor_y5_surface_draw_handle",
  "compositor_y5_surface_protocol_base",
  "smithay",
@@ -9069,11 +9082,14 @@ name = "compositor_y5_picker_system_base"
 version = "0.0.1"
 dependencies = [
  "compositor_model_debug_instance_record",
+ "compositor_monitor_compositor_iced_base",
  "compositor_orchestration_world_manager_base",
  "compositor_support_system_persist_document_entry",
  "compositor_support_system_trait_system_base",
  "compositor_y5_picker_persist_world",
  "compositor_y5_picker_state_base",
+ "compositor_y5_surface_state_base",
+ "compositor_y5_surface_system_base",
 ]
 
 [[package]]
@@ -9185,6 +9201,7 @@ dependencies = [
  "compositor_y5_camera_system_base",
  "compositor_y5_canvas_system_base",
  "compositor_y5_group_system_base",
+ "compositor_y5_guide_system_base",
  "compositor_y5_launcher_system_base",
  "compositor_y5_navigator_system_base",
  "compositor_y5_overview_system_base",

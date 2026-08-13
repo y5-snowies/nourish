@@ -246,17 +246,17 @@ impl ForeignToplevel {
 
         // Snapshot the current toplevels across every advertised space (surface +
         // metadata + outputs) up front so the space borrows end before we mutate
-        // `self.toplevels`. Outputs are computed per-space (a window belongs to its world).
+        // `self.toplevels`. Outputs are per-space, which is also per-world.
         let current: Vec<(WlSurface, String, String, ToplevelStates, Vec<Output>)> = spaces
             .iter()
             .flat_map(|&space| {
+                let outputs = outputs_for(space);
                 space.elements().filter_map(move |window| {
                     let toplevel = window.toplevel()?;
                     let surface = toplevel.wl_surface().clone();
                     let (title, app_id) = title_app_id(&surface);
                     let states = read_states(window);
-                    let outputs = outputs_for(space, window);
-                    Some((surface, title, app_id, states, outputs))
+                    Some((surface, title, app_id, states, outputs.clone()))
                 })
             })
             .collect();
@@ -416,18 +416,22 @@ fn send_outputs(dh: &DisplayHandle, handle: &ZwlrForeignToplevelHandleV1, output
     }
 }
 
-/// The outputs a window overlaps, by intersecting its space geometry with each
-/// output's — independent of smithay's `outputs_for_element` cache (which y5's
-/// custom frame pipeline may not refresh).
-fn outputs_for(space: &Space<Window>, window: &Window) -> Vec<Output> {
-    let Some(geo) = space.element_geometry(window) else {
-        return Vec::new();
-    };
-    space
-        .outputs()
-        .filter(|o| space.output_geometry(o).map(|og| og.overlaps(geo)).unwrap_or(false))
-        .cloned()
-        .collect()
+/// The outputs a window is on: every output of its world's space.
+///
+/// Not a geometric test, and not a visibility one. In y5 no window belongs to an
+/// output — every monitor renders the same world through its own camera, so any
+/// monitor can bring any window into view on the next frame, and a window currently
+/// outside a camera is still on that monitor's output. This deliberately mirrors the
+/// `wl_output` membership `Orchestrator::refresh_space` publishes, so a dock and the
+/// client itself are never told two different things.
+///
+/// The former version intersected the window's space geometry with each output's,
+/// which reads as obvious and is wrong twice over: Space positions are y5-WORLD
+/// coordinates, so a window at negative world x/y matched no output and docks were
+/// told it was on none, and with several monitors the outputs tile side by side so a
+/// window's world x picked which monitor it was reported on.
+fn outputs_for(space: &Space<Window>) -> Vec<Output> {
+    space.outputs().cloned().collect()
 }
 
 /// Read `title` / `app_id` from a toplevel's xdg role attributes.

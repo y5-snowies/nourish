@@ -143,7 +143,10 @@ fn bring_up(state: &mut Loop, ctx: &mut NativeRenderContext, target: &connector:
         // succeeded, so a failed fail-over leaves the old identity in place rather
         // than half-migrating.
         let old = std::mem::replace(&mut ctx.pipe_mut().output, output.clone());
-        state.inner.space_state_mut().state.unmap_output(&old);
+        // Every world's Space, not just the hosted one: a world parked across this
+        // fail-over would otherwise keep the departed monitor and never see the new
+        // one (`map_output_everywhere`).
+        state.inner.unmap_output_everywhere(&old);
         // Hand back the departed monitor's `wl_output` before advertising the new
         // one, or clients see two globals for one pipe.
         let stale = ctx.pipe_mut().global.take();
@@ -162,7 +165,7 @@ fn bring_up(state: &mut Loop, ctx: &mut NativeRenderContext, target: &connector:
                 &ctx.display_handle,
             );
         ctx.pipe_mut().global = Some(global);
-        state.inner.space_state_mut().state.map_output(&output, (position.x, position.y));
+        state.inner.map_output_everywhere(&output, position);
         // Bound to the output it was made from, so it cannot outlive the swap.
         ctx.pipe_mut().damage_tracker =
             smithay::backend::renderer::damage::OutputDamageTracker::from_output(&output);
@@ -310,7 +313,8 @@ fn add_output(
     let global = output.create_global::<compositor_support_smithay_dispatch_state_base::state::Dispatch>(
         &ctx.display_handle,
     );
-    state.inner.space_state_mut().state.map_output(&output, (x, 0));
+    // Every world's Space, not just the hosted one (`map_output_everywhere`).
+    state.inner.map_output_everywhere(&output, smithay::utils::Point::from((x, 0)));
     let damage_tracker = smithay::backend::renderer::damage::OutputDamageTracker::from_output(&output);
     let env = compositor_model_environment_config_base::base::get();
     let hdr_active = env.hdr && built.hdr.hdr_capable() && ctx.vulkan_mode;
@@ -409,7 +413,8 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
     while i < ctx.outputs.len() {
         if !drive_handles.contains(&ctx.outputs[i].connector) {
             let removed = ctx.outputs.remove(i);
-            state.inner.space_state_mut().state.unmap_output(&removed.output);
+            // Every world's Space, not just the hosted one (`unmap_output_everywhere`).
+            state.inner.unmap_output_everywhere(&removed.output);
             // Destroy this output's `wl_output` global so re-adding the monitor doesn't
             // advertise a duplicate (the switch reused ONE Output; add_output makes a
             // fresh one each time, so its global must be torn down here).
@@ -458,7 +463,9 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
                 while i < ctx.outputs.len() {
                     if ctx.outputs[i].connector == th && ctx.outputs[i].drm_output.is_some() {
                         let removed = ctx.outputs.remove(i);
-                        state.inner.space_state_mut().state.unmap_output(&removed.output);
+                        // Every world's Space, not just the hosted one
+                        // (`unmap_output_everywhere`).
+                        state.inner.unmap_output_everywhere(&removed.output);
                         if let Some(gid) = removed.global {
                             ctx.display_handle
                                 .remove_global::<compositor_support_smithay_dispatch_state_base::state::Dispatch>(gid);

@@ -13,10 +13,10 @@ use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_y5_guide_menu_tip::{GuideTip, GuideTipMessage};
 use compositor_y5_guide_menu_view::GuideMenu;
-use compositor_y5_guide_state_base::state::{GUIDE, GUIDE_MUT, MENU_H, TIP_GAP, TIP_W};
+use compositor_y5_guide_state_base::state::{MENU_H, TIP_GAP, TIP_W};
 
 pub fn per_frame(state: &mut Loop, size: Size<i32, Physical>) {
-    let guide = state.inner.kernel.get(&GUIDE);
+    let guide = state.inner.guide();
     let (Some(menu), Some(tip)) = (guide.menu, guide.tip) else { return };
     let last = guide.last_tip.clone();
 
@@ -56,5 +56,5 @@ pub fn per_frame(state: &mut Loop, size: Size<i32, Physical>) {
             }
         }
     }
-    state.inner.kernel.get_mut(&GUIDE_MUT).last_tip = next;
+    state.inner.guide_mut().last_tip = next;
 }

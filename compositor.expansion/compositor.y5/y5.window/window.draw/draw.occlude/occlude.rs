@@ -16,12 +16,13 @@ use smithay::utils::{Physical, Rectangle};
 
 /// What one window contributed to the pane being drawn.
 ///
-/// `on_pane` and `visible` are separate because their consumers want different
-/// answers. Frame callbacks and presentation feedback follow `visible` — a
-/// covered window contributed no pixels, so telling it its frame was presented
-/// is a lie that also costs it a wakeup. Fractional scale follows `on_pane`: a
-/// covered window is revealed the instant the occluder moves or closes, with no
-/// pan to hide a re-publish behind, so it must keep its real scale.
+/// Three answers, because their consumers want different ones. Frame callbacks and
+/// presentation feedback follow `visible` — a covered window contributed no pixels, so
+/// telling it its frame was presented is a lie that also costs it a wakeup. Fractional
+/// scale follows `on_pane`: a covered window is revealed the instant the occluder moves
+/// or closes, with no pan to hide a re-publish behind, so it must keep its real scale.
+/// `xdg_toplevel.suspended` follows `on_pane_awake` — `on_pane` widened by `SUSPEND_GRACE`,
+/// NOT `visible`; see `draw.frame::scene` for why being covered does not suspend.
 #[derive(Default)]
 pub struct Drawn {
     /// The window's slot overlaps the pane — on screen geometrically, whether or
@@ -29,6 +30,8 @@ pub struct Drawn {
     pub on_pane: bool,
     /// The window actually contributed pixels: on the pane AND not fully covered.
     pub visible: bool,
+    /// On this pane, or off it but inside the grace band.
+    pub on_pane_awake: bool,
     /// The rects this window is opaque over — the letterbox bars, which are
     /// compositor solids, plus the content region when the client's own buffer
     /// carries no alpha.
@@ -75,23 +78,25 @@ impl Occluders {
     }
 }
 
-/// The two sets a pane produces, accumulated across its windows.
+/// The sets a pane produces, accumulated across its windows — one per [`Drawn`] flag,
+/// and see it for which consumer reads which.
 #[derive(Default)]
 pub struct Visible {
-    /// Drew pixels this frame → frame callbacks, presentation feedback, and the
-    /// tearing/pacing scene.
     pub drawn: Vec<Window>,
-    /// Passed the frustum, covered or not → the fractional-scale set.
     pub on_pane: Vec<Window>,
+    pub on_pane_awake: Vec<Window>,
 }
 
 impl Visible {
     pub fn note(&mut self, window: &Window, drawn: &Drawn) {
-        if drawn.visible {
-            self.drawn.push(window.clone());
-        }
-        if drawn.on_pane {
-            self.on_pane.push(window.clone());
+        for (flag, set) in [
+            (drawn.visible, &mut self.drawn),
+            (drawn.on_pane, &mut self.on_pane),
+            (drawn.on_pane_awake, &mut self.on_pane_awake),
+        ] {
+            if flag {
+                set.push(window.clone());
+            }
         }
     }
 }

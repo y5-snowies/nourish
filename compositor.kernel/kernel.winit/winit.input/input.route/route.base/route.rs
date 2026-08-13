@@ -47,11 +47,23 @@ pub fn route(event: &WinitEvent, state: &mut Loop, context: &mut WinitRenderCont
             // keybinding calls `ping_control()` — not here, so it never depends on
             // input arriving and doesn't poll per frame.)
         }
+        WinitEvent::PointerLeft => {
+            // The host cursor left the window. Drop any armed edge pan — winit sends
+            // nothing more once the pointer is outside, so nothing else would stop it.
+            compositor_orchestration_seat_pointer_input::extent::release(state);
+        }
         WinitEvent::Focus(focused) => {
             info!("winit: focus={focused}");
+            // Take the pointer while focused, hand it back when not.
+            compositor_kernel_winit_input_capture_base::capture::capture(
+                context.winit_backend.window(),
+                *focused,
+            );
             if !focused {
                 info!("winit: focus lost — clearing held modifiers");
                 compositor_kernel_graphic_seat_modifier_clear::clear::clear_held_modifiers(state);
+                // A capture released mid-scroll leaves nothing to stop it.
+                compositor_orchestration_seat_pointer_input::extent::release(state);
             }
         }
         WinitEvent::Redraw => {

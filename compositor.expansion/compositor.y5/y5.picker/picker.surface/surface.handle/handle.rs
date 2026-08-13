@@ -5,6 +5,32 @@ use compositor_orchestration_core_state_base::Loop;
 use compositor_y5_picker_surface_view::PickerSurfaceMessage;
 use compositor_y5_picker_system_base::base::{PICKER_MUT, PICKER_WORLD};
 
+/// Drain the PICKER world's surface channel and act on its panel messages.
+///
+/// Every path that shows the panel owes this call — the panel publishes to its own
+/// world's channel, and nothing else drains it. `scene.tick` does it for the
+/// full-screen picker; the overview's World tab runs its own prepare and skips that
+/// tick entirely, which is why renaming a world and confirming a delete did nothing
+/// there: the messages were queued and never read.
+pub fn drain(state: &mut Loop) {
+    let messages: Vec<_> = {
+        let mut v = Vec::new();
+        if let Some(s) = compositor_y5_picker_system_base::base::surface(&mut state.inner.worlds) {
+            while let Ok(m) = s.surface_message_buffer_channel.1.try_recv() {
+                v.push(m);
+            }
+        }
+        v
+    };
+    for m in messages {
+        if let compositor_y5_surface_protocol_base::protocol::SurfaceMessageType::Picker(pm) =
+            m.message
+        {
+            delegate(state, pm);
+        }
+    }
+}
+
 pub fn delegate(state: &mut Loop, message: PickerSurfaceMessage) {
     match message {
         PickerSurfaceMessage::NameEdited(name) => rename_selected(state, name),
@@ -12,7 +38,6 @@ pub fn delegate(state: &mut Loop, message: PickerSurfaceMessage) {
         PickerSurfaceMessage::DeleteConfirm => {
             compositor_y5_picker_world_delete::delete::delete(state)
         }
-        PickerSurfaceMessage::Close => compositor_y5_picker_interface_base::base::cancel(state),
         PickerSurfaceMessage::SetWorld { .. }
         | PickerSurfaceMessage::DeleteRequest
         | PickerSurfaceMessage::DeleteCancel => {}

@@ -131,11 +131,20 @@ pub fn register(
                                     for (output, loc) in &remap_list {
                                         space.map_output(output, *loc);
                                     }
-                                    space.refresh();
                                 },
                             },
                         );
                     }
+                    // The refresh the remap above needs, run out here where the whole
+                    // `Loop` is reachable again (the closure holds only `space`). NOT
+                    // `Space::refresh()`: its middle third re-derives `wl_output`
+                    // membership from the window's Space position, which in y5 is a
+                    // WORLD coordinate — it would send every client a spurious
+                    // leave/enter on each VT switch back, stalling the ones that render
+                    // off frame callbacks. Done here rather than left to the next
+                    // frame's `housekeeping` so a resume that stalls before it renders
+                    // still leaves the space consistent.
+                    state.inner.refresh_space();
                     drop(ctx);
 
                     // Reclaim the RPC socket if a second compositor (another TTY)

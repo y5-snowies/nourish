@@ -426,6 +426,27 @@ impl<F: FnMut(WinitEvent)> ApplicationHandler for WinitEventLoopApp<'_, F> {
         }));
     }
 
+    /// y5 patch: upstream never implements this, so the host's RAW pointer deltas
+    /// are dropped and a nested session sees absolute motion only. On Wayland these
+    /// arrive from `zwp_relative_pointer` once the cursor is locked
+    /// (`Window::set_cursor_grab(CursorGrabMode::Locked)`), which is what makes the
+    /// compositor's whole relative-pointer path reachable under winit.
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: winit::event::DeviceId,
+        event: winit::event::DeviceEvent,
+    ) {
+        if let winit::event::DeviceEvent::MouseMotion { delta } = event {
+            // Timestamp taken before the callback borrow, like the window_event arms.
+            let time = self.timestamp();
+            let event = InputEvent::PointerMotion {
+                event: WinitMouseMotionEvent { time, delta },
+            };
+            (self.callback)(WinitEvent::Input(event));
+        }
+    }
+
     fn window_event(&mut self, _event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::Resized(size) => {
@@ -491,6 +512,10 @@ impl<F: FnMut(WinitEvent)> ApplicationHandler for WinitEventLoopApp<'_, F> {
                     },
                 };
                 (self.callback)(WinitEvent::Input(event));
+            }
+            // y5 patch: surfaced rather than dropped — see `WinitEvent::PointerLeft`.
+            WindowEvent::CursorLeft { .. } => {
+                (self.callback)(WinitEvent::PointerLeft);
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let event = InputEvent::PointerAxis {
@@ -599,7 +624,6 @@ impl<F: FnMut(WinitEvent)> ApplicationHandler for WinitEventLoopApp<'_, F> {
             | WindowEvent::Destroyed
             | WindowEvent::CursorEntered { .. }
             | WindowEvent::AxisMotion { .. }
-            | WindowEvent::CursorLeft { .. }
             | WindowEvent::ModifiersChanged(_)
             | WindowEvent::KeyboardInput { .. }
             | WindowEvent::HoveredFile(_)
@@ -700,6 +724,12 @@ pub enum WinitEvent {
 
     /// An input event occurred.
     Input(InputEvent<WinitInput>),
+
+    /// The host pointer left the window. (y5 patch: winit reports no motion at all
+    /// once the cursor is outside, so a compositor holding pointer state that is
+    /// only ever released BY motion — e.g. an armed edge-pan autoscroll — would have
+    /// nothing to release it. Upstream smithay drops this event.)
+    PointerLeft,
 
     /// The user requested to close the window.
     CloseRequested,

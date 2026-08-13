@@ -8,8 +8,8 @@ use winit::{
 use crate::backend::input::{
     self, AbsolutePositionEvent, Axis, AxisRelativeDirection, AxisSource, ButtonState, Device,
     DeviceCapability, Event, InputBackend, KeyState, KeyboardKeyEvent, Keycode, PointerAxisEvent,
-    PointerButtonEvent, PointerMotionAbsoluteEvent, TouchCancelEvent, TouchDownEvent, TouchEvent,
-    TouchMotionEvent, TouchSlot, TouchUpEvent, UnusedEvent,
+    PointerButtonEvent, PointerMotionAbsoluteEvent, PointerMotionEvent, TouchCancelEvent,
+    TouchDownEvent, TouchEvent, TouchMotionEvent, TouchSlot, TouchUpEvent, UnusedEvent,
 };
 
 /// Marker used to define the `InputBackend` types for the winit backend.
@@ -97,6 +97,52 @@ impl Event<WinitInput> for WinitMouseMovedEvent {
 }
 
 impl PointerMotionAbsoluteEvent<WinitInput> for WinitMouseMovedEvent {}
+
+/// Winit-Backend internal event wrapping `winit`'s raw device motion into a
+/// [`PointerMotionEvent`].
+///
+/// y5 patch: upstream smithay leaves `WinitInput::PointerMotionEvent = UnusedEvent`,
+/// so a nested session only ever sees ABSOLUTE motion and every relative-pointer
+/// behaviour (cursor speed, monitor teleport, client pointer locks/confines, edge
+/// pan) is unreachable under winit. `DeviceEvent::MouseMotion` carries the host's
+/// raw delta — on Wayland it is the `zwp_relative_pointer` stream, delivered once
+/// the cursor is locked — which is exactly the shape libinput's relative path wants.
+///
+/// The host gives ONE delta; it is reported as both the accelerated and the
+/// unaccelerated value, since winit does not expose the pre-acceleration figure.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WinitMouseMotionEvent {
+    pub(crate) time: u64,
+    pub(crate) delta: (f64, f64),
+}
+
+impl Event<WinitInput> for WinitMouseMotionEvent {
+    fn time(&self) -> u64 {
+        self.time
+    }
+
+    fn device(&self) -> WinitVirtualDevice {
+        WinitVirtualDevice
+    }
+}
+
+impl PointerMotionEvent<WinitInput> for WinitMouseMotionEvent {
+    fn delta_x(&self) -> f64 {
+        self.delta.0
+    }
+
+    fn delta_y(&self) -> f64 {
+        self.delta.1
+    }
+
+    fn delta_x_unaccel(&self) -> f64 {
+        self.delta.0
+    }
+
+    fn delta_y_unaccel(&self) -> f64 {
+        self.delta.1
+    }
+}
 impl AbsolutePositionEvent<WinitInput> for WinitMouseMovedEvent {
     fn x(&self) -> f64 {
         self.global_position.x
@@ -386,7 +432,8 @@ impl InputBackend for WinitInput {
     type KeyboardKeyEvent = WinitKeyboardInputEvent;
     type PointerAxisEvent = WinitMouseWheelEvent;
     type PointerButtonEvent = WinitMouseInputEvent;
-    type PointerMotionEvent = UnusedEvent;
+    // y5 patch: was `UnusedEvent` — see [`WinitMouseMotionEvent`].
+    type PointerMotionEvent = WinitMouseMotionEvent;
     type PointerMotionAbsoluteEvent = WinitMouseMovedEvent;
 
     type GestureSwipeBeginEvent = UnusedEvent;

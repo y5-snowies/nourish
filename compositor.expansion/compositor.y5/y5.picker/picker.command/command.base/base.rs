@@ -85,7 +85,7 @@ pub fn sync_surface(state: &mut Loop) {
     };
     // `world_names` may have been lazily assigned above — persist it (debounced).
     compositor_support_system_persist_mark_base::base::mark_world(PICKER_WORLD, false);
-    if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
+    if let Some(reg) = compositor_y5_picker_system_base::base::registry(&mut state.inner.worlds) {
         let _ = reg.dispatch_message(
             handle,
             compositor_y5_picker_surface_view::PickerSurfaceMessage::SetWorld { name, can_delete },

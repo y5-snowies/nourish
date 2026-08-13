@@ -17,22 +17,26 @@ use compositor_support_world_order_track_base::base::DrawLayer;
 use compositor_y5_guide_interface_surface::surface;
 use compositor_y5_guide_menu_tip::GuideTip;
 use compositor_y5_guide_menu_view::{GuideMenu, GuideMessage};
-use compositor_y5_guide_state_base::state::{menu_buffer, world_loc, GUIDE, GUIDE_MUT, MENU_SUPERSAMPLE, TIP_H, TIP_W};
+use compositor_y5_guide_state_base::state::{menu_buffer, world_loc, MENU_SUPERSAMPLE, TIP_H, TIP_W};
 
 pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer) {
-    let want = state.inner.kernel.get(&GUIDE).menu_at;
+    let want = state.inner.guide().menu_at;
     let live = surface::live(state, |g| g.menu);
-    if want.is_none() && live.is_none() {
+    // Teardown is ungated — see the note in `shader.create`: `destroy_by_id` is
+    // output-independent, and gating it stranded the menu whenever the cursor's
+    // output stopped being drawn.
+    let Some(at) = want else {
+        if let Some(id) = live {
+            destroy(state, id);
+        }
         return;
-    }
+    };
     if !surface::on_active_output(state) {
         return;
     }
-    match (want, live) {
-        (Some(at), None) => create(state, renderer, at),
-        (Some(_), Some(id)) => reanchor(state, id),
-        (None, Some(id)) => destroy(state, id),
-        (None, None) => {}
+    match live {
+        None => create(state, renderer, at),
+        Some(id) => reanchor(state, id),
     }
 }
 
@@ -66,7 +70,7 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, at: (f64, f64)) {
             .ok()
             .map(|h| h.id)
     });
-    let guide = state.inner.kernel.get_mut(&GUIDE_MUT);
+    let guide = state.inner.guide_mut();
     guide.menu = Some(handle.id);
     guide.tip = tip;
     guide.menu_zoom = zoom;
@@ -74,10 +78,10 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, at: (f64, f64)) {
 
 fn destroy(state: &mut Loop, id: HandleId) {
     surface::destroy(state, id);
-    if let Some(tip) = state.inner.kernel.get(&GUIDE).tip {
+    if let Some(tip) = state.inner.guide().tip {
         surface::destroy(state, tip);
     }
-    let guide = state.inner.kernel.get_mut(&GUIDE_MUT);
+    let guide = state.inner.guide_mut();
     guide.menu = None;
     guide.tip = None;
     guide.last_tip = None;
@@ -89,12 +93,12 @@ fn destroy(state: &mut Loop, id: HandleId) {
 /// Location only: no resize, no reallocation.
 fn reanchor(state: &mut Loop, id: HandleId) {
     let zoom = state.inner.camera().transform.zoom;
-    let guide = state.inner.kernel.get(&GUIDE);
+    let guide = state.inner.guide();
     let Some(at) = guide.menu_at.filter(|_| guide.menu_zoom != zoom) else { return };
     let scale = state.size_ctx_all().scale;
     let loc = world_loc(at, scale, zoom);
     if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
         reg.set_location_by_id(id, loc);
     }
-    state.inner.kernel.get_mut(&GUIDE_MUT).menu_zoom = zoom;
+    state.inner.guide_mut().menu_zoom = zoom;
 }

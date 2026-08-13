@@ -216,7 +216,17 @@ where
             DrawNode::Texture(e) => vec![SceneElement::Texture(e)],
             DrawNode::Solid(e) => vec![SceneElement::Sentinel(e)],
             DrawNode::Iced(e) => {
-                if !R::prefers_dmabuf() {
+                // Same rule as `Background3D` below. A GLES pass samples the
+                // element's own `GlesTexture`, and only an INLINE-rasterized surface
+                // has one: with the off-thread iced worker the element carries
+                // `texture: None`, which makes `IcedRenderElement::draw` a silent
+                // no-op — Ok, and nothing painted. So import the dmabuf instead.
+                //
+                // Gating on `prefers_dmabuf` ALONE missed that, because it asks
+                // about the renderer rather than about this element. Winit's picker
+                // and lock passes are GLES even when the scene pass is Vulkan, so
+                // those overlays drew nothing at all there while udev was fine.
+                if !R::prefers_dmabuf() && e.texture.is_some() {
                     return vec![SceneElement::Surface(e)];
                 }
                 import_texture(renderer, &e.dmabuf, e.location, e.size, e.world_zoom, e.id, e.commit_counter).into_iter().collect()
@@ -224,8 +234,9 @@ where
             DrawNode::IcedCropped { elem, crop } => {
                 use smithay::backend::renderer::element::utils::CropRenderElement;
                 // Geometry is physical and scale-independent for both element types,
-                // so the crop scale is irrelevant.
-                if !R::prefers_dmabuf() {
+                // so the crop scale is irrelevant. `texture.is_some()` for the same
+                // reason as the arm above.
+                if !R::prefers_dmabuf() && elem.texture.is_some() {
                     return CropRenderElement::from_element(elem, Scale::from(1.0), crop)
                         .map(SceneElement::SurfaceCropped)
                         .into_iter()

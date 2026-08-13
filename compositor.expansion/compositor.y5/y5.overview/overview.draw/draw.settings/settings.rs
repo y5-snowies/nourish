@@ -285,12 +285,15 @@ pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, 
     let shown = state.inner.overview().visible
         && state.inner.overview().overlay_ready()
         && state.inner.overview().is_settings();
-    match (shown, state.inner.kernel.get(&SETTINGS).handle, state.inner.kernel.get(&SETTINGS).open) {
+    match (shown, state.inner.settings_surface(), state.inner.kernel.get(&SETTINGS).open) {
         (true, None, _) => create(state, renderer, size),
         (true, Some(id), false) => { destroy(state, id); compositor_y5_overview_interface_base::base::request_close(state); } // panel Close
         (true, Some(id), true) => sync(state, id, size),
         (false, Some(id), _) => destroy(state, id),
-        (false, None, _) => {}
+        // The panel was torn down by `OverviewSystem::on_disable` (this world went
+        // inactive), which owns the surface but not the process-wide resources.
+        (false, None, true) => release(state),
+        (false, None, false) => {}
     }
 }
 
@@ -429,6 +432,9 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     state.inner.keybinding = compositor_model_environment_keybinding_base::base::load();
     let cursor = state.inner.preference.cursor_sensitivity as f32;
     let natural = state.inner.preference.input_natural_scroll;
+    let edge_pan = state.inner.preference.input_edge_pan;
+    let edge_pan_speed = state.inner.preference.input_edge_pan_speed as f32;
+    let edge_pan_continuous = state.inner.preference.input_edge_pan_continuous;
     let touch_pan_speed = state.inner.preference.input_touch_pan_speed as f32;
     let touch_linear_pan = state.inner.preference.input_touch_linear_pan;
     let osk_size = state.inner.preference.osk_size as f32;
@@ -452,7 +458,7 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     let protocol_foreign = state.inner.preference.protocol_foreign.clone();
     let protocol_foreign_all_worlds = state.inner.preference.protocol_foreign_all_worlds;
     let pen = state.inner.preference.pen.clone();
-    let ui = Settings::new(env, cursor, natural, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, show_fps, release_hidden, fractional_invisible, background_triple_buffer, interface_triple_buffer, flip, snap, keys, tab, layout, cyclic, ime, keyboard, protocol_foreign, protocol_foreign_all_worlds, pen);
+    let ui = Settings::new(env, cursor, natural, edge_pan, edge_pan_speed, edge_pan_continuous, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, show_fps, release_hidden, fractional_invisible, background_triple_buffer, interface_triple_buffer, flip, snap, keys, tab, layout, cyclic, ime, keyboard, protocol_foreign, protocol_foreign_all_worlds, pen);
     let handle = load(state, renderer, ui, rect, IcedSpace::Screen, Layer::SCENE.bits());
     install_handler(state, handle);
     // Restore the shader-picker category, the same way `tab` is restored above.
@@ -464,9 +470,8 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     }
     let untyped = handle.untyped();
     if let Some(reg) = state.inner.surface_mut().registry.as_mut() { reg.set_keyboard_focus(Some(untyped)); }
-    let st = state.inner.kernel.get_mut(&SETTINGS_MUT);
-    st.handle = Some(untyped);
-    st.open = true;
+    *state.inner.settings_surface_mut() = Some(untyped);
+    state.inner.kernel.get_mut(&SETTINGS_MUT).open = true;
     if let Some(a) = state.inner.kernel.get(&AUDIO) { let _ = a.refresh(); }
     wifi::command(WifiCmd::Scan);
     bt::command(BtCmd::Scan(true));
@@ -477,17 +482,32 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
 }
 
 fn destroy(state: &mut Loop, id: HandleId) {
-    // Closing settings (Esc / overview-tab switch / overview close) abandons any
-    // provisional mode change → revert it (no-op if nothing is pending).
+    if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
+        reg.destroy_by_id(id);
+        reg.set_keyboard_focus(None);
+    }
+    release(state);
+}
+
+/// The PROCESS-WIDE half of closing settings: the one audio subscription, the one
+/// bluetooth scan, the one provisional-mode confirm, the de-dup caches, and the
+/// session-wide `open` flag. None of it is per-world, and all of it is paired
+/// against a single live panel.
+///
+/// Split out because the panel can also be closed by `OverviewSystem::on_disable`
+/// when its world goes inactive — a system reaches its own storage but not this.
+/// So it destroys the surface and clears the slot, `open` outlives the handle, and
+/// the reconciler's `(false, None, true)` arm lands here on the next frame.
+fn release(state: &mut Loop) {
+    // Closing settings abandons any provisional mode change → revert it (no-op if
+    // nothing is pending).
     *state.inner.kernel.get_mut(&OUTPUT_MODE_REQUEST_MUT) = Some(OutputModeRequest::Revert);
     state.inner.ping_control();
-    if let Some(reg) = state.inner.surface_mut().registry.as_mut() { reg.destroy_by_id(id); reg.set_keyboard_focus(None); }
     // Drop our audio subscription — unsubscribes until the surface reopens.
     AUDIO_WATCH.with(|w| *w.borrow_mut() = None);
     bt::command(BtCmd::Scan(false));
-    let st = state.inner.kernel.get_mut(&SETTINGS_MUT);
-    st.handle = None;
-    st.open = false;
+    *state.inner.settings_surface_mut() = None;
+    state.inner.kernel.get_mut(&SETTINGS_MUT).open = false;
 }
 
 fn install_handler(state: &mut Loop, handle: IcedHandle<Settings>) {

@@ -30,7 +30,7 @@ use smithay::utils::{Physical, Point, Rectangle, Size};
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_orchestration_driver_selection_base::base::{
-    BAR_H, BAR_W, Placement, SCREEN_BOTTOM_MARGIN, SELECTION_OVERLAY, SELECTION_OVERLAY_MUT,
+    BAR_H, BAR_W, Placement, SCREEN_BOTTOM_MARGIN,
     SELECTION_OVERLAY_PLACEMENT, SELECTION_REANCHOR_MUT, TIP_GAP, TIP_H, TIP_W, world_half,
     world_loc_under_cursor,
 };
@@ -86,7 +86,7 @@ pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, 
         return;
     }
     let count = state.inner.select().Selection.len() as i32;
-    let handle = state.inner.kernel.get(&SELECTION_OVERLAY).handle;
+    let handle = state.inner.selection_overlay().handle;
 
     match (handle, count) {
         (None, n) if n > 0 => create(state, renderer, size, n),
@@ -109,7 +109,7 @@ pub fn per_frame(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, 
 /// it when nothing is hovered. Positioned in SCREEN space: for the world-space
 /// bar, the bar's stored world location is projected through the camera.
 fn drive_tooltip(state: &mut Loop, size: Size<i32, Physical>) {
-    let st = state.inner.kernel.get(&SELECTION_OVERLAY);
+    let st = state.inner.selection_overlay();
     let (Some(toolbar_id), Some(tip_id)) = (st.handle, st.tip_handle) else {
         return;
     };
@@ -173,7 +173,7 @@ fn drive_tooltip(state: &mut Loop, size: Size<i32, Physical>) {
         }
     }
 
-    state.inner.kernel.get_mut(&SELECTION_OVERLAY_MUT).last_tip = new_last_tip;
+    state.inner.selection_overlay_mut().last_tip = new_last_tip;
 }
 
 /// The toolbar is zoom-LOCKED — its texture and its on-screen size never change
@@ -185,11 +185,11 @@ fn reanchor_on_zoom(state: &mut Loop) {
     if placement_mode(state) != Placement::WorldAtCursor {
         return;
     }
-    let Some(id) = state.inner.kernel.get(&SELECTION_OVERLAY).handle else {
+    let Some(id) = state.inner.selection_overlay().handle else {
         return;
     };
     let zoom = state.inner.camera().transform.zoom;
-    let prev = state.inner.kernel.get(&SELECTION_OVERLAY).prev_zoom;
+    let prev = state.inner.selection_overlay().prev_zoom;
     if prev == zoom {
         return;
     }
@@ -206,7 +206,7 @@ fn reanchor_on_zoom(state: &mut Loop) {
             }
         }
     }
-    state.inner.kernel.get_mut(&SELECTION_OVERLAY_MUT).prev_zoom = zoom;
+    state.inner.selection_overlay_mut().prev_zoom = zoom;
 }
 
 /// Consume the one-shot `SELECTION_REANCHOR` flag (raised by the overlay system
@@ -228,7 +228,7 @@ fn reanchor_if_pending(state: &mut Loop) {
     if !pending {
         return;
     }
-    let Some(id) = state.inner.kernel.get(&SELECTION_OVERLAY).handle else {
+    let Some(id) = state.inner.selection_overlay().handle else {
         return;
     };
     let loc = world_loc(state);
@@ -302,7 +302,7 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
         })
         .map(|h| h.id);
 
-    let st = state.inner.kernel.get_mut(&SELECTION_OVERLAY_MUT);
+    let st = state.inner.selection_overlay_mut();
     st.handle = Some(untyped);
     st.tip_handle = tip_id;
     st.count = count;
@@ -323,23 +323,23 @@ fn grab_keyboard_to_overlay(state: &mut Loop) {
 }
 
 fn update(state: &mut Loop, id: HandleId, count: i32) {
-    if state.inner.kernel.get(&SELECTION_OVERLAY).count != count {
+    if state.inner.selection_overlay().count != count {
         if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
             reg.dispatch_message(IcedHandle::<Overlay>::from_id(id), Message::SelectNotify(count));
         }
-        state.inner.kernel.get_mut(&SELECTION_OVERLAY_MUT).count = count;
+        state.inner.selection_overlay_mut().count = count;
     }
 }
 
 fn destroy(state: &mut Loop, id: HandleId) {
-    let tip = state.inner.kernel.get(&SELECTION_OVERLAY).tip_handle;
+    let tip = state.inner.selection_overlay().tip_handle;
     if let Some(reg) = state.inner.surface_mut().registry.as_mut() {
         reg.destroy_by_id(id); // also clears keyboard focus / pointer / grab
         if let Some(tip) = tip {
             reg.destroy_by_id(tip);
         }
     }
-    let st = state.inner.kernel.get_mut(&SELECTION_OVERLAY_MUT);
+    let st = state.inner.selection_overlay_mut();
     st.handle = None;
     st.tip_handle = None;
     st.last_tip = None;

@@ -1,4 +1,4 @@
-use compositor_y5_canvas_input_state::state::CanvasGrab;
+use compositor_y5_canvas_input_state::state::{ActiveOption, CanvasGrab};
 use compositor_support_system_input_event_base::base::Modality;
 
 // Selection -> SelectSystem (SELECT); grouping -> GroupSystem (GROUP). Canvas is
@@ -59,5 +59,15 @@ impl CanvasState {
     /// drag (settings layout-canvas pan) where it's suppressed.
     pub fn active_grab(&self) -> bool {
         matches!(self.Grab, CanvasGrab::Active(_))
+    }
+
+    /// A select-box (rubber band) drag is in progress. The odd one out among the
+    /// grabs for the screen-extent policy: the band is anchored to a world point and
+    /// dragged to a second one, so panning the canvas under it (or crossing to
+    /// another monitor) would stretch it over content the user can no longer see.
+    /// The extent just pins the cursor for this grab — see the seat's
+    /// `pointer.input/extent`.
+    pub fn select_box(&self) -> bool {
+        matches!(self.Grab, CanvasGrab::Active(ActiveOption::SelectBox { .. }))
     }
 }

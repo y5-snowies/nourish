@@ -68,8 +68,47 @@ pub fn output_key(output: &smithay::output::Output) -> compositor_orchestration_
     format!("{} {} {}", p.make, p.model, p.serial_number)
 }
 
+/// How long a window must go unseen on every monitor before it is told
+/// `xdg_toplevel.suspended` (see [`Orchestrator::refresh_suspended`]).
+///
+/// Deliberately long. What is bought is a client that has stopped repainting, which is
+/// worth having within seconds rather than within frames, and every second shaved off
+/// buys a little less power for a lot more risk of telling a window it is invisible
+/// moments before the user pans back to it. Cleared on the first sighting, so this is a
+/// floor on how long absence must last, never on how long a reveal takes.
+const SUSPEND_DWELL: f32 = 5.0;
+
+/// The overlap rect handed to `SpaceElement::output_enter` for a window that IS on an
+/// output — deliberately unbounded (see [`Orchestrator::refresh_space`]).
+///
+/// smithay does not treat that rect as a one-off: it stores it and, on every later
+/// `refresh_elements`, re-tests each individual surface of the window's tree against it
+/// — and each popup against it SHIFTED by the popup's offset — sending
+/// `wl_surface.leave` to whatever falls outside. Membership has already been decided by
+/// then, so the rect must only say "all of it", and no rect derived from world
+/// coordinates can promise that for a tree whose subsurfaces and popups reach
+/// arbitrarily far. Kept well inside `i32` so the saturating arithmetic in
+/// `Rectangle::overlaps` never clamps it back.
+fn unclipped() -> smithay::utils::Rectangle<i32, smithay::utils::Logical> {
+    smithay::utils::Rectangle::new(
+        smithay::utils::Point::from((i32::MIN / 4, i32::MIN / 4)),
+        smithay::utils::Size::from((i32::MAX / 2, i32::MAX / 2)),
+    )
+}
+
 pub struct Orchestrator {
     pub start_time: std::time::Instant,
+    /// When each window was last ON-PANE-GRACE, by uuid — the dwell behind
+    /// `xdg_toplevel.suspended` (see [`Self::refresh_suspended`]). Session-wide rather
+    /// than per world, because a window keeps its uuid across a world move and the
+    /// state it carries should not reset when it does.
+    pub last_on_pane_awake: std::collections::HashMap<uuid::Uuid, f32>,
+    /// Windows currently TOLD they are `xdg_toplevel.suspended`, by uuid — what makes
+    /// that sweep edge-triggered rather than a per-frame re-assertion. Kept here rather
+    /// than read back off the toplevel because the honest question is "what have we
+    /// published", and the surface's own state answers a different one: it lags by a
+    /// configure round-trip, so a window would be re-set on every frame until it acked.
+    pub suspended: std::collections::HashSet<uuid::Uuid>,
     /// Active per-region render override (see [`RenderTarget`]). Set only inside
     /// the `scene.frame` region loop.
     pub render_target: Option<RenderTarget>,
@@ -271,9 +310,6 @@ impl Orchestrator {
         // input/draw systems can read it via `cx.kernel`.
         kernel_data.insert(&compositor_orchestration_storage_state_base::state::NESTED, nested);
 
-        // Selection-overlay driver: the align/distribute toolbar instance.
-        kernel_data.insert(&compositor_orchestration_driver_selection_base::base::SELECTION_OVERLAY, Default::default());
-
         // Overview overlay: the session-wide last-active tab (the overview slot
         // itself is per-world; only the tab preference crosses worlds).
         kernel_data.insert(
@@ -283,10 +319,6 @@ impl Orchestrator {
 
         // On-screen-keyboard driver state (shown/pinned/mods/placement).
         kernel_data.insert(&compositor_y5_osk_board_state::state::OSK, Default::default());
-
-        // Empty-canvas guide popups (context menu + help panel): the DESIRE the
-        // input rim writes and the render path reconciles.
-        kernel_data.insert(&compositor_y5_guide_state_base::state::GUIDE, Default::default());
 
         // Output-mode driver: rim-issued mode request + kernel-written advertised
         // modes snapshot and apply result (settings window ↔ DRM, like the lid).
@@ -337,6 +369,8 @@ impl Orchestrator {
             world_focus_memory: std::collections::HashMap::new(),
             bus: compositor_orchestration_bus_legacy_base::legacy::LegacyBus::new(),
             pilot_tick: 0,
+            last_on_pane_awake: std::collections::HashMap::new(),
+            suspended: std::collections::HashSet::new(),
             // Seed the live preference object from preferences.json (one disk read
             // at startup; refreshed on each settings-window open). Missing file →
             // sane defaults.
@@ -435,6 +469,156 @@ impl Orchestrator {
     pub fn switch_to_world(&mut self, id: uuid::Uuid) {
         self.worlds.switch(id, &self.kernel);
         self.set_spawn_target_world(id);
+    }
+
+    /// Map `output` into EVERY world's Space, not just the hosted one.
+    ///
+    /// Hotplug is a fact about the machine, but a world only ever learns about it while
+    /// it is HOSTED: the plain `space_state_mut()` route resolves to the spawn target, so
+    /// a monitor plugged in or pulled out while a world was parked never reached that
+    /// world's Space. It came back holding a dead `Output` and missing the live one —
+    /// which is load-bearing, because `active_output` / `current_output` pick from that
+    /// same list and [`Self::refresh_space`] sends `wl_output` enter/leave over it. Swap
+    /// every monitor while a world is parked and its windows come back entered on
+    /// nothing but a monitor that is gone.
+    ///
+    /// A world's Space keeps its OWN location for the output (smithay keys that per
+    /// space), so this sets the same layout in each. Overlay worlds hold no Space and
+    /// are skipped. A world created LATER still starts empty and is seeded on first
+    /// entry by the world-switch paths.
+    ///
+    /// The enter is published HERE, per world, rather than left to
+    /// [`Self::refresh_space`]. Hotplug is the only thing that can change the answer for
+    /// a parked world, so paying for it at the event costs one pass per monitor change
+    /// instead of a per-world pass on every frame forever.
+    pub fn map_output_everywhere(
+        &mut self,
+        output: &smithay::output::Output,
+        location: smithay::utils::Point<i32, smithay::utils::Logical>,
+    ) {
+        self.for_each_space(|space| {
+            space.map_output(output, location);
+            space.refresh_outputs_with(|_window, _output| Some(unclipped()));
+        });
+    }
+
+    /// Unmap `output` from EVERY world's Space — the counterpart of
+    /// [`Self::map_output_everywhere`]; see it for why this is not the hosted world only.
+    ///
+    /// The refresh is what tells the clients: `Space::unmap_output` only drops the output
+    /// from the list, and the retain pass inside `refresh_outputs_with` is what turns
+    /// that into `wl_surface.leave`.
+    pub fn unmap_output_everywhere(&mut self, output: &smithay::output::Output) {
+        self.for_each_space(|space| {
+            space.unmap_output(output);
+            space.refresh_outputs_with(|_window, _output| Some(unclipped()));
+        });
+    }
+
+    /// Run `f` against every world's window Space. Overlay worlds hold none and are
+    /// skipped.
+    fn for_each_space(&mut self, mut f: impl FnMut(&mut smithay::desktop::Space<Window>)) {
+        for id in self.worlds.ids() {
+            if let Some(host) = self
+                .worlds
+                .get_mut(id)
+                .storage_mut()
+                .try_get_mut(&compositor_support_world_host_space_base::base::SPACE_MUT)
+            {
+                f(&mut host.inner.state);
+            }
+        }
+    }
+
+    /// Publish `xdg_toplevel.suspended` across every world, from the per-pane `on_pane_awake`
+    /// marker every monitor filled this frame.
+    ///
+    /// The protocol calls it "surface repaint is suspended" and names occlusion as the
+    /// worked example — which is what y5 has been doing all along without saying so,
+    /// since a window that draws no pixels is left out of `visible_window` and so gets
+    /// no frame callbacks. A client paced on those simply stops, with nothing to tell
+    /// it why. This is that fact made sayable.
+    ///
+    /// Occlusion deliberately does NOT suspend, which is where this parts company with
+    /// the protocol's own worked example. The example assumes a stacking desktop, where
+    /// being covered is a state the user put the window into; here the occluder is a
+    /// sibling on a pannable canvas that can move, close or scroll away in one frame
+    /// with nothing to announce it. So `suspended` here means off every pane of every
+    /// monitor — parked world, collapsed group, screen locked, or scrolled away — which
+    /// are the protocol's other three examples.
+    ///
+    /// The union across monitors is the whole point of reading `output_views` rather
+    /// than one `Viewports`: a window shown on one screen and covered on another is
+    /// awake. Every WORLD too, because a parked world's windows are drawn nowhere and
+    /// that is the truth to tell them.
+    ///
+    /// Set lazily and cleared eagerly. [`SUSPEND_DWELL`] of unbroken absence to set,
+    /// because a pan drags windows through occlusion continuously and every crossing
+    /// would otherwise be a configure; one sighting to clear, because a suspended
+    /// client may have stopped drawing entirely and this configure is what wakes it.
+    /// Edge-triggered against [`Self::suspended`], so steady state is one set lookup per
+    /// window and no protocol work at all.
+    pub fn refresh_suspended(&mut self) {
+        use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+        let now = compositor_pipeline_abi_clock_base::base::now();
+        let on_pane_awake: std::collections::HashSet<uuid::Uuid> = self
+            .output_views()
+            .map
+            .values()
+            .flat_map(|vps| vps.on_pane_awake.values())
+            .flatten()
+            .copied()
+            .collect();
+        for uuid in &on_pane_awake {
+            self.last_on_pane_awake.insert(*uuid, now);
+        }
+        let mut live: std::collections::HashSet<uuid::Uuid> = std::collections::HashSet::new();
+        for id in self.worlds.ids() {
+            let Some(world) = self
+                .worlds
+                .get(id)
+                .storage()
+                .try_get(&compositor_support_world_host_space_base::base::SPACE)
+            else {
+                continue;
+            };
+            for w in world.inner.state.elements() {
+                use compositor_y5_window_interface_record::window::LoopWindow;
+                let Some(uuid) = w.uuid() else { continue };
+                live.insert(uuid);
+                let Some(toplevel) = w.toplevel() else { continue };
+                // A window nothing has ever stamped counts its absence from now, so one
+                // spawned into a parked world or a collapsed group suspends on the same
+                // terms as one that scrolled away rather than instantly.
+                let since = *self.last_on_pane_awake.entry(uuid).or_insert(now);
+                let suspend = now - since >= SUSPEND_DWELL;
+                // EDGE-triggered. `with_pending_state` is not free even when the closure
+                // changes nothing: it takes the surface's lock and materialises a
+                // `server_pending` clone of the whole state set, which `send_pending_configure`
+                // then has to diff and discard. Running that for every window of every
+                // world on every frame, to re-assert a flag that flips a few times a
+                // session, is the sort of cost that only shows up under a hundred windows.
+                if suspend == self.suspended.contains(&uuid) {
+                    continue;
+                }
+                toplevel.with_pending_state(|s| match suspend {
+                    true => s.states.set(xdg_toplevel::State::Suspended),
+                    false => s.states.unset(xdg_toplevel::State::Suspended),
+                });
+                // Clients below xdg_wm_base v6 never see the state — smithay filters it
+                // per client version (`into_filtered_states`) — so nothing to gate here.
+                toplevel.send_pending_configure();
+                match suspend {
+                    true => self.suspended.insert(uuid),
+                    false => self.suspended.remove(&uuid),
+                };
+            }
+        }
+        // Keyed by uuid rather than held in the window's user data, so both have to be
+        // swept: a window that closed while its world was parked would otherwise leave
+        // entries behind for the life of the session.
+        self.last_on_pane_awake.retain(|uuid, _| live.contains(uuid));
+        self.suspended.retain(|uuid| live.contains(uuid));
     }
 
     /// Set the `activated` xdg state exclusively on `keep` — true on it, false on every
@@ -701,6 +885,72 @@ impl Orchestrator {
         self.worlds.get(target).storage().get(&compositor_y5_viewport_state_base::state::OUTPUT_VIEWS)
     }
 
+    /// The Space refresh, with `wl_output` membership as y5 actually models it: every
+    /// window is on every output.
+    ///
+    /// Stands in for `Space::refresh()`, whose `refresh_outputs` third decides which
+    /// outputs a window is on by intersecting the window's STORED position with the
+    /// output's geometry. That is right for a compositor whose Space is the screen, and
+    /// meaningless here twice over.
+    ///
+    /// First the position is a y5-WORLD coordinate — the camera is applied at render
+    /// time, see `document/TRANSFORM.md` — while the outputs are mapped into that same
+    /// Space from the origin. A window at negative world x or y intersects no output and
+    /// is sent `wl_surface.leave`; a client that gates its render loop on being on an
+    /// output then stops drawing, frozen from its first frame and released only by
+    /// dragging it back over the origin. With several monitors it is worse than wrong —
+    /// the outputs tile side by side, so a window's world x picks whose scale and refresh
+    /// the client renders for.
+    ///
+    /// Second — and this is why the answer is a constant rather than a better geometric
+    /// test — no window BELONGS to an output. Every monitor renders the same world
+    /// through its own camera, so any monitor can bring any window into view on the next
+    /// frame, with no commit and no protocol event to hang a re-entry off. There is
+    /// nothing to test: the truthful `enter` set is every mapped output, and the only
+    /// `leave` is an output going away, which the retain pass inside
+    /// `refresh_outputs_with` still does.
+    ///
+    /// This deliberately does NOT double as a visibility signal. A window outside every
+    /// camera is still ON its outputs — it is one pan away, and nothing about it has
+    /// changed. `wl_output` membership is a rendering contract, and a client may stop
+    /// drawing entirely on `leave`, so driving it from an off-screen test is a far
+    /// blunter instrument than the one y5 already aims at invisible windows
+    /// (`fractional_invisible`, which only decides what scale to publish and defaults to
+    /// "keep publishing"). Only one mechanism gets to decide whether a client renders at
+    /// all, and it should not be this one. The foreign-toplevel mirror answers the same
+    /// question the same way, so a dock and the client are never told different things.
+    ///
+    /// Applies to EVERY element of the space and, through `output_update`, to every
+    /// surface of each one's tree — subsurfaces and popups included. There is no
+    /// toplevel filter: a `wl_output` is entered by surfaces, not by windows. (Layer
+    /// surfaces are not space elements; `LayerMap::arrange` drives theirs, and for those
+    /// the geometric test IS right — they are screen-space by definition.)
+    ///
+    /// Only the alive sweep runs over every world; the enter/leave pass and the element
+    /// refresh are the hosted world's alone. The split is by what can actually change:
+    ///
+    /// - `refresh_alive` is the ONLY reaper of a dead window — there is no `unmap_elem`
+    ///   on window destroy anywhere (only whole-world delete), so a client that exits
+    ///   while its world is parked would sit in that world's Space until the world came
+    ///   back, and with `protocol_foreign_all_worlds` the mirror walks every world and
+    ///   would hand docks a dead toplevel. A `retain` over a short Vec, so it is cheap
+    ///   enough to do for all of them every frame.
+    /// - Membership is a constant, so for a parked world only HOTPLUG can change the
+    ///   answer — and [`Self::map_output_everywhere`] publishes it there, per world, at
+    ///   the event. Doing it here as well would be one pass per world per frame to
+    ///   re-derive something that changes a few times a session.
+    /// - `refresh_elements` is the RE-ASSERTION pass, walking every window's whole
+    ///   surface tree to re-send a decision that has not changed. The decision itself is
+    ///   delivered inline — `output_enter` ends by refreshing the element it just
+    ///   entered, and `output_leave` sends its own leaves — so a parked world is still
+    ///   owed nothing.
+    pub fn refresh_space(&mut self) {
+        self.for_each_space(|space| space.refresh_alive());
+        let space = &mut self.space_state_mut().state;
+        space.refresh_outputs_with(|_window, _output| Some(unclipped()));
+        space.refresh_elements();
+    }
+
     /// Cursor teleportation between monitors is currently suppressed: some system holds
     /// the [`TELEPORT_SUPPRESS`] lock (refcount > 0) to pin the cursor to its output — a
     /// canvas pan is the built-in client. Read by the relative-motion path; it knows
@@ -756,6 +1006,37 @@ impl Orchestrator {
         self.worlds.get_mut(target).storage_mut().get_mut(&compositor_y5_select_state_base::select::SELECT_MUT)
     }
 
+    /// FOCUS ACCESSOR: the focused world's settings-panel surface. Per-world for the
+    /// same reason as the toolbar below; the rest of `SETTINGS` is session-wide and
+    /// stays in the kernel store. See `SETTINGS_SURFACE`.
+    pub fn settings_surface(&self) -> compositor_orchestration_driver_settings_base::base::SettingsSurface {
+        let target = self.worlds.spawn_target();
+        *self.worlds.get(target).storage().get(&compositor_orchestration_driver_settings_base::base::SETTINGS_SURFACE)
+    }
+
+    pub fn settings_surface_mut(&mut self) -> &mut compositor_orchestration_driver_settings_base::base::SettingsSurface {
+        let target = self.worlds.spawn_target();
+        self.worlds.get_mut(target).storage_mut().get_mut(&compositor_orchestration_driver_settings_base::base::SETTINGS_SURFACE_MUT)
+    }
+
+    /// FOCUS ACCESSOR: the focused world's align/distribute toolbar slot. Per-world
+    /// because it stores handles into `surface()`'s registry AND is reconciled
+    /// against `select()`, both of which are per-world — all three must resolve to
+    /// the same world or a switch strands the toolbar in the world that built it.
+    pub fn selection_overlay(
+        &self,
+    ) -> &compositor_orchestration_driver_selection_base::base::SelectionOverlayState {
+        let target = self.worlds.spawn_target();
+        self.worlds.get(target).storage().get(&compositor_orchestration_driver_selection_base::base::SELECTION_OVERLAY)
+    }
+
+    pub fn selection_overlay_mut(
+        &mut self,
+    ) -> &mut compositor_orchestration_driver_selection_base::base::SelectionOverlayState {
+        let target = self.worlds.spawn_target();
+        self.worlds.get_mut(target).storage_mut().get_mut(&compositor_orchestration_driver_selection_base::base::SELECTION_OVERLAY_MUT)
+    }
+
     /// FOCUS ACCESSOR: the focused world's window-grouping slot.
     pub fn group(&self) -> &compositor_y5_group_state_base::state::GroupState {
         let target = self.worlds.spawn_target();
@@ -779,6 +1060,20 @@ impl Orchestrator {
     pub fn surface_mut(&mut self) -> &mut compositor_y5_surface_state_base::state::SurfaceState {
         let target = self.worlds.spawn_target();
         self.worlds.get_mut(target).storage_mut().get_mut(&compositor_y5_surface_system_base::base::SURFACE_MUT)
+    }
+
+    /// FOCUS ACCESSOR: the focused world's guide-popup slot (the empty-canvas
+    /// context menu, the help panel and the inline shader editor). Per-world
+    /// because it stores handles into `surface()`'s registry, which is per-world —
+    /// the two must resolve to the same world or a switch strands the surfaces.
+    pub fn guide(&self) -> &compositor_y5_guide_state_base::state::GuideState {
+        let target = self.worlds.spawn_target();
+        self.worlds.get(target).storage().get(&compositor_y5_guide_state_base::state::GUIDE)
+    }
+
+    pub fn guide_mut(&mut self) -> &mut compositor_y5_guide_state_base::state::GuideState {
+        let target = self.worlds.spawn_target();
+        self.worlds.get_mut(target).storage_mut().get_mut(&compositor_y5_guide_state_base::state::GUIDE_MUT)
     }
 
     /// FOCUS ACCESSOR: the focused world's overview-mode slot (Super+Tab overlay).

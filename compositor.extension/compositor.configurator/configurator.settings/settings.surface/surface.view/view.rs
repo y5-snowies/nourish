@@ -19,6 +19,13 @@ pub struct Settings {
     pub tab: Tab,
     pub cursor_sensitivity: f32,
     pub natural_scroll: bool,
+    /// Edge pan (Input → Mouse & Touchpad): a push past a screen extent pans the
+    /// canvas, and monitor teleport becomes Super-held-only.
+    pub edge_pan: bool,
+    /// Edge-pan speed multiplier (Input → Mouse & Touchpad), on top of pointer speed.
+    pub edge_pan_speed: f32,
+    /// Continuous (RTS-style) edge pan (Input → Mouse & Touchpad).
+    pub edge_pan_continuous: bool,
     /// Touch pan-speed multiplier (Input → Touch), persisted + read live.
     pub touch_pan_speed: f32,
     /// Linear (strict, no-coast) touch pan (Input → Touch), persisted + read live.
@@ -175,7 +182,7 @@ fn default_mode(d: &DisplayInfo) -> Option<ModeInfo> {
 
 impl Settings {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(env: Environment, cursor: f32, natural: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, fractional_invisible: String, background_triple_buffer: compositor_model_environment_background_base::base::TripleBufferBackground, interface_triple_buffer: compositor_model_environment_interface_base::base::TripleBufferUI, flip: compositor_model_environment_tearing_config::config::Config, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool, pen: compositor_model_environment_preference_base::base::PenConfig) -> Self {
+    pub fn new(env: Environment, cursor: f32, natural: bool, edge_pan: bool, edge_pan_speed: f32, edge_pan_continuous: bool, touch_pan_speed: f32, touch_linear_pan: bool, osk_size: f32, osk_world_position: bool, show_fps: bool, release_hidden: bool, fractional_invisible: String, background_triple_buffer: compositor_model_environment_background_base::base::TripleBufferBackground, interface_triple_buffer: compositor_model_environment_interface_base::base::TripleBufferUI, flip: compositor_model_environment_tearing_config::config::Config, snap: OutputsSnapshot, keys: Vec<KeyRow>, tab: Tab, layout: Vec<LayoutPlacement>, cyclic: bool, ime: Ime, keyboard: KeyboardLayout, protocol_foreign: String, protocol_foreign_all_worlds: bool, pen: compositor_model_environment_preference_base::base::PenConfig) -> Self {
         let active = snap.displays.iter().find(|d| d.active).cloned();
         let active_edid = active.as_ref().map(|d| d.edid_key.clone()).unwrap_or_default();
         let selected_mode = active.as_ref().and_then(default_mode);
@@ -184,6 +191,9 @@ impl Settings {
             tab,
             cursor_sensitivity: cursor,
             natural_scroll: natural,
+            edge_pan,
+            edge_pan_speed,
+            edge_pan_continuous,
             touch_pan_speed,
             touch_linear_pan,
             osk_size,
@@ -320,6 +330,9 @@ impl IcedUi for Settings {
             SettingsMessage::PenCaptureCancel => self.pen_capturing = false,
             SettingsMessage::Cursor(v) => self.cursor_sensitivity = v,
             SettingsMessage::NaturalScroll(b) => self.natural_scroll = b,
+            SettingsMessage::EdgePan(b) => self.edge_pan = b,
+            SettingsMessage::EdgePanSpeed(v) => self.edge_pan_speed = v,
+            SettingsMessage::EdgePanContinuous(b) => self.edge_pan_continuous = b,
             SettingsMessage::TouchPanSpeed(v) => self.touch_pan_speed = v,
             SettingsMessage::TouchLinearPan(b) => self.touch_linear_pan = b,
             SettingsMessage::OskSize(v) => self.osk_size = v,
@@ -542,6 +555,9 @@ impl IcedUi for Settings {
             self.dirty,
             self.cursor_sensitivity,
             self.natural_scroll,
+            self.edge_pan,
+            self.edge_pan_speed,
+            self.edge_pan_continuous,
             self.touch_pan_speed,
             self.touch_linear_pan,
             self.osk_size,

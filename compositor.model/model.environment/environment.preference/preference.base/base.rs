@@ -38,6 +38,12 @@ fn default_release_hidden() -> bool {
 /// and published scale 1 (with the grace band pre-publishing real scales near
 /// pane edges), so both fresh installs and older `preferences.json` files get
 /// the resource-saving behavior unless explicitly set back to "optimized"/"off".
+/// Default for `input_edge_pan_continuous`: on. An older `preferences.json` gets
+/// the RTS-style behaviour, which is what the edge pan is expected to feel like.
+fn default_edge_pan_continuous() -> bool {
+    true
+}
+
 fn default_fractional_invisible() -> String {
     "full".to_string()
 }
@@ -120,6 +126,28 @@ pub struct Preference {
     /// Natural scrolling: invert the touchpad finger-axis direction for canvas
     /// pan, window scroll, and multi-finger swipe navigation (wheel unaffected).
     pub input_natural_scroll: bool,
+    /// Edge pan: pushing the cursor past a screen extent PANS the canvas instead of
+    /// just pinning the cursor there — including while a canvas grab (move / scale /
+    /// hand) is in progress, but never during a select box. While this is on, the
+    /// cursor only crosses to another monitor (the `outputs_layout` teleport map)
+    /// when Super is held with no canvas grab active. Off = the historical
+    /// behaviour: an extent teleports when a monitor is placed across it, else
+    /// clamps. Settings → Input → Mouse & Touchpad; read live per motion event.
+    pub input_edge_pan: bool,
+    /// Edge-pan speed: a multiplier ON TOP of the pointer speed, so the canvas
+    /// travels at `cursor_sensitivity × this` — the edge pan stays proportional to
+    /// how fast the pointer itself moves, and this only re-weights it. `1.0` = the
+    /// push is carried into the canvas 1:1. Settings → Input → Mouse & Touchpad;
+    /// read live per motion event / per frame.
+    pub input_edge_pan_speed: f64,
+    /// Continuous edge pan (RTS-style), ON by default: a cursor parked against a
+    /// screen extent keeps the canvas moving without having to be pushed again, and
+    /// pushing INTO the edge adds its own travel on top for as long as the push
+    /// lasts. Off = the pan only advances while the pointer is actually pushing.
+    /// An absolute pointer (winit without a locked cursor) has no push to give, so
+    /// its edge band is continuous either way. Settings → Input → Mouse & Touchpad.
+    #[serde(default = "default_edge_pan_continuous")]
+    pub input_edge_pan_continuous: bool,
     /// Touch pan speed: a multiplier on finger-driven canvas pans (both the
     /// 2-finger pan and the single-finger glide). `1.0` = the built-in default
     /// gain; lower is slower. Touch only — the trackpad/mouse axis is unaffected.
@@ -524,6 +552,9 @@ impl Default for Preference {
         Self {
             cursor_sensitivity: 1.0,
             input_natural_scroll: true,
+            input_edge_pan: false,
+            input_edge_pan_speed: 1.0,
+            input_edge_pan_continuous: default_edge_pan_continuous(),
             input_touch_pan_speed: 1.0,
             input_touch_linear_pan: true,
             osk_size: 1.0,

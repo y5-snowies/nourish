@@ -17,8 +17,6 @@ pub enum PickerSurfaceMessage {
     DeleteRequest,
     DeleteConfirm,
     DeleteCancel,
-    /// The touch-reachable Close: cancel the picker, back to the origin world.
-    Close,
 }
 
 #[derive(Default)]
@@ -57,8 +55,7 @@ impl IcedUi for PickerSurface {
             PickerSurfaceMessage::DeleteRequest => self.confirming = true,
             PickerSurfaceMessage::DeleteCancel => self.confirming = false,
             PickerSurfaceMessage::Enter
-            | PickerSurfaceMessage::DeleteConfirm
-            | PickerSurfaceMessage::Close => {}
+            | PickerSurfaceMessage::DeleteConfirm => {}
         }
     }
 
@@ -92,8 +89,6 @@ impl IcedUi for PickerSurface {
                 name,
                 Space::new().height(6),
                 action,
-                Space::new().height(6),
-                tap("Close", PickerSurfaceMessage::Close),
             ]
             .align_x(Horizontal::Right),
         )
