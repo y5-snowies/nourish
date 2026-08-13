@@ -463,30 +463,38 @@ impl Orchestrator {
     /// space), so this sets the same layout in each. Overlay worlds hold no Space and
     /// are skipped. A world created LATER still starts empty and is seeded on first
     /// entry by the world-switch paths.
+    ///
+    /// The enter is published HERE, per world, rather than left to
+    /// [`Self::refresh_space`]. Hotplug is the only thing that can change the answer for
+    /// a parked world, so paying for it at the event costs one pass per monitor change
+    /// instead of a per-world pass on every frame forever.
     pub fn map_output_everywhere(
         &mut self,
         output: &smithay::output::Output,
         location: smithay::utils::Point<i32, smithay::utils::Logical>,
     ) {
-        for id in self.worlds.ids() {
-            if let Some(host) = self
-                .worlds
-                .get_mut(id)
-                .storage_mut()
-                .try_get_mut(&compositor_support_world_host_space_base::base::SPACE_MUT)
-            {
-                host.inner.state.map_output(output, location);
-            }
-        }
+        self.for_each_space(|space| {
+            space.map_output(output, location);
+            space.refresh_outputs_with(|_window, _output| Some(unclipped()));
+        });
     }
 
     /// Unmap `output` from EVERY world's Space — the counterpart of
     /// [`Self::map_output_everywhere`]; see it for why this is not the hosted world only.
     ///
-    /// The `wl_surface.leave` this produces for each world's windows is smithay's
-    /// business: `Space::unmap_output` only drops the output from the list, and the
-    /// retain pass inside the next `refresh_outputs*` is what tells the clients.
+    /// The refresh is what tells the clients: `Space::unmap_output` only drops the output
+    /// from the list, and the retain pass inside `refresh_outputs_with` is what turns
+    /// that into `wl_surface.leave`.
     pub fn unmap_output_everywhere(&mut self, output: &smithay::output::Output) {
+        self.for_each_space(|space| {
+            space.unmap_output(output);
+            space.refresh_outputs_with(|_window, _output| Some(unclipped()));
+        });
+    }
+
+    /// Run `f` against every world's window Space. Overlay worlds hold none and are
+    /// skipped.
+    fn for_each_space(&mut self, mut f: impl FnMut(&mut smithay::desktop::Space<Window>)) {
         for id in self.worlds.ids() {
             if let Some(host) = self
                 .worlds
@@ -494,7 +502,7 @@ impl Orchestrator {
                 .storage_mut()
                 .try_get_mut(&compositor_support_world_host_space_base::base::SPACE_MUT)
             {
-                host.inner.state.unmap_output(output);
+                f(&mut host.inner.state);
             }
         }
     }
@@ -804,11 +812,27 @@ impl Orchestrator {
     /// surfaces are not space elements; `LayerMap::arrange` drives theirs, and for those
     /// the geometric test IS right — they are screen-space by definition.)
     ///
-    /// Nothing else changes: the alive sweep and the per-element refresh are smithay's,
-    /// in smithay's order.
+    /// Only the alive sweep runs over every world; the enter/leave pass and the element
+    /// refresh are the hosted world's alone. The split is by what can actually change:
+    ///
+    /// - `refresh_alive` is the ONLY reaper of a dead window — there is no `unmap_elem`
+    ///   on window destroy anywhere (only whole-world delete), so a client that exits
+    ///   while its world is parked would sit in that world's Space until the world came
+    ///   back, and with `protocol_foreign_all_worlds` the mirror walks every world and
+    ///   would hand docks a dead toplevel. A `retain` over a short Vec, so it is cheap
+    ///   enough to do for all of them every frame.
+    /// - Membership is a constant, so for a parked world only HOTPLUG can change the
+    ///   answer — and [`Self::map_output_everywhere`] publishes it there, per world, at
+    ///   the event. Doing it here as well would be one pass per world per frame to
+    ///   re-derive something that changes a few times a session.
+    /// - `refresh_elements` is the RE-ASSERTION pass, walking every window's whole
+    ///   surface tree to re-send a decision that has not changed. The decision itself is
+    ///   delivered inline — `output_enter` ends by refreshing the element it just
+    ///   entered, and `output_leave` sends its own leaves — so a parked world is still
+    ///   owed nothing.
     pub fn refresh_space(&mut self) {
+        self.for_each_space(|space| space.refresh_alive());
         let space = &mut self.space_state_mut().state;
-        space.refresh_alive();
         space.refresh_outputs_with(|_window, _output| Some(unclipped()));
         space.refresh_elements();
     }
