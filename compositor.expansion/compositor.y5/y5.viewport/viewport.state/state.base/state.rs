@@ -36,8 +36,28 @@ pub struct Viewports {
     /// Pane under the cursor — operative for all pointer input.
     pub pointer: SlotId,
     pub next_id: SlotId,
-    /// Windows visible per leaf slot (refreshed each render, transient) — drives per-window fractional scale.
-    pub visible: std::collections::HashMap<SlotId, Vec<uuid::Uuid>>,
+    /// Windows on each leaf slot, plus the fractional grace band (refreshed each render,
+    /// transient) — drives per-window fractional scale.
+    ///
+    /// ON the pane, which is not the same as drawing pixels: a wholly covered window is
+    /// in here and must be, since it is revealed the instant the occluder moves with no
+    /// pan to hide a scale re-publish behind. It was called `visible`, which read as
+    /// "drew something" — the wrong side of the `Drawn::visible` / `Drawn::on_pane`
+    /// distinction. `_grace` because under the "full" invisible-window strategy the
+    /// caller also folds in `FRACTIONAL_GRACE_RANGE`, so windows just off the pane get
+    /// their real scale published ahead of reveal.
+    pub on_pane_grace: std::collections::HashMap<SlotId, Vec<uuid::Uuid>>,
+    /// Windows on each leaf slot, plus the SUSPEND grace band (refreshed each render,
+    /// transient) — drives `xdg_toplevel.suspended`.
+    ///
+    /// Sibling of [`on_pane_grace`](Self::on_pane_grace), not derived from it: the two
+    /// carry different bands and would drift if one were computed from the other. This
+    /// band is `SUSPEND_GRACE`, wider and unconditional, where the fractional one is
+    /// narrower and applies only under "full". A window just past the pane edge is in
+    /// here — it draws nothing, but telling it to stop repainting buys nothing when the
+    /// smallest pan brings it back. What is NOT in here is a window off every pane of
+    /// every monitor: parked world, collapsed group, screen locked, or scrolled away.
+    pub on_pane_awake: std::collections::HashMap<SlotId, Vec<uuid::Uuid>>,
 }
 
 /// An in-progress viewport separator drag (resize): the two adjacent slots and the
@@ -86,7 +106,7 @@ pub struct OutputViews {
     /// output directly and don't depend on this.
     pub current: String,
     /// In-progress viewport separator drag (resize), if any. TRANSIENT (an active
-    /// cursor drag) — like `Viewports.visible`, it is NOT persisted (`ViewportsRecord`
+    /// cursor drag) — like `Viewports.on_pane`, it is NOT persisted (`ViewportsRecord`
     /// omits it). Single, not per-output: a drag is globally singular (one cursor →
     /// one drag) and always on `current`. The interaction logic lives in
     /// `viewport.interaction`; the pointer input path drives it.
@@ -168,7 +188,7 @@ impl Default for Viewports {
     fn default() -> Self {
         let slot = Slot { id: 0, camera: Camera::default(), content: None, weight: 1.0 };
         let root = Viewport::Slots { axis: Axis::Vertical, slots: vec![slot] };
-        Viewports { root, floating: Vec::new(), active: 0, pointer: 0, next_id: 1, visible: std::collections::HashMap::new() }
+        Viewports { root, floating: Vec::new(), active: 0, pointer: 0, next_id: 1, on_pane_grace: std::collections::HashMap::new(), on_pane_awake: std::collections::HashMap::new() }
     }
 }
 

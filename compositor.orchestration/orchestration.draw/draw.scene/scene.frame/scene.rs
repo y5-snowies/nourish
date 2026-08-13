@@ -45,7 +45,7 @@ thread_local! {
 /// Per-window fractional scale, best-resolution across ALL outputs. A window may be
 /// visible in several viewports spread over several monitors at different zooms; its
 /// preferred scale follows the HIGHEST-zoom (sharpest) one. Derived from the live
-/// per-output view state (`output_views`: each slot's camera zoom + its `visible`
+/// per-output view state (`output_views`: each slot's camera zoom + its `on_pane_grace`
 /// window set), so it's independent of which output is mid-render — and emitted only
 /// on change (via `FRAC_SENT`), which is what stops the per-output flip-flop from
 /// re-sending the scale to clients every frame. `emit_best_per_surface` then
@@ -53,7 +53,7 @@ thread_local! {
 /// it settles rather than at every lattice crossing.
 fn update_fractional(state: &mut Loop) {
     use smithay::reexports::wayland_server::Resource;
-    // uuid → surface for currently-mapped windows (the `visible` sets store uuids).
+    // uuid → surface for currently-mapped windows (the `on_pane_grace` sets store uuids).
     let uuid_surface: std::collections::HashMap<uuid::Uuid, WlSurface> = state
         .inner
         .space_state()
@@ -68,7 +68,7 @@ fn update_fractional(state: &mut Loop) {
     > = std::collections::HashMap::new();
     let mut max_zoom: Option<f64> = None;
     for vps in state.inner.output_views().map.values() {
-        for (slot, uuids) in &vps.visible {
+        for (slot, uuids) in &vps.on_pane_grace {
             let zoom = vps.camera_of(*slot).map(|c| c.transform.zoom).unwrap_or(1.0);
             max_zoom = Some(max_zoom.map_or(zoom, |m| m.max(zoom)));
             for u in uuids {
@@ -83,7 +83,7 @@ fn update_fractional(state: &mut Loop) {
     // Invisible-window strategy (`fractional_invisible` preference, live):
     // "off" — invisible windows keep receiving zoom-driven updates (the
     // historical behavior; backfilled below, since the render cull keeps them
-    // out of the visible sets). "optimized" — invisible windows get no
+    // out of the on-pane sets). "optimized" — invisible windows get no
     // publishes until visible again; parked worlds' windows get scale 1 so
     // their clients drop hi-res buffers. "full" — the hosted world's invisible
     // windows get scale 1 too. Capture targets are drawn, so they count as
@@ -657,7 +657,8 @@ where
                 smithay::utils::Rectangle::new(Point::from((0, 0)), size),
             );
             let mut cw = Vec::new();
-            state.inner.viewports_mut().visible.clear();
+            state.inner.viewports_mut().on_pane_grace.clear();
+            state.inner.viewports_mut().on_pane_awake.clear();
             // Back-to-front: regions are root-first then floating; within a layer
             // the first-pushed element is front-most, so iterate in reverse to draw
             // floating panes (and their backgrounds) on top of the tiled root.
@@ -790,7 +791,14 @@ where
                             .filter(|u| !present.contains(u)),
                     );
                 }
-                state.inner.viewports_mut().visible.insert(region.slot, uuids);
+                // The `suspended` set for this pane: on the pane, or off it inside the
+                // SUSPEND band. Sibling of `on_pane_grace` above, with its own wider and
+                // unconditional band — see `Viewports::on_pane_awake`. Computed by the
+                // cull, which had both rects, not by re-projecting every window here.
+                let on_pane_awake: Vec<uuid::Uuid> =
+                    vis.on_pane_awake.iter().filter_map(|w| w.uuid()).collect();
+                state.inner.viewports_mut().on_pane_awake.insert(region.slot, on_pane_awake);
+                state.inner.viewports_mut().on_pane_grace.insert(region.slot, uuids);
                 cw.extend(vis.drawn);
             }
             state.inner.render_target = None;

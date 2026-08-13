@@ -80,6 +80,8 @@ pub fn send_layer_frames(state: &Loop, output: &Output) {
 /// every monitor renders the same world through its own camera.
 pub fn housekeeping(state: &mut Loop) {
     state.inner.refresh_space();
+    // After the frame, so it reads the presence stamps this frame just wrote.
+    state.inner.refresh_suspended();
     state.state.popup.state.cleanup();
     let _ = state.inner.loader.display_handle.flush_clients();
 }

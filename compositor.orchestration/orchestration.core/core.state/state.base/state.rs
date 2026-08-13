@@ -68,6 +68,16 @@ pub fn output_key(output: &smithay::output::Output) -> compositor_orchestration_
     format!("{} {} {}", p.make, p.model, p.serial_number)
 }
 
+/// How long a window must go unseen on every monitor before it is told
+/// `xdg_toplevel.suspended` (see [`Orchestrator::refresh_suspended`]).
+///
+/// Deliberately long. What is bought is a client that has stopped repainting, which is
+/// worth having within seconds rather than within frames, and every second shaved off
+/// buys a little less power for a lot more risk of telling a window it is invisible
+/// moments before the user pans back to it. Cleared on the first sighting, so this is a
+/// floor on how long absence must last, never on how long a reveal takes.
+const SUSPEND_DWELL: f32 = 5.0;
+
 /// The overlap rect handed to `SpaceElement::output_enter` for a window that IS on an
 /// output — deliberately unbounded (see [`Orchestrator::refresh_space`]).
 ///
@@ -88,6 +98,11 @@ fn unclipped() -> smithay::utils::Rectangle<i32, smithay::utils::Logical> {
 
 pub struct Orchestrator {
     pub start_time: std::time::Instant,
+    /// When each window was last ON-PANE-GRACE, by uuid — the dwell behind
+    /// `xdg_toplevel.suspended` (see [`Self::refresh_suspended`]). Session-wide rather
+    /// than per world, because a window keeps its uuid across a world move and the
+    /// state it carries should not reset when it does.
+    pub last_on_pane_awake: std::collections::HashMap<uuid::Uuid, f32>,
     /// Active per-region render override (see [`RenderTarget`]). Set only inside
     /// the `scene.frame` region loop.
     pub render_target: Option<RenderTarget>,
@@ -348,6 +363,7 @@ impl Orchestrator {
             world_focus_memory: std::collections::HashMap::new(),
             bus: compositor_orchestration_bus_legacy_base::legacy::LegacyBus::new(),
             pilot_tick: 0,
+            last_on_pane_awake: std::collections::HashMap::new(),
             // Seed the live preference object from preferences.json (one disk read
             // at startup; refreshed on each settings-window open). Missing file →
             // sane defaults.
@@ -505,6 +521,83 @@ impl Orchestrator {
                 f(&mut host.inner.state);
             }
         }
+    }
+
+    /// Publish `xdg_toplevel.suspended` across every world, from the per-pane `on_pane_awake`
+    /// marker every monitor filled this frame.
+    ///
+    /// The protocol calls it "surface repaint is suspended" and names occlusion as the
+    /// worked example — which is what y5 has been doing all along without saying so,
+    /// since a window that draws no pixels is left out of `visible_window` and so gets
+    /// no frame callbacks. A client paced on those simply stops, with nothing to tell
+    /// it why. This is that fact made sayable.
+    ///
+    /// Occlusion deliberately does NOT suspend, which is where this parts company with
+    /// the protocol's own worked example. The example assumes a stacking desktop, where
+    /// being covered is a state the user put the window into; here the occluder is a
+    /// sibling on a pannable canvas that can move, close or scroll away in one frame
+    /// with nothing to announce it. So `suspended` here means off every pane of every
+    /// monitor — parked world, collapsed group, screen locked, or scrolled away — which
+    /// are the protocol's other three examples.
+    ///
+    /// The union across monitors is the whole point of reading `output_views` rather
+    /// than one `Viewports`: a window shown on one screen and covered on another is
+    /// awake. Every WORLD too, because a parked world's windows are drawn nowhere and
+    /// that is the truth to tell them.
+    ///
+    /// Set lazily and cleared eagerly. [`SUSPEND_DWELL`] of unbroken absence to set,
+    /// because a pan drags windows through occlusion continuously and every crossing
+    /// would otherwise be a configure; one sighting to clear, because a suspended
+    /// client may have stopped drawing entirely and this configure is what wakes it.
+    /// `send_pending_configure` is a no-op where nothing changed, so steady state costs
+    /// a flag compare per window and emits nothing.
+    pub fn refresh_suspended(&mut self) {
+        use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+        let now = compositor_pipeline_abi_clock_base::base::now();
+        let on_pane_awake: std::collections::HashSet<uuid::Uuid> = self
+            .output_views()
+            .map
+            .values()
+            .flat_map(|vps| vps.on_pane_awake.values())
+            .flatten()
+            .copied()
+            .collect();
+        for uuid in &on_pane_awake {
+            self.last_on_pane_awake.insert(*uuid, now);
+        }
+        let mut live: std::collections::HashSet<uuid::Uuid> = std::collections::HashSet::new();
+        for id in self.worlds.ids() {
+            let Some(world) = self
+                .worlds
+                .get(id)
+                .storage()
+                .try_get(&compositor_support_world_host_space_base::base::SPACE)
+            else {
+                continue;
+            };
+            for w in world.inner.state.elements() {
+                use compositor_y5_window_interface_record::window::LoopWindow;
+                let Some(uuid) = w.uuid() else { continue };
+                live.insert(uuid);
+                let Some(toplevel) = w.toplevel() else { continue };
+                // A window nothing has ever stamped counts its absence from now, so one
+                // spawned into a parked world or a collapsed group suspends on the same
+                // terms as one that scrolled away rather than instantly.
+                let since = *self.last_on_pane_awake.entry(uuid).or_insert(now);
+                let suspend = now - since >= SUSPEND_DWELL;
+                toplevel.with_pending_state(|s| match suspend {
+                    true => s.states.set(xdg_toplevel::State::Suspended),
+                    false => s.states.unset(xdg_toplevel::State::Suspended),
+                });
+                // Clients below xdg_wm_base v6 never see the state — smithay filters it
+                // per client version (`into_filtered_states`) — so nothing to gate here.
+                toplevel.send_pending_configure();
+            }
+        }
+        // Keyed by uuid rather than held in the window's user data, so it has to be
+        // swept: a window that closed while its world was parked would otherwise leave
+        // an entry behind for the life of the session.
+        self.last_on_pane_awake.retain(|uuid, _| live.contains(uuid));
     }
 
     /// Set the `activated` xdg state exclusively on `keep` — true on it, false on every

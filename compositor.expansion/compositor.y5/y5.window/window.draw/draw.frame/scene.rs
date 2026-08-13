@@ -93,6 +93,22 @@ fn pane_rect(state: &Loop, ctx: XformCtx, size: Size<i32, Physical>) -> Rectangl
 /// — a covered slot whose frame still shows is not a window we may cull.
 const DECORATION_MARGIN: f64 = 13.0;
 
+/// How far off a pane a window may sit and still count as being on it for
+/// `xdg_toplevel.suspended` — world-logical units, scaled to physical the same way
+/// [`DECORATION_MARGIN`] is.
+///
+/// Nothing renders in this band; a window past the frustum draws no pixels at all,
+/// decorations and popups included, because the cull returns before either. It exists
+/// only so a window parked just past the edge is not told to stop repainting when the
+/// smallest pan brings it back — the same bargain `FRACTIONAL_GRACE_RANGE` makes for
+/// scale, at a radius sized for a state whose recovery costs a client a full repaint
+/// rather than a buffer re-scale.
+///
+/// Unconditional, unlike `FRACTIONAL_GRACE_RANGE`, which only applies under the "full"
+/// invisible-window strategy: a scale published early is an optimisation, and telling a
+/// window it is not being repainted when it is about to be is a correctness question.
+const SUSPEND_GRACE: f64 = 512.0;
+
 /// Where a window's slot lands on the pane being drawn.
 enum Placed {
     /// On screen here. Carries the rect the occlusion test uses: the projected
@@ -102,8 +118,9 @@ enum Placed {
     /// Degenerate size — nothing committed yet. Draw it; there is no rect to
     /// cull against or to occlude with.
     Unsized,
-    /// Entirely off this pane.
-    Off,
+    /// Entirely off this pane. `true` when it is nonetheless inside
+    /// [`SUSPEND_GRACE`] of it, which draws nothing but holds off `suspended`.
+    Off { near: bool },
 }
 
 /// The compositor-decided slot — the SAME derivation the fit and `crop_slot`
@@ -128,7 +145,7 @@ fn slot_size_of(window: &Window) -> Option<Size<i32, Logical>> {
 
 fn placed_on(state: &mut Loop, window: &Window, size: Size<i32, Physical>) -> Placed {
     let Some(loc) = state.inner.space_state().state.element_location(window) else {
-        return Placed::Off;
+        return Placed::Off { near: false };
     };
     let Some(sz) = slot_size_of(window) else {
         return Placed::Unsized;
@@ -141,7 +158,14 @@ fn placed_on(state: &mut Loop, window: &Window, size: Size<i32, Physical>) -> Pl
     let rect = project_rect(ctx, loc.x as f64, loc.y as f64, sz.w as f64, sz.h as f64);
     let pane = pane_rect(state, ctx, size);
     if !rect.overlaps(pane) {
-        return Placed::Off;
+        // Same rect against the pane grown by the suspend grace band. Only the
+        // `suspended` state reads this; nothing here draws.
+        let grace = (SUSPEND_GRACE * ctx.scale).ceil() as i32;
+        let near = rect.overlaps(Rectangle::new(
+            Point::from((pane.loc.x - grace, pane.loc.y - grace)),
+            Size::from((pane.size.w + grace * 2, pane.size.h + grace * 2)),
+        ));
+        return Placed::Off { near };
     }
     let pad = (DECORATION_MARGIN * ctx.scale).ceil() as i32;
     let grown = Rectangle::new(
@@ -222,13 +246,19 @@ where
     if !force_capture && !window.visible(state) {
         return (vec![], Drawn::default());
     }
-    let mut drawn = Drawn { on_pane: true, visible: true, opaque: Vec::new() };
+    let mut drawn = Drawn { on_pane: true, visible: true, on_pane_awake: true, opaque: Vec::new() };
     if !force_capture {
         match placed_on(state, window, size) {
             // Frustum cull: a window whose slot projects outside the pane being
             // drawn contributes nothing — skip its whole scene (surface-tree
             // walk, decorations, fit) and keep it out of BOTH sets.
-            Placed::Off => return (vec![], Drawn::default()),
+            //
+            // `near` is the one thing that survives the cull: it draws nothing, it
+            // just stops the window being told to suspend while it sits a nudge off
+            // the edge.
+            Placed::Off { near } => {
+                return (vec![], Drawn { on_pane_awake: near, ..Drawn::default() });
+            }
             Placed::Unsized => {}
             // Occlusion cull: fully covered by opaque windows already drawn in
             // front of it. `on_pane` stays set — the window is still on screen,
@@ -247,9 +277,21 @@ where
             // exempt outright.
             Placed::On(rect) => {
                 if occluders.hidden(rect) && !has_popup(window) {
-                    // The one exit where the two flags disagree — the neighbours
-                    // above return `Drawn::default()`, both false.
-                    return (vec![], Drawn { on_pane: true, visible: false, opaque: Vec::new() });
+                    // The one exit where the flags disagree — the neighbours above
+                    // return `Drawn::default()`, all false.
+                    //
+                    // `on_pane_awake` stays TRUE, which is where this parts company with the
+                    // protocol's own worked example for `suspended`. Occlusion here is
+                    // not a mode the user entered: the occluder is a sibling window on
+                    // a pannable canvas, and it moves, closes or is scrolled off in one
+                    // frame with nothing to announce it. Telling the covered window to
+                    // stop repainting buys one window's frames and pays for them with a
+                    // stale frame on every reveal, since it has to be configured, then
+                    // render, then commit before it can show anything.
+                    return (
+                        vec![],
+                        Drawn { on_pane: true, visible: false, on_pane_awake: true, opaque: Vec::new() },
+                    );
                 }
             }
         }

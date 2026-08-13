@@ -5576,6 +5576,7 @@ dependencies = [
  "compositor_orchestration_seat_system_pointer",
  "compositor_orchestration_storage_state_base",
  "compositor_orchestration_world_manager_base",
+ "compositor_pipeline_abi_clock_base",
  "compositor_remote_message_server_base",
  "compositor_remote_message_state_base",
  "compositor_support_smithay_dispatch_state_base",

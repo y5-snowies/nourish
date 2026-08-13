@@ -51,12 +51,12 @@ fn label(window: &Window) -> String {
 
 /// Everything on a pane this frame, deduped across slots, in stacking order.
 ///
-/// `Viewports::visible` is the ON-PANE set, not the drawn set: the scene also
+/// `Viewports::on_pane` is exactly that, not the drawn set: the scene also
 /// drops windows fully covered by opaque ones in front, and the "full" fractional
 /// strategy adds the grace band just off the pane. Right for "what is around
 /// here", wrong as "these got frame callbacks".
 fn on_pane(state: &Loop) -> Vec<String> {
-    let ids: HashSet<uuid::Uuid> = state.inner.viewports().visible.values().flatten().copied().collect();
+    let ids: HashSet<uuid::Uuid> = state.inner.viewports().on_pane_grace.values().flatten().copied().collect();
     state.inner.space_state().state.elements()
         .filter(|w| w.uuid().is_some_and(|u| ids.contains(&u))).map(label).collect()
 }
