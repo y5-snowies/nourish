@@ -25,9 +25,9 @@ pub fn run(
     let mut next_sample_time = Instant::now();
     // How many entries an explicit immediate REQUEST was granted since the last
     // pass — already filtered to the stale ones by `apply_registration`. It
-    // widens the NEXT pass past BATCH_CAP and pulls it forward to now, so one
-    // "sample every window on this world" request lands in a single batch
-    // instead of trickling out over the background cadence.
+    // widens the NEXT pass's sample budget past BATCH_CAP and pulls it forward to
+    // now, so one "sample every window on this world" request lands in a single
+    // batch instead of trickling out over the background cadence.
     let mut forced: usize = 0;
     // Windows worth sampling: the current world's. `None` until the first world
     // switch says otherwise, which is when everything on screen is the one world.
@@ -82,7 +82,18 @@ pub fn run(
         if now >= next_sample_time {
             let was_empty = buffer.is_empty();
             let this_pass = std::mem::take(&mut forced);
-            for _ in 0..queue.len().min(BATCH_CAP.max(this_pass)) {
+            // The budget counts SAMPLES, not visits. A skipped entry is a rotation,
+            // not work, and charging it to the budget would let background-world
+            // windows crowd the pass out — the more of them there are, the slower
+            // the ones actually on screen, which is the reverse of what scoping is
+            // for. Visits are bounded by one full rotation instead, so a queue that
+            // is entirely out of scope ends the pass rather than spinning on it.
+            let budget = BATCH_CAP.max(this_pass);
+            let mut sampled = 0;
+            for _ in 0..queue.len() {
+                if sampled >= budget {
+                    break;
+                }
                 let Some(entry) = queue.pop_front() else { break };
                 // Another world's window that already has a sample: keep it queued
                 // with its captured meta so re-entering that world resumes without
@@ -107,6 +118,9 @@ pub fn run(
                     }
                     None => buffer.push(SampleResult { uuid: entry.uuid, data: None }),
                 }
+                // Both arms walked `/proc`, which is the cost the budget exists to
+                // cap — a failed read is charged the same as a successful one.
+                sampled += 1;
             }
             next_sample_time = now + tick_interval(queue.len());
 
