@@ -4,6 +4,7 @@
     "compositor_introspection_inference_hint_base",
     "compositor_introspection_sampler_window_batch",
     "compositor_introspection_sampler_window_schedule",
-    "smithay"
+    "smithay",
+    "uuid"
   ]
 }

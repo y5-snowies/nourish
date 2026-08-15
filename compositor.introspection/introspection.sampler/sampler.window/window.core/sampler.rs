@@ -46,11 +46,7 @@ impl Sampler {
     /// is the captured MetaNode so Wayland-side fields (uid/gid/app_id/
     /// title) can be preserved across refreshes.
     pub fn register(&self, uuid: Uuid, pid: u32, previous_meta: MetaNode) {
-        let _ = self.tx.send(Registration::Add(Entry {
-            uuid,
-            pid,
-            previous_meta,
-        }));
+        let _ = self.tx.send(Registration::Add(Entry::new(uuid, pid, previous_meta)));
     }
 
     /// Stop sampling this placeholder.
@@ -58,19 +54,29 @@ impl Sampler {
         let _ = self.tx.send(Registration::Remove(uuid));
     }
 
-    /// Ask for these windows to be re-sampled on the next tick, out of cadence.
+    /// REQUEST an out-of-cadence sample for these windows — granted only for the
+    /// ones whose last sample is older than
+    /// [`IMMEDIATE_MIN_AGE`](compositor_introspection_sampler_window_schedule::schedule::IMMEDIATE_MIN_AGE).
+    /// A request where everything is already fresh is a no-op, so calling it
+    /// every time a UI opens costs nothing.
     ///
     /// `surfaces` pairs each window's uuid with the wayland half of its identity
-    /// read on the CALLING thread — app_id, title, credentials and the
-    /// `xdg_toplevel_icon_v1` name — because the sampler thread has no way to
-    /// read a surface. Everything else it re-derives from `/proc` itself.
+    /// read on the CALLING thread — app_id, title and credentials — because the
+    /// sampler thread has no way to read a surface. Everything else it re-derives
+    /// from `/proc` itself.
     ///
     /// Fire-and-forget: results arrive in the usual batch. A caller that wants
     /// fresh data shows the latest sample it has and lets this replace it.
-    pub fn refresh(&self, surfaces: Vec<(Uuid, Meta)>) {
+    pub fn request_immediate(&self, surfaces: Vec<(Uuid, Meta)>) {
         if surfaces.is_empty() {
             return;
         }
-        let _ = self.tx.send(Registration::Refresh(surfaces));
+        let _ = self.tx.send(Registration::RequestImmediate(surfaces));
+    }
+
+    /// Limit sampling to these windows — the current world's. Entries outside it
+    /// stay queued but are skipped, so re-entering their world resumes them.
+    pub fn set_scope(&self, uuids: std::collections::HashSet<Uuid>) {
+        let _ = self.tx.send(Registration::Scope(uuids));
     }
 }

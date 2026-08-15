@@ -1,6 +1,6 @@
 use compositor_introspection_extraction_window_desktop_search::desktop::find_by_app_id;
 use compositor_introspection_extraction_window_hints_attributes_identity::attributes::{
-    DBusActivatable, DesktopEntryPath, DisplayName, IconName, IconPath, XdgIconName, XdgIconPixels,
+    DBusActivatable, DesktopEntryPath, DisplayName, IconName, IconPath, XdgIconName,
 };
 use compositor_introspection_extraction_window_hints_attributes_identity_more::attributes::{AppId, Title};
 use compositor_introspection_extraction_window_hints_attributes_launch::attributes::EnvOverlay;
@@ -55,22 +55,18 @@ pub fn push_surface_identity_hints(meta: &Meta, hints: &mut InferredHints) {
 /// as an argument instead of on the [`Meta`] the sampler thread carries. Hints
 /// inferred without it simply lack these.
 ///
-/// Both halves are recorded as they came — [`XdgIconPixels`] for the attached
-/// buffer, [`XdgIconName`] beside the desktop entry's own [`IconName`], so a
-/// caller wanting the app's statement about this window can read it directly.
+/// Only the NAMED half is recorded, as [`XdgIconName`] beside the desktop
+/// entry's own [`IconName`]. Attached pixel BUFFERS are deliberately not turned
+/// into a hint: hints outlive their window (a placeholder record is kept after
+/// the client is gone, and is persisted), and a decoded client buffer is not
+/// something to retain there — a consumer that wants those reads them live off
+/// the surface with `window.icon.toplevel::read`.
+///
 /// The name is promoted to [`IconPath`] only as a FALLBACK: if
 /// [`push_desktop_hints`] already resolved an icon file, that one stands (the
 /// desktop entry is the app's installed identity and matches what a launcher
 /// shows). So call this AFTER `push_desktop_hints`.
 pub fn push_toplevel_icon_hints(icon: &ToplevelIcon, hints: &mut InferredHints) {
-    if let Some(pixels) = &icon.pixels {
-        hints.push::<XdgIconPixels>(
-            pixels.clone(),
-            SourceMethod::WaylandSurface,
-            format!("xdg_toplevel_icon_v1 buffer, {}x{}", pixels.width, pixels.height),
-            Confidence::High,
-        );
-    }
     let Some(name) = &icon.name else { return };
     hints.push::<XdgIconName>(
         name.clone(),

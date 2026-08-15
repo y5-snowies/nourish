@@ -5,7 +5,7 @@ use compositor_introspection_extraction_window_hints_attribute::attribute::HintA
 use compositor_introspection_extraction_window_hints_descriptor::descriptor::{AttributeDescriptor, AttributeKind};
 use compositor_introspection_extraction_window_hints_id::category::AttributeCategory;
 use compositor_introspection_extraction_window_hints_id::handler_id::HandlerId;
-use compositor_introspection_extraction_window_hints_values::values::{IconPixels, SandboxIdentity};
+use compositor_introspection_extraction_window_hints_values::values::SandboxIdentity;
 use std::path::PathBuf;
 
 /// Human-readable name for the app/window.
@@ -72,21 +72,6 @@ impl HintAttribute for XdgIconName {
     fn name() -> &'static str { "xdg_icon_name" }
     fn category() -> AttributeCategory { AttributeCategory::Identity }
     fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "Toplevel icon name", Self::category(), AttributeKind::Text) }
-}
-
-/// The icon PIXELS the client attached over `xdg_toplevel_icon_v1`, decoded.
-///
-/// Surface state, so it exists only on hints inferred SYNCHRONOUSLY from a live
-/// window (`extract_hints_with`) — the sampler thread has no surface to read and
-/// leaves this absent. Never persisted: no codec is registered for it, and
-/// pixels are not something a launch plan should carry to disk.
-#[derive(Debug)]
-pub struct XdgIconPixels;
-impl HintAttribute for XdgIconPixels {
-    type Value = IconPixels;
-    fn name() -> &'static str { "xdg_icon_pixels" }
-    fn category() -> AttributeCategory { AttributeCategory::Identity }
-    fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "Toplevel icon image", Self::category(), AttributeKind::Custom("icon_pixels")) }
 }
 
 /// Sandbox identity (Flatpak/Snap/etc).

@@ -6,8 +6,10 @@
 //! and far too slow for an overlay the user just opened. So opening the overview
 //! requests one out-of-cadence pass over every window on the active world.
 //!
-//! It is a REQUEST, not a wait: the overlay draws from the latest sample it
-//! already has, and the fresh one replaces it a moment later. What this call
+//! It is a REQUEST, not a wait, and the sampler grants it only for windows whose
+//! last sample is older than its cadence floor — so reopening the overview
+//! repeatedly is free, and the overlay simply draws from the latest sample it
+//! already has until a fresh one replaces it. What this call
 //! contributes that the sampler thread cannot get for itself is the wayland half
 //! of each window's identity — title, app_id, credentials and the
 //! `xdg_toplevel_icon_v1` name — which it hands over with the request.
@@ -34,6 +36,6 @@ pub fn request(state: &mut Loop) {
         })
         .collect();
     if let Some(sampler) = state.inner.kernel.get(&SAMPLER) {
-        sampler.refresh(surfaces);
+        sampler.request_immediate(surfaces);
     }
 }

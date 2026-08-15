@@ -9,6 +9,8 @@
     "smithay",
     "compositor_orchestration_core_state_base",
     "compositor_y5_placeholder_record_base",
+    "compositor_y5_placeholder_system_base",
+    "compositor_support_world_host_space_base",
     "compositor_y5_camera_transform_translate",
     "compositor_y5_window_interface_record",
     "uuid",

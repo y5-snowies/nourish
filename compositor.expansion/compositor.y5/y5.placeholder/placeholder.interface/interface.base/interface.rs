@@ -343,15 +343,21 @@ pub fn promote_restored(state: &mut Loop, renderer: &mut GlesRenderer) {
 
 // CHECK : Change to native watch events instead of polling
 pub fn on_window_sample(state: &mut Loop, sample: &SampleBatch) {
-    //
+    // Which worlds a batch actually touched. A batch is not scoped to the focused
+    // world, so persisting `active_id` would leave another world's refreshed
+    // hints unsaved.
+    let mut modified: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
     for item in &sample.results {
         let Some(data) = &item.data else { continue };
 
-        let Some(_) = state.inner.placeholder_mut().map.get_mut(&item.uuid) else {
+        // Establish the owning world FIRST. Two reasons, in order of importance:
+        // it is what makes the `modify` below safe (that call ABORTS on a missing
+        // record — deliberately, as the invariant "a sample belongs to a record"),
+        // and no record anywhere means everything after it — cloning the sample,
+        // reading the window's surface — is work for nothing.
+        let Some(world) = owning_world(state, item.uuid) else {
             continue;
         };
-
-        // println!("Received sample for active placeholder");
 
         // The sampler thread has no surface, so its hints carry no toplevel icon.
         // Add it HERE — applying a batch runs on the compositor thread, where the
@@ -364,7 +370,8 @@ pub fn on_window_sample(state: &mut Loop, sample: &SampleBatch) {
             push_toplevel_icon_hints(&icon, &mut data.hints);
         }
 
-        state.inner.placeholder_mut().modify(&item.uuid, |placeholder| {
+        modified.insert(world);
+        modify_in(state, world, &item.uuid, |placeholder| {
             if let Some(ref existing) = placeholder.launch_session {
                 placeholder.launch_session = Some(LaunchPlan {
                     application_data: data.clone(),
@@ -382,20 +389,79 @@ pub fn on_window_sample(state: &mut Loop, sample: &SampleBatch) {
     }
     // Sampler refresh runs continuously — persist the placeholders DEBOUNCED so
     // the inferred-hint changes survive a restart without spamming the disk.
-    if !sample.results.is_empty() {
-        compositor_support_system_persist_mark_base::base::mark_world(state.inner.worlds.active_id(), false);
+    for world in modified {
+        compositor_support_system_persist_mark_base::base::mark_world(world, false);
     }
 }
 
-/// The live toplevel icon of the window carrying `uuid` on the focused world.
-fn window_icon(state: &Loop, uuid: Uuid) -> Option<compositor_introspection_extraction_window_base::ToplevelIcon> {
+/// The world whose placeholder map holds `uuid`, if any.
+///
+/// Samples are NOT scoped to the focused world: a batch is flushed on the
+/// sampler's own cadence and can land while the user is elsewhere, and the world
+/// that owns the window is the one whose record has to move. Reading through the
+/// focus accessor — as the check here used to — silently drops those.
+///
+/// This is the precondition for [`modify_in`], which asserts rather than tolerates
+/// a missing record.
+fn owning_world(state: &Loop, uuid: Uuid) -> Option<Uuid> {
+    state.inner.worlds.ids().into_iter().find(|id| {
+        state
+            .inner
+            .worlds
+            .get(*id)
+            .storage()
+            .try_get(&compositor_y5_placeholder_system_base::base::PLACEHOLDER)
+            .is_some_and(|placeholders| placeholders.map.contains_key(&uuid))
+    })
+}
+
+/// Apply `action` to the placeholder for `uuid` in `world`.
+///
+/// Both accessors here ABORT rather than fall back: the storage slot must exist
+/// on a world that has placeholders, and `PlaceholderState::modify` aborts on a
+/// missing record. That is the intended shape — the record's existence is an
+/// invariant a caller establishes with [`owning_world`], and a silent no-op here
+/// would turn a broken invariant into data quietly going missing. The world-scoped
+/// mirror of what `placeholder_mut().modify(..)` does for the focused world.
+fn modify_in(state: &mut Loop, world: Uuid, uuid: &Uuid, action: impl FnMut(&mut Placeholder)) {
     state
         .inner
-        .space_state()
-        .state
-        .elements()
-        .find(|w| w.uuid() == Some(uuid))?
-        .toplevel_icon()
+        .worlds
+        .get_mut(world)
+        .storage_mut()
+        .get_mut(&compositor_y5_placeholder_system_base::base::PLACEHOLDER_MUT)
+        .modify(uuid, action);
+}
+
+/// The live window carrying `uuid`, searched across EVERY world for the same
+/// reason [`owning_world`] is.
+fn window_of(state: &Loop, uuid: Uuid) -> Option<Window> {
+    for id in state.inner.worlds.ids() {
+        let host = state
+            .inner
+            .worlds
+            .get(id)
+            .storage()
+            .try_get(&compositor_support_world_host_space_base::base::SPACE)?;
+        if let Some(window) = host.inner.state.elements().find(|w| w.uuid() == Some(uuid)) {
+            return Some(window.clone());
+        }
+    }
+    None
+}
+
+/// The live toplevel icon of the window carrying `uuid`, NAMED half only.
+///
+/// The pixel buffers are deliberately dropped here: a placeholder record outlives
+/// its window, and a decoded icon is client state that would then be retained —
+/// unresolvable, unpersistable and unbounded — for as long as the tile exists.
+/// A name survives all of that and re-resolves against the icon theme on demand.
+fn window_icon(state: &Loop, uuid: Uuid) -> Option<compositor_introspection_extraction_window_base::ToplevelIcon> {
+    let icon = window_of(state, uuid)?.toplevel_icon()?;
+    Some(compositor_introspection_extraction_window_base::ToplevelIcon {
+        name: icon.name,
+        pixels: None,
+    })
 }
 
 // Generally unsafe. Commited state for size takes a few frames.

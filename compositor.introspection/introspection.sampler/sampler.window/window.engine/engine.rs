@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -8,8 +8,10 @@ use compositor_introspection_extraction_window_base::{extract_hints, refresh_met
 use compositor_introspection_inference_hint_base::ApplicationData;
 use compositor_introspection_sampler_window_batch::batch::{flush, SampleBatch, SampleResult};
 use compositor_introspection_sampler_window_schedule::schedule::{
-    apply_registration, tick_interval, Entry, Registration, BATCH_CAP, QUICK_DEBOUNCE, SLOW_DEBOUNCE,
+    apply_registration, should_sample, tick_interval, Entry, Registration, BATCH_CAP, QUICK_DEBOUNCE,
+    SLOW_DEBOUNCE,
 };
+use uuid::Uuid;
 
 pub fn run(
     rx: mpsc::Receiver<Registration>,
@@ -21,15 +23,19 @@ pub fn run(
     let mut flush_deadline: Option<Instant> = None;
     let mut last_flush_time = Instant::now() - SLOW_DEBOUNCE - Duration::from_secs(1);
     let mut next_sample_time = Instant::now();
-    // How many entries an explicit `Refresh` asked for since the last pass. It
+    // How many entries an explicit immediate REQUEST was granted since the last
+    // pass — already filtered to the stale ones by `apply_registration`. It
     // widens the NEXT pass past BATCH_CAP and pulls it forward to now, so one
     // "sample every window on this world" request lands in a single batch
     // instead of trickling out over the background cadence.
     let mut forced: usize = 0;
+    // Windows worth sampling: the current world's. `None` until the first world
+    // switch says otherwise, which is when everything on screen is the one world.
+    let mut scope: Option<HashSet<Uuid>> = None;
 
     loop {
         while let Ok(reg) = rx.try_recv() {
-            forced += apply_registration(&mut queue, reg);
+            forced += apply_registration(&mut queue, &mut scope, reg);
         }
         if forced > 0 {
             next_sample_time = Instant::now();
@@ -45,7 +51,7 @@ pub fn run(
             }
             match rx.recv() {
                 Ok(reg) => {
-                    forced += apply_registration(&mut queue, reg);
+                    forced += apply_registration(&mut queue, &mut scope, reg);
                     next_sample_time = Instant::now();
                     continue;
                 }
@@ -62,7 +68,7 @@ pub fn run(
         }
         match rx.recv_timeout(next_wake.saturating_duration_since(now)) {
             Ok(reg) => {
-                forced += apply_registration(&mut queue, reg);
+                forced += apply_registration(&mut queue, &mut scope, reg);
                 if forced > 0 {
                     next_sample_time = Instant::now();
                 }
@@ -78,11 +84,25 @@ pub fn run(
             let this_pass = std::mem::take(&mut forced);
             for _ in 0..queue.len().min(BATCH_CAP.max(this_pass)) {
                 let Some(entry) = queue.pop_front() else { break };
+                // Another world's window that already has a sample: keep it queued
+                // with its captured meta so re-entering that world resumes without
+                // a fresh tree walk, but do not spend a `/proc` pass on something
+                // nothing is showing. A never-sampled one is taken regardless —
+                // see `should_sample`.
+                if !should_sample(&scope, &entry) {
+                    queue.push_back(entry);
+                    continue;
+                }
                 match refresh_meta_from_pid(entry.pid, &entry.previous_meta) {
                     Some(meta) => {
                         let hints = extract_hints(&meta, &registry);
                         let data = ApplicationData::new(meta.clone(), hints);
-                        queue.push_back(Entry { uuid: entry.uuid, pid: entry.pid, previous_meta: meta });
+                        queue.push_back(Entry {
+                            uuid: entry.uuid,
+                            pid: entry.pid,
+                            previous_meta: meta,
+                            last_sampled: Some(now),
+                        });
                         buffer.push(SampleResult { uuid: entry.uuid, data: Some(data) });
                     }
                     None => buffer.push(SampleResult { uuid: entry.uuid, data: None }),

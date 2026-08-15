@@ -445,8 +445,35 @@ impl Orchestrator {
                 );
                 self.release_world_surfaces(previous);
             }
+            // Narrow the introspection sampler to the world now in view. Its
+            // entries are process-tree walks; spending them on windows nothing is
+            // showing is pure cost, and the out-of-scope ones stay QUEUED with
+            // their captured meta so re-entering resumes without re-walking.
+            self.scope_sampler();
             self.bus.send(&WORLD_SWITCHED_TX, WorldSwitched);
         }
+    }
+
+    /// Tell the sampler which windows are worth sampling: the spawn-target
+    /// world's. No-op before the sampler exists (early startup).
+    fn scope_sampler(&self) {
+        let Some(sampler) = self
+            .kernel
+            .get(&compositor_orchestration_driver_introspection_base::base::SAMPLER)
+        else {
+            return;
+        };
+        let target = self.worlds.spawn_target();
+        let Some(host) = self
+            .worlds
+            .get(target)
+            .storage()
+            .try_get(&compositor_support_world_host_space_base::base::SPACE)
+        else {
+            return;
+        };
+        use compositor_y5_window_interface_record::window::LoopWindow;
+        sampler.set_scope(host.inner.state.elements().filter_map(|w| w.uuid()).collect());
     }
 
     /// Drop `world`'s armed edge pan, if it has a pointer slot at all (overlay
