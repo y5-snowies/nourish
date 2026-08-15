@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# Discover y5 "workspace entries": directories (depth <= 2 under the repo root, excluding
-# target/) that contain BOTH a Cargo.toml and a link.json. That pair is the repo's
-# definition of an independently linkable Cargo workspace. Nothing is hardcoded, so the
-# set tracks crate/workspace renames automatically — same philosophy as link.all.sh.
+# Discover y5 "workspace entries": the roots declared in workspace.catalog.json.
+#
+# That file is the authority for what a workspace root IS — it drives manifest
+# generation — so reading it here means CI's matrix cannot drift from the tree.
+#
+# It used to look for directories containing both a Cargo.toml and a link.json.
+# Both halves of that test are now wrong: Cargo.toml is a generated artifact and
+# is absent from a fresh checkout until `workspace.generate.js` runs, and the
+# link.json marker was already stale — four roots never had one, so CI silently
+# skipped them.
 #
 # Output (stdout):
 #   default     compact JSON array, e.g. ["compositor","compositor.loader",...]
@@ -17,15 +23,17 @@ cd "$REPO_ROOT"
 
 mode="${1:-json}"
 
-entries=()
-while IFS= read -r lj; do
-    dir="$(dirname "$lj")"
-    dir="${dir#./}"
-    [ -f "$dir/Cargo.toml" ] || continue
-    entries+=("$dir")
-done < <(find . -maxdepth 3 -name link.json -not -path '*/target/*' | sort)
+command -v node >/dev/null 2>&1 || die "node is required to read workspace.catalog.json"
 
-[ "${#entries[@]}" -gt 0 ] || die "no workspace entries found (Cargo.toml + link.json)"
+entries=()
+while IFS= read -r dir; do
+    entries+=("$dir")
+done < <(node -e '
+const jsonc = require("./compositor.workspace/jsonc.js");
+for (const r of Object.keys(jsonc.read("compositor.workspace/workspace.catalog.json").roots).sort()) console.log(r);
+')
+
+[ "${#entries[@]}" -gt 0 ] || die "no workspace entries found in workspace.catalog.json"
 
 case "$mode" in
     --lines)

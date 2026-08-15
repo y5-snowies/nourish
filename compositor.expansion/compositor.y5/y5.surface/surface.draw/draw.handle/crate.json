@@ -1,0 +1,12 @@
+{
+  "deps": [
+    "uuid",
+    "compositor_model_debug_instance_record",
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_support_iced_core_engine_base",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_support_world_order_track_base",
+    "compositor_orchestration_draw_layer_base"
+  ]
+}

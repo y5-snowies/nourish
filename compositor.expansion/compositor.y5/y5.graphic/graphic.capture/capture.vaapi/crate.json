@@ -1,0 +1,14 @@
+{
+  "deps": [
+    "smithay",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record",
+    // Settings: the `capture_encoder` field selects the hardware video backend.
+    "compositor_model_environment_config_base"
+  ],
+  "build": [
+    "bindgen",
+    "pkg-config",
+    "cc"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_driver_remote_base",
+    "compositor_remote_client_handle_base"
+  ]
+}

@@ -83,6 +83,10 @@ pub fn close(state: &mut Loop) {
     // world retirement will ever name it.
     compositor_kernel_graphic_bridge_publish_retire::retire::retire_overlay("overview");
     close_logout(state);
+    // The hover card is torn down here as well as by its own per-frame gate:
+    // `activate_world` closes through this path and then switches worlds, so the
+    // frame that would have collected it never runs against this world.
+    compositor_y5_overview_draw_hover::hover::teardown(state);
     if let Some(id) = state.inner.overview_mut().menu.take() {
         if let Some(registry) = state.inner.surface_mut().registry.as_mut() {
             registry.destroy_by_id(id);

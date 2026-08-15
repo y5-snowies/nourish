@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "smithay",
+    // Compositor dependencies (CI ensures availability in workspace)
+    "compositor_kernel_gles_element_wrap_base",
+    "compositor_y5_lock_scene_element",
+    "compositor_orchestration_draw_scene_element"
+  ]
+}

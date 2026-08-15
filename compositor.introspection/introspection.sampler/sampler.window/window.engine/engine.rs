@@ -21,10 +21,18 @@ pub fn run(
     let mut flush_deadline: Option<Instant> = None;
     let mut last_flush_time = Instant::now() - SLOW_DEBOUNCE - Duration::from_secs(1);
     let mut next_sample_time = Instant::now();
+    // How many entries an explicit `Refresh` asked for since the last pass. It
+    // widens the NEXT pass past BATCH_CAP and pulls it forward to now, so one
+    // "sample every window on this world" request lands in a single batch
+    // instead of trickling out over the background cadence.
+    let mut forced: usize = 0;
 
     loop {
         while let Ok(reg) = rx.try_recv() {
-            apply_registration(&mut queue, reg);
+            forced += apply_registration(&mut queue, reg);
+        }
+        if forced > 0 {
+            next_sample_time = Instant::now();
         }
 
         if queue.is_empty() {
@@ -37,7 +45,7 @@ pub fn run(
             }
             match rx.recv() {
                 Ok(reg) => {
-                    apply_registration(&mut queue, reg);
+                    forced += apply_registration(&mut queue, reg);
                     next_sample_time = Instant::now();
                     continue;
                 }
@@ -54,7 +62,10 @@ pub fn run(
         }
         match rx.recv_timeout(next_wake.saturating_duration_since(now)) {
             Ok(reg) => {
-                apply_registration(&mut queue, reg);
+                forced += apply_registration(&mut queue, reg);
+                if forced > 0 {
+                    next_sample_time = Instant::now();
+                }
                 continue;
             }
             Err(RecvTimeoutError::Timeout) => {}
@@ -64,7 +75,8 @@ pub fn run(
 
         if now >= next_sample_time {
             let was_empty = buffer.is_empty();
-            for _ in 0..queue.len().min(BATCH_CAP) {
+            let this_pass = std::mem::take(&mut forced);
+            for _ in 0..queue.len().min(BATCH_CAP.max(this_pass)) {
                 let Some(entry) = queue.pop_front() else { break };
                 match refresh_meta_from_pid(entry.pid, &entry.previous_meta) {
                     Some(meta) => {
@@ -81,6 +93,12 @@ pub fn run(
             if was_empty && !buffer.is_empty() && flush_deadline.is_none() {
                 let quiet = now.duration_since(last_flush_time) > SLOW_DEBOUNCE;
                 flush_deadline = Some(now + if quiet { QUICK_DEBOUNCE } else { SLOW_DEBOUNCE });
+            }
+            // A requested pass is being waited on by a UI, so it does not get the
+            // steady-state debounce: pull any pending deadline in to QUICK.
+            if this_pass > 0 && !buffer.is_empty() {
+                let soon = now + QUICK_DEBOUNCE;
+                flush_deadline = Some(flush_deadline.map_or(soon, |d| d.min(soon)));
             }
         }
 

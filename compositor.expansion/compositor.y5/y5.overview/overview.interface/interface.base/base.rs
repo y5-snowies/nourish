@@ -23,6 +23,13 @@ pub fn toggle(state: &mut Loop) {
         let overview = state.inner.overview_mut();
         overview.scroll = 0.0;
         overview.tab = tab;
+        // Cells are re-recorded by the first grid render of this opening. Drop
+        // the previous one's: the hover card resolves against them a step ahead
+        // of that render, and stale rects would place it against an old layout.
+        overview.cells.clear();
+        // Lazy refresh: the grid's hover card reads the LATEST sample, and asks
+        // here for a newer one. Nothing waits on it.
+        compositor_y5_overview_interface_sample::sample::request(state);
     }
     defer_reconcile(state);
 }

@@ -18,8 +18,10 @@ pub fn handle(
     state: &mut Loop,
 ) -> bool {
     let press = key_state == KeyState::Pressed;
-    // Super (logo), or Ctrl when running nested.
-    let modkey = if state.inner.storage.nested { modifiers.ctrl } else { modifiers.logo };
+    // Super. In a nested session Right Ctrl is substituted for it at the input
+    // (`seat.keyboard/keyboard.input::shortcut_modifiers`), so there is nothing
+    // to special-case here — and Left Ctrl stays a real Ctrl for the clients.
+    let modkey = modifiers.logo;
 
     // Super+Tab toggles the overlay from any state.
     if press && modkey && key == Some(Key::Tab) {

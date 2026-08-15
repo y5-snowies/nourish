@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_support_bevy_core_error_base",
+    "compositor_support_bevy_core_handle_base",
+    "compositor_support_bevy_core_item_base",
+    "compositor_support_bevy_core_scene_base",
+    "smithay"
+  ]
+}

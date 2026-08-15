@@ -108,6 +108,19 @@ pub enum Command {
     /// is real.
     ShowCounter(bool),
 
+    // --- Toplevel icon (xdg_toplevel_icon_v1) ---
+    /// `set_name(<name>)` only — the compositor resolves it through the icon theme.
+    IconName(String),
+    /// `add_buffer` only, one square shm buffer per edge listed (largest first
+    /// in the drawing, not on the wire). Several edges exercise the
+    /// compositor's size pick.
+    IconBuffer(Vec<i32>),
+    /// Both halves on one icon object: a name AND a 64px buffer. The case where
+    /// a consumer has to choose.
+    IconBoth(String),
+    /// `set_icon(null)` — the toplevel goes back to having no declared icon.
+    IconClear,
+
     // --- Lifecycle ---
     Map,
     Unmap,
@@ -251,6 +264,19 @@ impl Command {
             Command::ShowCounter(on) => {
                 let _ = write!(s, "showcounter {}", on8(*on));
             }
+            Command::IconName(name) => {
+                let _ = write!(s, "icon-name {name}");
+            }
+            Command::IconBuffer(edges) => {
+                s.push_str("icon-buffer");
+                for e in edges {
+                    let _ = write!(s, " {e}");
+                }
+            }
+            Command::IconBoth(name) => {
+                let _ = write!(s, "icon-both {name}");
+            }
+            Command::IconClear => s.push_str("icon-clear"),
             Command::Map => s.push_str("map"),
             Command::Unmap => s.push_str("unmap"),
             Command::MapCycle(on) => {
@@ -346,6 +372,14 @@ impl Command {
             "tearing" => Command::Tearing(parse_on(next()?)?),
             "commitrate" => Command::CommitRate(next()?.parse().ok()?),
             "showcounter" => Command::ShowCounter(parse_on(next()?)?),
+            "icon-name" => Command::IconName(next()?.to_string()),
+            "icon-buffer" => {
+                let edges: Vec<i32> =
+                    line.split_whitespace().skip(1).filter_map(|t| t.parse().ok()).collect();
+                Command::IconBuffer(if edges.is_empty() { vec![64] } else { edges })
+            }
+            "icon-both" => Command::IconBoth(next()?.to_string()),
+            "icon-clear" => Command::IconClear,
             "map" => Command::Map,
             "unmap" => Command::Unmap,
             "mapcycle" => Command::MapCycle(parse_on(next()?)?),

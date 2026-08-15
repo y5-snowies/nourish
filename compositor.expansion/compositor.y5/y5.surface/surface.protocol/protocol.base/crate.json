@@ -1,0 +1,17 @@
+{
+  "deps": [
+    "compositor_y5_group_protocol_base",
+    "compositor_y5_lock_interface_surface",
+    "compositor_y5_picker_surface_view",
+    "compositor_y5_guide_menu_view",
+    "compositor_y5_guide_shader_view",
+    "compositor_y5_touch_pane_view",
+    "compositor_y5_osk_board_view",
+    "compositor_y5_overview_state_base",
+    "compositor_configurator_settings_surface_message",
+    "compositor_y5_placeholder_protocol_base",
+    "compositor_y5_launcher_protocol_message",
+    "compositor_y5_graphic_capture_session",
+    "compositor_monitor_selection_scene_base"
+  ]
+}

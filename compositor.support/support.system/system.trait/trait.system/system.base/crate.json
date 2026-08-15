@@ -1,0 +1,13 @@
+{
+  "deps": [
+    "compositor_support_system_trait_cx_base",
+    "compositor_support_system_channel_token_base",
+    "compositor_support_system_input_bus_base",
+    "compositor_support_system_input_event_base",
+    "compositor_support_system_input_layer_base",
+    "compositor_support_system_persist_entry_base",
+    "compositor_support_system_persist_document_entry",
+    "compositor_support_system_storage_slot_base",
+    "compositor_support_system_world_frame_base"
+  ]
+}

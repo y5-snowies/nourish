@@ -1,0 +1,439 @@
+{
+  "presets": {
+    "bevy": {
+      "full": {
+        "default-features": false,
+        "features": [
+          "bevy_animation",
+          "bevy_anti_alias",
+          "bevy_asset",
+          "bevy_camera",
+          "bevy_color",
+          "bevy_core_pipeline",
+          "bevy_gltf",
+          "bevy_image",
+          "bevy_light",
+          "bevy_log",
+          "bevy_mesh",
+          "bevy_pbr",
+          "bevy_post_process",
+          "bevy_render",
+          "bevy_scene",
+          "bevy_shader",
+          "bevy_state",
+          "debug",
+          "file_watcher",
+          "gltf_animation",
+          "hdr",
+          "ktx2",
+          "morph",
+          "morph_animation",
+          "multi_threaded",
+          "png",
+          "scene",
+          "smaa_luts",
+          "std",
+          "tonemapping_luts",
+          "zstd_rust"
+        ]
+      },
+      "lean": {
+        "default-features": false,
+        "features": [
+          "bevy_asset",
+          "bevy_camera",
+          "bevy_color",
+          "bevy_core_pipeline",
+          "bevy_image",
+          "bevy_light",
+          "bevy_log",
+          "bevy_mesh",
+          "bevy_pbr",
+          "bevy_render",
+          "bevy_scene",
+          "bevy_shader",
+          "debug",
+          "multi_threaded",
+          "png",
+          "std",
+          "tonemapping_luts",
+          "zstd_rust"
+        ]
+      }
+    },
+    "naga": {
+      "full": {
+        "features": [
+          "glsl-in",
+          "spv-out",
+          "wgsl-in",
+          "wgsl-out"
+        ]
+      },
+      "wgsl": {
+        "features": [
+          "wgsl-in"
+        ]
+      },
+      "spirv": {
+        "features": [
+          "spv-out",
+          "wgsl-in"
+        ]
+      }
+    },
+    "smithay": {
+      "compositor": {
+        "default-features": false,
+        "features": [
+          "backend_drm",
+          "backend_egl",
+          "backend_gbm",
+          "backend_libinput",
+          "backend_session_libseat",
+          "backend_udev",
+          "backend_vulkan",
+          "backend_winit",
+          "desktop",
+          "drm",
+          "gbm",
+          "renderer_gl",
+          "renderer_multi",
+          "renderer_pixman",
+          "use_system_lib",
+          "wayland-egl",
+          "wayland_frontend"
+        ]
+      },
+      "hardware": {
+        "default-features": false,
+        "features": [
+          "backend_drm",
+          "backend_egl",
+          "backend_gbm",
+          "backend_libinput",
+          "backend_session_libseat",
+          "backend_udev",
+          "backend_vulkan",
+          "backend_winit",
+          "desktop",
+          "drm",
+          "gbm",
+          "renderer_gl",
+          "renderer_multi",
+          "use_system_lib",
+          "wayland-egl",
+          "wayland_frontend"
+        ]
+      },
+      "desktop": {
+        "default-features": false,
+        "features": [
+          "desktop",
+          "wayland_frontend"
+        ]
+      }
+    },
+    "tokio-stream": {
+      "net": {
+        "features": [
+          "net"
+        ]
+      },
+      "net-sync": {
+        "features": [
+          "net",
+          "sync"
+        ]
+      }
+    },
+    "uuid": {
+      "v7": {
+        "features": [
+          "v7"
+        ]
+      },
+      "fast-rng-v7": {
+        "features": [
+          "fast-rng",
+          "v7"
+        ]
+      },
+      "serde-v7": {
+        "features": [
+          "serde",
+          "v7"
+        ]
+      }
+    }
+  },
+  "crates": {
+    "ash": {
+      "version": "=0.38.0+1.3.281"
+    },
+    "bevy": {
+      "path": "vendor/bevy",
+      "version": "0.19.0-dev",
+      "preset": "full"
+    },
+    "bindgen": {
+      "version": "=0.71.1"
+    },
+    "bitflags": {
+      "version": "=2.13.1"
+    },
+    "cc": {
+      "version": "=1.4.3"
+    },
+    "crossbeam-channel": {
+      "version": "=0.5.16"
+    },
+    "drm-ffi": {
+      "version": "=0.9.1"
+    },
+    "gbm": {
+      "version": "=0.18.0"
+    },
+    "hyper-util": {
+      "version": "=0.1.20"
+    },
+    "iced_core": {
+      "path": "vendor/iced/core",
+      "version": "0.15.0-dev"
+    },
+    "iced_graphics": {
+      "path": "vendor/iced/graphics",
+      "version": "0.15.0-dev"
+    },
+    "iced_runtime": {
+      "path": "vendor/iced/runtime",
+      "version": "0.15.0-dev"
+    },
+    "iced_wgpu": {
+      "path": "vendor/iced/wgpu",
+      "version": "0.15.0-dev"
+    },
+    "iced_widget": {
+      "path": "vendor/iced/widget",
+      "version": "0.15.0-dev",
+      "features": [
+        "advanced",
+        "image",
+        "svg",
+        "wgpu"
+      ]
+    },
+    "image": {
+      "version": "=0.25.10",
+      "default-features": false,
+      "features": [
+        "png"
+      ]
+    },
+    "libc": {
+      "version": "=0.2.189"
+    },
+    "libpulse-binding": {
+      "version": "=2.30.1"
+    },
+    "mpris": {
+      "version": "=2.1.0"
+    },
+    "naga": {
+      "path": "vendor/wgpu/naga",
+      "preset": "full"
+    },
+    "naga_oil": {
+      "path": "vendor/naga_oil",
+      "default-features": false
+    },
+    "pam-client": {
+      "version": "=0.5.0"
+    },
+    "pkg-config": {
+      "version": "=0.3.34"
+    },
+    "pollster": {
+      "version": "=0.3.0"
+    },
+    "prost": {
+      "version": "=0.14.4"
+    },
+    "serde": {
+      "version": "=1.0.229",
+      "features": [
+        "derive"
+      ]
+    },
+    "serde_json": {
+      "version": "=1.0.151"
+    },
+    "smithay": {
+      "path": "vendor/smithay",
+      "version": "0.7.0",
+      "preset": "compositor"
+    },
+    "thiserror": {
+      "version": "=2.0.20"
+    },
+    "tokio": {
+      "version": "=1.53.1",
+      "features": [
+        "macros",
+        "net",
+        "rt-multi-thread",
+        "sync"
+      ]
+    },
+    "tokio-stream": {
+      "version": "=0.1.19",
+      "preset": "net"
+    },
+    "tonic": {
+      "version": "=0.14.6"
+    },
+    "tonic-prost": {
+      "version": "=0.14.6"
+    },
+    "tonic-prost-build": {
+      "version": "=0.14.6"
+    },
+    "tower": {
+      "version": "=0.5.3",
+      "features": [
+        "util"
+      ]
+    },
+    "tracing-subscriber": {
+      "version": "=0.3.23",
+      "features": [
+        "env-filter"
+      ]
+    },
+    "uuid": {
+      "version": "=1.24.1",
+      "preset": "v7"
+    },
+    "wayland-client": {
+      "version": "=0.31.15"
+    },
+    "wayland-scanner": {
+      "version": "=0.31.11"
+    },
+    "wayland-server": {
+      "version": "=0.31.14"
+    },
+    "wgpu": {
+      "path": "vendor/wgpu/wgpu",
+      "version": "29.0.0",
+      "features": [
+        "gles",
+        "vulkan"
+      ]
+    },
+    "xcursor": {
+      "version": "=0.3.11"
+    },
+    "zbus": {
+      "version": "=5.19.0",
+      "default-features": false,
+      "features": [
+        "blocking-api",
+        "tokio"
+      ]
+    }
+  },
+  "workspace": {
+    "compositor.expansion/compositor.y5": {
+      "bevy": {
+        "preset": "lean"
+      }
+    },
+    "compositor.extension/compositor.configurator": {
+      "naga": {
+        "preset": "wgsl"
+      }
+    },
+    "compositor.kernel/kernel.vulkan": {
+      "naga": {
+        "preset": "spirv"
+      }
+    },
+    "compositor.kernel": {
+      "smithay": {
+        "preset": "hardware"
+      }
+    },
+    "compositor.kernel/kernel.execution": {
+      "smithay": {
+        "preset": "compositor"
+      }
+    },
+    "compositor.kernel/kernel.loader": {
+      "smithay": {
+        "preset": "compositor"
+      }
+    },
+    "compositor.support/support.action": {
+      "smithay": {
+        "preset": "desktop"
+      },
+      "uuid": {
+        "preset": "fast-rng-v7"
+      }
+    },
+    "compositor.support/support.world": {
+      "smithay": {
+        "preset": "desktop"
+      },
+      "uuid": {
+        "preset": "fast-rng-v7"
+      }
+    },
+    "compositor.model": {
+      "tokio-stream": {
+        "preset": "net-sync"
+      }
+    },
+    "compositor.support/support.system": {
+      "uuid": {
+        "preset": "serde-v7"
+      }
+    }
+  },
+  "patch": {
+    "input": {
+      "path": "vendor/input",
+      "roots": [
+        "compositor.kernel/kernel.loader"
+      ]
+    },
+    "pam-sys": {
+      "path": "vendor/pam-sys",
+      "roots": [
+        "compositor.expansion/compositor.background",
+        "compositor.expansion/compositor.pipeline",
+        "compositor.expansion/compositor.remote",
+        "compositor.expansion/compositor.y5",
+        "compositor.extension/compositor.configurator",
+        "compositor.extension/compositor.monitor",
+        "compositor.introspection",
+        "compositor.kernel/kernel.drm",
+        "compositor.kernel/kernel.execution",
+        "compositor.kernel/kernel.gles",
+        "compositor.kernel/kernel.gpu",
+        "compositor.kernel/kernel.graphic",
+        "compositor.kernel/kernel.input",
+        "compositor.kernel/kernel.loader",
+        "compositor.kernel/kernel.native",
+        "compositor.kernel/kernel.scanout",
+        "compositor.kernel/kernel.seat",
+        "compositor.kernel/kernel.udev",
+        "compositor.kernel/kernel.vulkan",
+        "compositor.kernel/kernel.winit",
+        "compositor.orchestration",
+        "compositor.support/support.library"
+      ]
+    }
+  }
+}

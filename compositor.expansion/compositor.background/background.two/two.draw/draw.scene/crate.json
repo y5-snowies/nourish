@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_background_three_system_base",
+    "compositor_background_two_storage_base",
+    "compositor_background_two_draw_element",
+    "compositor_orchestration_core_state_base"
+  ]
+}

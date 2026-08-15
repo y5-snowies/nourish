@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "iced_core",
+    "iced_widget",
+    "compositor_configurator_settings_surface_style",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

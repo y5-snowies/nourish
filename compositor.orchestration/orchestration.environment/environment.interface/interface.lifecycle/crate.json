@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_support_library_process_child_hygiene",
+    "compositor_model_debug_instance_record"
+  ]
+}

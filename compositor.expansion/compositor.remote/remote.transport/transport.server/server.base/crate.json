@@ -1,0 +1,13 @@
+{
+  "deps": [
+    "compositor_orchestration_driver_remote_base",
+    "compositor_model_debug_instance_record",
+    "smithay",
+    "tonic",
+    "tokio",
+    "tokio-stream",
+    "compositor_remote_message_client_base",
+    "compositor_remote_message_server_base",
+    "compositor_orchestration_core_state_base"
+  ]
+}

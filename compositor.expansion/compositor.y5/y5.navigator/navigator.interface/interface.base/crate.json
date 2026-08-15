@@ -1,0 +1,18 @@
+{
+  "deps": [
+    "compositor_support_action_camera_fit_aspect",
+    "compositor_model_debug_instance_record",
+    "compositor_y5_lock_state_transition",
+    "compositor_y5_navigator_lock_state",
+    "compositor_y5_window_lifecycle_interface",
+    "compositor_support_action_camera_fit_element",
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_navigator_state_base",
+    "compositor_y5_navigator_travel_state",
+    "compositor_y5_navigator_travel_machine",
+    "compositor_support_action_camera_find_base",
+    "compositor_support_action_camera_find_origin",
+    "compositor_support_action_camera_find_window"
+  ]
+}

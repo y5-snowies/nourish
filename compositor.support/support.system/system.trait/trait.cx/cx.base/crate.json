@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_support_system_persist_mark_base",
+    "compositor_support_system_buffer_token_base",
+    "compositor_support_system_channel_router_base",
+    "compositor_support_system_channel_token_base",
+    "compositor_support_system_storage_slot_base",
+    "uuid"
+  ]
+}

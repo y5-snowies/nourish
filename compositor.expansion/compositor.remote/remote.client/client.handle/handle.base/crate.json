@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_orchestration_core_state_base",
+    "compositor_remote_client_handle_aspect",
+    "compositor_remote_client_handle_debug",
+    "compositor_remote_client_handle_shader",
+    "compositor_remote_client_handle_navigator",
+    "compositor_remote_client_handle_selection",
+    "compositor_remote_message_client_base"
+  ]
+}

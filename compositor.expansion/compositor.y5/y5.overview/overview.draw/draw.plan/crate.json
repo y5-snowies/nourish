@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_overview_state_base",
+    "compositor_y5_overview_draw_grid",
+    "compositor_y5_window_interface_record",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

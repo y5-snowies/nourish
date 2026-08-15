@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_background_two_worker_base",
+    "compositor_model_debug_instance_record"
+  ]
+}

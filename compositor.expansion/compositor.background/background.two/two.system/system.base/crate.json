@@ -1,0 +1,17 @@
+{
+  "deps": [
+    "compositor_background_three_system_base",
+    "compositor_orchestration_draw_platform_base",
+    "compositor_orchestration_smithay_data_base",
+    "compositor_y5_camera_system_base",
+    "compositor_support_system_buffer_token_base",
+    "compositor_support_system_world_frame_base",
+    "compositor_support_system_trait_system_base",
+    "compositor_background_two_state_base",
+    "compositor_background_two_storage_base",
+    "compositor_background_two_draw_element",
+    "compositor_model_stats_registry_base",
+    "compositor_support_system_persist_entry_base",
+    "smithay"
+  ]
+}

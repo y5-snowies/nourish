@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_introspection_extraction_window_base",
+    "compositor_introspection_launchplan_plan_base",
+    "compositor_introspection_launchplan_plan_query"
+  ]
+}

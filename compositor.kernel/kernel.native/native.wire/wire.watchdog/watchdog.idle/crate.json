@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "compositor_model_stats_registry_base",
+    "compositor_orchestration_core_state_base",
+    "smithay"
+  ]
+}

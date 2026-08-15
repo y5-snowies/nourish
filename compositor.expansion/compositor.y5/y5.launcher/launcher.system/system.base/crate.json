@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_support_system_storage_token_base",
+    "compositor_support_system_trait_system_base",
+    "compositor_y5_launcher_draw_state"
+  ]
+}

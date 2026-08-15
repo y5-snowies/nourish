@@ -4,7 +4,7 @@
 # so you can pre-check the distro (libs, GPU, `ldd /usr/local/bin/y5_compositor`, `vulkaninfo`,
 # ...); type `exec.sh` to write settings + start the compositor.
 #
-# Usage: ./run.sh <distro> [debug|release]   (default profile: debug)
+# Usage: ./run.sh <distro>            (always the devloop image)
 #
 # Differs from ../run.sh on purpose:
 #   * no --network flag (removed)
@@ -16,14 +16,18 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 . "$HERE/common.sh"
 
-DISTRO="${1:?usage: run.sh <distro> [debug|release]  (have: $(distro_list | tr '\n' ' ')) }"
-PROFILE="${2:-debug}"
+DISTRO="${1:?usage: run.sh <distro>  (have: $(distro_list | tr '\n' ' ')) }"
+# Dev-loop entry point: it can only ever build the nested winit image, so it names
+# that mode explicitly rather than defaulting to it. Release bundles come from
+# `image.sh <distro> bundle`, never from here.
+MODE=devloop
+
 distro_validate "$DISTRO"
 
-IMAGE="$(distro_image "$DISTRO" "$PROFILE")"
+IMAGE="$(distro_image "$DISTRO" "$MODE")"
 NAME="$(distro_container "$DISTRO")"
 
-podman image exists "$IMAGE" || "$HERE/image.sh" "$DISTRO" "$PROFILE"
+podman image exists "$IMAGE" || "$HERE/image.sh" "$DISTRO" "$MODE"
 
 podman rm -f -t 0 "$NAME" 2>/dev/null || true
 
@@ -47,7 +51,7 @@ cdi_preflight
 # Honor a host-set log level; default to the usual dev verbosity otherwise.
 LOG_LEVEL="${COMPOSITOR_LOG_LEVEL:-info,warn,error,trace}"
 
-echo ">> shell on $DISTRO ($PROFILE), nested under $WAYLAND_DISPLAY." >&2
+echo ">> shell on $DISTRO (devloop), nested under $WAYLAND_DISPLAY." >&2
 echo "   compositor: /usr/local/bin/y5_compositor — run 'exec.sh' to write settings + launch it." >&2
 echo "   ('exit' or Ctrl-D leaves the shell and removes the container.)" >&2
 # Mounts:

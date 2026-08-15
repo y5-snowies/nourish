@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_orchestration_seat_pointer_publish",
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_canvas_draw_context",
+    "compositor_background_two_storage_base"
+  ]
+}

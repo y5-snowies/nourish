@@ -1,6 +1,35 @@
 //! `Transform`: a coordinate carrier with implicit conversion to and
 //! from every smithay shape.
 //!
+//! ## The three spaces
+//!
+//! y5 moves values between three spaces. Nothing in the type system
+//! separates two of them, which is the whole reason this file exists:
+//!
+//! - **Physical** — framebuffer / DRM scanout pixels. Top-left is
+//!   `(0, 0)`, bottom-right is the panel's mode size (e.g. 5120x1440).
+//!   Smithay's `Physical`. The cursor accumulator and the cursor
+//!   sprite live here.
+//!
+//! - **Screen** — logical pixels: `physical / scale` (e.g. ~2926x823
+//!   at fractional scale 1.75 on a 5120x1440 panel). What Wayland
+//!   clients see. Smithay's `Logical`.
+//!
+//! - **y5-world** — the pannable, zoomable canvas windows live on.
+//!   **Centre-anchored**: `(0, 0)` is the centre of the panel, not a
+//!   corner. This is also what smithay's `Space` stores and what
+//!   `PointerHandle::current_location()` returns.
+//!
+//! The trap: **World is ALSO typed `Logical`**. A `Point<f64, Logical>`
+//! may be screen-logical or y5-world and the compiler cannot tell you
+//! which. Getting it wrong shifts a value by `camera_pos * zoom +
+//! half_screen`, which reads as "the cursor stops at half the screen"
+//! or "the window renders 200px off" rather than as a type error.
+//!
+//! Position and size convert differently: a position is anchored
+//! (camera offset, zoom, and the centre re-anchor all apply), a size is
+//! a delta (zoom only — no pan, no anchor).
+//!
 //! ## What this does
 //!
 //! Stores a `(position, size)` pair in **y5-world** (logical units,

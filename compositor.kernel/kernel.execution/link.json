@@ -1,7 +1,0 @@
-[
-  "../../compositor.model",
-  "../../compositor.introspection",
-  "../../compositor.orchestration",
-  "../../compositor.support/support.system",
-  "../../compositor.support/support.smithay"
-]

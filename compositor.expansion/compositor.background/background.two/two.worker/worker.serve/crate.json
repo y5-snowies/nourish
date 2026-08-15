@@ -1,0 +1,32 @@
+{
+  "deps": [
+    "compositor_pipeline_abi_seam_base",
+    "compositor_pipeline_build_seam_base",
+    "compositor_pipeline_execute_graph_base",
+    "compositor_background_two_worker_chain",
+    "compositor_background_two_worker_import",
+    "compositor_pipeline_build_place_base",
+    "compositor_pipeline_bundle_require_base",
+    "ash",
+    "compositor_background_two_worker_format",
+    "compositor_kernel_graphic_bridge_publish_thread",
+    "compositor_background_two_draw_select",
+    "compositor_background_two_draw_vulkan",
+    "compositor_background_two_worker_ensure",
+    "compositor_background_two_worker_pace",
+    "compositor_model_environment_background_base",
+    "compositor_kernel_graphic_bridge_publish_attempt",
+    "compositor_background_two_worker_key",
+    "compositor_kernel_graphic_bridge_publish_retire",
+    "compositor_background_two_worker_buffers",
+    "compositor_background_two_worker_device",
+    "compositor_background_two_worker_pane",
+    "compositor_background_two_worker_pipeline",
+    "compositor_background_two_worker_render",
+    "compositor_background_two_worker_signal",
+    "compositor_background_two_worker_target",
+    "compositor_model_debug_instance_record",
+    "compositor_background_two_worker_history",
+    "compositor_pipeline_abi_clock_base"
+  ]
+}

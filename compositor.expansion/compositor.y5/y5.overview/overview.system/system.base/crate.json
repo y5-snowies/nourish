@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_support_system_buffer_token_base",
+    "compositor_y5_surface_system_base",
+    "compositor_support_system_trait_system_base",
+    "compositor_y5_overview_state_base",
+    "compositor_orchestration_driver_settings_base",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

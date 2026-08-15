@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_guide_interface_base",
+    "compositor_y5_guide_menu_view",
+    "compositor_y5_overview_interface_base",
+    "compositor_y5_overview_state_base"
+  ]
+}

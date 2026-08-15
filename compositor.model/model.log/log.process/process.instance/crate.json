@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "compositor_model_log_process_instance_bind",
+    "compositor_model_log_process_instance_drain",
+    "compositor_model_log_process_instance_serve",
+    "compositor_model_log_process_instance_shared",
+    "crossbeam-channel",
+    "tokio"
+  ]
+}

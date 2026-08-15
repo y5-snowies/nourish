@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_configurator_settings_surface_message",
+    "iced_core",
+    "iced_widget",
+    "iced_wgpu",
+    "naga"
+  ]
+}

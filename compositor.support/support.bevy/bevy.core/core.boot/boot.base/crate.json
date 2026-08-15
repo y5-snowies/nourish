@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "bevy",
+    "compositor_support_bevy_core_bridge_base",
+    "compositor_support_bevy_core_install_base",
+    "compositor_support_bevy_core_placeholder_base",
+    "compositor_support_bevy_core_scene_base",
+    "compositor_support_bevy_core_shared_base",
+    "wgpu"
+  ]
+}

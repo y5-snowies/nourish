@@ -1,0 +1,12 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "compositor_support_bevy_core_bridge_base",
+    "compositor_support_bevy_core_placeholder_base",
+    "compositor_y5_picker_three_state",
+    "compositor_y5_picker_three_spawn",
+    "compositor_y5_picker_three_apply",
+    "bevy",
+    "wgpu"
+  ]
+}

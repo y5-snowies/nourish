@@ -1,0 +1,16 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    // Live, inline-reloaded user preferences (cursor speed, touch natural-scroll,
+    // per-EDID output modes), persisted to ~/.config/y5.compositor/preferences.json.
+    // Distinct from the read-once `environment.config` (settings.json); reuses that
+    // crate ONLY for the shared config-dir path resolver. serde for (de)serialize.
+    "compositor_model_environment_config_base",
+    "compositor_model_environment_graphics_base",
+    "compositor_model_environment_tearing_config",
+    "compositor_model_environment_background_base",
+    "compositor_model_environment_interface_base",
+    "serde",
+    "serde_json"
+  ]
+}

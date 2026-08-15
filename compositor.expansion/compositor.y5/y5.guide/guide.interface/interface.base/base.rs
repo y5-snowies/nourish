@@ -44,13 +44,64 @@ pub fn open_shader(state: &mut Loop) {
 /// be left up while the desktop it edits is used, so dismissing it on the next
 /// keystroke would take it away in the middle of the job it exists for — whereas
 /// the menu and the help panel are things you look at once and move on from.
+///
+/// A key another compositor surface owns is not "the user doing something else"
+/// — it is not the guide's key at all. See [`claimed`].
 pub fn on_key(state: &mut Loop, sym: u32) {
+    if claimed(state) {
+        return;
+    }
     if sym == smithay::input::keyboard::keysyms::KEY_Escape {
         state.inner.guide_mut().shader_open = false;
     }
     if showing(state) {
         close(state);
     }
+}
+
+/// Whether a compositor surface ABOVE the guide has already claimed this key.
+///
+/// The rim calls [`on_key`] BEFORE the keyboard routing decides anything, and
+/// that is deliberate: the shader editor is modeless, so Escape has to close it
+/// even while a Wayland client holds the keyboard and will receive the same key.
+/// The price is that the ownership test nothing else has made yet has to be made
+/// here, or every modal's Escape closes the editor as a side effect — open the
+/// launcher over the editor, press Escape to dismiss the launcher, and the editor
+/// goes with it.
+///
+/// Three claimants:
+///
+/// * the overview and the lock, which bind Escape and replace the screen the
+///   guide is drawn on ([`summonable`] is the same test the menu is summoned by).
+/// * the launcher, whenever it is OPEN. It re-takes the iced keyboard on every
+///   key (`launcher.input::keyboard_received`), so being open — not whatever the
+///   last click happened to focus — is what makes the key its. Tested separately
+///   for that reason: a mouse press on bare canvas clears the iced focus without
+///   dismissing the launcher (only touch and the pen dismiss it), which is
+///   exactly the press that summons this menu, so the focus test below would
+///   miss the one sequence that puts the two on screen together.
+/// * any other compositor iced surface holding the keyboard — the settings
+///   window, a group rename, the capture bar. Escape is that surface's own
+///   cancel and it is drawn on top. The guide's OWN surfaces do not count, which
+///   is how Escape still closes the editor once it has been clicked into.
+///
+/// A press on bare canvas clears the iced focus, so the case this exists for —
+/// the editor up while the desktop it edits is used — is claimed by nothing and
+/// the key arrives as before.
+fn claimed(state: &Loop) -> bool {
+    if !summonable(state) || state.inner.launcher().handle.is_some() {
+        return true;
+    }
+    let guide = state.inner.guide();
+    state
+        .inner
+        .surface()
+        .registry
+        .as_ref()
+        .and_then(|registry| registry.keyboard_focus())
+        .is_some_and(|id| {
+            Some(id) != guide.menu && Some(id) != guide.help && Some(id) != guide.shader
+        })
 }
 
 /// A pointer press. Returns true when the press was consumed (it summoned the

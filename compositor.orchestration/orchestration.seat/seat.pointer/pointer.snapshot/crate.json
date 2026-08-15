@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_orchestration_driver_output_base"
+  ]
+}

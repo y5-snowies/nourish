@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "smithay",
+    "compositor_orchestration_seat_pointer_texture"
+  ]
+}

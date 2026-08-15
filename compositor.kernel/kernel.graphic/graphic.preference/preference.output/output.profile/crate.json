@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    // Source of the per-monitor profiles: the live preferences document
+    // (preferences.json) authored by the settings window and `y5.compositor.settings`.
+    "compositor_model_environment_preference_base"
+  ]
+}

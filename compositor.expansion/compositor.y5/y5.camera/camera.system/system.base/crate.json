@@ -1,0 +1,23 @@
+{
+  "deps": [
+    "compositor_y5_navigator_state_base",
+    "compositor_support_system_persist_document_entry",
+    "compositor_y5_viewport_persist_doc",
+    "compositor_support_system_world_frame_base",
+    "compositor_support_system_channel_token_base",
+    "compositor_support_system_buffer_token_base",
+    "compositor_support_system_trait_system_base",
+    "compositor_support_system_input_event_base",
+    "compositor_support_system_input_layer_base",
+    "compositor_support_system_storage_slot_base",
+    "compositor_y5_viewport_state_base",
+    "compositor_y5_canvas_system_base",
+    "compositor_y5_canvas_input_state",
+    "compositor_y5_group_state_base",
+    "compositor_y5_surface_interface_core",
+    "compositor_y5_window_interface_record",
+    "compositor_orchestration_draw_layer_base",
+    "compositor_model_stats_registry_base",
+    "smithay"
+  ]
+}

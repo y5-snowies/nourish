@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_support_smithay_dispatch_wire_color",
+    "smithay"
+  ]
+}

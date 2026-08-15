@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_support_bevy_core_fault_base",
+    "compositor_support_bevy_core_handle_base",
+    "thiserror"
+  ]
+}

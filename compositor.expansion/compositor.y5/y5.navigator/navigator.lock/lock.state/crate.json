@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_y5_navigator_travel_state",
+    "compositor_y5_camera_transform_state"
+  ]
+}

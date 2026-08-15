@@ -41,7 +41,7 @@ pub fn input_received(
     // Build the vector manually using standard Rust struct initialization.
     // We only use the single `shortcut!` macro to generate the KeyCombo.
     let handlers: Vec<ShortcutHandler<Loop>> =
-        inline_shortcut_handlers(state.inner.storage.nested, &state.inner.keybinding);
+        inline_shortcut_handlers(&state.inner.keybinding);
 
     // Iterate through the vector (Top to Bottom priority)
     for handler in handlers {
@@ -336,8 +336,8 @@ fn bindings() -> Vec<Bind> {
 }
 
 /// Build the live handlers with keybinding.json overrides (parse-or-default;
-/// empty override = disabled) and the nested-mode Super→Ctrl remap.
-pub fn inline_shortcut_handlers(nosuper: bool, overrides: &KeyBindings) -> Vec<ShortcutHandler<Loop>> {
+/// empty override = disabled).
+pub fn inline_shortcut_handlers(overrides: &KeyBindings) -> Vec<ShortcutHandler<Loop>> {
     let mut handlers: Vec<ShortcutHandler<Loop>> = bindings()
         .into_iter()
         .filter_map(|b| match overrides.combo_for(b.id) {
@@ -346,14 +346,11 @@ pub fn inline_shortcut_handlers(nosuper: bool, overrides: &KeyBindings) -> Vec<S
             None => Some(ShortcutHandler { combo: b.default, action: b.action }),
         })
         .collect();
-    if nosuper {
-        for w in &mut handlers {
-            if w.combo.modifiers.logo {
-                w.combo.modifiers.logo = false;
-                w.combo.modifiers.ctrl = true;
-            }
-        }
-    }
+    // No nested remap here. Right Ctrl is substituted for Super at the INPUT
+    // (`seat.keyboard/keyboard.input::shortcut_modifiers`), so a Super binding
+    // already matches in a nested session and a Ctrl binding still means Ctrl.
+    // Rewriting `logo` into `ctrl` here is what used to make those two
+    // indistinguishable.
     handlers
 }
 

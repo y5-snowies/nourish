@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_support_system_storage_slot_base",
+    "compositor_support_system_persist_document_entry",
+    "compositor_support_system_persist_store_base",
+    "compositor_support_system_persist_path_base",
+    "compositor_model_debug_instance_record",
+    "uuid"
+  ]
+}

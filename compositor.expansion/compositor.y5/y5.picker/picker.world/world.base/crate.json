@@ -1,0 +1,28 @@
+{
+  "deps": [
+    "compositor_pipeline_world_system_base",
+    "compositor_support_system_persist_mark_base",
+    "compositor_model_debug_instance_record",
+    "compositor_orchestration_core_state_base",
+    "compositor_support_system_trait_system_base",
+    "compositor_support_world_kind_build_base",
+    "compositor_y5_picker_system_base",
+    "compositor_y5_picker_interface_base",
+    "compositor_y5_navigator_system_base",
+    "compositor_y5_camera_system_base",
+    "compositor_background_two_system_base",
+    "compositor_y5_window_system_base",
+    "compositor_y5_surface_system_base",
+    "compositor_y5_canvas_system_base",
+    "compositor_orchestration_seat_system_pointer",
+    "compositor_y5_placeholder_system_base",
+    "compositor_y5_launcher_system_base",
+    "compositor_y5_select_system_base",
+    "compositor_y5_select_overlay_system",
+    "compositor_y5_group_system_base",
+    "compositor_y5_guide_system_base",
+    "compositor_y5_overview_system_base",
+    "smithay",
+    "uuid"
+  ]
+}

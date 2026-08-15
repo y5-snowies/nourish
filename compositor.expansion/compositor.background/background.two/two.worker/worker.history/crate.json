@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "ash",
+    "compositor_pipeline_execute_effect_base",
+    "compositor_kernel_vulkan_pipeline_composite_base",
+    "compositor_pipeline_execute_offscreen_base",
+    "compositor_background_two_worker_device"
+  ]
+}

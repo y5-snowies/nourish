@@ -1,0 +1,17 @@
+{
+  "deps": [
+    "compositor_monitor_compositor_iced_base",
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_draw_layer_base",
+    "compositor_monitor_selection_font_base",
+    "compositor_y5_surface_draw_handle",
+    "compositor_y5_surface_protocol_base",
+    "compositor_y5_osk_board_view",
+    "compositor_y5_osk_board_state",
+    "compositor_y5_navigator_state_base",
+    "compositor_y5_navigator_travel_state",
+    "compositor_support_world_order_track_base",
+    "smithay",
+    "uuid"
+  ]
+}

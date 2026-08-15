@@ -33,12 +33,17 @@ case "$TARGET" in
     *) echo "unknown target '$TARGET' (expected appimage|rpm|deb|all|none)" >&2; exit 1 ;;
 esac
 
+# Where cargo (and so tauri) actually wrote it: `.cargo/config.toml` pins one target
+# dir for the whole repo, so this is NOT src-tauri/target/ any more.
+OUT="$( cd src-tauri && cargo metadata --no-deps --format-version 1 \
+          | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p' )/release"
+
 echo
-echo "Done. Artifacts under src-tauri/target/release/"
+echo "Done. Artifacts under $OUT"
 if [ "$TARGET" = "none" ]; then
-    echo "  bare binary: src-tauri/target/release/compositor-developer-tool"
+    echo "  bare binary: $OUT/compositor-developer-tool"
 else
-    find src-tauri/target/release/bundle -maxdepth 2 -type f \
+    find "$OUT/bundle" -maxdepth 2 -type f \
         \( -name '*.AppImage' -o -name '*.rpm' -o -name '*.deb' \) 2>/dev/null \
         | sed 's/^/  /' || true
 fi

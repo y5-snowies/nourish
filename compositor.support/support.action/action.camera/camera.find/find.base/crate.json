@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "compositor_support_action_camera_find_flags",
+    "compositor_support_action_camera_find_angle",
+    "compositor_support_action_camera_find_direction",
+    "compositor_support_action_camera_find_window",
+    "compositor_support_action_camera_find_passes",
+    "compositor_support_action_camera_find_run"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_seat_gesture_touch",
+    "compositor_y5_touch_pane_view",
+    "compositor_y5_overview_interface_base",
+    "compositor_y5_picker_interface_entry",
+    "compositor_y5_osk_board_state",
+    "compositor_y5_launcher_interface_base"
+  ]
+}

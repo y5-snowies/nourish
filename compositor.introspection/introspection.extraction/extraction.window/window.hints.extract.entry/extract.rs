@@ -1,12 +1,12 @@
 use compositor_introspection_extraction_window_desktop_search::desktop::find_by_app_id;
 use compositor_introspection_extraction_window_hints_attributes_identity::attributes::{
-    DBusActivatable, DesktopEntryPath, DisplayName, IconName, IconPath,
+    DBusActivatable, DesktopEntryPath, DisplayName, IconName, IconPath, XdgIconName, XdgIconPixels,
 };
 use compositor_introspection_extraction_window_hints_attributes_identity_more::attributes::{AppId, Title};
 use compositor_introspection_extraction_window_hints_attributes_launch::attributes::EnvOverlay;
 use compositor_introspection_extraction_window_hints_inferred::inferred::InferredHints;
 use compositor_introspection_extraction_window_hints_source::source::{Confidence, SourceMethod};
-use compositor_introspection_extraction_window_hints_values::values::EnvPair;
+use compositor_introspection_extraction_window_hints_values::values::{EnvPair, ToplevelIcon};
 use compositor_introspection_extraction_window_icon::icon::resolve as resolve_icon;
 use compositor_introspection_extraction_window_meta_types::types::Meta;
 use std::path::PathBuf;
@@ -46,6 +46,48 @@ pub fn push_surface_identity_hints(meta: &Meta, hints: &mut InferredHints) {
     if let Some(title) = &meta.title {
         hints.push::<Title>(title.clone(), SourceMethod::WaylandSurface, "Wayland/X11 window title", Confidence::High);
     }
+}
+
+/// The `xdg_toplevel_icon_v1` icon the client declared for THIS toplevel.
+///
+/// `icon` is EXTRA CONTEXT: surface state, readable only from a live window on
+/// the compositor thread (`window.icon.toplevel::read`), which is why it arrives
+/// as an argument instead of on the [`Meta`] the sampler thread carries. Hints
+/// inferred without it simply lack these.
+///
+/// Both halves are recorded as they came — [`XdgIconPixels`] for the attached
+/// buffer, [`XdgIconName`] beside the desktop entry's own [`IconName`], so a
+/// caller wanting the app's statement about this window can read it directly.
+/// The name is promoted to [`IconPath`] only as a FALLBACK: if
+/// [`push_desktop_hints`] already resolved an icon file, that one stands (the
+/// desktop entry is the app's installed identity and matches what a launcher
+/// shows). So call this AFTER `push_desktop_hints`.
+pub fn push_toplevel_icon_hints(icon: &ToplevelIcon, hints: &mut InferredHints) {
+    if let Some(pixels) = &icon.pixels {
+        hints.push::<XdgIconPixels>(
+            pixels.clone(),
+            SourceMethod::WaylandSurface,
+            format!("xdg_toplevel_icon_v1 buffer, {}x{}", pixels.width, pixels.height),
+            Confidence::High,
+        );
+    }
+    let Some(name) = &icon.name else { return };
+    hints.push::<XdgIconName>(
+        name.clone(),
+        SourceMethod::WaylandSurface,
+        "xdg_toplevel_icon_v1 set_name",
+        Confidence::High,
+    );
+    if hints.has::<IconPath>() {
+        return; // desktop entry already resolved one — it is not overridden.
+    }
+    let Some(resolved) = resolve_icon(name) else { return };
+    hints.push::<IconPath>(
+        resolved,
+        SourceMethod::IconTheme,
+        format!("resolved xdg_toplevel_icon name '{name}'"),
+        Confidence::High,
+    );
 }
 
 /// Desktop-entry resolution by app_id: entry path, display name, D-Bus

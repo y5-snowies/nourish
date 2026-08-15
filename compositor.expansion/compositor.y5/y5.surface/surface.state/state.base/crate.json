@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_monitor_compositor_iced_base",
+    "compositor_y5_surface_protocol_base"
+  ]
+}

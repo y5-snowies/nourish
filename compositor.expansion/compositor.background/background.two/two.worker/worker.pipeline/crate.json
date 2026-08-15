@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "ash",
+    "compositor_kernel_vulkan_device_factory_base",
+    "compositor_kernel_vulkan_pipeline_fullscreen_base",
+    "compositor_orchestration_draw_dispatch_frame"
+  ]
+}

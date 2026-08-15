@@ -3,10 +3,11 @@ use compositor_introspection_extraction_window_hints_attributes_launch::attribut
     ExecArgs, ExecProgram, WorkingDirectory,
 };
 use compositor_introspection_extraction_window_hints_extract_entry::extract::{
-    push_desktop_hints, push_env_hints, push_surface_identity_hints,
+    push_desktop_hints, push_env_hints, push_surface_identity_hints, push_toplevel_icon_hints,
 };
 use compositor_introspection_extraction_window_hints_inferred::inferred::InferredHints;
 use compositor_introspection_extraction_window_hints_source::source::{Confidence, SourceMethod};
+use compositor_introspection_extraction_window_hints_values::values::ToplevelIcon;
 use compositor_introspection_extraction_window_hints_values::sandbox::parse_sandbox;
 use compositor_introspection_extraction_window_meta_types::types::MetaNode;
 use std::path::PathBuf;
@@ -14,7 +15,12 @@ use std::path::PathBuf;
 /// Populate base hints from the window's process tree: identity, sandbox,
 /// exec primitives, desktop entry, icon, env overlay. Handler-specific hints
 /// are added separately by the registry after detection picks a handler.
-pub fn extract_base_hints(node: &MetaNode) -> InferredHints {
+///
+/// `icon` is the live toplevel's `xdg_toplevel_icon_v1` state, and it is the one
+/// input here that is NOT derivable from `node`: a surface can only be read on
+/// the compositor thread, so callers that have a window pass it and the
+/// background sampler passes `None`.
+pub fn extract_base_hints(node: &MetaNode, icon: Option<&ToplevelIcon>) -> InferredHints {
     let mut hints = InferredHints::new();
     let meta = &node.meta;
 
@@ -70,6 +76,11 @@ pub fn extract_base_hints(node: &MetaNode) -> InferredHints {
     push_surface_identity_hints(meta, &mut hints);
     push_env_hints(meta, &mut hints);
     push_desktop_hints(meta, &mut hints);
+    // AFTER the desktop entry, on purpose: the toplevel's own icon name only
+    // becomes the IconPath when the entry resolved none.
+    if let Some(icon) = icon {
+        push_toplevel_icon_hints(icon, &mut hints);
+    }
 
     // ---- Fallback display name -----------------------------------------
     if !hints.has::<DisplayName>() {

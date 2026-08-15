@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_pipeline_abi_clock_base",
+    "compositor_pipeline_abi_descriptor_base"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_pipeline_world_system_base",
+    "compositor_pipeline_build_seam_base",
+    "compositor_background_two_storage_base",
+    "compositor_orchestration_core_state_base",
+    // "is an overlay on screen" — shared with the screen-extent policy so the
+    // warp and the edge push cannot disagree about what is being drawn.
+    "compositor_orchestration_desktop_suppressed_base"
+  ]
+}

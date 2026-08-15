@@ -1,35 +1,67 @@
 #!/usr/bin/env bash
-# Compile the y5_compositor binary for a chosen backend and profile.
+# Compile the y5_compositor binary for a chosen backend, and optionally install it.
 #
-# Usage: ./build.sh [winit|udev|native] [debug|release|fast]   (default: winit debug)
-#   fast = the release-fast cargo profile: release without LTO — skips the
-#   multi-minute serial link for quick deploy iterations (~30% larger binary).
+# Usage: ./build.sh [winit|udev|native] [--deploy[=NAME]]
 #   winit        : nested backend — runs inside an existing Wayland/X session.
 #                  Plain `cargo build` (default `backend-winit` feature).
 #   udev|native  : DRM/KMS native backend — runs on real hardware / a TTY.
 #                  `cargo build --no-default-features --features backend-native`.
-#   debug | release : cargo profile (release adds --release).
+#   --deploy         install to /usr/bin/y5.compositor
+#   --deploy=NAME    install to /usr/bin/NAME   (e.g. --deploy=y5.compositor.exp)
 #
-# The two axes are independent: any backend can be built in either profile. The
-# backend is selected at COMPILE time via the `backend-winit` (default) /
+# ALWAYS the `release-fast` profile: release optimizations without LTO. There is no
+# profile argument, on purpose.
+#   - `debug` is gone. It was the default, and its dependency tree costs ~4x the
+#     release-fast one (measured: 14 GB vs 3.6 GB) for a compositor nobody steps
+#     through. `release-fast` inherits `debug = "line-tables-only"`, so backtraces
+#     still carry line numbers.
+#   - fat-LTO `release` is `build-optimized.sh` and nothing else. Its final link is
+#     serial and takes 10-20 minutes; it belongs to release tags, not to iteration.
+#
+# The backend is selected at COMPILE time via the `backend-winit` (default) /
 # `backend-native` cargo features, which `main.rs` switches on with
 # `#[cfg(feature = "backend-native")]`.
 #
 # Prints the path to the built binary as the only stdout line (build logs go to
-# stderr), so callers can do:  BIN="$(./build.sh udev release)"
-#
-# Debug builds trim debug info to line tables only — keeps backtrace line numbers,
-# much faster links + smaller binary.
+# stderr), so callers can do:  BIN="$(./build.sh udev)"
 #
 # Env overrides:
-#   Y5_TARGET_DIR  cargo target dir (default: the loader workspace's own target/)
+#   Y5_TARGET_DIR  cargo target dir. Default: the repo-wide one pinned by
+#                  `.cargo/config.toml` ([build] target-dir), which is this
+#                  workspace's own target/. Set it only when a build must NOT share
+#                  that tree — the containers (/y5-target) and the cross compiler do.
 #   Y5_REPO_ROOT   repo root (default: auto-detected by walking up to a compositor* dir)
-# Note: rustflags (warnings) live in .cargo/config.toml. Do NOT set RUSTFLAGS
-# here — it would replace that config wholesale.
+#   Y5_SKIP_LINT   skip the workspace conformance gate
+#   Y5_PROFILE     INTERNAL. `build-optimized.sh` sets this to `release` so both
+#                  scripts share one code path. Not a user-facing knob — if you want
+#                  fat LTO, run build-optimized.sh so the intent is on the command line.
+# Note: rustflags (warnings, target-cpu) live in .cargo/config.toml. Do NOT set
+# RUSTFLAGS here — it would replace that config wholesale.
 set -euo pipefail
 
-BACKEND="${1:-winit}"
-PROFILE="${2:-debug}"
+BACKEND=winit
+DEPLOY=""          # unset = build only; otherwise the /usr/bin name to install as
+for arg in "$@"; do
+    case "$arg" in
+        winit | udev | native) BACKEND="$arg" ;;
+        --deploy)   DEPLOY="y5.compositor" ;;
+        --deploy=*) DEPLOY="${arg#--deploy=}" ;;
+        -h | --help)
+            sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+            echo
+            echo "Always the release-fast profile. For fat-LTO release builds:"
+            echo "  environment/build-optimized.sh [winit|udev|native] [--deploy[=NAME]]"
+            exit 0 ;;
+        debug | release | fast | release-fast)
+            echo "build.sh: profiles are gone — this script is always release-fast." >&2
+            echo "          For the fat-LTO release build, use: environment/build-optimized.sh $BACKEND" >&2
+            exit 1 ;;
+        *) echo "build.sh: unknown arg '$arg' (see --help)" >&2; exit 1 ;;
+    esac
+done
+[ -z "$DEPLOY" ] || case "$DEPLOY" in
+    */*) echo "build.sh: --deploy takes a BINARY NAME, not a path ('$DEPLOY')" >&2; exit 1 ;;
+esac
 
 # --- Locate the repo root --------------------------------------------------
 # Nearest ancestor of this script that contains compositor* workspaces. Works on
@@ -48,13 +80,28 @@ if [ -z "$REPO_ROOT" ]; then
 fi
 [ -n "$REPO_ROOT" ] || { echo "build.sh: could not locate repo root (no compositor* dir found)" >&2; exit 1; }
 
-# --- Workspace conformance gate (layout/naming/size; see document/ARCHITECTURE.md) ---
+# --- Workspace conformance gate (layout/naming/size; see CLAUDE.md) ---------
 # Skipped when node is unavailable (e.g. minimal container images) or Y5_SKIP_LINT is set.
 # The distro bundle images set Y5_SKIP_LINT=1: they now carry node (for the Tauri devtool), but
 # the authoritative lint already runs in ci.yml — re-running it here only risks the image's
 # packaged node choking on the script, which must not fail a binary build.
-if [ -z "${Y5_SKIP_LINT:-}" ] && [ -f "$REPO_ROOT/workspace.lint.js" ] && command -v node >/dev/null 2>&1; then
-    ( cd "$REPO_ROOT" && node workspace.lint.js 2>&1 | tail -n 1 >&2 ) || { echo "build.sh: workspace.lint failed — run 'node workspace.lint.js' for details" >&2; exit 1; }
+if [ -z "${Y5_SKIP_LINT:-}" ] && [ -f "$REPO_ROOT/compositor.workspace/workspace.lint.js" ] && command -v node >/dev/null 2>&1; then
+    ( cd "$REPO_ROOT" && node compositor.workspace/workspace.lint.js 2>&1 | tail -n 1 >&2 ) || { echo "build.sh: workspace.lint failed — run 'node compositor.workspace/workspace.lint.js' for details" >&2; exit 1; }
+fi
+
+# --- Generate the Cargo manifests ------------------------------------------
+# Every Cargo.toml in the linked tree is a build artifact, generated from
+# vendor.catalog.json + workspace.catalog.json + the per-crate crate.json, and
+# gitignored. A fresh clone has NO manifests at all, so this has to run before
+# cargo — not as a command anyone has to remember. That is also what retires the
+# old "forgot to run link.all.sh" footgun: there is no committed generated block
+# left to go stale.
+#
+# Skipped when node is unavailable, exactly like the lint above: the distro
+# bundle images build from a tree that was generated before the image was built.
+if [ -f "$REPO_ROOT/compositor.workspace/workspace.generate.js" ] && command -v node >/dev/null 2>&1; then
+    ( cd "$REPO_ROOT" && node compositor.workspace/workspace.generate.js >/dev/null ) \
+        || { echo "build.sh: workspace.generate failed" >&2; exit 1; }
 fi
 
 # --- Locate the entry crate (rename-proof: keyed on the [[bin]] name) -------
@@ -66,21 +113,20 @@ feature_args=()
 case "$BACKEND" in
     winit) ;;                                       # default build (backend-winit), no extra feature
     udev|native)  feature_args=(--no-default-features --features backend-native) ;;
-    *) echo "build.sh: unknown backend '$BACKEND' (expected winit|udev|native)" >&2; exit 1 ;;
 esac
 
-# --- Profile -> --release + target subdir ----------------------------------
-case "$PROFILE" in
-    debug)   profile_args=()          ; sub=debug   ;;
-    release) profile_args=(--release) ; sub=release ;;
-    # release-fast: release minus LTO (the multi-minute serial link) for quick
-    # deploy iterations — ~30% larger binary, a fraction of the build time.
-    # Own target subdir, so it never invalidates the real release cache.
-    fast|release-fast) profile_args=(--profile release-fast) ; sub=release-fast ;;
-    *) echo "build.sh: unknown profile '$PROFILE' (expected debug|release|fast)" >&2; exit 1 ;;
+# --- Profile ---------------------------------------------------------------
+# release-fast unless build-optimized.sh asked for the fat-LTO release.
+case "${Y5_PROFILE:-release-fast}" in
+    release-fast) profile_args=(--profile release-fast) ; sub=release-fast ;;
+    release)      profile_args=(--release)              ; sub=release      ;;
+    *) echo "build.sh: bad Y5_PROFILE '${Y5_PROFILE}' (internal; expected release-fast|release)" >&2; exit 1 ;;
 esac
 
-# --- Target dir: explicit override, else the loader workspace's own target/ -
+# --- Target dir ------------------------------------------------------------
+# Normally NOT passed: `.cargo/config.toml` pins one target dir for the whole repo,
+# and this workspace's own target/ IS that dir. Only an explicit Y5_TARGET_DIR (the
+# containers, the cross compiler) sends the build somewhere else.
 target_args=()
 if [ -n "${Y5_TARGET_DIR:-}" ]; then
     TARGET_DIR="$Y5_TARGET_DIR"
@@ -90,17 +136,10 @@ else
     while [ "$ws_root" != "/" ] && ! grep -qs '^\[workspace\]' "$ws_root/Cargo.toml"; do
         ws_root="$(dirname "$ws_root")"
     done
-    TARGET_DIR="$ws_root/target"   # cargo's default for this workspace
+    TARGET_DIR="$ws_root/target"   # == the pinned [build] target-dir
 fi
 
-# Debug profile: line-tables-only debug info → fast links, small binary, line numbers
-# preserved in backtraces. Release already builds without debug info.
-if [ "$PROFILE" = "debug" ]; then
-    export CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-line-tables-only}"
-    export CARGO_PROFILE_DEV_SPLIT_DEBUGINFO="${CARGO_PROFILE_DEV_SPLIT_DEBUGINFO:-unpacked}"
-fi
-
-echo ">> building y5_compositor [backend=$BACKEND profile=$PROFILE]" >&2
+echo ">> building y5_compositor [backend=$BACKEND profile=$sub]" >&2
 ( cd "$EXECUTE_DIR" && cargo build "${profile_args[@]}" "${feature_args[@]}" "${target_args[@]}" >&2 )
 
 BIN="$TARGET_DIR/$sub/y5_compositor"
@@ -113,14 +152,25 @@ chmod +x "$BIN"
 # on /dev/tty. Unattended (CI/container/cron): `sudo -n` never prompts, so a
 # headless build can't hang; without the cap the compositor simply falls back
 # to rtkit over D-Bus.
-if command -v setcap >/dev/null 2>&1 || [ -x /usr/sbin/setcap ]; then
+setcap_best_effort() {
+    command -v setcap >/dev/null 2>&1 || [ -x /usr/sbin/setcap ] || return 0
     if [ -t 2 ]; then
-        sudo setcap cap_sys_nice+ep "$BIN" \
+        sudo setcap cap_sys_nice+ep "$1" \
             || echo ">> note: setcap cap_sys_nice failed; priority=\"auto\" will use rtkit" >&2
     else
-        sudo -n setcap cap_sys_nice+ep "$BIN" 2>/dev/null \
+        sudo -n setcap cap_sys_nice+ep "$1" 2>/dev/null \
             || echo ">> note: setcap cap_sys_nice skipped (unattended, needs passwordless sudo); priority=\"auto\" will use rtkit" >&2
     fi
+}
+setcap_best_effort "$BIN"
+
+# --- Deploy ----------------------------------------------------------------
+# COPY, not move: a move takes the binary out of target/, so the next build has to
+# relink the whole thing. The capability is re-applied because install/cp drops it.
+if [ -n "$DEPLOY" ]; then
+    echo ">> installing -> /usr/bin/$DEPLOY" >&2
+    sudo install -m 755 "$BIN" "/usr/bin/$DEPLOY"
+    setcap_best_effort "/usr/bin/$DEPLOY"
 fi
 
 echo "$BIN"

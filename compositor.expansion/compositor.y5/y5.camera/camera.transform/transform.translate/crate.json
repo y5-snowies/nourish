@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_y5_camera_transform_state",
+    "compositor_support_smithay_state_compositor_place"
+  ]
+}

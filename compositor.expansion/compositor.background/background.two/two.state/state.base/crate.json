@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_pipeline_build_pipeline_base",
+    "compositor_pipeline_bundle_manifest_base",
+    "compositor_pipeline_host_map_base",
+    "compositor_pipeline_bundle_property_base",
+    "compositor_background_two_draw_element"
+  ]
+}

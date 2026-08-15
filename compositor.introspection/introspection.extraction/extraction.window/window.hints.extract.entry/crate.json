@@ -1,0 +1,13 @@
+{
+  "deps": [
+    "compositor_introspection_extraction_window_desktop_search",
+    "compositor_introspection_extraction_window_hints_attributes_identity",
+    "compositor_introspection_extraction_window_hints_attributes_identity_more",
+    "compositor_introspection_extraction_window_hints_attributes_launch",
+    "compositor_introspection_extraction_window_hints_inferred",
+    "compositor_introspection_extraction_window_hints_source",
+    "compositor_introspection_extraction_window_hints_values",
+    "compositor_introspection_extraction_window_icon",
+    "compositor_introspection_extraction_window_meta_types"
+  ]
+}

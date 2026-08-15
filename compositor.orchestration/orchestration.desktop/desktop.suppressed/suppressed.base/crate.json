@@ -1,0 +1,10 @@
+{
+  "deps": [
+    // The compositor loop — the world set, the lock status and the overview flag
+    // this predicate reads.
+    "compositor_orchestration_core_state_base",
+    // PICKER_WORLD: the picker is a world of its own, and its id is how "the
+    // picker is on screen" is asked.
+    "compositor_y5_picker_system_base"
+  ]
+}

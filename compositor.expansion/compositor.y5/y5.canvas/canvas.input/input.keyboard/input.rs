@@ -58,19 +58,11 @@ pub fn input_received(
         key: None,
     };
 
-    if state.inner.storage.nested {
-        for combo in [
-            &mut combo_scale,
-            &mut combo_select,
-            &mut combo_select_append,
-            &mut combo_move,
-        ] {
-            if combo.modifiers.logo {
-                combo.modifiers.logo = false;
-                combo.modifiers.ctrl = true;
-            }
-        }
-    }
+    // No nested remap here. Right Ctrl is substituted for Super at the INPUT
+    // (`seat.keyboard/keyboard.input::shortcut_modifiers`), so a Super binding
+    // already matches in a nested session and a Ctrl binding still means Ctrl.
+    // Rewriting `logo` into `ctrl` here is what used to make those two
+    // indistinguishable.
 
     // Momentary finger-only hand tool: Super held alone (same exact-modifier
     // condition as the Move tool, but kept as its own flag — never the Move grab).

@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "ash",
+    // Compositor dependencies (CI ensures availability in workspace)
+    "compositor_kernel_vulkan_device_factory_base",
+    "compositor_kernel_vulkan_pipeline_composite_base"
+  ]
+}

@@ -18,7 +18,7 @@ use std::thread;
 
 use smithay::reexports::calloop::channel::Sender as CalloopSender;
 use uuid::Uuid;
-use compositor_introspection_extraction_window_base::{HandlerRegistry, MetaNode};
+use compositor_introspection_extraction_window_base::{HandlerRegistry, Meta, MetaNode};
 use compositor_introspection_sampler_window_engine::engine::run;
 use compositor_introspection_sampler_window_schedule::schedule::{Entry, Registration};
 
@@ -56,5 +56,21 @@ impl Sampler {
     /// Stop sampling this placeholder.
     pub fn unregister(&self, uuid: Uuid) {
         let _ = self.tx.send(Registration::Remove(uuid));
+    }
+
+    /// Ask for these windows to be re-sampled on the next tick, out of cadence.
+    ///
+    /// `surfaces` pairs each window's uuid with the wayland half of its identity
+    /// read on the CALLING thread — app_id, title, credentials and the
+    /// `xdg_toplevel_icon_v1` name — because the sampler thread has no way to
+    /// read a surface. Everything else it re-derives from `/proc` itself.
+    ///
+    /// Fire-and-forget: results arrive in the usual batch. A caller that wants
+    /// fresh data shows the latest sample it has and lets this replace it.
+    pub fn refresh(&self, surfaces: Vec<(Uuid, Meta)>) {
+        if surfaces.is_empty() {
+            return;
+        }
+        let _ = self.tx.send(Registration::Refresh(surfaces));
     }
 }

@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_select_state_base",
+    "uuid"
+  ]
+}

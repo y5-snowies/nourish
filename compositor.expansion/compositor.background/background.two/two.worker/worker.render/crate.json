@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_background_two_worker_barrier",
+    "ash",
+    "compositor_background_two_worker_device",
+    "compositor_background_two_worker_pipeline",
+    "compositor_background_two_worker_target",
+    "compositor_kernel_vulkan_pipeline_composite_base",
+    "compositor_orchestration_draw_dispatch_frame"
+  ]
+}

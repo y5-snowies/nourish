@@ -1,0 +1,25 @@
+{
+  "deps": [
+    "compositor_kernel_graphic_bridge_publish_retire",
+    "compositor_orchestration_driver_capture_base",
+    "compositor_y5_lock_system_base",
+    "compositor_background_two_storage_base",
+    "compositor_background_three_system_base",
+    "compositor_orchestration_seat_keyboard_input",
+    "compositor_model_debug_instance_record",
+    "compositor_y5_lock_state_transition",
+    "compositor_y5_surface_protocol_base",
+    "compositor_support_library_pam_worker_base",
+    "compositor_y5_graphic_capture_registry",
+    "compositor_y5_graphic_capture_interface",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_y5_lock_interface_surface",
+    "compositor_orchestration_draw_layer_base",
+    "compositor_background_three_lock_scene",
+    "compositor_support_bevy_core_compositor_base",
+    "compositor_y5_lock_state_base",
+    "compositor_y5_navigator_interface_base",
+    "smithay",
+    "compositor_orchestration_core_state_base"
+  ]
+}

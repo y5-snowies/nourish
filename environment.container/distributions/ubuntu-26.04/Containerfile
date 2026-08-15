@@ -32,11 +32,17 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 
 # --- build stage: clone the local repo + compile winit ----------------------------------
 FROM deps AS build
-ARG PROFILE=debug
-# BUNDLE=1 -> build the full install bundle (every shipped component) via prepare.sh, stashed at
-# /out (package.tar.gz + SHA256SUMS) — the multiarch-publish CD path. Unset (default) -> the
+ARG PROFILE=release-fast
+# MODE=bundle -> build the full install bundle (every shipped component) via prepare.sh, stashed at
+# /out (package.tar.gz + SHA256SUMS) — the multiarch-publish CD path. MODE=devloop -> the
 # dev-loop path: just the nested winit binary at /usr/local/bin/y5_compositor.
-ARG BUNDLE=
+# BUILD MODE — REQUIRED, no default, on purpose.
+#   bundle  -> the full install bundle via prepare.sh (udev, fat LTO) -> /out
+#   devloop -> the nested winit dev binary for run.sh (release-fast)
+# There is deliberately no fallback: an unset MODE is a hard error rather than a
+# silent dev-loop build, so a release path that forgets to ask for `bundle` fails
+# instead of shipping a nested-only winit binary as a release artifact.
+ARG MODE=
 # Optional release-number stamp written to repo-root VERSION before building so the compositor
 # bakes it in at compile time (parity with docs.yml). Empty -> committed VERSION.
 ARG VERSION=
@@ -55,11 +61,15 @@ RUN git clone /repo /working.directory
 # Stamp the release number (when provided) so the compositor bakes it in at compile time.
 RUN if [ -n "$VERSION" ]; then printf '%s\n' "$VERSION" > VERSION; fi
 
-# Two build modes (see BUNDLE): the full install bundle (prepare.sh builds compositor, devtool,
+# Two build modes (see MODE): the full install bundle (prepare.sh builds compositor, devtool,
 # polkit, MX daemon, xwayland, settings, installer), or the dev-loop winit binary for run.sh.
-RUN if [ -n "$BUNDLE" ]; then \
-        compositor.installer/prepare.sh --out=/out; \
-    else \
-        BIN="$(environment/build.sh winit ${PROFILE})" \
-        && install -Dm755 "$BIN" /usr/local/bin/y5_compositor; \
-    fi
+RUN case "$MODE" in \
+      bundle) \
+        compositor.installer/prepare.sh --out=/out ;; \
+      devloop) \
+        BIN="$(environment/build.sh winit)" \
+        && install -Dm755 "$BIN" /usr/local/bin/y5_compositor ;; \
+      *) \
+        echo "Containerfile: --build-arg MODE=bundle|devloop is required (got: '$MODE')" >&2; \
+        exit 1 ;; \
+    esac

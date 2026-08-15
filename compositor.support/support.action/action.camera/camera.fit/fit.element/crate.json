@@ -1,0 +1,14 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_support_action_camera_find_base",
+    "compositor_support_action_camera_fit_element_flags",
+    "compositor_support_action_camera_fit_element_viewport",
+    "compositor_support_action_camera_fit_element_zoom",
+    "compositor_support_action_camera_fit_element_zsel",
+    "compositor_support_action_camera_fit_element_pan",
+    "compositor_support_action_camera_fit_element_psplit",
+    "compositor_support_action_camera_fit_element_psel",
+    "compositor_support_action_camera_fit_element_pad"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_background_two_worker_key",
+    "compositor_background_two_worker_pane",
+    "compositor_model_environment_background_base"
+  ]
+}

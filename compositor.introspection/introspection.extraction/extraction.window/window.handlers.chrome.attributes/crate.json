@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "serde",
+    "compositor_introspection_extraction_window_handlers_chrome_id",
+    "compositor_introspection_extraction_window_hints_attribute",
+    "compositor_introspection_extraction_window_hints_descriptor",
+    "compositor_introspection_extraction_window_hints_id"
+  ]
+}

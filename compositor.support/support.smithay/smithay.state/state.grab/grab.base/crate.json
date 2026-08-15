@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_support_smithay_state_grab_move_state",
+    "compositor_support_smithay_state_grab_resize_state",
+    "compositor_support_smithay_state_grab_resize_surface",
+    "compositor_support_smithay_state_grab_resize_commit"
+  ]
+}

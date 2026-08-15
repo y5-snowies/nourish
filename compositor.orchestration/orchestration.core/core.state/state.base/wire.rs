@@ -216,6 +216,22 @@ impl WireTrait for Orchestrator {
         self.camera_mut().position_previous = pointer.motion;
     }
 
+    fn reanchor_pointer(&mut self) -> Point<f64, Logical> {
+        // Resolve against the CURSOR's monitor, not the one being drawn. The caller
+        // runs from the frame hook, which on a multi-monitor session is inside the
+        // per-output loop with `render_output` set — and `current_output()` /
+        // `camera()` answer that first. Projecting the cursor through a monitor it
+        // is not on would place it by another mode, scale and camera. Dropped for
+        // the duration so both fall back to `cursor_output`, which is the resolution
+        // every other pointer path gets; `render_target` is already unset this early
+        // in the frame, so `camera()` gives the focused pane either way — the same
+        // full-output view `reconcile_finger_pan` compares against later this frame.
+        let render_output = self.render_output.take();
+        let anchored = self.reanchor_pointer_here();
+        self.render_output = render_output;
+        anchored
+    }
+
     fn dmabuf_import(
         &mut self,
         dispatch: &mut Dispatch,
@@ -277,6 +293,52 @@ impl WireTrait for Orchestrator {
         }
 
         None // we handled it
+    }
+}
+
+impl Orchestrator {
+    /// [`WireTrait::reanchor_pointer`]'s body, with the output already resolved by
+    /// the caller (see there for why it has to be).
+    fn reanchor_pointer_here(&mut self) -> Point<f64, Logical> {
+        // The same full-output context `apply_pointer` builds, for the same reason:
+        // the cursor is screen-space content, not pane content.
+        let (mode_size, scale) = {
+            let output = self.current_output();
+            let mode = output.current_mode().unwrap_or_else(|| abort!("output has a current mode"));
+            (mode.size, output.current_scale().fractional_scale())
+        };
+        let (pw, ph) = (mode_size.w as f64, mode_size.h as f64);
+        let camera = &self.camera().transform;
+        let ctx = compositor_y5_camera_transform_translate::transform::Context::new(
+            (camera.position.x, camera.position.y),
+            camera.zoom,
+            (pw, ph),
+            scale,
+        );
+
+        // Pin into the output BEFORE projecting. A world that has never been entered
+        // starts its accumulator at physical `(0, 0)` — the top-left corner — and a
+        // switch that follows a mode change or an unplug can leave it outside the
+        // panel entirely. Either way the incoming world would start with the cursor
+        // at (or past) an extent, which the screen-extent policy reads as a push.
+        let motion = self.pointer().motion;
+        let phys = Point::<f64, Physical>::from((motion.x.clamp(0.0, pw), motion.y.clamp(0.0, ph)));
+        let world: Point<f64, Logical> = {
+            let t: Transform = (phys, ctx).into();
+            t.into_storage_point_f64()
+        };
+
+        let pointer = self.pointer_mut();
+        pointer.motion.x = phys.x;
+        pointer.motion.y = phys.y;
+        // Nothing is pushing an edge across a switch, and the hold is per-world.
+        pointer.edge_hold = None;
+        // The camera's own screen accumulator is the SAME point, and left stale it
+        // flings the camera by the whole switch on the first press-drag —
+        // `apply_pointer` and `pointer.pan::reconcile_finger_pan` pair these two
+        // writes for exactly this reason.
+        self.camera_mut().position_previous = Point::from((phys.x, phys.y));
+        world
     }
 }
 // Problem:

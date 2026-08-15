@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "smithay",
+    "ash",
+    "thiserror"
+  ]
+}

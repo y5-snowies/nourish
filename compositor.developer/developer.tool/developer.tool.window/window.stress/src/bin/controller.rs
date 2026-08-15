@@ -217,6 +217,22 @@ impl Params {
             b.push(btn(x + (q + 6) * i as i32, y, q, &format!("{hz}Hz"), Act::Send(Command::CommitRate(*hz))));
         }
         y += 23;
+        // ICON — the three variants a compositor has to tell apart: a stock NAME
+        // it resolves itself, BUFFERS it must read pixels out of, and NEITHER
+        // (fall back to whatever the compositor infers about the app). BOTH is
+        // the tie-break case. The multi-size button is the one that shows WHICH
+        // buffer got picked — each size draws in its own colour.
+        hdr(&mut h, &mut y, "TOPLEVEL ICON");
+        b.push(btn(x, y, half, "NAME firefox", Act::Send(Command::IconName("firefox".into()))));
+        b.push(btn(x + half + 6, y, half, "NAME bogus", Act::Send(Command::IconName("y5-no-such-icon".into()))));
+        y += 23;
+        b.push(btn(x, y, half, "BUF 64", Act::Send(Command::IconBuffer(vec![64]))));
+        b.push(btn(x + half + 6, y, half, "BUF 16/32/64/128", Act::Send(Command::IconBuffer(vec![16, 32, 64, 128]))));
+        y += 23;
+        b.push(btn(x, y, half, "BOTH", Act::Send(Command::IconBoth("firefox".into()))));
+        b.push(btn(x + half + 6, y, half, "CLEAR", Act::Send(Command::IconClear)));
+        y += 30;
+
         b.push(btn(x, y, half, "COUNTER ON", Act::Send(Command::ShowCounter(true))));
         b.push(btn(x + half + 6, y, half, "COUNTER OFF", Act::Send(Command::ShowCounter(false))));
 

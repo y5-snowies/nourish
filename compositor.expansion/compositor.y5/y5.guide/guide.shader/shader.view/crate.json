@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_configurator_settings_surface_message",
+    "compositor_monitor_selection_font_base",
+    "compositor_support_iced_core_engine_base",
+    "iced_core",
+    "iced_widget"
+  ]
+}

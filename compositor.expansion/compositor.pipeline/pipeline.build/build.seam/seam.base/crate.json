@@ -1,0 +1,13 @@
+{
+  "deps": [
+    "compositor_pipeline_abi_seam_base",
+    "compositor_pipeline_abi_worldset_base",
+    "compositor_pipeline_build_pipeline_base",
+    "compositor_pipeline_bundle_manifest_base",
+    "compositor_pipeline_host_hit_base",
+    "compositor_pipeline_host_map_base",
+    "compositor_orchestration_draw_dispatch_frame",
+    "compositor_pipeline_abi_push_base",
+    "compositor_pipeline_abi_clock_base"
+  ]
+}

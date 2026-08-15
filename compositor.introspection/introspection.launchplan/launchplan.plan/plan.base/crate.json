@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_introspection_extraction_window_base",
+    "compositor_introspection_inference_hint_base",
+    "compositor_introspection_launchplan_plan_core",
+    "compositor_introspection_launchplan_plan_exec_unit",
+    "compositor_introspection_launchplan_plan_preferences",
+    "compositor_introspection_launchplan_plan_synthesizers"
+  ]
+}

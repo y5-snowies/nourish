@@ -11,7 +11,7 @@ Nothing in `environment/` is modified or wrapped; `build.sh` here is a sibling o
 ```
 environment/cross.compile/
   sysroot.sh    # populate fedora<rel>/ from Fedora aarch64 rpms   (run once)
-  build.sh      # cross-compile   [winit|udev|native] [debug|release|fast] [deploy]
+  build.sh      # cross-compile   [winit|udev|native] [release-fast|release]
   fedora44/     # the sysroot: aarch64 headers, .so files, .pc files (~690 MB)
   .rpm.cache/   # downloaded rpms, reused by sysroot.sh
   .shim/        # generated linker/cc wrapper
@@ -34,9 +34,9 @@ its own invocation.
 ## Building
 
 ```bash
-./build.sh                    # udev + release-fast (the useful default for hardware)
-./build.sh udev debug         # debug profile
-./build.sh winit fast         # nested backend instead of DRM/KMS
+./build.sh                    # udev + release-fast (the default)
+./build.sh udev release       # fat LTO — the cross equivalent of build-optimized.sh
+./build.sh winit              # nested backend instead of DRM/KMS
 ```
 
 Copying the binary to the device is a separate, manual step. Once it is there, give it
@@ -45,7 +45,7 @@ binary on this host, and copying would drop it regardless; without it the compos
 `priority="auto"` falls back to rtkit over D-Bus.
 
 Output goes to `~/.cache/y5-cross/target/aarch64-unknown-linux-gnu/<profile>/y5_compositor`
-and the path is printed on stdout, so `BIN="$(./build.sh udev fast)"` works the same way
+and the path is printed on stdout, so `BIN="$(./build.sh udev)"` works the same way
 it does with `environment/build.sh`.
 
 Cross builds use their own target dir on purpose: cargo keeps build-script and proc-macro

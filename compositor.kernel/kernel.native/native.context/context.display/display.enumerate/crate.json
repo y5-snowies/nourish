@@ -1,0 +1,12 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_kernel_drm_connector_scan_base",
+    "compositor_kernel_drm_edid_parse_base",
+    "compositor_kernel_drm_edid_identity_base",
+    "compositor_kernel_graphic_preference_output_profile",
+    "compositor_orchestration_driver_output_base",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

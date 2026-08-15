@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_orchestration_core_state_base",
+    "compositor_remote_message_client_base",
+    "compositor_support_action_camera_find_base",
+    "compositor_y5_navigator_interface_base"
+  ]
+}

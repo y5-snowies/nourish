@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_lock_seat_input",
+    "compositor_orchestration_seat_lid_policy"
+  ]
+}

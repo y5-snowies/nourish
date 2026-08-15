@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_orchestration_core_state_base",
+    "compositor_remote_client_handle_stack",
+    "compositor_remote_message_client_base",
+    "compositor_y5_action_canvas_layout"
+  ]
+}

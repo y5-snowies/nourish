@@ -1,0 +1,840 @@
+{
+  "compositor.support/support.smithay/smithay.state/state.seat/seat.factory": [
+    "size"
+  ],
+  "compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.tablet": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.wire/wire.input/input.base": [
+    "size"
+  ],
+  "compositor.orchestration/orchestration.seat/seat.gesture/gesture.touch": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.touch/touch.pane/pane.view": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.touch/touch.pane/pane.create": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.osk/osk.board/board.view": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.osk/osk.board/board.create": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.osk/osk.board/board.handle": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.overview/overview.state/state.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.picker/picker.surface/surface.view": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.wire/wire.input/input.map": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.bundle/bundle.property/property.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.bundle/bundle.load/load.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.bundle/bundle.builtin/builtin.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.draw/draw.parallax": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.draw/draw.motion": [
+    "size"
+  ],
+  "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.world": [
+    "size"
+  ],
+  "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.preview": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.alloc/alloc.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.import/import.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.graphic/graphic.bridge/bridge.negotiate/negotiate.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.graphic/graphic.bridge/bridge.negotiate/negotiate.wgpu": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.context/context.base": [
+    "size"
+  ],
+  "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.display": [
+    "size"
+  ],
+  "compositor.orchestration/orchestration.driver/driver.selection/selection.base": [
+    "size"
+  ],
+  "compositor.orchestration/orchestration.driver/driver.output/output.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.viewport/viewport.state/state.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.viewport/viewport.interaction/interaction.base": [
+    "size"
+  ],
+  "compositor.extension/compositor.configurator/configurator.settings/settings.interface/interface.handle": [
+    "size"
+  ],
+  "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.message": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.context/context.render/render.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.context/context.display/display.build": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.context/context.display/display.mode": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.context/context.display/display.reconcile": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.audio/audio.controller/controller.interface": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.camera/camera.transform/transform.translate": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.canvas/canvas.input/input.keyboard": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.encode": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.interface": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.registry": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.session": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.vaapi": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.group/group.interface/interface.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.group/group.state/state.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.group/group.surface/surface.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.launcher/launcher.interface/interface.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.lock/lock.interface/interface.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.lock/lock.interface/interface.surface": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.lock/lock.scene/scene.frame": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.lock/lock.seat/seat.input": [
+    "flat",
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.navigator/navigator.interface/interface.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.navigator/navigator.travel/travel.machine": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.picker/picker.scene/scene.frame": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.overlay/overlay.interface/interface.keyboard": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.placeholder/placeholder.interface/interface.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.placeholder/placeholder.state/state.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.placeholder/placeholder.surface/surface.base": [
+    "flat",
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.select/select.box/box.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.select/select.state/state.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.surface/surface.draw/draw.capture": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.surface/surface.draw/draw.hook": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.surface/surface.interface/interface.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.surface/surface.interface/interface.core": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.window/window.decoration/decoration.element": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.window/window.draw/draw.element": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.window/window.draw/draw.frame": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.window/window.interface/interface.draw": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.interface": [
+    "size"
+  ],
+  "compositor.extension/compositor.monitor/monitor.compositor/compositor.iced/iced.base": [
+    "flat",
+    "size"
+  ],
+  "compositor.extension/compositor.monitor/monitor.selection/selection.font/font.base": [
+    "flat",
+    "size"
+  ],
+  "compositor.extension/compositor.monitor/monitor.selection/selection.scene/scene.base": [
+    "flat",
+    "size"
+  ],
+  "compositor.support/support.iced/iced.core/core.engine/engine.base": [
+    "flat",
+    "size"
+  ],
+  "compositor.extension/compositor.monitor/monitor.launcher/launcher.ui/ui.base": [
+    "flat",
+    "size"
+  ],
+  "compositor.extension/compositor.monitor/monitor.runtime/runtime.surface/surface.base": [
+    "flat",
+    "size"
+  ],
+  "compositor.installer/installer.process/process.packages/packages.enumerate/enumerate.groups": [
+    "size"
+  ],
+  "compositor.installer/installer.process/process.packages/packages.enumerate/enumerate.debian": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Per-distro package enumeration list; inherently a flat list, splitting adds no value."
+  },
+  "compositor.installer/installer.process/process.packages/packages.enumerate/enumerate.fedora": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Per-distro package enumeration list; inherently a flat list, splitting adds no value."
+  },
+  "compositor.installer/installer.process/process.packages/packages.enumerate/enumerate.nixos": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Per-distro package enumeration list; inherently a flat list, splitting adds no value."
+  },
+  "compositor.installer/installer.process/process.packages/packages.enumerate/enumerate.platform": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Per-distro package enumeration list; inherently a flat list, splitting adds no value."
+  },
+  "compositor.kernel/kernel.drm/drm.edid/edid.parse/parse.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.drm/drm.mode/mode.synthesize/synthesize.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.wire/wire.plugin/plugin.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.overview/overview.draw/draw.status": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.overview/overview.draw/draw.frame": [
+    "size"
+  ],
+  "compositor.kernel/kernel.gles/gles.element/element.combined/combined.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.gles/gles.element/element.wrap/wrap.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.loader/loader.main/main.execute/execute.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.assemble/assemble.display/display.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.assemble/assemble.renderer/renderer.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.plugin/plugin.route/route.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.render/render.execute/execute.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.wire/wire.entry/entry.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.wire/wire.frame/frame.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.native/native.wire/wire.session/session.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.scanout/scanout.commit/commit.build/build.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.scanout/scanout.surface/surface.output/output.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.vulkan/vulkan.capture/capture.blit/blit.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.vulkan/vulkan.device/device.factory/factory.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.vulkan/vulkan.memory/memory.export/export.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.vulkan/vulkan.memory/memory.import/import.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.vulkan/vulkan.memory/memory.target/target.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.vulkan/vulkan.memory/memory.upload/upload.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.draw/draw.vulkan": [
+    "size"
+  ],
+  "compositor.kernel/kernel.vulkan/vulkan.pipeline/pipeline.fullscreen/fullscreen.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.vulkan/vulkan.pipeline/pipeline.composite/composite.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.vulkan/vulkan.pipeline/pipeline.hdr/hdr.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base": [
+    "flat",
+    "size"
+  ],
+  "compositor.kernel/kernel.winit/winit.scene/scene.compose/compose.base": [
+    "size"
+  ],
+  "compositor.kernel/kernel.winit/winit.wire/wire.entry/entry.base": [
+    "size"
+  ],
+  "compositor.orchestration/orchestration.draw/draw.node/node.base": [
+    "size"
+  ],
+  "compositor.orchestration/orchestration.draw/draw.dispatch/dispatch.frame": [
+    "size"
+  ],
+  "compositor.orchestration/orchestration.draw/draw.scene/scene.frame": [
+    "size"
+  ],
+  "compositor.orchestration/orchestration.core/core.state/state.base": [
+    "size"
+  ],
+  "compositor.orchestration/orchestration.seat/seat.keyboard/keyboard.input": [
+    "size"
+  ],
+  "compositor.orchestration/orchestration.seat/seat.pointer/pointer.draw": [
+    "size"
+  ],
+  "compositor.orchestration/orchestration.seat/seat.pointer/pointer.element": [
+    "size"
+  ],
+  "compositor.orchestration/orchestration.seat/seat.pointer/pointer.input": [
+    "flat",
+    "size"
+  ],
+  "compositor.orchestration/orchestration.seat/seat.pointer/pointer.texture": [
+    "size"
+  ],
+  "compositor.introspection/introspection.restoration/restoration.state/state.match": [
+    "size"
+  ],
+  "compositor.model/model.environment/environment.config/config.base": [
+    "size"
+  ],
+  "compositor.model/model.environment/environment.graphics/graphics.base": [
+    "size"
+  ],
+  "compositor.model/model.environment/environment.preference/preference.base": [
+    "size"
+  ],
+  "compositor.model/model.environment/environment.tearing/tearing.config": [
+    "size"
+  ],
+  "compositor.extension/compositor.configurator/configurator.network/network.backend/backend.base": [
+    "size"
+  ],
+  "compositor.extension/compositor.configurator/configurator.bluetooth/bluetooth.backend/backend.base": [
+    "size"
+  ],
+  "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.view": [
+    "size"
+  ],
+  "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.graphics": [
+    "size"
+  ],
+  "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.pen": [
+    "size"
+  ],
+  "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.chrome": [
+    "size"
+  ],
+  "compositor.extension/compositor.configurator/configurator.settings/settings.interface/interface.lifecycle": [
+    "size"
+  ],
+  "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.environment": [
+    "size"
+  ],
+  "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.keyboard": [
+    "size"
+  ],
+  "compositor.extension/compositor.monitor/monitor.overview/overview.ui/ui.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.overview/overview.interface/interface.surface": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.overview/overview.input/input.pointer": [
+    "size"
+  ],
+  "compositor.extension/compositor.configurator/configurator.settings/settings.surface/surface.control": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.overview/overview.draw/draw.settings": [
+    "size"
+  ],
+  "compositor.installer/installer.process/process.main/main.execute/execute.packages": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.surface/surface.draw/draw.fps": [
+    "size"
+  ],
+  "compositor.model/model.stats/stats.registry/registry.counter": [
+    "size"
+  ],
+  "compositor.orchestration/orchestration.draw/draw.dispatch/dispatch.uniforms": [
+    "size"
+  ],
+  "compositor.kernel/kernel.graphic/graphic.bridge/bridge.publish/publish.ring": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.host/host.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.instance/instance.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.item/item.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.surface/surface.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.element/element.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.lifecycle/lifecycle.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.registry/registry.base": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.worker/worker.instance": [
+    "size"
+  ],
+  "compositor.support/support.bevy/bevy.core/core.worker/worker.serve": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.surface/surface.draw/draw.handle": [
+    "size"
+  ],
+  "compositor.model/model.environment/environment.interface/interface.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.import": [
+    "size"
+  ],
+  "compositor.kernel/kernel.vulkan/vulkan.memory/memory.external/external.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.chain": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.pane": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.pace": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.buffers": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.serve": [
+    "size"
+  ],
+  "compositor.model/model.environment/environment.background/background.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.signal": [
+    "size"
+  ],
+  "compositor.model/model.environment/environment.tearing/tearing.rate": [
+    "size"
+  ],
+  "compositor.model/model.environment/environment.experimental/experimental.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.picker/picker.scene/scene.tick": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.draw/draw.select": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.build/build.pipeline/pipeline.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.build/build.place/place.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.bundle/bundle.manifest/manifest.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.compile/compile.spirv/spirv.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.execute/execute.effect/effect.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.execute/execute.graph/graph.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.execute/execute.offscreen/offscreen.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.history": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.host/host.eval/eval.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.host/host.hit/hit.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.bundle/bundle.require/require.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.bundle/bundle.graph/graph.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.host/host.map/map.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.execute/execute.warpmap/warpmap.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.guide/guide.interface/interface.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.guide/guide.menu/menu.create": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.guide/guide.menu/menu.view": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.guide/guide.shader/shader.create": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.guide/guide.shader/shader.view": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.guide/guide.state/state.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.y5/y5.canvas/canvas.draw/draw.scene": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.compile/compile.decode/decode.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.abi/abi.worldset/worldset.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.pipeline/pipeline.abi/abi.seam/seam.base": [
+    "size"
+  ],
+  "compositor.expansion/compositor.background/background.two/two.system/system.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "The System impl carries the full per-world background lifecycle in one module: register + update (resolve shader / rebuild GPU resource / gate on lock) + draw + the buffer command handler + camera event handlers. The storage tokens and persistence Document now live in two.storage; this is the remaining system logic, which reads as one unit."
+  },
+  "compositor.expansion/compositor.background/background.two/two.worker/worker.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "The worker handle and its three channels are one unit: the draw signal in, the pane registry out, and the readback out. Splitting the handle from the channels it owns would make them reachable without it, which is exactly the global this feature spent its life removing. The bulk is why each channel exists and which thread writes it."
+  },
+  "compositor.expansion/compositor.pipeline/pipeline.abi/abi.descriptor/descriptor.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "An ABI definition and the one function that writes it. The bulk is the rationale for each lane and each flag, which is the whole value of the file: every shipped bundle restates this layout in WGSL and none of them can be recompiled from here, so what a lane means has to be written down beside it. Splitting the flags from the packer would put a constant and its only writer in different crates."
+  },
+  "compositor.expansion/compositor.pipeline/pipeline.build/build.seam/seam.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "The seam builder and the pointer warp that answers against the same pipeline. They are one unit: `multipass_pass` pushes each pass from the live param array and `warp_point` must resolve the warp from that same array, so splitting them puts the picture and the cursor correction in different crates with nothing holding them to the same values."
+  },
+  "compositor.expansion/compositor.pipeline/pipeline.bundle/bundle.embed/embed.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Mostly an asset table: one line per shipped bundle file, plus the path normalisation that lets bundles share sources across folders. Splitting the data from the four accessors that read it would put the two halves in different crates for no reader's benefit."
+  },
+  "compositor.expansion/compositor.pipeline/pipeline.world/world.system/system.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "The per-world slot, its tokens and the system that maintains it are one unit: `y5_storage!` makes the write token crate-private on purpose, so splitting the state from its only writer would force that token public and lose the guarantee that nothing else can mutate a world's pipeline tables. The bulk is the rationale for the liveness rule, which is the part that is not derivable from the code."
+  },
+  "compositor.expansion/compositor.remote/remote.client/client.handle/handle.shader": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Four handler bodies that must stay together: they are the one place the world's background slot is written from outside the settings panel, and the rationale for the three-field write (selection, instance, mark) is what stops the next handler doing two of the three."
+  },
+  "compositor.expansion/compositor.remote/remote.message/message.client/client.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "The `define!` invocation: one block declaring every gRPC service, its methods and their request/response types. It is a table, and its length is the number of RPCs the compositor exposes. Splitting it would mean two macro invocations building two master enums, which is exactly the thing the single invocation exists to prevent."
+  },
+  "compositor.expansion/compositor.y5/y5.camera/camera.system/system.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Pass-1 input is whole-handler (Consume is all-or-nothing): CameraSystem::input bundles the over-window hit-test, grab check, and cursor-anchored zoom as one unit; zoom must run on the camera OWNER (synchronous accumulation), so it lives here."
+  },
+  "compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Pass-1 input is whole-handler (Consume is all-or-nothing): CanvasSystem::input bundles the release handler's grab transition + synchronous seat button + iced/resize fan-out as one indivisible unit; splitting it across modules would break the single Consume decision."
+  },
+  "compositor.expansion/compositor.y5/y5.placeholder/placeholder.persist/persist.record": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Full-fidelity launch persistence: the serde record types plus the codec-driven hint/preference projection + reconstruction form one cohesive conversion unit."
+  },
+  "compositor.expansion/compositor.y5/y5.placeholder/placeholder.system/system.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Owns the placeholder slot and the cross-system geometry channel: an interactive placeholder move/scale must update both this slot (modify_visible) and the iced registry (surface system), so the channel receiver + buffer + the two announce paths live together as one routing unit."
+  },
+  "compositor.expansion/compositor.y5/y5.surface/surface.system/system.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Owns the surface slot + the registry-routing channels (ICED_BUTTON, ICED_FOCUS, ICED_CONTEXT): each is an indivisible announce-fn + channel + buffer-apply triple that input systems use to reach the registry (the only mutation path); they belong on the one slot owner and can't be split without scattering the registry's single write authority."
+  },
+  "compositor.expansion/compositor.y5/y5.viewport/viewport.persist/persist.doc": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Full-fidelity viewport-tree persistence: the serde record types plus the recursive live<->persisted projection form one cohesive conversion unit."
+  },
+  "compositor.expansion/compositor.y5/y5.window/window.draw/draw.moment": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One record and the single function that observes every edge on it. The alternative to its length is seven lifecycle hooks in six files, which is what this exists to avoid — and the per-moment rationale is what stops the next one being added as an eighth hook somewhere else."
+  },
+  "compositor.expansion/compositor.y5/y5.window/window.draw/draw.occlude": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Three near-identical booleans about one window, whose whole difficulty is which consumer reads which — frame callbacks, fractional scale, xdg suspended. The length is the note saying so; without it the next consumer picks whichever name reads best and is wrong in a way nothing catches."
+  },
+  "compositor.introspection/introspection.extraction/extraction.window/window.hints.codec": {
+    "allow": [
+      "size"
+    ],
+    "reason": "The type-erased codec registry (register/encode/decode/make_hint_item/type lookups) is one cohesive unit; splitting the fn-pointer table across crates would obscure it."
+  },
+  "compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.install": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One cohesive startup-wiring unit: block_sigchld + install + base_env + the signalfd reaper source share the SIGCHLD-blocked precondition and the single calloop LoopHandle, so they stay together rather than fragmenting the loader wiring."
+  },
+  "compositor.kernel/kernel.vulkan/vulkan.command/command.record/record.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One composition recording: the damaged and full-redraw variants differ only in the target acquire and the attachment load-op, so they share the barrier + pass choreography rather than duplicating it across two crates."
+  },
+  "compositor.orchestration/orchestration.seat/seat.pointer/pointer.publish": {
+    "allow": [
+      "size"
+    ],
+    "reason": "A published slot plus the layout of the block it fills. The bulk is why each value is where it is — a lane meaning that lives away from the lane is how a shader and an engine come to disagree about what they are exchanging."
+  },
+  "compositor.orchestration/orchestration.seat/seat.pointer/pointer.warp": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Un-warping a pointer is one function with three conditions on it: whether a warp applies at all, which of the two grid producers answered for this world, and undoing the chain in reverse of how the picture was built. The bulk is that reasoning; a cursor that renders away from where it clicks is the cost of getting any of it wrong."
+  },
+  "compositor.orchestration/orchestration.world/world.manager/manager.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "WorldManager is one cohesive owner of the world set + active/spawn-target/generation invariants."
+  },
+  "compositor.support/support.smithay/smithay.dispatch/dispatch.state/state.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Dispatch is the concrete wayland protocol-state aggregate plus its required SeatHandler impl (document/SMITHAY_DECOUPLING.md P2 flip); intentionally large."
+  },
+  "compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "31 orphan-rule-bound smithay handler/Dispatch impls must live in the crate defining Wire<S>; helper code already extracted to wire.color/wire.colorsurf/wire.redraw (floor ~397 LOC)"
+  },
+  "compositor.support/support.smithay/smithay.state/state.foreign/foreign.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Hand-rolled wlr-foreign-toplevel-management state: mirror + emit + reconcile in one module."
+  },
+  "compositor.expansion/compositor.y5/y5.overview/overview.draw/draw.hover": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Per-frame reconciler for the grid's hover card: gate, cursor hit-test, placement and surface lifecycle in one pass; the content halves are already split out to draw.label (title) and draw.icon (the icon fallback chain)."
+  },
+  "compositor.expansion/compositor.y5/y5.overview/overview.interface/interface.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "The overlay's rim entry points (toggle / close / logout / deferred-action pump) are one small state machine; each is a handful of lines and splitting them scatters the flag they share."
+  },
+  "compositor.extension/compositor.monitor/monitor.overview/overview.ui/ui.hover": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One iced view: the hover card bubble plus its icon widget. A view is not divisible below itself."
+  },
+  "compositor.introspection/introspection.extraction/extraction.window/window.hints.attributes.identity": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Flat list of zero-sized identity attribute markers; each is a 7-line impl and the list is the module."
+  },
+  "compositor.introspection/introspection.extraction/extraction.window/window.hints.extract.entry": {
+    "allow": [
+      "size"
+    ],
+    "reason": "The four identity/env/desktop-entry/toplevel-icon hint pushes belong together: their ORDER is the precedence rule (desktop entry over toplevel icon)."
+  },
+  "compositor.introspection/introspection.extraction/extraction.window/window.meta.wayland": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Wayland-side Meta capture: the full (surface + credentials + /proc tree) form and the surface-only form share their whole body."
+  },
+  "compositor.introspection/introspection.sampler/sampler.window/window.engine": {
+    "allow": [
+      "size"
+    ],
+    "reason": "The sampler thread's single loop — cadence, forced refresh, batching and flush deadlines are one interleaved state machine."
+  },
+  "compositor.introspection/introspection.sampler/sampler.window/window.schedule": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Queue entries, cadence constants and the registration/refresh application: the timing policy is one document."
+  },
+  "compositor.expansion/compositor.y5/y5.window/window.interface/interface.record": {
+    "allow": [
+      "size"
+    ],
+    "reason": "The LoopWindow extension trait plus its single impl for smithay's Window: trait and impl cannot be split apart."
+  },
+  "compositor.introspection/introspection.extraction/extraction.window/window.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Pure façade — the re-export map for the whole extraction subsystem; its length IS the module tree it fronts."
+  },
+  "compositor.introspection/introspection.extraction/extraction.window/window.handler.registry": {
+    "allow": [
+      "size"
+    ],
+    "reason": "The handler registry (register/detect/extract) plus the two free extraction entry points it exists to expose."
+  },
+  "compositor.introspection/introspection.extraction/extraction.window/window.hints.extract": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One function: every base hint a process tree yields, in the order their precedence depends on."
+  },
+  "compositor.introspection/introspection.extraction/extraction.window/window.hints.values": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Flat list of hint value types; each is a small struct/enum and the list is the module."
+  },
+  "compositor.introspection/introspection.extraction/extraction.window/window.icon.toplevel": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Reading the toplevel icon is buffer selection + shm decode + un-premultiply; splitting the format handling from its only caller hides the invariants it checks."
+  },
+  "compositor.expansion/compositor.y5/y5.overview/overview.draw/draw.icon": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One ordered fallback chain for the hover card's icon. Its length IS the order, and the order is the behaviour — splitting it hides which source beat which."
+  }
+}

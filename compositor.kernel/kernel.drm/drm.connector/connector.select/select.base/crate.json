@@ -1,0 +1,12 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "smithay",
+    // Compositor dependencies (CI ensures availability in workspace)
+    "compositor_kernel_graphic_preference_output_profile",
+    // EDID read + identity so a profile's "make model serial" can be matched against
+    // the connected monitors (preference-driven default-output selection).
+    "compositor_kernel_drm_edid_parse_base",
+    "compositor_kernel_drm_edid_identity_base"
+  ]
+}

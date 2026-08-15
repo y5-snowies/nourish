@@ -16,7 +16,9 @@
 //!   against the extent SUSTAINS the pan off the frame clock ([`sustain`]), the way
 //!   an RTS edge scroll does. The sustained speed is not a constant: it is seeded
 //!   from how hard the pointer drove into the edge over its first moments there (see
-//!   [`EdgeSeed`]), so arriving fast keeps moving fast and creeping in crawls.
+//!   [`EdgeSeed`]), so arriving fast keeps moving fast and creeping in crawls. A
+//!   canvas PAN grab is left out of it entirely — the push alone already carries
+//!   the drag past the edge at mouse speed, and a sustain on top only fights it.
 //! - ABSOLUTE (winit): the host clamps the position to the window and stops
 //!   reporting once the pointer is pressed against the edge, so there is no
 //!   overflow to integrate — it has to be SIMULATED. The pointer arms a hold as
@@ -33,6 +35,10 @@
 //!
 //! Both mechanics are scaled by `preference.input_edge_pan_speed` ON TOP of the
 //! pointer speed, so the edge pan keeps the feel of the pointer driving it.
+//!
+//! Neither runs while an OVERLAY owns the screen — the overview, the world picker,
+//! the lock. The extent belongs to the camera only while the camera's world is the
+//! thing being drawn; see [`pans`].
 
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_seat_pointer_state::state::{EdgeHold, EdgeSeed};
@@ -102,7 +108,7 @@ pub enum Extent {
 /// (`position_updating`) even though it arms no [`CanvasGrab`], so pushing out of
 /// the screen mid-pan keeps panning instead of teleporting away from the drag.
 pub fn resolve(state: &Loop) -> Extent {
-    if !state.inner.preference.input_edge_pan {
+    if !pans(state) {
         return Extent::Teleport;
     }
     let canvas = state.inner.canvas();
@@ -121,7 +127,26 @@ pub fn resolve(state: &Loop) -> Extent {
 /// edge-pan on the push still belongs to the camera, so it pans rather than
 /// leaving Super+edge as a dead zone on a single monitor.
 pub fn fallback(state: &Loop) -> Extent {
-    if state.inner.preference.input_edge_pan { Extent::Pan } else { Extent::Clamp }
+    if pans(state) { Extent::Pan } else { Extent::Clamp }
+}
+
+/// Whether a push past an extent belongs to the CAMERA at all.
+///
+/// Off with the preference off — and off whenever an OVERLAY owns the screen: the
+/// overview, the world picker, the lock. None of them is the focused world's
+/// canvas, so driving into an edge to reach the overview's own menu bar (which
+/// sits ON the top extent), or the far side of the picker's globe, would scroll a
+/// world the user cannot see move, behind a frozen backdrop. Pin the cursor
+/// instead, which is what the extent did before edge pan existed.
+///
+/// Both callers go through this, so Super+edge with an overlay up falls back to a
+/// clamp rather than looping back into a pan.
+///
+/// The same predicate the pointer warp uses to decide the live bundle is not what
+/// is on screen (`desktop.suppressed`) — one answer to one question.
+fn pans(state: &Loop) -> bool {
+    state.inner.preference.input_edge_pan
+        && !compositor_orchestration_desktop_suppressed_base::base::suppressed(state)
 }
 
 /// Pan the camera by the cursor accumulator's outward overflow (physical screen
@@ -153,12 +178,12 @@ pub fn pan(state: &mut Loop, mx: f64, my: f64, pw: f64, ph: f64, dt: f64) -> boo
         .pointer()
         .edge_hold
         .map_or((0.0, 0.0), |h| (h.vx.abs() * dt, h.vy.abs() * dt));
-    let mut dx = net(overflow(mx, pw) * g, sx);
-    let mut dy = net(overflow(my, ph) * g, sy);
+    let dx = net(overflow(mx, pw) * g, sx);
+    let dy = net(overflow(my, ph) * g, sy);
     if dx == 0.0 && dy == 0.0 {
         return false;
     }
-    (dx, dy) = travel(state, dx, dy);
+    let (dx, dy) = travel(state, dx, dy);
     compositor_orchestration_input_drive_base::drive::route(state, InputEvent::PointerEdgePush { dx, dy });
     true
 }
@@ -251,8 +276,9 @@ pub fn hold(state: &mut Loop, pos: Point<f64, Physical>, n: (f64, f64), pw: f64,
 /// so pushing into the edge rides on top of the sustained travel and only speeds
 /// things up for as long as it lasts, exactly as an RTS edge scroll does.
 ///
-/// Dropped when the cursor leaves the extent, when the extent is not a pan, or when
-/// the preference is off (leaving the push-only behaviour).
+/// Dropped when the cursor leaves the extent, when the extent is not a pan, when
+/// the preference is off, or while a canvas PAN grab is driving — all of which
+/// leave the push-only behaviour, i.e. mouse speed and nothing else.
 ///
 /// `push` is this event's accumulator advance in physical px (`delta ×
 /// cursor_sensitivity`), which is what the arrival is measured from — see
@@ -278,7 +304,18 @@ pub fn sustain(
         .map_or(0.0, |prev| now.duration_since(prev).as_secs_f64())
         .min(EDGE_SAMPLE_MAX_DT);
 
-    if !panning || !state.inner.preference.input_edge_pan_continuous {
+    // A canvas PAN grab gets the push and NOTHING else — no sustained speed of its
+    // own, ever. It is already dragging the world along with the cursor and the
+    // push is inverted into that drag ([`travel`]), so the two already come to
+    // exactly the motion the hand made: pushing past the edge just keeps the drag
+    // going, 1:1, at mouse speed. A sustained speed on top is a SECOND source
+    // driving the same axis, and [`pan`] nets the push against it — so as the
+    // measurement rises and falls the canvas alternates between running on the
+    // push and running on the sustain instead of simply following the mouse.
+    if !panning
+        || !state.inner.preference.input_edge_pan_continuous
+        || state.inner.canvas().position_updating
+    {
         release(state);
         return dt;
     }
@@ -407,6 +444,14 @@ pub fn tick(state: &mut Loop) {
         return;
     }
     let Some(mut hold) = state.inner.pointer().edge_hold else { return };
+    // An overlay can open while the pointer is parked in the band — Super+Tab does
+    // exactly that — and this clock would go on scrolling the world behind it. The
+    // motion paths re-ask `resolve` on every event; a still pointer sends none, so
+    // this is the only place that notices.
+    if compositor_orchestration_desktop_suppressed_base::base::suppressed(state) {
+        release(state);
+        return;
+    }
     let now = Instant::now();
     // Fix the arrival window here too: a pointer that slammed into the edge and
     // stopped sends no further motion, and this is the only clock still running.

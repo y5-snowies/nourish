@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "compositor_pipeline_execute_graph_base",
+    "ash",
+    "compositor_kernel_vulkan_device_factory_base",
+    "compositor_pipeline_execute_effect_base",
+    "compositor_kernel_vulkan_renderer_error_base"
+  ]
+}

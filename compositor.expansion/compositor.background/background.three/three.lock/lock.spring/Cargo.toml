@@ -1,9 +1,0 @@
-[package]
-name = "compositor_background_three_lock_spring"
-version = "0.0.1"
-edition = "2024"
-
-[lib]
-path = "lib.rs"
-
-[dependencies]

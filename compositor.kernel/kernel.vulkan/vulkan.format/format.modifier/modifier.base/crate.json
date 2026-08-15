@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "smithay",
+    "ash",
+    // Compositor dependencies (CI ensures availability in workspace)
+    "compositor_kernel_vulkan_format_query_base"
+  ]
+}

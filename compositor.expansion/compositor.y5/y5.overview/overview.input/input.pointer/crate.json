@@ -1,0 +1,15 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_y5_surface_interface_base",
+    "compositor_y5_camera_transform_translate",
+    "compositor_y5_picker_seat_pointer",
+    "compositor_y5_picker_seat_embed",
+    "compositor_y5_overview_interface_activate",
+    "compositor_y5_overview_interface_base",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

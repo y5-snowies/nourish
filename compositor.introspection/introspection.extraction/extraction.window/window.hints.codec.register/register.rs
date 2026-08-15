@@ -16,6 +16,7 @@ pub fn register_standard_codecs() {
         codec::register::<DesktopEntryPath>();
         codec::register::<IconPath>();
         codec::register::<IconName>();
+        codec::register::<XdgIconName>();
         codec::register::<Sandbox>();
         codec::register::<DBusActivatable>();
         codec::register::<DBusServiceName>();

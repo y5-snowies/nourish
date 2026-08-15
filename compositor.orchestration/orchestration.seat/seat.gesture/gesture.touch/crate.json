@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_support_system_input_event_base"
+  ]
+}

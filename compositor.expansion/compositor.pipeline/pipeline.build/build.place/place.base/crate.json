@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_pipeline_bundle_manifest_base",
+    "compositor_pipeline_bundle_graph_base"
+  ]
+}

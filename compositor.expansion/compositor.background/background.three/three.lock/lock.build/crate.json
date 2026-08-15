@@ -1,0 +1,16 @@
+{
+  "deps": [
+    "bevy",
+    "compositor_support_bevy_core_bridge_base",
+    "compositor_support_bevy_core_placeholder_base",
+    "compositor_background_three_lock_anim",
+    "compositor_background_three_lock_apply",
+    "compositor_background_three_lock_material",
+    "compositor_background_three_lock_orbit",
+    "compositor_background_three_lock_shader",
+    "compositor_background_three_lock_spawn",
+    "compositor_background_three_lock_state",
+    "compositor_model_debug_instance_record",
+    "wgpu"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_kernel_vulkan_texture_image_base"
+  ]
+}

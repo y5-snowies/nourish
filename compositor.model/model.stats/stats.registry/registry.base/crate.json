@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_model_stats_registry_counter",
+    "compositor_model_stats_registry_hdr",
+    "compositor_model_stats_registry_meta",
+    "compositor_model_stats_registry_shader",
+    "compositor_model_stats_registry_gpu",
+    "compositor_model_stats_registry_snapshot"
+  ]
+}

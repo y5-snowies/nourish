@@ -81,6 +81,10 @@ impl<A: WireTrait + 'static> Wire<A> {
         // The hint only ever TAGS a surface; whether it tears is the
         // compositor's call (`environment.tearing`).
         compositor_support_smithay_dispatch_wire_tearing::tearing::create_global::<Dispatch>(display_handle);
+        // `xdg_toplevel_icon_v1`: the client-declared icon. Read off the surface's
+        // cached state by the introspection extraction (see `Meta::xdg_icon_name`),
+        // so there is no per-surface state to keep here.
+        compositor_support_smithay_dispatch_wire_icon::icon::create_global::<Dispatch>(display_handle);
         Self { state: dispatch, inner, loop_handle }
     }
 }
@@ -212,14 +216,45 @@ impl<A: WireTrait + 'static> Wire<A> {
         self.foreign_reconcile();
     }
 
-    /// The rim's full response to a `WORLD_SWITCHED` event, in order: carry keyboard
-    /// focus + `activated` to the incoming world (this sets the new activation), then
-    /// re-advertise the foreign-toplevel mirror against it. Kept together here so the
-    /// composition root only wires an opaque "on world switched" and stays agnostic of
-    /// which concerns (focus, docks) react to a switch.
+    /// The rim's full response to a `WORLD_SWITCHED` event, in order: put the cursor
+    /// back where the hand left it, carry keyboard focus + `activated` to the incoming
+    /// world (this sets the new activation), then re-advertise the foreign-toplevel
+    /// mirror against it. Kept together here so the composition root only wires an
+    /// opaque "on world switched" and stays agnostic of which concerns (pointer, focus,
+    /// docks) react to a switch.
     pub fn on_world_switched(&mut self) {
+        self.apply_world_switch_pointer();
         self.apply_world_switch_focus();
         self.foreign_reconcile();
+    }
+
+    /// Keep the cursor visually still across a world switch.
+    ///
+    /// The seat pointer's location is a single global y5-WORLD point while every
+    /// world has its own camera, so carrying it across a switch draws the cursor
+    /// wherever the incoming camera happens to project it — for a world never
+    /// entered, whose camera sits at the default, that is far outside the panel.
+    /// The hardware position is what actually survives (the Orchestrator hands it to
+    /// the incoming world in `set_spawn_target_world`), so `reanchor_pointer`
+    /// re-derives the world point from IT under the incoming camera and this states
+    /// the result on the seat. The same reprojection the navigator does to hold the
+    /// cursor still while the camera eases (`navigator.tick/tick.warp::warp_intent`).
+    ///
+    /// Focus is dropped (`None`): the surface under the cursor belonged to the world
+    /// just left and is owed its `leave`; the next motion enters whatever is here.
+    ///
+    /// Runs from the `WORLD_SWITCHED` handler, which the frame hook drains BEFORE
+    /// `reconcile_finger_pan` — so that pass sees an accumulator and a seat location
+    /// that already agree, and leaves both alone.
+    pub fn apply_world_switch_pointer(&mut self) {
+        let Some(pointer) = self.state.seat.seat.get_pointer() else {
+            return;
+        };
+        let location = self.inner.reanchor_pointer();
+        let serial = SERIAL_COUNTER.next_serial();
+        let time = self.state.compositor.clock.now().as_millis() as u32;
+        pointer.motion(&mut self.state, None, &MotionEvent { location, serial, time });
+        pointer.frame(&mut self.state);
     }
 
     /// Reconcile the foreign-toplevel mirror against the space(s) it advertises: just the

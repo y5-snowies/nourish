@@ -35,6 +35,16 @@ pub trait WireTrait {
     /// Warp the pointer to a world-space point. The handler reads its own
     /// hosted space internally (it owns it now), so no space is passed in.
     fn apply_pointer(&mut self, storage_point: Point<f64, Logical>);
+    /// The inverse of [`apply_pointer`]: pin the cursor's own hardware position into
+    /// the output and return where it lands in the FOCUSED world, so the caller can
+    /// re-state the seat's location there. Re-seats the camera's pan accumulator on
+    /// the same point, exactly as `apply_pointer` does.
+    ///
+    /// Used after a world switch: the seat holds one global world coordinate while
+    /// every world has its own camera, so the location carried across a switch lands
+    /// wherever the incoming camera projects it. The hardware position is the value
+    /// that survives — re-derive the world point from it.
+    fn reanchor_pointer(&mut self) -> Point<f64, Logical>;
     fn place_window(&mut self, window: Window, geometry: Rectangle<i32, Logical>);
     /// A client asked to (un)fullscreen `window`. The actual sizing/placement is
     /// deferred to the Loop-level lifecycle hook, since it needs concrete state

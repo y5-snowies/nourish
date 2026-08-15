@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "tokio",
+    "compositor_remote_message_client_base",
+    "compositor_remote_message_server_base"
+  ]
+}

@@ -10,12 +10,19 @@ use std::collections::VecDeque;
 use std::time::Duration;
 
 use uuid::Uuid;
-use compositor_introspection_extraction_window_base::MetaNode;
+use compositor_introspection_extraction_window_base::{Meta, MetaNode};
 
 /// A registration message: main thread → sampler thread.
 pub enum Registration {
     Add(Entry),
     Remove(Uuid),
+    /// Sample these windows on the very next tick, ignoring the cadence.
+    ///
+    /// Each item carries the WAYLAND half of that window's identity, read on the
+    /// main thread (`extract_surface_meta`) because this thread cannot: app_id
+    /// and title live on the surface, not in `/proc`. A window that isn't
+    /// registered yet is registered by this.
+    Refresh(Vec<(Uuid, Meta)>),
 }
 
 /// One registered placeholder in the sampling queue.
@@ -62,14 +69,50 @@ pub fn tick_interval(n: usize) -> Duration {
 
 /// New registrations push to the front of the queue, so they get
 /// sampled on the very next tick.
-pub fn apply_registration(queue: &mut VecDeque<Entry>, reg: Registration) {
+///
+/// Returns how many entries this message asks to be sampled IMMEDIATELY — non-zero
+/// only for [`Registration::Refresh`], which is a user-visible request (the
+/// overview opening) rather than the background cadence. The caller uses it to
+/// bring the next tick forward and to widen that one tick past [`BATCH_CAP`], so
+/// a refresh of every window on the world lands in a single pass.
+pub fn apply_registration(queue: &mut VecDeque<Entry>, reg: Registration) -> usize {
     match reg {
         Registration::Add(e) => {
             queue.retain(|q| q.uuid != e.uuid);
             queue.push_front(e);
+            0
         }
         Registration::Remove(uuid) => {
             queue.retain(|q| q.uuid != uuid);
+            0
+        }
+        Registration::Refresh(items) => {
+            let mut forced = 0;
+            for (uuid, surface) in items {
+                let Some(pid) = surface.pid else { continue };
+                let held = queue.iter().position(|q| q.uuid == uuid).and_then(|i| queue.remove(i));
+                // Never registered (mapped without credentials, say) — the
+                // refresh is also its registration.
+                let mut entry = held
+                    .unwrap_or_else(|| Entry { uuid, pid, previous_meta: MetaNode::leaf(surface.clone()) });
+                entry.pid = pid;
+                merge_surface(&mut entry.previous_meta.meta, surface);
+                queue.push_front(entry);
+                forced += 1;
+            }
+            forced
         }
     }
+}
+
+/// Overwrite the wayland-derived fields of a captured `Meta` with a freshly read
+/// surface snapshot, leaving every `/proc`-derived field alone. The mirror of
+/// what `refresh_meta_from_pid` preserves — that call keeps these across a
+/// re-extraction precisely because this thread cannot re-read them.
+fn merge_surface(into: &mut Meta, surface: Meta) {
+    into.app_id = surface.app_id;
+    into.title = surface.title;
+    into.pid = surface.pid;
+    into.uid = surface.uid;
+    into.gid = surface.gid;
 }

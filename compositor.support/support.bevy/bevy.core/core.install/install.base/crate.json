@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "bevy",
+    "compositor_support_bevy_core_bridge_base",
+    "compositor_model_debug_instance_record",
+    "wgpu"
+  ]
+}

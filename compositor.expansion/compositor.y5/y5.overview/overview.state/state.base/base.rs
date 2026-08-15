@@ -6,6 +6,7 @@ use compositor_support_system_storage_token_base::base::{Token, TokenMut};
 use compositor_monitor_compositor_iced_base::HandleId;
 use compositor_support_bevy_core_alloc_base::AllocatedDmabuf;
 use compositor_y5_graphic_capture_registry::{CaptureHandle, SnapshotHandle};
+use compositor_monitor_overview_ui_hover::CardIcon;
 use smithay::utils::{Physical, Rectangle};
 use uuid::Uuid;
 
@@ -52,6 +53,13 @@ pub struct Overview {
     pub scroll: f64,
     /// Last-rendered cell rects (uuid → screen rect) for click hit-testing.
     pub cells: Vec<(Uuid, Rectangle<i32, Physical>)>,
+    /// The hover card surface (a click-through tooltip), created on demand while
+    /// the overlay is up and destroyed with it.
+    pub card: Option<HandleId>,
+    /// What the card currently shows — `None` while it is blank. The title is a
+    /// live read and the icon costs a theme lookup or a buffer decode, so both
+    /// are pushed only when this stops matching.
+    pub card_shown: Option<(Uuid, String, Option<CardIcon>)>,
 }
 
 impl Overview {
@@ -64,6 +72,8 @@ impl Overview {
             phase: Phase::Closed,
             scroll: 0.0,
             cells: Vec::new(),
+            card: None,
+            card_shown: None,
         }
     }
 

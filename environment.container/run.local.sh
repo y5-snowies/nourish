@@ -3,16 +3,16 @@
 # using the curated GPU/session environment from container.env (NVIDIA EGL paths,
 # COMPOSITOR_RENDER_NODE, WAYLAND_DISPLAY, etc.). The containerized equivalent is run.sh.
 #
-# Usage: ./run.local.sh [winit|udev] [debug|release]   (default: winit debug)
+# Usage: ./run.local.sh [winit|udev]   (default: winit)
+# Always release-fast — build.sh has no profile argument.
 #   COMPOSITOR_LOG_LEVEL is honored if already set, else defaults to all levels.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND="${1:-winit}"
-PROFILE="${2:-debug}"
 
 # Build first; build.sh prints the binary path on stdout (logs go to stderr).
-BIN="$("$HERE/../environment/build.sh" "$BACKEND" "$PROFILE")"
+BIN="$("$HERE/../environment/build.sh" "$BACKEND")"
 
 # Load the same environment the container uses (render node, EGL vendor, wayland display…).
 set -a

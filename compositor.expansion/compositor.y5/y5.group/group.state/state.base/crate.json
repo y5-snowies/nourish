@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_support_system_storage_token_base",
+    "compositor_model_debug_instance_record",
+    "compositor_y5_group_surface_base",
+    "compositor_monitor_compositor_iced_base",
+    "uuid"
+  ]
+}

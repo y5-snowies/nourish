@@ -7,7 +7,7 @@ name: Multiarch Publish
 # compositor.installer/prepare.sh that docs.yml uses — building every shipped component
 # (compositor, devtool window, polkit agent, MX gesture daemon, xwayland-satellite, settings
 # tool, interactive installer) inside that distro's own image (environment.container/
-# distributions/<distro>/Containerfile, BUNDLE=1). Each bundle already contains its own
+# distributions/<distro>/Containerfile, MODE=bundle). Each bundle already contains its own
 # install.sh + y5-install, so it IS the per-distro installer.
 #
 # WHY per-distro: the binaries are dynamically linked to that distro's glibc / mesa / Vulkan /
@@ -69,7 +69,7 @@ jobs:
       fail-fast: false
       matrix:
         # One entry per (distro, arch). distro = a subdir under
-        # environment.container/distributions/ with a BUNDLE=1-capable Containerfile; runner =
+        # environment.container/distributions/ with a bundle-capable Containerfile; runner =
         # ubuntu-24.04 (x86_64) or ubuntu-24.04-arm (aarch64, native — no QEMU). Base images are
         # pinned in each Containerfile. Arch is x86_64-only: the official archlinux image has no
         # arm64 build.
@@ -143,21 +143,22 @@ jobs:
 
       - name: Build full install bundle for ${{ matrix.distro }} (${{ matrix.arch }})
         env:
-          # BUNDLE=1 flips the Containerfile from the dev-loop winit binary to prepare.sh (all
-          # components); VERSION stamps the rc number into the compositor at compile time.
+          # VERSION stamps the rc number into the compositor at compile time. The build
+          # MODE is image.sh's second argument (`bundle`), not an extra build-arg — the
+          # Containerfile REQUIRES it and fails if it is missing, so this path cannot
+          # silently fall back to the nested winit dev binary.
           Y5_EXTRA_BUILD_ARGS: >-
-            --build-arg BUNDLE=1
             --build-arg VERSION=${{ needs.version.outputs.version }}
         run: |
           # image.sh materializes the source clone, mounts the target cache, and builds the
-          # image (tag: y5-distro-<distro>-release) with our extra build args.
-          environment.container/distributions/image.sh "${{ matrix.distro }}" release
+          # image (tag: y5-distro-<distro>-bundle) with our extra build args.
+          environment.container/distributions/image.sh "${{ matrix.distro }}" bundle
 
       - name: Extract + package the bundle
         id: pkg
         run: |
           combo="${{ matrix.distro }}-${{ matrix.arch }}"
-          img="y5-distro-${{ matrix.distro }}-release"
+          img="y5-distro-${{ matrix.distro }}-bundle"
           cid="$(podman create "$img")"
           trap 'podman rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           mkdir -p dist

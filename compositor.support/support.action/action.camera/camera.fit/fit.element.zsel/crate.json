@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_support_action_camera_fit_element_flags",
+    "compositor_support_action_camera_fit_element_viewport",
+    "compositor_support_action_camera_fit_element_zoom"
+  ]
+}

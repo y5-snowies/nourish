@@ -28,7 +28,7 @@ use smithay_client_toolkit::{
         Capability, SeatHandler, SeatState,
         pointer::{PointerEvent, PointerEventKind, PointerHandler},
     },
-    shm::{Shm, ShmHandler, slot::SlotPool},
+    shm::{Shm, ShmHandler, slot::{Buffer as SlotBuffer, SlotPool}},
     subcompositor::SubcompositorState,
 };
 use wayland_client::{
@@ -68,6 +68,10 @@ use wayland_protocols::{
             xdg_surface::{self, XdgSurface},
             xdg_toplevel::{self, XdgToplevel},
             xdg_wm_base::{self, XdgWmBase},
+        },
+        toplevel_icon::v1::client::{
+            xdg_toplevel_icon_manager_v1::{self, XdgToplevelIconManagerV1},
+            xdg_toplevel_icon_v1::XdgToplevelIconV1,
         },
     },
 };
@@ -231,6 +235,25 @@ struct Subject {
     /// `wp_tearing_control_v1` for the main surface (None if the compositor does
     /// not advertise the global).
     tearing_ctl: Option<WpTearingControlV1>,
+
+    // --- xdg_toplevel_icon_v1 ---
+    icon_mgr: Option<XdgToplevelIconManagerV1>,
+    /// Sizes the compositor asked for at bind time (`icon_size` events).
+    icon_sizes: Vec<i32>,
+    /// Its own pool: icon buffers are never attached to a surface, so they are
+    /// never released, and sharing the frame pool would let a redraw reuse the
+    /// slot underneath a live icon.
+    icon_pool: Option<SlotPool>,
+    /// The icon currently set, plus the buffers it references. BOTH must outlive
+    /// the icon being current — the compositor watches these buffers and raises
+    /// `no_buffer` if one dies first.
+    icon: Option<(XdgToplevelIconV1, Vec<SlotBuffer>)>,
+    /// The previous generation, retired one change late: the `set_icon` for the
+    /// new one has to reach the compositor's surface commit before the old
+    /// object may go.
+    icon_retired: Option<(XdgToplevelIconV1, Vec<SlotBuffer>)>,
+    /// What was last requested, for the overlay.
+    icon_label: String,
     /// Self-driven commit rate in Hz; 0 = default animation-only tick.
     commit_hz: u32,
     /// Draw the live FRAME/COMMIT counter into the overlay.
@@ -324,6 +347,13 @@ fn main() {
         if use_sp { bind_opt(&globals, &qh, "wp_single_pixel_buffer_manager_v1") } else { None };
     let tearing_mgr: Option<WpTearingControlManagerV1> =
         bind_opt(&globals, &qh, "wp_tearing_control_manager_v1");
+    // Always bound: an icon costs nothing until one of the `icon-*` commands
+    // asks for it, and its absence is itself the first thing to check.
+    let icon_mgr: Option<XdgToplevelIconManagerV1> =
+        bind_opt(&globals, &qh, "xdg_toplevel_icon_manager_v1");
+    if icon_mgr.is_none() {
+        warn!("icon: compositor does not advertise xdg_toplevel_icon_manager_v1");
+    }
 
     info!(
         "globals: xdg_wm_base + decoration={} viewporter={} fractional={} single_pixel={}",
@@ -395,6 +425,12 @@ fn main() {
         mapcycle: false,
         mapcycle_tick: 0,
         tearing_ctl,
+        icon_mgr,
+        icon_sizes: Vec::new(),
+        icon_pool: None,
+        icon: None,
+        icon_retired: None,
+        icon_label: String::from("none"),
         commit_hz: 0,
         show_counter: true,
         commits: 0,
@@ -608,6 +644,10 @@ impl Subject {
             Command::SpSub(r, g, b, a) => self.single_pixel_sub(r, g, b, a),
             Command::SpNoViewport => self.sp_no_viewport = !self.sp_no_viewport,
 
+            Command::IconName(name) => self.set_icon(Some(&name), &[]),
+            Command::IconBuffer(edges) => self.set_icon(None, &edges),
+            Command::IconBoth(name) => self.set_icon(Some(&name), &[64]),
+            Command::IconClear => self.clear_icon(),
             Command::Map => self.set_mapped(true),
             Command::Unmap => self.set_mapped(false),
             Command::MapCycle(on) => self.mapcycle = on,
@@ -653,6 +693,109 @@ impl Subject {
     }
 
     // ---- lifecycle ------------------------------------------------------------------
+
+    // ---------------------------------------------------------------- icon --
+
+    /// Publish an `xdg_toplevel_icon_v1` for this toplevel: a stock icon NAME, a
+    /// set of pixel BUFFERS, or both on the same icon object.
+    ///
+    /// Each buffer is a solid square colour-coded BY EDGE SIZE (see [`icon_tint`])
+    /// so which size the compositor picked is visible in whatever it draws, plus a
+    /// half-alpha quadrant — premultiplied, as `wl_shm` requires — so a consumer
+    /// that forgets to un-premultiply shows a visibly darker quarter.
+    fn set_icon(&mut self, name: Option<&str>, edges: &[i32]) {
+        let Some(mgr) = self.icon_mgr.clone() else {
+            warn!("icon: compositor does not advertise xdg_toplevel_icon_manager_v1");
+            return;
+        };
+        let icon = mgr.create_icon(&self.qh, ());
+        if let Some(name) = name {
+            icon.set_name(name.to_string());
+        }
+        let mut buffers = Vec::new();
+        for (i, edge) in edges.iter().copied().enumerate() {
+            match self.icon_buffer(edge, icon_tint(i)) {
+                Some(buffer) => {
+                    // scale 1: these are the sizes we claim, not logical ones.
+                    icon.add_buffer(buffer.wl_buffer(), 1);
+                    buffers.push(buffer);
+                }
+                None => warn!("icon: could not allocate a {edge}x{edge} buffer"),
+            }
+        }
+        mgr.set_icon(&self.toplevel, Some(&icon));
+        // The icon is double-buffered surface state — it lands on commit, and the
+        // retire below must not overtake that.
+        self.main_surface.commit();
+        self.retire_icon();
+        self.icon_retired = self.icon.take();
+        self.icon = Some((icon, buffers));
+        self.icon_label = match (name, edges.is_empty()) {
+            (Some(n), true) => format!("name {n}"),
+            (Some(n), false) => format!("name {n} + {} buf", edges.len()),
+            (None, _) => format!("{} buf {:?}", edges.len(), edges),
+        };
+        info!("icon: set ({})", self.icon_label);
+        self.redraw_icon_overlay();
+    }
+
+    /// `set_icon(null)` — the toplevel declares no icon at all, which is the case
+    /// a compositor should answer from its own inference instead.
+    fn clear_icon(&mut self) {
+        let Some(mgr) = self.icon_mgr.clone() else {
+            warn!("icon: compositor does not advertise xdg_toplevel_icon_manager_v1");
+            return;
+        };
+        mgr.set_icon(&self.toplevel, None);
+        self.main_surface.commit();
+        self.retire_icon();
+        self.icon_retired = self.icon.take();
+        self.icon_label = String::from("none");
+        info!("icon: cleared");
+        self.redraw_icon_overlay();
+    }
+
+    /// Repaint so the overlay's icon line reflects the change.
+    fn redraw_icon_overlay(&mut self) {
+        if self.configured && self.mapped {
+            self.draw_main();
+        }
+    }
+
+    /// Drop the generation before last. Destroying the icon object is what
+    /// releases the compositor's watch on its buffers, so the buffers go after it
+    /// — never before, or the compositor raises `no_buffer` on us.
+    fn retire_icon(&mut self) {
+        let Some((icon, buffers)) = self.icon_retired.take() else { return };
+        icon.destroy();
+        drop(buffers);
+    }
+
+    /// One square icon buffer. Its own pool, grown on demand.
+    fn icon_buffer(&mut self, edge: i32, tint: u32) -> Option<SlotBuffer> {
+        if edge <= 0 {
+            return None;
+        }
+        let need = (edge * edge * 4) as usize;
+        let pool = match &mut self.icon_pool {
+            Some(pool) => pool,
+            None => {
+                self.icon_pool = SlotPool::new(need.max(256 * 256 * 4), &self.shm).ok();
+                self.icon_pool.as_mut()?
+            }
+        };
+        let (buffer, slice) = pool.create_buffer(edge, edge, edge * 4, Format::Argb8888).ok()?;
+        let mut cv = Canvas::new(slice, edge, edge);
+        // Fully transparent margin proves the alpha channel survives the trip.
+        cv.clear(0x0000_0000);
+        let inset = (edge / 8).max(1);
+        cv.rect(inset, inset, edge - 2 * inset, edge - 2 * inset, tint);
+        cv.frame(inset, inset, edge - 2 * inset, edge - 2 * inset, (edge / 16).max(1), 0xFF10_1418);
+        // Half-alpha quadrant, PREMULTIPLIED (each channel already scaled by a).
+        let half = edge / 2;
+        cv.rect(half, half, edge - half - inset, edge - half - inset, premultiply(tint, 128));
+        Some(buffer)
+    }
 
     fn set_mapped(&mut self, on: bool) {
         if on && !self.mapped {
@@ -1081,6 +1224,12 @@ impl Subject {
                 self.buf_delta
             ),
             format!("SUBS {}  POPUPS {}", self.subs.len(), self.popups.len()),
+            format!(
+                "ICON {}  [mgr {} sizes {:?}]",
+                self.icon_label,
+                if self.icon_mgr.is_some() { "yes" } else { "NO" },
+                self.icon_sizes
+            ),
         ];
         if self.show_counter {
             lines.insert(0, format!("FRAME {}  COMMIT {} Hz", self.commits, self.commit_hz));
@@ -1510,6 +1659,26 @@ impl Dispatch<WpTearingControlV1, ()> for Subject {
     fn event(_: &mut Self, _: &WpTearingControlV1, _: <WpTearingControlV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
 }
 
+// The manager announces the sizes the compositor would like at bind time; the
+// `done` that follows just ends that burst.
+impl Dispatch<XdgToplevelIconManagerV1, ()> for Subject {
+    fn event(
+        state: &mut Self,
+        _: &XdgToplevelIconManagerV1,
+        event: xdg_toplevel_icon_manager_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let xdg_toplevel_icon_manager_v1::Event::IconSize { size } = event {
+            state.icon_sizes.push(size);
+        }
+    }
+}
+impl Dispatch<XdgToplevelIconV1, ()> for Subject {
+    fn event(_: &mut Self, _: &XdgToplevelIconV1, _: <XdgToplevelIconV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
 impl Dispatch<WpSinglePixelBufferManagerV1, ()> for Subject {
     fn event(_: &mut Self, _: &WpSinglePixelBufferManagerV1, _: <WpSinglePixelBufferManagerV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
 }
@@ -1519,4 +1688,18 @@ impl Dispatch<WlBuffer, SpBuf> for Subject {
             buffer.destroy();
         }
     }
+}
+
+/// Colour per icon size, so the size the compositor chose is readable off the
+/// pixels it drew: 0=red, 1=amber, 2=green, 3=blue, 4=magenta, then repeat.
+fn icon_tint(index: usize) -> u32 {
+    const TINTS: [u32; 5] = [0xFFE0_4038, 0xFFE0_A020, 0xFF30_C060, 0xFF3070_E0, 0xFFC0_40C0];
+    TINTS[index % TINTS.len()]
+}
+
+/// Scale an opaque `0xFFRRGGBB` to alpha `a` with the channels PREMULTIPLIED,
+/// which is what `wl_shm`'s `argb8888` means.
+fn premultiply(argb: u32, a: u8) -> u32 {
+    let scale = |c: u32| ((c & 0xFF) * a as u32 / 255) & 0xFF;
+    ((a as u32) << 24) | (scale(argb >> 16) << 16) | (scale(argb >> 8) << 8) | scale(argb)
 }

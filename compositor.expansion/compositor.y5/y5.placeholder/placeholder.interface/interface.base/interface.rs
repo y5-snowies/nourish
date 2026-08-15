@@ -8,6 +8,7 @@ use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 use compositor_introspection_launchplan_plan_base::LaunchPlan;
+use compositor_introspection_extraction_window_base::hints::extract::push_toplevel_icon_hints;
 use compositor_introspection_restoration_state_base::{PendingRestoration, match_window};
 use compositor_introspection_sampler_window_base::sampler::SampleBatch;
 use compositor_orchestration_core_state_base::state::CoordinateTrait;
@@ -352,6 +353,17 @@ pub fn on_window_sample(state: &mut Loop, sample: &SampleBatch) {
 
         // println!("Received sample for active placeholder");
 
+        // The sampler thread has no surface, so its hints carry no toplevel icon.
+        // Add it HERE — applying a batch runs on the compositor thread, where the
+        // window is reachable — so a sample result is complete for anything
+        // reading it. Ordering still holds: the desktop entry resolved on the
+        // sampler thread is already in `hints`, so the toplevel's name stays a
+        // fallback behind it.
+        let mut data = data.clone();
+        if let Some(icon) = window_icon(state, item.uuid) {
+            push_toplevel_icon_hints(&icon, &mut data.hints);
+        }
+
         state.inner.placeholder_mut().modify(&item.uuid, |placeholder| {
             if let Some(ref existing) = placeholder.launch_session {
                 placeholder.launch_session = Some(LaunchPlan {
@@ -373,6 +385,17 @@ pub fn on_window_sample(state: &mut Loop, sample: &SampleBatch) {
     if !sample.results.is_empty() {
         compositor_support_system_persist_mark_base::base::mark_world(state.inner.worlds.active_id(), false);
     }
+}
+
+/// The live toplevel icon of the window carrying `uuid` on the focused world.
+fn window_icon(state: &Loop, uuid: Uuid) -> Option<compositor_introspection_extraction_window_base::ToplevelIcon> {
+    state
+        .inner
+        .space_state()
+        .state
+        .elements()
+        .find(|w| w.uuid() == Some(uuid))?
+        .toplevel_icon()
 }
 
 // Generally unsafe. Commited state for size takes a few frames.

@@ -1,0 +1,16 @@
+{
+  "deps": [
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record",
+    "smithay",
+    "uuid",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_monitor_overview_ui_hover",
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_draw_layer_base",
+    "compositor_y5_camera_transform_translate",
+    "compositor_y5_overview_draw_icon",
+    "compositor_y5_overview_draw_label",
+    "compositor_y5_overview_state_base"
+  ]
+}

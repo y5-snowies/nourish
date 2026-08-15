@@ -1,0 +1,5 @@
+{
+  "deps": [
+    "crossbeam-channel"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_support_system_storage_token_base",
+    "compositor_y5_camera_state_base",
+    "uuid"
+  ]
+}

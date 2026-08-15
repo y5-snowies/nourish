@@ -1,0 +1,13 @@
+{
+  "deps": [
+    "compositor_support_bevy_core_element_base",
+    "compositor_support_bevy_core_engine_base",
+    "compositor_support_bevy_core_error_base",
+    "compositor_support_bevy_core_handle_base",
+    "compositor_support_bevy_core_instance_base",
+    "compositor_support_bevy_core_item_base",
+    "compositor_support_bevy_core_registry_base",
+    "compositor_support_bevy_core_runtime_base",
+    "compositor_support_bevy_core_space_base"
+  ]
+}

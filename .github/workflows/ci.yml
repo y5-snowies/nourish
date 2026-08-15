@@ -29,7 +29,7 @@ jobs:
     container: ghcr.io/${{ github.repository_owner }}/y5-ci:fedora44
     steps:
       - uses: actions/checkout@v4
-      - run: environment/build.sh udev release
+      - run: environment/build-optimized.sh udev
 
   # Candidate release artifact: on a branch push (not PRs), build the full install bundle
   # the Publish/Release jobs would ship — installer + binaries + every component — and keep
@@ -60,10 +60,3 @@ jobs:
             dist/package.tar.gz
             dist/SHA256SUMS
 
-  # Re-run workspace.link.js everywhere; fail if a committed GENERATED block is stale.
-  link-drift:
-    runs-on: ubuntu-latest
-    container: ghcr.io/${{ github.repository_owner }}/y5-ci:fedora44
-    steps:
-      - uses: actions/checkout@v4
-      - run: ci/scripts/link-drift.sh

@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "smithay",
+    "uuid",
+    "compositor_support_smithay_state_xdg_activation_dispatch",
+    "compositor_support_smithay_dispatch_wire_trait"
+  ]
+}

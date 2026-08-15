@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_model_log_process_instance_bind",
+    "compositor_model_log_process_instance_shared",
+    "compositor_model_stats_registry_base",
+    "tonic",
+    "tokio",
+    "tokio-stream"
+  ]
+}

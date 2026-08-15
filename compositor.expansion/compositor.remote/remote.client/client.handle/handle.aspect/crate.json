@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "compositor_orchestration_core_state_base",
+    "compositor_remote_message_client_base",
+    "compositor_support_action_camera_fit_aspect",
+    "compositor_y5_window_lifecycle_interface",
+    "smithay"
+  ]
+}

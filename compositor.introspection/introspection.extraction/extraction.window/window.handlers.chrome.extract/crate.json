@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_introspection_extraction_window_handlers_chrome_attributes",
+    "compositor_introspection_extraction_window_handlers_chrome_attributes_more",
+    "compositor_introspection_extraction_window_hints_inferred",
+    "compositor_introspection_extraction_window_hints_source",
+    "compositor_introspection_extraction_window_meta_types"
+  ]
+}

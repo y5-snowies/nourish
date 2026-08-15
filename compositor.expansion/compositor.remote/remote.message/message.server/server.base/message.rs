@@ -1,7 +1,13 @@
-use crate::bind;
+// reexport the generated bindings
+pub mod bind {
+    pub mod canvas {
+        tonic::include_proto!("y5.compositor.rpc.protocol.broadcast.canvas");
+    }
+}
+
 use tokio::sync::oneshot;
 use tonic::{IntoRequest, Request, Response, Status};
-use crate::bind::canvas::selection::Notify;
+use self::bind::canvas::selection::Notify;
 
 #[derive(Clone)]
 pub struct Message {

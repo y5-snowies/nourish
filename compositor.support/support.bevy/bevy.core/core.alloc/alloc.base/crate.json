@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_kernel_graphic_bridge_negotiate_report",
+    "compositor_support_bevy_core_fault_base",
+    "compositor_model_debug_instance_record",
+    "compositor_model_stats_registry_gpu",
+    "compositor_kernel_graphic_bridge_negotiate_classify",
+    "gbm",
+    "smithay"
+  ]
+}

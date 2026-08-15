@@ -1,9 +1,0 @@
-[package]
-name = "compositor_support_smithay_state_tearing_gate"
-version = "0.0.1"
-edition = "2024"
-
-[dependencies]
-
-[lib]
-path = "lib.rs"

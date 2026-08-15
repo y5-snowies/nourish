@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "serde",
+    "serde_json"
+  ]
+}

@@ -1,31 +1,24 @@
 //! Whether the active bundle's pointer warp applies to THIS event.
 //!
 //! A warp is published by whichever bundle the world is running, and it describes
-//! the displacement that bundle drew. Three states put something else on screen
-//! entirely, and correcting the pointer for a displacement nobody drew is worse
-//! than not correcting it at all:
-//!
-//! * the **world picker** — its own overlay world, with its own background;
-//! * the **lock** screen — likewise;
-//! * the **overview** — the grid is drawn over a frozen backdrop capture, so the
-//!   live bundle is not what the user is pointing at.
-//!
-//! One predicate, three readers (motion, pan, the cursor sprite). They must agree:
-//! a frame where motion warps and the sprite does not is a cursor that renders
-//! away from where it clicks, which is the exact failure the warp exists to fix.
+//! the displacement that bundle drew. When an overlay owns the screen the live
+//! bundle is not what the user is pointing at, and correcting the pointer for a
+//! displacement nobody drew is worse than not correcting it at all — that
+//! question is `desktop.suppressed`, shared with the screen-extent policy so the
+//! two cannot disagree about what is being drawn.
 //!
 //! Hit testing deliberately does NOT consult this. It reads the pointer's world
 //! position like everything else and stays unaware that a warp happened.
 
 use compositor_orchestration_core_state_base::Loop;
-use compositor_y5_picker_system_base::base::PICKER_WORLD;
 
 /// Whether the pointer warp applies right now.
 ///
 /// `false` whenever no bundle published one, which is the overwhelmingly common
 /// case and costs a single atomic read.
 pub fn applies(state: &Loop) -> bool {
-    bundle_warps(state) && !suppressed(state)
+    bundle_warps(state)
+        && !compositor_orchestration_desktop_suppressed_base::base::suppressed(state)
 }
 
 /// Whether the FOCUSED world's bundle displaces the pointer.
@@ -94,23 +87,4 @@ pub fn apply(state: &mut Loop, u: f64, v: f64, res: [f32; 2]) -> (f64, f64) {
     compositor_pipeline_build_seam_base::base::warp_point(
         &cp, &live, &mut two.warp_map, w.as_deref(), grid.as_deref().map(|g| &g[..]), u, v, res,
     )
-}
-
-/// The three surfaces the live bundle did not draw.
-fn suppressed(state: &Loop) -> bool {
-    // The picker runs as its own world; when it is the active one, the bundle
-    // whose warp is published is not what is on screen.
-    if state.inner.worlds.active_id() == PICKER_WORLD {
-        return true;
-    }
-    // The lock screen replaces the world's content wholesale.
-    if matches!(
-        state.inner.status,
-        compositor_orchestration_core_state_base::state::Status::Locked { .. }
-    ) {
-        return true;
-    }
-    // The overview draws its grid over a FROZEN capture, so even the world's own
-    // bundle is not producing what the pointer is over.
-    state.inner.overview().visible
 }

@@ -1,0 +1,16 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    // Compositor dependencies (CI ensures availability in workspace)
+    "compositor_kernel_drm_connector_diff_base",
+    "compositor_kernel_drm_connector_scan_base",
+    "compositor_kernel_drm_device_node_base",
+    "compositor_kernel_gpu_registry_node_base",
+    "compositor_kernel_native_context_render_base",
+    "compositor_kernel_native_context_topology_base",
+    "compositor_kernel_native_device_delegate_base",
+    "compositor_kernel_native_device_select_base",
+    "compositor_kernel_udev_loop_event_base",
+    "compositor_kernel_graphic_preference_gpu_rank"
+  ]
+}

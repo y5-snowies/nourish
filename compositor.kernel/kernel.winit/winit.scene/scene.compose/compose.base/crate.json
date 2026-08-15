@@ -1,0 +1,26 @@
+{
+  "deps": [
+    "compositor_pipeline_world_system_base",
+    "compositor_orchestration_driver_capture_base",
+    "compositor_kernel_vulkan_renderer_core_base",
+    "compositor_model_debug_instance_record",
+    "compositor_model_environment_config_base",
+    "smithay",
+    // Compositor dependencies (CI ensures availability in workspace)
+    "compositor_kernel_winit_frame_submit_base",
+    "compositor_kernel_graphic_draw_plan_frame",
+    "compositor_kernel_graphic_draw_plan_tap",
+    "compositor_kernel_graphic_draw_present_callbacks",
+    "compositor_y5_lock_scene_frame",
+    "compositor_y5_picker_system_base",
+    "compositor_y5_picker_scene_frame",
+    "compositor_orchestration_draw_scene_frame",
+    "compositor_orchestration_draw_dispatch_frame",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_graphic_capture_registry",
+    "compositor_y5_graphic_capture_interface",
+    // Diagnostics/registry hub: record whether the compositor composites from dmabufs
+    // (Vulkan) so producers skip GLES-only resources. Direct path dep (std-only).
+    "compositor_model_stats_registry_base"
+  ]
+}

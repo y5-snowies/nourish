@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "smithay",
+    // Compositor dependencies (CI ensures availability in workspace)
+    "compositor_kernel_scanout_surface_output_base",
+    // Diagnostics registry (developer Statistics tab) — direct cross-workspace path dep.
+    "compositor_model_stats_registry_base"
+  ]
+}

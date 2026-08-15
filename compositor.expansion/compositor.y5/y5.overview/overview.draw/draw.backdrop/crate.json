@@ -1,0 +1,12 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_driver_capture_base",
+    "compositor_y5_graphic_capture_registry",
+    "compositor_y5_overview_draw_blur",
+    "compositor_y5_overview_state_base",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

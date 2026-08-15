@@ -63,6 +63,8 @@ prepare_source() {
 }
 
 # Image tag for <distro> <profile> (debug/release kept as separate images).
-distro_image() { printf 'y5-distro-%s-%s' "$1" "${2:-debug}"; }
+# Tag: y5-distro-<distro>-<mode>. Keyed on the build MODE (bundle|devloop) so a
+# dev image and a release bundle can never collide on one tag.
+distro_image() { printf 'y5-distro-%s-%s' "$1" "${2:?distro_image: mode required}"; }
 # Container name for a running winit session on <distro>.
 distro_container() { printf 'y5-distro-%s' "$1"; }

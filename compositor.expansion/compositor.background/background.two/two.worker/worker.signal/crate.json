@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_kernel_vulkan_memory_external_base",
+    "compositor_pipeline_abi_worldset_base",
+    "compositor_pipeline_build_pipeline_base",
+    "compositor_background_two_worker_key",
+    "compositor_pipeline_compile_spirv_base",
+    "compositor_orchestration_draw_dispatch_frame"
+  ]
+}

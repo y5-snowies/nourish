@@ -1,0 +1,17 @@
+{
+  "deps": [
+    "compositor_orchestration_driver_resume_base",
+    "compositor_orchestration_driver_remote_base",
+    "compositor_model_debug_instance_record",
+    "smithay",
+    // Compositor dependencies (CI ensures availability in workspace)
+    "compositor_kernel_native_context_render_base",
+    "compositor_kernel_scanout_surface_output_base",
+    "compositor_kernel_seat_lifecycle_pause_base",
+    "compositor_kernel_seat_lifecycle_resume_base",
+    "compositor_kernel_graphic_seat_modifier_clear",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_graphic_capture_interface",
+    "compositor_kernel_native_wire_watchdog_settle"
+  ]
+}

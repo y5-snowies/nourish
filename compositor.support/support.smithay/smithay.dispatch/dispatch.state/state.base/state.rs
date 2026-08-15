@@ -629,6 +629,8 @@ mod handler_impls {
     use smithay::wayland::tablet_manager::TabletSeatHandler;
     use smithay::wayland::xdg_activation::{XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData};
     use smithay::wayland::xdg_foreign::{XdgForeignHandler, XdgForeignState};
+    use smithay::wayland::xdg_toplevel_icon::XdgToplevelIconHandler;
+    use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::XdgToplevel;
     use compositor_support_smithay_dispatch_wire_redraw::redraw as rd;
     use compositor_support_smithay_state_xdg_activation_request::{ActivationDetails};
     use compositor_support_smithay_wayland_connection_record::record::WaylandClientSession;
@@ -954,6 +956,15 @@ mod handler_impls {
         }
     }
     impl OutputHandler for Dispatch {}
+    /// `xdg_toplevel_icon_v1`. The icon itself is double-buffered on the surface
+    /// (`ToplevelIconCachedState`) and read from there on demand by the
+    /// introspection extraction — nothing to record here. The redraw is for the
+    /// overview's hover card, which paints whatever the surface currently names.
+    impl XdgToplevelIconHandler for Dispatch {
+        fn set_icon(&mut self, _toplevel: XdgToplevel, _wl_surface: WlSurface) {
+            self.schedule_redraw();
+        }
+    }
     impl ShmHandler for Dispatch {
         fn shm_state(&self) -> &ShmState { &self.shm.state }
     }

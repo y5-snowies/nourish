@@ -1,0 +1,32 @@
+{
+  "deps": [
+    "compositor_support_system_storage_token_base",
+    "compositor_support_system_storage_slot_base",
+    "compositor_support_system_buffer_token_base",
+    "compositor_support_system_input_event_base",
+    "compositor_support_system_input_layer_base",
+    "compositor_support_system_trait_system_base",
+    "compositor_support_smithay_dispatch_state_base",
+    "compositor_y5_canvas_state_base",
+    "compositor_y5_canvas_input_state",
+    "compositor_y5_surface_system_base",
+    "compositor_y5_surface_interface_core",
+    "compositor_y5_select_state_base",
+    "compositor_y5_group_state_base",
+    "compositor_y5_group_protocol_base",
+    "compositor_y5_surface_protocol_base",
+    "compositor_y5_placeholder_system_base",
+    "compositor_y5_window_interface_record",
+    "compositor_y5_viewport_state_base",
+    "compositor_y5_overview_state_base",
+    "compositor_orchestration_storage_state_base",
+    "compositor_orchestration_driver_output_base",
+    "compositor_y5_camera_transform_translate",
+    "compositor_orchestration_draw_layer_base",
+    "compositor_orchestration_draw_platform_base",
+    "compositor_support_world_order_track_base",
+    "compositor_monitor_compositor_iced_base",
+    "smithay",
+    "uuid"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "deps": [
+    "libc",
+    "smithay",
+    "compositor_kernel_execution_driver_executor_base",
+    "compositor_introspection_execution_launch_policy",
+    "compositor_introspection_execution_launch_reap",
+    "compositor_introspection_execution_launch_dispatch",
+    "compositor_introspection_execution_launch_types",
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_launch_broadcast_base",
+    "compositor_orchestration_environment_type_base",
+    "compositor_model_debug_instance_record"
+  ]
+}

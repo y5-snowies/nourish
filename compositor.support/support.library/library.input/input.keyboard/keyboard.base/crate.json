@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_support_library_input_keyboard_enum",
+    "compositor_support_library_input_keyboard_combo",
+    "compositor_support_library_input_keyboard_action"
+  ]
+}

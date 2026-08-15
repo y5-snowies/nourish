@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_kernel_vulkan_format_query_base",
+    "compositor_kernel_vulkan_format_modifier_base",
+    "compositor_kernel_graphic_bridge_negotiate_compositor",
+    "compositor_model_debug_instance_record"
+  ]
+}

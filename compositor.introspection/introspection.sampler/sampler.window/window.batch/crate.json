@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_introspection_inference_hint_base",
+    "smithay",
+    "uuid"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "smithay",
+    "compositor_y5_placeholder_record_base",
+    "uuid",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_y5_placeholder_surface_base",
+    "compositor_introspection_extraction_window_base",
+    "compositor_introspection_launchplan_plan_base",
+    "compositor_introspection_restoration_state_base",
+    "compositor_support_system_storage_token_base"
+  ]
+}

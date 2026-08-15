@@ -23,8 +23,12 @@ on whichever of its surfaces the pointer is over.
 ```bash
 cargo build --release
 # Run against any Wayland compositor (point WAYLAND_DISPLAY at the target, e.g. a nested y5):
-./target/release/window-stress-controller
+"$(cargo metadata --no-deps --format-version 1 | sed 's/.*"target_directory":"\([^"]*\)".*/\1/')"/release/window-stress-controller
 ```
+
+> The repo's `.cargo/config.toml` pins ONE `target-dir` for the whole checkout, and it applies
+> here too — the binaries land in `compositor.kernel/kernel.loader/target/release/`, not in a
+> `target/` beside this crate. The `cargo metadata` line above resolves it wherever it is.
 
 The controller finds `window-stress-subject` next to its own executable. Diagnostics from
 both processes print to stderr, tagged `[controller ...]` / `[subject ...]`.
@@ -63,7 +67,34 @@ toggles these; press `RESPAWN` to relaunch the subject with the new set. Equival
 | Fractional scale | `fs-honor`, `fs-ignore`, `fs-scale N`, `fs-noviewport`, `fs-mismatch` |
 | DPI / integer scale | `dpi-honor`, `dpi-ignore`, `dpi-scale N`, `dpi-nondiv`, `dpi-mismatch`, `dpi-zero` |
 | Single-pixel buffer | `sp-fill R G B A`, `sp-sub R G B A`, `sp-noviewport` |
+| Toplevel icon | `icon-name NAME`, `icon-buffer EDGE...`, `icon-both NAME`, `icon-clear` |
 | Lifecycle | `map`, `unmap`, `mapcycle on|off`, `size W H`, `quit` |
+
+### Toplevel icon (`xdg_toplevel_icon_v1`)
+
+The protocol has two independent halves, and a compositor has to handle both plus their
+absence — three variants that look identical from the outside:
+
+| Variant | Command | What the compositor must do |
+| ------- | ------- | --------------------------- |
+| Stock name | `icon-name firefox` | resolve the string through the icon theme |
+| Pixel buffers | `icon-buffer 64` | read pixels out of the client's `wl_shm` pool |
+| Neither | `icon-clear` | fall back to whatever it infers about the app itself |
+
+Two more that catch the interesting mistakes:
+
+- `icon-both firefox` sets a name AND a buffer on one icon object — whichever a consumer
+  prefers, it has to pick deliberately.
+- `icon-buffer 16 32 64 128` offers four sizes at once. Each is drawn in **its own colour**
+  (16 red, 32 amber, 64 green, 128 blue), so the size the compositor chose is readable off
+  whatever it renders — no logging needed.
+
+Every buffer is drawn the same way: a fully transparent margin (alpha survives the trip), a
+solid body, and a **half-alpha quadrant written premultiplied**, as `argb8888` requires. A
+consumer that forgets to un-premultiply renders that quarter visibly darker than the body.
+
+The overlay's `ICON` line reports the current request, whether the manager global was bound at
+all, and the icon sizes the compositor advertised at bind time.
 
 The subject overlay shows **buffer px · viewport destination · xdg configure** side by side,
 plus output/​fractional scale, ack state, decoration mode and child counts, so divergences are

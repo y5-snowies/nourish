@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "iced_core",
+    "iced_widget",
+    "compositor_support_iced_core_engine_base",
+    "compositor_y5_graphic_capture_session",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

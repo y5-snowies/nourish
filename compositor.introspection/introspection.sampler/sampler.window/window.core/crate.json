@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_introspection_extraction_window_base",
+    "compositor_introspection_sampler_window_batch",
+    "compositor_introspection_sampler_window_engine",
+    "compositor_introspection_sampler_window_schedule",
+    "compositor_model_debug_instance_record",
+    "smithay",
+    "uuid"
+  ]
+}

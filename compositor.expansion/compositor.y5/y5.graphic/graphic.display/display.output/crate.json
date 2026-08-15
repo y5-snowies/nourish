@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_kernel_graphic_bridge_negotiate_compositor",
+    "compositor_y5_graphic_display_backend",
+    "compositor_model_debug_instance_record",
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_support_smithay_dispatch_state_base"
+  ]
+}

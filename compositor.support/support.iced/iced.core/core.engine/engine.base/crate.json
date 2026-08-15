@@ -1,0 +1,12 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "thiserror",
+    "wgpu",
+    "iced_core",
+    "iced_runtime",
+    "iced_graphics",
+    "iced_wgpu",
+    "bitflags"
+  ]
+}

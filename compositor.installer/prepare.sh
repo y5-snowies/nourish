@@ -56,12 +56,24 @@ mkdir -p "$BIN" "$TPL/pam" "$TPL/mx" "$TPL/xwayland"
 
 log() { printf '\n>> %s\n' "$1" >&2; }
 
+# Where cargo actually puts things. `.cargo/config.toml` pins ONE target dir for the
+# whole repo (see CLAUDE.md), so a component no longer builds into its own
+# `<component>/target/` — every `cargo build` below lands in the shared tree. Ask cargo
+# rather than assume, so this keeps working under Y5_TARGET_DIR or a config change.
+cargo_target() {
+    ( cd "$1" && cargo metadata --no-deps --format-version 1 \
+        | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p' )
+}
+
 # 1) Compositor (udev release) — installed as both the system and dev binaries.
 if skipped compositor; then
     log "skip: compositor"
 else
-    log "building compositor (udev release)"
-    COMPOSITOR_BIN="$("$REPO_ROOT/environment/build.sh" udev release)"
+    log "building compositor (udev, fat-LTO release)"
+    # build-optimized.sh, not build.sh: this is a SHIPPED artifact, so it gets the
+    # fat-LTO release profile. build.sh is always release-fast and rejects a profile
+    # argument outright.
+    COMPOSITOR_BIN="$("$REPO_ROOT/environment/build-optimized.sh" udev)"
     install -m755 "$COMPOSITOR_BIN" "$BIN/y5.compositor"
     install -m755 "$COMPOSITOR_BIN" "$BIN/y5.compositor.dev"
 fi
@@ -73,7 +85,7 @@ else
     log "building developer tool window"
     "$REPO_ROOT/compositor.developer/developer.tool/developer.tool.window/logs/bundle.sh" none
     install -m755 \
-        "$REPO_ROOT/compositor.developer/developer.tool/developer.tool.window/logs/src-tauri/target/release/compositor-developer-tool" \
+        "$(cargo_target "$REPO_ROOT/compositor.developer/developer.tool/developer.tool.window/logs/src-tauri")/release/compositor-developer-tool" \
         "$BIN/compositor-developer-tool"
 fi
 
@@ -83,7 +95,7 @@ if skipped polkit; then
 else
     log "building polkit agent"
     ( cd "$HERE/component/pollkit-agent" && cargo build --release )
-    install -m755 "$HERE/component/pollkit-agent/target/release/iced_polkit_agent" "$BIN/y5-polkit-agent"
+    install -m755 "$(cargo_target "$HERE/component/pollkit-agent")/release/iced_polkit_agent" "$BIN/y5-polkit-agent"
 fi
 
 # 4) MX gesture daemon (+ its templates).
@@ -92,7 +104,7 @@ if skipped mx; then
 else
     log "building MX gesture daemon"
     ( cd "$HERE/component/mx-gesture-daemon" && cargo build --release )
-    install -m755 "$HERE/component/mx-gesture-daemon/target/release/mx-gesture-daemon" "$BIN/mx-gesture-daemon"
+    install -m755 "$(cargo_target "$HERE/component/mx-gesture-daemon")/release/mx-gesture-daemon" "$BIN/mx-gesture-daemon"
     install -m644 "$HERE/component/mx-gesture-daemon/42-logitech-hidpp.rules" "$TPL/mx/42-logitech-hidpp.rules"
     install -m644 "$HERE/component/mx-gesture-daemon/config.example.toml" "$TPL/mx/config.example.toml"
     install -m644 "$HERE/component/mx-gesture-daemon/mx-gesture-daemon.service" "$TPL/mx/mx-gesture-daemon.service"
@@ -104,7 +116,7 @@ if skipped xwayland; then
 else
     log "building xwayland-satellite"
     ( cd "$HERE/component/xwayland-satellite/xwayland-fixes" && cargo build --release )
-    install -m755 "$HERE/component/xwayland-satellite/xwayland-fixes/target/release/xwayland-satellite" "$BIN/xwayland-satellite"
+    install -m755 "$(cargo_target "$HERE/component/xwayland-satellite/xwayland-fixes")/release/xwayland-satellite" "$BIN/xwayland-satellite"
     install -m644 "$HERE/component/xwayland-satellite/xwayland-fixes/xwayland.service" "$TPL/xwayland/xwayland.service"
 fi
 
@@ -117,7 +129,7 @@ if skipped settings; then
 else
     log "building settings tool (y5.compositor.settings)"
     ( cd "$HERE/component/settings-editor" && cargo build --release )
-    install -m755 "$HERE/component/settings-editor/target/release/y5-compositor-settings" "$BIN/y5.compositor.settings"
+    install -m755 "$(cargo_target "$HERE/component/settings-editor")/release/y5-compositor-settings" "$BIN/y5.compositor.settings"
 fi
 
 # 6) The interactive installer itself.
@@ -127,10 +139,10 @@ else
     log "building interactive installer ($PROFILE)"
     if [ "$PROFILE" = release ]; then
         ( cd "$HERE/installer.process" && cargo build --release )
-        install -m755 "$HERE/installer.process/target/release/y5-install" "$STAGE/y5-install"
+        install -m755 "$(cargo_target "$HERE/installer.process")/release/y5-install" "$STAGE/y5-install"
     else
         ( cd "$HERE/installer.process" && cargo build )
-        install -m755 "$HERE/installer.process/target/debug/y5-install" "$STAGE/y5-install"
+        install -m755 "$(cargo_target "$HERE/installer.process")/debug/y5-install" "$STAGE/y5-install"
     fi
 fi
 

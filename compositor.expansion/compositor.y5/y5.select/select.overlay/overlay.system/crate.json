@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_support_system_trait_system_base",
+    "compositor_support_system_buffer_token_base",
+    "compositor_y5_select_system_base",
+    "compositor_orchestration_driver_selection_base"
+  ]
+}

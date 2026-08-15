@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_kernel_graphic_bridge_negotiate_compositor",
+    "compositor_support_bevy_core_alloc_base",
+    "compositor_support_bevy_core_context_base",
+    "compositor_support_bevy_core_fault_base",
+    "compositor_support_bevy_core_import_base",
+    "smithay",
+    "wgpu"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "deps": [
+    "compositor_pipeline_abi_seam_base",
+    "compositor_orchestration_core_state_base",
+    "compositor_remote_message_client_base",
+    "compositor_background_two_storage_base",
+    "compositor_pipeline_bundle_embed_base",
+    "compositor_pipeline_bundle_locate_base",
+    "compositor_pipeline_bundle_load_base",
+    "compositor_support_system_persist_mark_base"
+  ]
+}

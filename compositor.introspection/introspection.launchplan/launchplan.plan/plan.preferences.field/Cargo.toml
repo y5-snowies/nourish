@@ -1,9 +1,0 @@
-[package]
-name = "compositor_introspection_launchplan_plan_preferences_field"
-version = "0.0.1"
-edition = "2024"
-
-[dependencies]
-
-[lib]
-path = "lib.rs"

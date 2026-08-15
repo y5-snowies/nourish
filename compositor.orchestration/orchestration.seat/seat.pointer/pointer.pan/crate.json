@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_orchestration_seat_pointer_warp",
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_camera_transform_translate"
+  ]
+}

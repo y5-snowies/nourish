@@ -13,7 +13,7 @@ use iced_core::{Element, Length, Theme};
 use iced_widget::{
     button, checkbox, column, combo_box, row, text, text_input,
 };
-use compositor_introspection_extraction_window_base::{AttributeDescriptor, AttributeKind, EnvPair};
+use compositor_introspection_extraction_window_base::{AttributeDescriptor, AttributeKind, EnvPair, IconPixels};
 use compositor_support_iced_core_engine_base::Renderer;
 
 use crate::message::{EnvField, PlaceholderMessage};
@@ -240,6 +240,14 @@ fn custom_editor<'a>(
             chrome_profile_list_readonly(value)
         }
         "env_pair_list" => env_pair_list_editor(descriptor, value),
+        // Live client pixels — describe them; there is nothing to edit and
+        // nothing persisted (see `XdgIconPixels`).
+        "icon_pixels" => readonly(
+            value
+                .as_ref()
+                .and_then(|v| v.downcast_ref::<IconPixels>())
+                .map_or(String::from("—"), |p| format!("{}x{} RGBA", p.width, p.height)),
+        ),
         _ => readonly(format!("(unsupported widget kind: {tag})")),
     }
 }

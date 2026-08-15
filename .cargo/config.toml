@@ -9,6 +9,24 @@
 # (cargo does not merge the two). Keep compiler flags here and do NOT export RUSTFLAGS
 # in scripts/shells, or these flags are silently dropped. The build scripts rely on this.
 
+# ONE target dir for the whole repo, and the same one the dev loop already builds
+# into (the loader workspace's own `target/`, where `environment/build.sh` puts the
+# binary). The repo is ~18 independent workspaces, so cargo's default — a `target/`
+# at each workspace root — means a full multi-GB dependency tree PER ROOT the moment
+# anything runs `cargo check`/`test`/`build` outside `build.sh`. That is not
+# hypothetical: it is how a checkout reaches 100+ GB.
+#
+# The path is relative to THIS FILE, not to the working directory, so it resolves to
+# the same place from every workspace and survives being used in a git worktree.
+#
+# Overridable, and deliberately so — `--target-dir` on the command line and the
+# `CARGO_TARGET_DIR` env var both win over this. The cross compiler
+# (`environment/cross.compile/build.sh`), the containers (`Y5_TARGET_DIR=/y5-target`)
+# and the coverage runner (`cover/lib/cover.sh`) each keep their own tree that way,
+# which is correct: their artifacts are not interchangeable with the host's.
+[build]
+target-dir = "compositor.kernel/kernel.loader/target"
+
 # Arch-independent key so these flags apply on x86_64 AND aarch64 (Raspberry Pi etc.);
 # a triple-specific `[target.x86_64-...]` block would be silently dropped on other arches.
 [target.'cfg(all())']

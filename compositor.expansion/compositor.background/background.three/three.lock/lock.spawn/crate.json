@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "bevy",
+    "compositor_background_three_lock_constant",
+    "compositor_background_three_lock_material",
+    "compositor_background_three_lock_mesh",
+    "compositor_background_three_lock_state"
+  ]
+}

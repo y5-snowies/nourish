@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_seat_keyboard_input",
+    "compositor_y5_osk_board_view",
+    "compositor_y5_osk_board_state",
+    "smithay"
+  ]
+}

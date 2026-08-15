@@ -1,0 +1,19 @@
+{
+  "deps": [
+    "compositor_support_system_buffer_token_base",
+    "compositor_support_system_channel_token_base",
+    "compositor_support_system_channel_router_base",
+    "compositor_support_system_trait_system_base",
+    "compositor_y5_placeholder_state_base",
+    "compositor_y5_surface_system_base",
+    "compositor_y5_placeholder_persist_doc",
+    "compositor_support_system_persist_document_entry",
+    "smithay",
+    "uuid",
+    // Launch restoration: subscribe to the Executed event, stamp the token/PID.
+    "compositor_orchestration_launch_broadcast_base",
+    "compositor_introspection_execution_launch_types",
+    "compositor_introspection_execution_launch_policy",
+    "compositor_y5_placeholder_record_base"
+  ]
+}

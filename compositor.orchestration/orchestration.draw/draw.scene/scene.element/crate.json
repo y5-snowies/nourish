@@ -1,0 +1,12 @@
+{
+  "deps": [
+    "compositor_orchestration_draw_scene_preimported",
+    "compositor_orchestration_draw_dispatch_frame",
+    "compositor_support_bevy_core_compositor_base",
+    "smithay",
+    "compositor_orchestration_seat_pointer_element",
+    "compositor_y5_canvas_draw_element",
+    "compositor_background_two_draw_element",
+    "compositor_monitor_compositor_iced_base"
+  ]
+}

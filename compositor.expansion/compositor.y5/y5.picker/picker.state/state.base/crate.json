@@ -1,0 +1,14 @@
+{
+  "deps": [
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record",
+    "compositor_support_system_storage_token_base",
+    "compositor_support_bevy_core_compositor_base",
+    "compositor_y5_graphic_capture_registry",
+    "compositor_y5_picker_three_orient",
+    "compositor_y5_picker_three_scene",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_y5_picker_surface_view",
+    "uuid"
+  ]
+}

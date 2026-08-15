@@ -114,10 +114,13 @@ A thorough guide is available [here](https://nourish.snowies.com/guide.html).
  
 ```bash
 # Build & run nested in your current Wayland session
-environment/run-host.sh winit release-fast # or release for fat LTO(optimized) build.
- 
-# Build the binary for use
-environment/build-release.sh system fast # omit fast for a fat LTO build(optimized) build.
+environment/run-host.sh winit
+
+# Build the binary and install it to /usr/bin/y5.compositor
+environment/build.sh udev --deploy
+
+# The optimized (fat LTO) build — 10-20 min, for shipped artifacts
+environment/build-optimized.sh udev --deploy
 ```
  
 If you get errors about missing libraries, these are system libraries that the

@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_introspection_extraction_window_handler_registry",
+    "compositor_introspection_extraction_window_handlers_chrome",
+    "compositor_introspection_extraction_window_handlers_generic",
+    "compositor_introspection_extraction_window_handlers_jetbrains",
+    "compositor_introspection_extraction_window_handlers_nautilus",
+    "compositor_introspection_extraction_window_handlers_terminal"
+  ]
+}

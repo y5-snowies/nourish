@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_kernel_native_context_render_base",
+    "compositor_kernel_scanout_surface_output_base",
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_driver_lid_base",
+    "compositor_orchestration_driver_logind_base",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

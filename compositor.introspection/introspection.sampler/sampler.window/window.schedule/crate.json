@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_introspection_extraction_window_base",
+    "uuid"
+  ]
+}

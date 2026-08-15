@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_kernel_vulkan_memory_external_base",
+    "compositor_kernel_vulkan_texture_image_inner",
+    "smithay",
+    "ash"
+  ]
+}

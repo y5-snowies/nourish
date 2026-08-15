@@ -1,0 +1,14 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_model_debug_instance_record",
+    "compositor_support_system_world_frame_base",
+    "compositor_orchestration_draw_dispatch_frame",
+    "compositor_orchestration_draw_scene_element",
+    "compositor_orchestration_seat_pointer_element",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_y5_canvas_draw_element",
+    "compositor_background_two_draw_element",
+    "compositor_support_bevy_core_compositor_base"
+  ]
+}

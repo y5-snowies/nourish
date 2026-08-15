@@ -9,7 +9,6 @@ use smithay::desktop::{Window, layer_map_for_output};
 use compositor_y5_graphic_capture_registry::CaptureRegistry;
 use compositor_y5_lock_state_base::state::LockState;
 
-use crate::Loop;
 use smithay::reexports::calloop::{EventLoop, LoopSignal, RegistrationToken};
 use smithay::reexports::wayland_server::DisplayHandle;
 use std::cell::RefCell;
@@ -389,7 +388,43 @@ impl Orchestrator {
     /// world's windows. Use this instead of `self.worlds.set_spawn_target` directly.
     pub fn set_spawn_target_world(&mut self, id: uuid::Uuid) {
         let previous = self.worlds.spawn_target();
+        // The cursor's hardware position, read off the world being LEFT (before the
+        // reassignment moves what `pointer()` resolves to).
+        let carried = self
+            .worlds
+            .get(previous)
+            .storage()
+            .try_get(&compositor_orchestration_seat_system_pointer::base::POINTER)
+            .map(|pointer| pointer.motion);
         if self.worlds.set_spawn_target(id) {
+            // Hand the incoming world that position.
+            //
+            // `PointerState` is a per-world slot, so the incoming world answers
+            // `pointer()` with its OWN accumulator: a stale one from the last visit,
+            // or — for a world never entered — the constructor's physical `(0, 0)`,
+            // which is the output's top-left CORNER and so already past two extents.
+            // Left alone, the first mouse move accumulates from there: the cursor
+            // snaps to the corner, and with edge pan on the overflow it starts with
+            // is a screen-wide shove of the camera. The rim then re-states the seat's
+            // world location from the carried position
+            // (`Wire::apply_world_switch_pointer`), which together keep the cursor
+            // visually still across the switch.
+            //
+            // The edge hold is dropped on BOTH sides because it lives in the slot
+            // too: left armed, the outgoing world resumes its pan the moment it is
+            // re-entered, and the incoming world inherits one nobody is pushing.
+            self.clear_edge_hold(previous);
+            if let Some(motion) = carried {
+                if let Some(pointer) = self
+                    .worlds
+                    .get_mut(id)
+                    .storage_mut()
+                    .try_get_mut(&compositor_orchestration_seat_system_pointer::base::POINTER_MUT)
+                {
+                    pointer.motion = motion;
+                    pointer.edge_hold = None;
+                }
+            }
             // The outgoing world's off-thread background panes are now nobody's:
             // per-pane targets, a `history` image and a persistent ping-pong pair
             // are the largest thing that feature owns, and without a deterministic
@@ -411,6 +446,23 @@ impl Orchestrator {
                 self.release_world_surfaces(previous);
             }
             self.bus.send(&WORLD_SWITCHED_TX, WorldSwitched);
+        }
+    }
+
+    /// Drop `world`'s armed edge pan, if it has a pointer slot at all (overlay
+    /// worlds do not). The seat's own `extent::release` only ever reaches the
+    /// spawn target; this is for the world on the other side of a switch.
+    fn clear_edge_hold(&mut self, world: uuid::Uuid) {
+        if !self.worlds.contains(world) {
+            return;
+        }
+        if let Some(pointer) = self
+            .worlds
+            .get_mut(world)
+            .storage_mut()
+            .try_get_mut(&compositor_orchestration_seat_system_pointer::base::POINTER_MUT)
+        {
+            pointer.edge_hold = None;
         }
     }
 
@@ -1392,3 +1444,5 @@ impl CoordinateTrait for Loop {
 
 }
 
+/// The compositor loop: protocol state (`Dispatch`) + the orchestrator.
+pub type Loop = Wire<Orchestrator>;

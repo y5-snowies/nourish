@@ -1,0 +1,19 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_model_debug_instance_record",
+    "compositor_support_action_camera_find_window",
+    "compositor_support_action_camera_find_flags",
+    "compositor_support_action_camera_find_direction",
+    "compositor_support_action_camera_find_axes",
+    "compositor_support_action_camera_find_passes",
+    "compositor_support_action_camera_find_band",
+    "compositor_support_action_camera_find_origin",
+    "compositor_support_action_camera_find_pick",
+    "compositor_support_action_camera_find_build",
+    "compositor_support_action_camera_find_apply",
+    "compositor_support_action_camera_find_endpoint",
+    "compositor_support_action_camera_find_ray",
+    "compositor_support_action_camera_find_sort"
+  ]
+}
