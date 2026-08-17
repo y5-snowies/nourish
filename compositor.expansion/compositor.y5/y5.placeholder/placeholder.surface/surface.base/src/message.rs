@@ -21,6 +21,14 @@ pub enum PlaceholderMessage {
     SaveClicked { updated_plan: Box<LaunchPlan> },
     RestoreClicked,
 
+    /// User confirmed starting the stopped container and launching into it.
+    ContainerStartConfirmed,
+
+    /// Adopt the newest sample the compositor delivered for this placeholder
+    /// and drop every saved preference. Offered only when a newer sample
+    /// exists; see `PlaceholderUi::has_pending_sample`.
+    PullSample,
+
     // ── Incoming: compositor → UI (via dispatch_message) ──────────
 
     /// Replace the visible plan. Sent by the compositor when the plan
@@ -30,6 +38,11 @@ pub enum PlaceholderMessage {
     /// Force-switch back to view mode.
     EnterViewMode,
 
+    /// The Launch the user asked for targets a container that is not running.
+    /// Raises the confirmation prompt naming `container`; the compositor does
+    /// nothing further until the user answers.
+    ConfirmContainerStart { container: String },
+
     // ── Internal: UI-only mode + edit interactions ────────────────
 
     /// User clicked Edit in View mode.
@@ -38,8 +51,16 @@ pub enum PlaceholderMessage {
     /// User clicked Cancel in Settings mode.
     CancelSettings,
 
+    /// User declined starting the container. Returns to View; nothing launches.
+    CancelContainerStart,
+
     /// Active handler choice changed (`None` = no handler synthesis).
     ActiveHandlerChanged(Option<compositor_introspection_extraction_window_base::HandlerId>),
+
+    /// Drop an attribute's override so it falls back to its inferred value.
+    /// Distinct from clearing the editor text, which must keep meaning
+    /// "override with an empty value".
+    AttributeOverrideCleared { descriptor_key: &'static str },
 
     /// An attribute's enabled flag toggled.
     AttributeEnabledChanged {

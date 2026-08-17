@@ -131,7 +131,10 @@ fn carousel(ui: &Launcher) -> Element<'_, LauncherMessage, Theme, Renderer> {
         let app_idx = ui.visible[idx];
         let app = &ui.apps[app_idx];
         let selected = idx == ui.cursor;
-        r = r.push(icon_cell(app, selected, ui.is_focused()));
+        // Only the cell under the cursor tracks the live entry selection;
+        // the rest show what they would launch if you moved onto them.
+        let entry = if selected { ui.entry_cursor } else { app.default_entry };
+        r = r.push(icon_cell(app, entry, selected, ui.is_focused()));
     }
 
     r.into()
@@ -139,6 +142,7 @@ fn carousel(ui: &Launcher) -> Element<'_, LauncherMessage, Theme, Renderer> {
 
 fn icon_cell<'a>(
     app: &Application,
+    entry_index: usize,
     selected: bool,
     focused: bool,
 ) -> Element<'a, LauncherMessage, Theme, Renderer> {
@@ -147,7 +151,20 @@ fn icon_cell<'a>(
     } else {
         style::ICON_PX
     };
-    let inner = render_icon(app.icon_path.as_ref(), icon_size);
+    let entry = app.entry(entry_index);
+    let icon = render_icon(entry.and_then(|e| e.icon_path.as_ref()), icon_size);
+
+    // Apps that declare actions get a caret above the icon: Up/Down here
+    // switch between "Google Chrome" and "New Window" rather than doing
+    // nothing, and there is otherwise no way to know that from the carousel.
+    let inner: Element<'_, _, _, _> = if app.has_choices() {
+        column![entry_affordance(app, entry_index), icon]
+            .spacing(2)
+            .align_x(Alignment::Center)
+            .into()
+    } else {
+        icon
+    };
 
     let mut cell = container(inner)
         .width(Length::Fixed(style::CELL_PX))
@@ -168,13 +185,44 @@ fn icon_cell<'a>(
     button(cell)
         .padding(0)
         .style(|_: &Theme, _| button::Style { background: None, ..Default::default() })
-        .on_press(LauncherMessage::Launch {
-            id: app.id.clone(),
-            bin: app.bin.clone(),
-            args: app.args.clone(),
-            direction: Direction::Down,
+        .on_press(match entry {
+            Some(entry) => LauncherMessage::Launch {
+                id: app.id.clone(),
+                bin: entry.bin.clone(),
+                args: entry.args.clone(),
+                direction: Direction::Down,
+            },
+            // An app with no entry is never listed, so this is unreachable in
+            // practice; a no-op message beats unwrapping in a view.
+            None => LauncherMessage::MoveEntry(0),
         })
         .into()
+}
+
+/// The caret shown above an app that has more than one entry. Dimmed at the
+/// ends of the list so it reads as a position, not just a decoration: a lit
+/// "▲" means there is something above the current entry, "▼" below.
+fn entry_affordance<'a>(
+    app: &Application,
+    entry_index: usize,
+) -> Element<'a, LauncherMessage, Theme, Renderer> {
+    let up = entry_index > 0;
+    let down = entry_index + 1 < app.entries.len();
+    let colour = |lit: bool| {
+        if lit { style::ACCENT_RING } else { style::TEXT_FAINT }
+    };
+
+    row![
+        text("▲").size(style::TEXT_SIZE_ENTRY_ARROW).style(move |_: &Theme| {
+            iced_widget::text::Style { color: Some(colour(up)) }
+        }),
+        text("▼").size(style::TEXT_SIZE_ENTRY_ARROW).style(move |_: &Theme| {
+            iced_widget::text::Style { color: Some(colour(down)) }
+        }),
+    ]
+    .spacing(2)
+    .align_y(Alignment::Center)
+    .into()
 }
 
 fn selected_cell_style(focused: bool) -> container::Style {

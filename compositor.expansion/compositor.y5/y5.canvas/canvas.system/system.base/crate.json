@@ -27,6 +27,7 @@
     "compositor_support_world_order_track_base",
     "compositor_monitor_compositor_iced_base",
     "smithay",
-    "uuid"
+    "uuid",
+    "compositor_y5_placeholder_surface_base"
   ]
 }

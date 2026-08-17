@@ -131,7 +131,14 @@ pub fn match_score(app: &Application, query_norm: &str) -> Option<f32> {
 
     let title_score = subsequence_score(&app.title, query_norm);
 
-    let bin_name = bin_filename(&app.bin);
+    // Match against the MAIN entry's binary. Actions of the same app almost
+    // always share it, and searching the action list too would let "New
+    // Window" pull in every app that happens to declare one.
+    let bin_name = app
+        .entries
+        .first()
+        .map(|e| bin_filename(&e.bin))
+        .unwrap_or_default();
     let bin_score = if bin_name.is_empty() {
         None
     } else {
@@ -235,9 +242,14 @@ mod tests {
         Application {
             id: id.into(),
             title: title.into(),
-            bin: PathBuf::from(bin),
-            args: vec![],
-            icon_path: None,
+            entries: vec![crate::model::AppEntry {
+                action: None,
+                title: title.into(),
+                bin: PathBuf::from(bin),
+                args: vec![],
+                icon_path: None,
+            }],
+            default_entry: 0,
             usage_count: count,
             usage_time: age_days
                 .map(|d| SystemTime::now() - Duration::from_secs_f32(d * 86400.0)),

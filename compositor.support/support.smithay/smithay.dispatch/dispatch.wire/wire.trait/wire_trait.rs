@@ -31,7 +31,13 @@ pub trait WireTrait {
     /// on the focused monitor instead of always the first one.
     fn active_output(&self) -> Option<smithay::output::Output>;
     fn initialize_surface_data(&mut self, window: Window);
-    fn destroy_surface_data(&mut self, surface: ToplevelSurface);
+    /// `drag_discard`: the toplevel was mid-flight in an `xdg_toplevel_drag_v1`
+    /// when it was destroyed, i.e. some other toplevel adopted the tab and the
+    /// carrier was thrown away. Nothing was closed, so it leaves no placeholder.
+    /// Sampled in the wire layer (which owns the drag registry) at destroy time,
+    /// because the placeholder policy lives above this trait and the drain runs
+    /// later than the answer is valid for.
+    fn destroy_surface_data(&mut self, surface: ToplevelSurface, drag_discard: bool);
     /// Warp the pointer to a world-space point. The handler reads its own
     /// hosted space internally (it owns it now), so no space is passed in.
     fn apply_pointer(&mut self, storage_point: Point<f64, Logical>);
@@ -55,6 +61,10 @@ pub trait WireTrait {
     /// QUEUES the request; a higher-level system drains it and applies the navigator `view`.
     /// `origin` lets the applier treat sources differently (more origins coming).
     fn request_activation(&mut self, window: Window, origin: ActivationOrigin);
+    /// An `xdg_toplevel_drag_v1` just stopped carrying `surface`. Queues the
+    /// placeholder re-sync; like `request_activation` this only RECORDS, because
+    /// the placeholder model lives above this trait.
+    fn settle_toplevel_drag(&mut self, surface: WlSurface);
     fn dmabuf_import(
         &mut self,
         dispatch: &mut Dispatch,

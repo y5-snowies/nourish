@@ -58,4 +58,21 @@ pub mod category {
         Launch,
         HandlerScoped(HandlerId),
     }
+
+    impl AttributeCategory {
+        /// Whether an attribute in this category applies with `active_handler`
+        /// selected. A handler-scoped attribute belonging to some other
+        /// handler does not.
+        ///
+        /// Callers must not infer this from "the preferences lookup returned
+        /// None" — that is also true when the container has simply not been
+        /// allocated yet, and conflating the two makes touching one attribute
+        /// appear to change its siblings.
+        pub fn applies_to(&self, active_handler: Option<HandlerId>) -> bool {
+            match self {
+                Self::Identity | Self::Launch => true,
+                Self::HandlerScoped(id) => active_handler == Some(*id),
+            }
+        }
+    }
 }

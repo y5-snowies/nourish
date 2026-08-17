@@ -14,6 +14,8 @@
     "compositor_orchestration_launch_broadcast_base",
     "compositor_introspection_execution_launch_types",
     "compositor_introspection_execution_launch_policy",
-    "compositor_y5_placeholder_record_base"
+    "compositor_y5_placeholder_record_base",
+    "compositor_y5_placeholder_surface_base",
+    "compositor_support_smithay_state_session_claim"
   ]
 }

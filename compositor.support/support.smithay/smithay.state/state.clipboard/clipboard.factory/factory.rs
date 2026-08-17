@@ -14,7 +14,13 @@ pub fn new<I: DispatchWire>(display_handle: &DisplayHandle) -> Clipboard where
     let data_device_state = DataDeviceState::new::<I>(&display_handle);
 
     return Clipboard{
-        data_device_state
+        data_device_state,
+        capture: Default::default(),
+        // Started lazily by the drain on the first copy — it needs a loop handle.
+        worker: None,
+        pending_capture: None,
+        pending_sends: vec![],
+        pending_focus: None,
     }
 
 }

@@ -116,6 +116,10 @@
         "introspection.execution/execution.launch/launch.build": {
           "build_script": false
         },
+        // `build.rs` here is a normal module, not a Cargo build script.
+        "introspection.execution/execution.launch/launch.build.container": {
+          "build_script": false
+        },
         "introspection.extraction/extraction.window/window.base": {
           "version": "0.1.0"
         },

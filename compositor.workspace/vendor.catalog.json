@@ -314,6 +314,9 @@
       "version": "=1.24.1",
       "preset": "v7"
     },
+    "wayland-backend": {
+      "version": "=0.3.17"
+    },
     "wayland-client": {
       "version": "=0.31.15"
     },

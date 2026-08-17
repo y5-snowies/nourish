@@ -13,12 +13,15 @@ pub fn register_standard_codecs() {
         codec::register::<DisplayName>();
         codec::register::<Title>();
         codec::register::<AppId>();
+        codec::register::<ContainerId>();
+        codec::register::<ContainerName>();
         codec::register::<DesktopEntryPath>();
         codec::register::<IconPath>();
         codec::register::<IconName>();
         codec::register::<XdgIconName>();
         codec::register::<Sandbox>();
         codec::register::<DBusActivatable>();
+        codec::register::<NoDisplay>();
         codec::register::<DBusServiceName>();
         codec::register::<ExecProgram>();
         codec::register::<ExecArgs>();

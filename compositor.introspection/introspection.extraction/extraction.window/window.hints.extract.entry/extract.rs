@@ -2,8 +2,9 @@ use compositor_introspection_extraction_window_desktop_search::desktop::find_by_
 use compositor_introspection_extraction_window_hints_attributes_identity::attributes::{
     DBusActivatable, DesktopEntryPath, DisplayName, IconName, IconPath, XdgIconName,
 };
-use compositor_introspection_extraction_window_hints_attributes_identity_more::attributes::{AppId, Title};
+use compositor_introspection_extraction_window_hints_attributes_identity_more::attributes::{AppId, NoDisplay, Title};
 use compositor_introspection_extraction_window_hints_attributes_launch::attributes::EnvOverlay;
+use compositor_introspection_extraction_window_hints_env_replay::replay::is_replayable;
 use compositor_introspection_extraction_window_hints_inferred::inferred::InferredHints;
 use compositor_introspection_extraction_window_hints_source::source::{Confidence, SourceMethod};
 use compositor_introspection_extraction_window_hints_values::values::{EnvPair, ToplevelIcon};
@@ -15,15 +16,20 @@ use std::path::PathBuf;
 /// GIO_LAUNCHED_DESKTOP_FILE identity signal.
 pub fn push_env_hints(meta: &Meta, hints: &mut InferredHints) {
     let Some(env) = &meta.selected_env else { return };
-    if !env.is_empty() {
-        let pairs: Vec<EnvPair> = env
-            .iter()
-            .map(|(k, v)| EnvPair { key: k.clone(), value: v.clone() })
-            .collect();
+    // Capture is generous; REPLAY is not. The overlay is re-applied on top of
+    // the executor's base_env, so a session-owned value here (WAYLAND_DISPLAY
+    // above all) would override the live one with whatever was true when the
+    // placeholder was captured. See `window.hints.env.replay`.
+    let pairs: Vec<EnvPair> = env
+        .iter()
+        .filter(|(k, _)| is_replayable(k))
+        .map(|(k, v)| EnvPair { key: k.clone(), value: v.clone() })
+        .collect();
+    if !pairs.is_empty() {
         hints.push::<EnvOverlay>(
             pairs,
             SourceMethod::ProcEnviron,
-            "/proc/<pid>/environ (allowlisted)",
+            "/proc/<pid>/environ (replayable subset)",
             Confidence::High,
         );
     }
@@ -110,6 +116,9 @@ pub fn push_desktop_hints(meta: &Meta, hints: &mut InferredHints) {
             "DBusActivatable=true",
             Confidence::High,
         );
+    }
+    if de.no_display {
+        hints.push::<NoDisplay>(true, SourceMethod::DesktopEntry, "NoDisplay=true", Confidence::High);
     }
     if let Some(icon) = &de.icon {
         hints.push::<IconName>(

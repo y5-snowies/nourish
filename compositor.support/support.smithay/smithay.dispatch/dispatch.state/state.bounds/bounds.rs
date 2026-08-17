@@ -35,6 +35,8 @@ use smithay::wayland::text_input::TextInputUserData;
 use smithay::wayland::viewporter::ViewportState;
 use smithay::wayland::xdg_activation::XdgActivationHandler;
 use smithay::wayland::xdg_foreign::XdgForeignHandler;
+use smithay::wayland::shell::xdg::dialog::XdgDialogHandler;
+use smithay::reexports::wayland_protocols::xdg::dialog::v1::server::xdg_wm_dialog_v1::XdgWmDialogV1;
 use compositor_support_smithay_dispatch_state_base::state::DispatchWire;
 
 pub trait FactoryBounds: DispatchWire + SeatHandler
@@ -58,6 +60,7 @@ pub trait FactoryBounds: DispatchWire + SeatHandler
     + WLD<frac_mgr::WpFractionalScaleManagerV1, GlobalData>
     + WLD<frac_v1::WpFractionalScaleV1, FractionalScaleData> + FractionalScaleHandler
     + XdgForeignHandler + GlobalDispatch<ZxdgExporterV2, GlobalData> + GlobalDispatch<ZxdgImporterV2, GlobalData>
+    + XdgDialogHandler + GlobalDispatch<XdgWmDialogV1, GlobalData> + WLD<XdgWmDialogV1, GlobalData>
     + GlobalDispatch<ZwpTextInputManagerV3, GlobalData> + WLD<ZwpTextInputManagerV3, GlobalData>
     + WLD<ZwpTextInputV3, TextInputUserData>
     + GlobalDispatch<ZwpInputMethodManagerV2, InputMethodManagerGlobalData>

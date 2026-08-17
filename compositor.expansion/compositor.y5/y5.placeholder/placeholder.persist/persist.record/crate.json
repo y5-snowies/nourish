@@ -7,6 +7,7 @@
     "compositor_introspection_launchplan_plan_base",
     "compositor_introspection_launchplan_plan_preferences",
     "serde",
-    "serde_json"
+    "serde_json",
+    "compositor_introspection_restoration_state_pending"
   ]
 }

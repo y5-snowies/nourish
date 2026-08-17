@@ -738,6 +738,45 @@ impl Orchestrator {
             .inner
     }
 
+    /// The world whose Space holds the toplevel behind `surface`, with the window.
+    ///
+    /// A drag is the one flow that can outlive the world it started in, so a
+    /// carried window must never be resolved against `spawn_target`: after a
+    /// switch it is still in the world it was torn off in.
+    pub fn window_of_surface(
+        &self,
+        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) -> Option<(uuid::Uuid, smithay::desktop::Window)> {
+        use smithay::wayland::seat::WaylandFocus;
+        self.worlds.ids().into_iter().find_map(|id| {
+            let found = self
+                .worlds
+                .get(id)
+                .storage()
+                .try_get(&compositor_support_world_host_space_base::base::SPACE)?
+                .inner
+                .state
+                .elements()
+                .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface))
+                .cloned()?;
+            Some((id, found))
+        })
+    }
+
+    /// A NAMED world's Space. See `window_of_surface` for why the drag paths
+    /// cannot use the `spawn_target`-bound accessor below.
+    pub fn space_of_mut(
+        &mut self,
+        world: uuid::Uuid,
+    ) -> &mut compositor_support_smithay_state_space_base::state::SpaceState {
+        &mut self
+            .worlds
+            .get_mut(world)
+            .storage_mut()
+            .get_mut(&compositor_support_world_host_space_base::base::SPACE_MUT)
+            .inner
+    }
+
     pub fn space_state_mut(&mut self) -> &mut compositor_support_smithay_state_space_base::state::SpaceState {
         let target = self.worlds.spawn_target();
         &mut self
@@ -1186,6 +1225,33 @@ impl Orchestrator {
     pub fn placeholder_mut(&mut self) -> &mut compositor_y5_placeholder_state_base::state::PlaceholderState {
         let target = self.worlds.spawn_target();
         self.worlds.get_mut(target).storage_mut().get_mut(&compositor_y5_placeholder_system_base::base::PLACEHOLDER_MUT)
+    }
+
+    /// The world holding the placeholder record for `uuid`.
+    ///
+    /// Records live in the world the window was mapped in, but a window can be
+    /// closed while the user is looking somewhere else — and every accessor above
+    /// resolves against `spawn_target`, so the destroy path would otherwise search
+    /// the wrong world, find nothing, and dismiss the tile the window earned.
+    /// Derived by lookup, never named: same shape as `world_of_window`.
+    pub fn world_of_placeholder(&self, uuid: uuid::Uuid) -> Option<uuid::Uuid> {
+        self.worlds.ids().into_iter().find(|&id| {
+            self.worlds
+                .get(id)
+                .storage()
+                .try_get(&compositor_y5_placeholder_system_base::base::PLACEHOLDER)
+                .map(|p| p.map.contains_key(&uuid))
+                .unwrap_or(false)
+        })
+    }
+
+    /// A NAMED world's placeholders, for the paths that must act on the world a
+    /// window belonged to rather than the one on screen.
+    pub fn placeholder_of_mut(
+        &mut self,
+        world: uuid::Uuid,
+    ) -> &mut compositor_y5_placeholder_state_base::state::PlaceholderState {
+        self.worlds.get_mut(world).storage_mut().get_mut(&compositor_y5_placeholder_system_base::base::PLACEHOLDER_MUT)
     }
 
     /// FOCUS ACCESSOR: the focused world's launcher slot.

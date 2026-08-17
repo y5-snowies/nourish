@@ -6,6 +6,10 @@ pub enum Mode {
     View,
     /// Editor: scrollable attribute form with handler picker.
     Settings,
+    /// Confirmation prompt: the plan launches into a container that is not
+    /// running, and the user has to say whether to start it first. The
+    /// container's name is held in `PlaceholderUi::pending_container`.
+    ConfirmContainerStart,
 }
 
 impl Default for Mode {

@@ -40,7 +40,7 @@ use wayland_client::{
 
 use window_stress::canvas::{Canvas, color};
 use window_stress::diag;
-use window_stress::protocol::{Anchor, Command, DecoMode};
+use window_stress::protocol::{Anchor, Command, DecoMode, DragMode};
 use window_stress::{font, info, warn};
 
 const WIN_W: i32 = 780;
@@ -81,6 +81,14 @@ enum Act {
     CycleColor,
     ToggleProto(u8), // 0 deco, 1 vp, 2 fs, 3 sp
     Respawn,
+    /// Spawn N extra DETACHED session subjects (see `Controller::spawn_session`).
+    SpawnSession(u32),
+    /// Forget the spawned session subjects (they outlive the controller by design).
+    ForgetSession,
+    /// Wipe the subjects' id→value store so the next run starts from NEW.
+    ClearSessionStore,
+    /// Flip which session-management namespace the detached subjects bind.
+    ToggleSessionNs,
 }
 
 struct Btn {
@@ -112,6 +120,9 @@ struct Params {
     proto_vp: bool,
     proto_fs: bool,
     proto_sp: bool,
+    /// false = xdg_session_manager_v1 (current staging name),
+    /// true  = xx_session_manager_v1 (pre-rename; what GTK 4.22 binds).
+    session_xx: bool,
 }
 
 impl Params {
@@ -131,6 +142,7 @@ impl Params {
             proto_vp: true,
             proto_fs: true,
             proto_sp: true,
+            session_xx: false,
         }
     }
 
@@ -151,12 +163,16 @@ impl Params {
         // Column A
         let x = 8;
         let mut y = 8;
-        let mut hdr = |h: &mut Vec<(i32, i32, String)>, y: &mut i32, t: &str| {
+        // `x` is a PARAMETER, not captured: columns B and C shadow the outer `x`
+        // with their own bindings, but a closure capturing it would keep column
+        // A's value forever and paint every header in the left column on top of
+        // whatever lives there.
+        let hdr = |h: &mut Vec<(i32, i32, String)>, x: i32, y: &mut i32, t: &str| {
             h.push((x, *y, t.to_string()));
             *y += 16;
         };
 
-        hdr(&mut h, &mut y, "DECORATION");
+        hdr(&mut h, x, &mut y, "DECORATION");
         for (label, m) in [
             ("DECO SERVER", DecoMode::Server),
             ("DECO CLIENT", DecoMode::Client),
@@ -169,7 +185,7 @@ impl Params {
         b.push(btn(x + half + 6, y, half, "DECO BADSIZE", Act::Send(Command::DecoBadsize)));
         y += 28;
 
-        hdr(&mut h, &mut y, &format!("BUFFER  (delta={})", self.delta));
+        hdr(&mut h, x, &mut y, &format!("BUFFER  (delta={})", self.delta));
         b.push(btn(x, y, cw, "BUF AGREED", Act::Send(Command::BufAgreed)));
         y += 23;
         b.push(btn(x, y, half, &format!("BUF DELTA {}", self.delta), Act::Send(Command::BufDelta(self.delta))));
@@ -183,7 +199,7 @@ impl Params {
         b.push(btn(x + half + 6, y, half, "GEO MISMATCH", Act::Send(Command::GeoMismatch)));
         y += 28;
 
-        hdr(&mut h, &mut y, "LIFECYCLE");
+        hdr(&mut h, x, &mut y, "LIFECYCLE");
         b.push(btn(x, y, half, "MAP", Act::Send(Command::Map)));
         b.push(btn(x + half + 6, y, half, "UNMAP", Act::Send(Command::Unmap)));
         y += 23;
@@ -195,6 +211,41 @@ impl Params {
         b.push(btn(x, y, cw, "QUIT SUBJECT", Act::Send(Command::Quit)));
         y += 30;
 
+        // WINDOWS — real object destruction, as opposed to LIFECYCLE's unmap,
+        // which keeps every object alive. WIN CYCLE is the churn case: add and
+        // destroy without waiting for the first configure, so teardown races the
+        // compositor's own mapping work.
+        hdr(&mut h, x, &mut y, "WINDOWS");
+        b.push(btn(x, y, half, "WIN ADD", Act::Send(Command::WinAdd)));
+        b.push(btn(x + half + 6, y, half, "WIN CLOSE 1", Act::Send(Command::WinClose(1))));
+        y += 23;
+        b.push(btn(x, y, half, "WIN CYCLE 20", Act::Send(Command::WinCycle(20))));
+        b.push(btn(x + half + 6, y, half, "WIN CYCLE 200", Act::Send(Command::WinCycle(200))));
+        y += 23;
+        b.push(btn(x, y, half, "MAIN TEARDOWN", Act::Send(Command::WinTeardown)));
+        b.push(btn(x + half + 6, y, half, "MAIN REBUILD", Act::Send(Command::WinRebuild)));
+        y += 30;
+
+        // DRAG — wl_data_device plus xdg_toplevel_drag_v1. `start_drag` needs the
+        // serial of a real implicit grab, so these only ARM the subject: press
+        // inside the subject window and drag to a target to actually run one.
+        //
+        // TOPLEVEL is the browser tab-tear shape (a fresh window is created and
+        // attached, and the compositor carries it); EXISTING attaches an
+        // already-mapped window instead. PLAIN is the control case — same drag
+        // with no window carried, so anything that moves is the compositor's own
+        // doing rather than the protocol's.
+        hdr(&mut h, x, &mut y, "DRAG");
+        b.push(btn(x, y, half, "ARM PLAIN", Act::Send(Command::DragArm(DragMode::Plain))));
+        b.push(btn(x + half + 6, y, half, "ARM TOPLEVEL", Act::Send(Command::DragArm(DragMode::Toplevel))));
+        y += 23;
+        b.push(btn(x, y, half, "ARM EXISTING", Act::Send(Command::DragArm(DragMode::ToplevelExisting))));
+        b.push(btn(x + half + 6, y, half, "DISARM", Act::Send(Command::DragArm(DragMode::Off))));
+        y += 23;
+        b.push(btn(x, y, half, "DROP ACCEPT", Act::Send(Command::DropAccept(true))));
+        b.push(btn(x + half + 6, y, half, "DROP REJECT", Act::Send(Command::DropAccept(false))));
+        y += 30;
+
         // TEARING — the pacing test. The hint tags this client as a pacer for the
         // compositor's Exclusive mode; the rate buttons drive commits off the
         // subject's own timer so the compositor's flip rate is an independent
@@ -203,7 +254,7 @@ impl Params {
         // The decisive check needs a SECOND, untagged subject: flip rate must
         // track the tagged client and stay INVARIANT to the untagged one. With
         // one window, Exclusive and Always are indistinguishable.
-        hdr(&mut h, &mut y, "TEARING");
+        hdr(&mut h, x, &mut y, "TEARING");
         b.push(btn(x, y, half, "HINT ASYNC", Act::Send(Command::Tearing(true))));
         b.push(btn(x + half + 6, y, half, "HINT VSYNC", Act::Send(Command::Tearing(false))));
         y += 23;
@@ -239,7 +290,7 @@ impl Params {
         // Column B
         let x = 8 + cw + 12;
         let mut y = 8;
-        hdr(&mut h, &mut y, "POPUP");
+        hdr(&mut h, x, &mut y, "POPUP");
         b.push(btn(x, y, half, "POPUP ADD", Act::Send(Command::PopupAdd)));
         b.push(btn(x + half + 6, y, half, "POPUP NEST", Act::Send(Command::PopupNest)));
         y += 23;
@@ -270,7 +321,7 @@ impl Params {
         b.push(btn(x + 180, y, 56, "+Y", Act::Send(Command::PopupMove(0, self.move_step))));
         y += 28;
 
-        hdr(&mut h, &mut y, "SUBSURFACE");
+        hdr(&mut h, x, &mut y, "SUBSURFACE");
         b.push(btn(x, y, half, "SUB ADD", Act::Send(Command::SubAdd)));
         b.push(btn(x + half + 6, y, half, "SUB NEST", Act::Send(Command::SubNest)));
         y += 23;
@@ -289,7 +340,7 @@ impl Params {
         // Column C
         let x = 8 + (cw + 12) * 2;
         let mut y = 8;
-        hdr(&mut h, &mut y, &format!("VIEWPORTER  dest={}x{}", self.dest.0, self.dest.1));
+        hdr(&mut h, x, &mut y, &format!("VIEWPORTER  dest={}x{}", self.dest.0, self.dest.1));
         b.push(btn(x, y, half, "VP DEST", Act::Send(Command::VpDest(self.dest.0, self.dest.1))));
         b.push(btn(x + half + 6, y, half, "VP UNSET", Act::Send(Command::VpUnset)));
         y += 23;
@@ -308,7 +359,7 @@ impl Params {
         b.push(btn(x + half + 6, y, half, "VP ANIM OFF", Act::Send(Command::VpAnimate(false))));
         y += 28;
 
-        hdr(&mut h, &mut y, &format!("FRACTIONAL  scale={}/120", self.fs_num));
+        hdr(&mut h, x, &mut y, &format!("FRACTIONAL  scale={}/120", self.fs_num));
         b.push(btn(x, y, 56, "FS HON", Act::Send(Command::FsHonor)));
         b.push(btn(x + 60, y, 56, "FS IGN", Act::Send(Command::FsIgnore)));
         b.push(btn(x + 120, y, 56, "NOVP", Act::Send(Command::FsNoViewport)));
@@ -319,7 +370,7 @@ impl Params {
         b.push(btn(x + half + 6 + 40, y, 36, "+", Act::AdjFs(30)));
         y += 28;
 
-        hdr(&mut h, &mut y, &format!("DPI / INTEGER  scale={}", self.dpi_num));
+        hdr(&mut h, x, &mut y, &format!("DPI / INTEGER  scale={}", self.dpi_num));
         b.push(btn(x, y, 56, "HONOR", Act::Send(Command::DpiHonor)));
         b.push(btn(x + 60, y, 56, "IGNORE", Act::Send(Command::DpiIgnore)));
         b.push(btn(x + 120, y, 56, "NONDIV", Act::Send(Command::DpiNondiv)));
@@ -333,7 +384,7 @@ impl Params {
         y += 28;
 
         let (r, g, bb, a) = self.color_rgba();
-        hdr(&mut h, &mut y, &format!("SINGLE-PIXEL  rgb=({r},{g},{bb})"));
+        hdr(&mut h, x, &mut y, &format!("SINGLE-PIXEL  rgb=({r},{g},{bb})"));
         b.push(btn(x, y, half, "SP FILL", Act::Send(Command::SpFill(r, g, bb, a))));
         b.push(btn(x + half + 6, y, half, "SP SUB", Act::Send(Command::SpSub(r, g, bb, a))));
         y += 23;
@@ -341,13 +392,31 @@ impl Params {
         b.push(btn(x + half + 6, y, half, "CYCLE COLOR", Act::CycleColor));
         y += 28;
 
-        hdr(&mut h, &mut y, "PROTOCOLS (respawn to apply)");
+        hdr(&mut h, x, &mut y, "PROTOCOLS (respawn to apply)");
         b.push(btn(x, y, 56, proto_label("DEC", self.proto_deco), Act::ToggleProto(0)));
         b.push(btn(x + 60, y, 56, proto_label("VP", self.proto_vp), Act::ToggleProto(1)));
         b.push(btn(x + 120, y, 56, proto_label("FS", self.proto_fs), Act::ToggleProto(2)));
         b.push(btn(x + 180, y, 56, proto_label("SP", self.proto_sp), Act::ToggleProto(3)));
         y += 23;
         b.push(btn(x, y, cw, "RESPAWN SUBJECT", Act::Respawn));
+        y += 28;
+
+        // The placeholder session-restore check. These subjects are spawned
+        // DETACHED (no stdin pipe, no controller commands) precisely because the
+        // point is what survives without a controller: close them in the
+        // compositor, then press Launch on the placeholder tiles they leave
+        // behind. Each should come back showing RESTORED and the same VALUE —
+        // a value that is in none of the launch args the placeholder replays.
+        hdr(&mut h, x, &mut y, "SESSION RESTORE (detached subjects)");
+        b.push(btn(x, y, half, "SPAWN 1", Act::SpawnSession(1)));
+        b.push(btn(x + half + 6, y, half, "SPAWN 3", Act::SpawnSession(3)));
+        y += 23;
+        b.push(btn(x, y, half, "FORGET", Act::ForgetSession));
+        b.push(btn(x + half + 6, y, half, "CLEAR STORE", Act::ClearSessionStore));
+        y += 23;
+        b.push(btn(x, y, cw,
+                   if self.session_xx { "NS: xx_ (GTK 4.22)" } else { "NS: xdg_ (staging)" },
+                   Act::ToggleSessionNs));
 
         (b, h)
     }
@@ -372,6 +441,13 @@ struct Controller {
     subject_path: std::path::PathBuf,
     child: Option<Child>,
     child_stdin: Option<ChildStdin>,
+    /// Detached session subjects (see `Act::SpawnSession`). Held only so they can
+    /// be reaped; they are NOT killed on controller exit — the whole test is what
+    /// happens to them after the controller is out of the picture.
+    session_children: Vec<Child>,
+    /// Controller-side log counter for detached spawns. Never reaches the
+    /// subject — see `spawn_session` for why they must be argv-identical.
+    next_session_tag: u32,
 
     p: Params,
     log: Vec<String>,
@@ -427,6 +503,8 @@ fn main() {
         subject_path,
         child: None,
         child_stdin: None,
+        session_children: Vec::new(),
+        next_session_tag: 1,
         p: Params::new(),
         log: Vec::new(),
     };
@@ -503,6 +581,63 @@ impl Controller {
         }
     }
 
+    /// Spawn `n` DETACHED session subjects.
+    ///
+    /// `--detached` (so stdin EOF does not kill them) and stdin/stdout on null
+    /// (so there is no controller pipe at all). That single flag is the ENTIRE
+    /// command line: every subject is spawned byte-identical, with no index, no
+    /// tag, no per-instance path.
+    ///
+    /// That is the point. A placeholder relaunches by replaying the argv it
+    /// captured, so any stable discriminator here would be an alternative
+    /// explanation for a value coming back — and one you could only rule out by
+    /// reading the subject's source. With argv identical, the session id the
+    /// compositor mints per placeholder is the only thing distinguishing them.
+    fn spawn_session(&mut self, n: u32) {
+        for _ in 0..n {
+            let nth = self.next_session_tag;
+            self.next_session_tag += 1;
+            let mut cmd = PCommand::new(&self.subject_path);
+            cmd.arg("--detached");
+            if self.p.session_xx {
+                cmd.arg("--xx");
+            }
+            cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::inherit());
+            match cmd.spawn() {
+                Ok(child) => {
+                    // `nth` is a controller-side log counter only — it is never
+                    // passed to the subject.
+                    info!("spawned detached session subject ({nth})");
+                    let ns = if self.p.session_xx { "xx_" } else { "xdg_" };
+                    self.push_log(format!("session subject {nth} up ({ns}, identical argv)"));
+                    self.session_children.push(child);
+                }
+                Err(e) => {
+                    warn!("failed to spawn session subject: {e}");
+                    self.push_log(format!("SESSION SPAWN FAILED: {e}"));
+                }
+            }
+        }
+    }
+
+    /// Stop tracking the detached subjects without killing them — closing them
+    /// from inside the compositor is what produces the placeholder tiles.
+    fn forget_session(&mut self) {
+        let n = self.session_children.len();
+        self.session_children.clear();
+        self.push_log(format!("forgot {n} session subject(s) (still running)"));
+    }
+
+    /// Delete the shared id→value store, so the next spawn reports NEW rather
+    /// than RESTORED. The control case for the check.
+    fn clear_session_store(&mut self) {
+        let path = window_stress::session::default_store();
+        match std::fs::remove_file(&path) {
+            Ok(()) => self.push_log(format!("cleared {}", path.display())),
+            Err(e) => self.push_log(format!("clear store: {e}")),
+        }
+    }
+
     fn send(&mut self, cmd: Command) {
         let line = cmd.encode();
         if let Some(stdin) = &mut self.child_stdin {
@@ -561,6 +696,14 @@ impl Controller {
                 self.push_log("proto toggled — press RESPAWN to apply".into());
             }
             Act::Respawn => self.spawn_subject(),
+            Act::SpawnSession(n) => self.spawn_session(n),
+            Act::ForgetSession => self.forget_session(),
+            Act::ClearSessionStore => self.clear_session_store(),
+            Act::ToggleSessionNs => {
+                self.p.session_xx = !self.p.session_xx;
+                let ns = if self.p.session_xx { "xx_" } else { "xdg_" };
+                self.push_log(format!("session namespace -> {ns} (applies to next spawn)"));
+            }
         }
         self.need_redraw = true;
     }

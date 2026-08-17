@@ -4,6 +4,7 @@ use smithay::input::dnd::DndGrabHandler;
 use smithay::input::pointer::CursorImageStatus;
 use smithay::reexports::calloop::{self, LoopHandle};
 use smithay::reexports::wayland_server::Client;
+use smithay::reexports::wayland_server::backend::ClientId;
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::Weak;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -73,6 +74,7 @@ pub struct Dispatch {
     pub xdg_activation: compositor_support_smithay_state_xdg_activation_base::state::Activation,
     pub xdg_decoration: compositor_support_smithay_state_xdg_decoration_base::state::Decoration,
     pub xdg_foreign_state: compositor_support_smithay_state_xdg_foreign_base::state::Foreign,
+    pub xdg_dialog: compositor_support_smithay_state_xdg_dialog_base::state::Dialog,
     pub shm: compositor_support_smithay_state_shm_base::state::SHMState,
     pub output: compositor_support_smithay_state_output_base::state::OutputState,
     pub popup: compositor_support_smithay_state_popup_base::state::PopupState,
@@ -92,6 +94,16 @@ pub struct Dispatch {
     /// External `zwp_tablet_manager_v2` state (tool + pad). Hand-rolled — smithay
     /// hides its tablet-seat instances and has no pad support (see `mod tablet_impls`).
     pub tablet: compositor_support_smithay_dispatch_wire_tablet::tablet::TabletState,
+    /// External `xdg_session_management_v1` store: which toplevel names exist in
+    /// which session id (see `mod session_impls`). Only the identity index lives
+    /// here — the geometry a session restores to is the placeholder's, and the
+    /// durable copy of the identity is persisted with it.
+    pub session: compositor_support_smithay_state_session_store::store::SessionStore,
+    /// Which protocol object currently manages which session id — the
+    /// `replaced` / `in_use` half of session management (see `mod session_impls`).
+    pub session_live: compositor_support_smithay_dispatch_wire_session::session::SessionLive,
+    /// `xdg_toplevel_drag_v1`: which `wl_data_source` owns which drag object.
+    pub toplevel_drag: compositor_support_smithay_dispatch_wire_drag::drag::ToplevelDragState,
     pub needs_redraw: bool,
 
     // Additional safety for ping
@@ -103,7 +115,11 @@ pub struct Dispatch {
     // after dispatch_clients + applies world effects. document/SMITHAY_DECOUPLING.md
     pub committed: Vec<WlSurface>,
     pub new_toplevels: Vec<Window>,
-    pub destroyed_toplevels: Vec<ToplevelSurface>,
+    /// The `bool` is "was this toplevel being carried by a live
+    /// `xdg_toplevel_drag_v1` at the moment it was destroyed" — sampled at
+    /// destroy time rather than at drain time, since the drag may well have
+    /// ended by the time the drain runs.
+    pub destroyed_toplevels: Vec<(ToplevelSurface, bool)>,
     pub fullscreen_requests: Vec<(ToplevelSurface, bool)>,
     pub new_layers: Vec<(LayerSurface, Option<WlOutput>, WlrLayer, String)>,
     pub destroyed_layers: Vec<LayerSurface>,
@@ -125,10 +141,6 @@ pub struct Dispatch {
     // Syncobj fence sources recorded by the pre-commit hook (which has no
     // loop_handle); the rim drain inserts them via `Wire::loop_handle`.
     pub pending_blockers: Vec<(Weak<WlSurface>, DrmSyncPointSource)>,
-    // Deferred `set_data_device_focus` (needs DataDeviceHandler — downstream);
-    // recorded by `focus_changed`, applied by the rim drain. The inner
-    // `Option<Client>` is the focused client (None == clear focus).
-    pub pending_data_focus: Option<Option<Client>>,
     // Deferred pointer-constraint activate-on-focus: `focus_changed` records the newly
     // focused surface here (it can't touch the pointer inline — see that handler), and
     // the drain does the is-pointer-over check + `constraint.activate()` with the pointer
@@ -270,7 +282,7 @@ pub fn establish_popup_grab(
 
 // ── SeatHandler for Dispatch (REQUIRED here: `Seat<Dispatch>` field) ──────────
 // Inlined from seat.dispatch / seat.focus. `set_data_device_focus` is deferred
-// to wire.base via `pending_data_focus` (it needs DataDeviceHandler).
+// to wire.base via `clipboard.pending_focus` (it needs DataDeviceHandler).
 impl SeatHandler for Dispatch {
     type KeyboardFocus = WlSurface;
     type PointerFocus = WlSurface;
@@ -304,7 +316,7 @@ impl SeatHandler for Dispatch {
         }
 
         // `set_data_device_focus` needs DataDeviceHandler (downstream) — defer it.
-        self.pending_data_focus = Some(client);
+        self.clipboard.pending_focus = Some(client);
 
         // Follow keyboard focus with tablet-pad focus: `leave` the old client's pad,
         // `enter` the new one, so pad button/ring/strip/dial/mode events are gated to
@@ -518,6 +530,120 @@ mod tablet_impls {
     }
 }
 
+// ── xdg_session_management_v1 impls (orphan-required here) ─────────────────────
+// Hand-rolled like `color_impls` / `tablet_impls`: smithay has no module for the
+// protocol and `wayland-protocols` ships the staging XML without bindings, so
+// `wire.session` scans it and owns the request logic; the store lives on
+// `Dispatch.session`.
+mod session_impls {
+    use compositor_support_smithay_dispatch_wire_session::session::{
+        self, SessionData, SessionResource, ToplevelSessionData, XdgSessionManagerV1, XdgSessionV1,
+        XdgToplevelSessionV1, XxSessionManagerV1, XxSessionV1, XxToplevelSessionV1,
+        xdg_session_manager_v1, xdg_session_v1, xdg_toplevel_session_v1, xx_session_manager_v1,
+        xx_session_v1, xx_toplevel_session_v1,
+    };
+    use smithay::reexports::wayland_server::{
+        backend::ClientId, Client, DataInit, Dispatch as WLDispatch, DisplayHandle, GlobalDispatch,
+        New,
+    };
+    use super::Dispatch;
+
+    impl GlobalDispatch<XdgSessionManagerV1, ()> for Dispatch {
+        fn bind(_: &mut Self, _: &DisplayHandle, _: &Client, resource: New<XdgSessionManagerV1>, _: &(), di: &mut DataInit<'_, Self>) {
+            di.init(resource, ());
+        }
+    }
+    impl WLDispatch<XdgSessionManagerV1, ()> for Dispatch {
+        fn request(state: &mut Self, client: &Client, manager: &XdgSessionManagerV1, request: xdg_session_manager_v1::Request, _: &(), dh: &DisplayHandle, di: &mut DataInit<'_, Self>) {
+            session::dispatch_manager(&mut state.session, &mut state.session_live, manager, client, dh, request, di);
+        }
+    }
+    impl WLDispatch<XdgSessionV1, SessionData> for Dispatch {
+        fn request(state: &mut Self, _: &Client, session: &XdgSessionV1, request: xdg_session_v1::Request, data: &SessionData, _: &DisplayHandle, di: &mut DataInit<'_, Self>) {
+            session::dispatch_session(&mut state.session, session, &data.session_id, request, di);
+        }
+        // Release the live claim; the REMEMBERED names stay, which is what makes
+        // the next run restorable. Only an explicit `remove` erases those.
+        fn destroyed(state: &mut Self, _: ClientId, resource: &XdgSessionV1, data: &SessionData) {
+            session::destroyed_session(&mut state.session_live, data, SessionResource::Xdg(resource.clone()));
+        }
+    }
+    impl WLDispatch<XdgToplevelSessionV1, ToplevelSessionData> for Dispatch {
+        fn request(state: &mut Self, _: &Client, _: &XdgToplevelSessionV1, request: xdg_toplevel_session_v1::Request, data: &ToplevelSessionData, _: &DisplayHandle, _: &mut DataInit<'_, Self>) {
+            if let Some(renamed) =
+                session::dispatch_toplevel_session(&mut state.session, data, request)
+            {
+                state.session_live.renames.push(renamed);
+            }
+        }
+        fn destroyed(state: &mut Self, _: ClientId, _: &XdgToplevelSessionV1, data: &ToplevelSessionData) {
+            session::destroyed_toplevel_session(&mut state.session, data);
+        }
+    }
+
+    // The same protocol under its pre-rename `xx_` namespace — what GTK 4.22,
+    // Qt 6.11 and Chrome 151 bind. Separate impls because the wire shapes
+    // genuinely differ (see `wire.session::legacy`); the store behind them is
+    // the same one.
+    impl GlobalDispatch<XxSessionManagerV1, ()> for Dispatch {
+        fn bind(_: &mut Self, _: &DisplayHandle, _: &Client, resource: New<XxSessionManagerV1>, _: &(), di: &mut DataInit<'_, Self>) {
+            di.init(resource, ());
+        }
+    }
+    impl WLDispatch<XxSessionManagerV1, ()> for Dispatch {
+        fn request(state: &mut Self, client: &Client, manager: &XxSessionManagerV1, request: xx_session_manager_v1::Request, _: &(), dh: &DisplayHandle, di: &mut DataInit<'_, Self>) {
+            session::dispatch_legacy_manager(&mut state.session, &mut state.session_live, manager, client, dh, request, di);
+        }
+    }
+    impl WLDispatch<XxSessionV1, SessionData> for Dispatch {
+        fn request(state: &mut Self, _: &Client, session: &XxSessionV1, request: xx_session_v1::Request, data: &SessionData, _: &DisplayHandle, di: &mut DataInit<'_, Self>) {
+            session::dispatch_legacy_session(&mut state.session, session, &data.session_id, request, di);
+        }
+        fn destroyed(state: &mut Self, _: ClientId, resource: &XxSessionV1, data: &SessionData) {
+            session::destroyed_session(&mut state.session_live, data, SessionResource::Xx(resource.clone()));
+        }
+    }
+    impl WLDispatch<XxToplevelSessionV1, ToplevelSessionData> for Dispatch {
+        fn request(state: &mut Self, _: &Client, _: &XxToplevelSessionV1, request: xx_toplevel_session_v1::Request, data: &ToplevelSessionData, _: &DisplayHandle, _: &mut DataInit<'_, Self>) {
+            session::dispatch_legacy_toplevel_session(&mut state.session, data, request);
+        }
+        fn destroyed(state: &mut Self, _: ClientId, _: &XxToplevelSessionV1, data: &ToplevelSessionData) {
+            session::destroyed_toplevel_session(&mut state.session, data);
+        }
+    }
+}
+
+// ── xdg_toplevel_drag_v1 impls (orphan-required here) ─────────────────────────
+// Unlike the session protocol, `wayland-protocols` DOES generate bindings for
+// this one (staging feature, already on via smithay), so `wire.drag` owns only
+// the request logic; the source→drag registry lives on `Dispatch.toplevel_drag`.
+mod drag_impls {
+    use compositor_support_smithay_dispatch_wire_drag::drag::{
+        self, ToplevelDragData, XdgToplevelDragManagerV1, XdgToplevelDragV1,
+        xdg_toplevel_drag_manager_v1, xdg_toplevel_drag_v1,
+    };
+    use smithay::reexports::wayland_server::{
+        Client, DataInit, Dispatch as WLDispatch, DisplayHandle, GlobalDispatch, New,
+    };
+    use super::Dispatch;
+
+    impl GlobalDispatch<XdgToplevelDragManagerV1, ()> for Dispatch {
+        fn bind(_: &mut Self, _: &DisplayHandle, _: &Client, resource: New<XdgToplevelDragManagerV1>, _: &(), di: &mut DataInit<'_, Self>) {
+            di.init(resource, ());
+        }
+    }
+    impl WLDispatch<XdgToplevelDragManagerV1, ()> for Dispatch {
+        fn request(state: &mut Self, _: &Client, manager: &XdgToplevelDragManagerV1, request: xdg_toplevel_drag_manager_v1::Request, _: &(), _: &DisplayHandle, di: &mut DataInit<'_, Self>) {
+            drag::dispatch_manager(&mut state.toplevel_drag, manager, request, di);
+        }
+    }
+    impl WLDispatch<XdgToplevelDragV1, ToplevelDragData> for Dispatch {
+        fn request(state: &mut Self, _: &Client, resource: &XdgToplevelDragV1, request: xdg_toplevel_drag_v1::Request, data: &ToplevelDragData, _: &DisplayHandle, _: &mut DataInit<'_, Self>) {
+            drag::dispatch_drag(&mut state.toplevel_drag, resource, request, data);
+        }
+    }
+}
+
 // ── wlr-foreign-toplevel-management impls (orphan-required here) ────────────────
 // smithay has no wlr foreign-toplevel handler, so the manager + handle
 // GlobalDispatch/Dispatch impls are hand-written against the raw wlr bindings and
@@ -601,11 +727,15 @@ impl DispatchWire for Dispatch {}
 // smithay + leaf helpers — no `*.dispatch` crate, to avoid a dependency cycle).
 mod handler_impls {
     use std::sync::Mutex;
+    use smithay::reexports::wayland_server::backend::ClientId;
     use smithay::backend::allocator::dmabuf::Dmabuf;
     use smithay::backend::renderer::utils::on_commit_buffer_handler;
     use smithay::desktop::{PopupKind, PopupManager, WindowSurfaceType, find_popup_root_surface, get_popup_toplevel_coords, layer_map_for_output};
     use smithay::input::{Seat, SeatState};
     use smithay::input::dnd::{DnDGrab, DndGrabHandler, GrabType, Source};
+    use smithay::reexports::wayland_server::protocol::wl_data_source::WlDataSource;
+    use compositor_support_smithay_dispatch_wire_drag::drag::{ToplevelDragData, ToplevelDragHost};
+    use compositor_support_smithay_state_grab_drag_state::drag_state::ToplevelDragGrab;
     use smithay::input::pointer::{Focus, PointerHandle};
     use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode;
     use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge;
@@ -620,11 +750,14 @@ mod handler_impls {
     use smithay::wayland::input_method::InputMethodHandler;
     use smithay::wayland::output::OutputHandler;
     use smithay::wayland::pointer_constraints::{PointerConstraintsHandler, with_pointer_constraint};
-    use smithay::wayland::selection::SelectionHandler;
+    use smithay::wayland::selection::{SelectionHandler, SelectionSource, SelectionTarget};
     use smithay::wayland::selection::data_device::{DataDeviceHandler, DataDeviceState, WaylandDndGrabHandler};
+    use compositor_support_smithay_state_clipboard_policy::policy;
+    use compositor_support_smithay_state_clipboard_pump::pump;
     use smithay::wayland::shell::wlr_layer::{Layer, LayerSurface, WlrLayerShellHandler, WlrLayerShellState};
     use smithay::wayland::shell::xdg::{PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState};
     use smithay::wayland::shell::xdg::decoration::XdgDecorationHandler;
+    use smithay::wayland::shell::xdg::dialog::{ToplevelDialogHint, XdgDialogHandler};
     use smithay::wayland::shm::{ShmHandler, ShmState};
     use smithay::wayland::tablet_manager::TabletSeatHandler;
     use smithay::wayland::xdg_activation::{XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData};
@@ -732,6 +865,27 @@ mod handler_impls {
     impl XdgForeignHandler for Dispatch {
         fn xdg_foreign_state(&mut self) -> &mut XdgForeignState { &mut self.xdg_foreign_state.xdg_foreign_state }
     }
+    impl XdgDialogHandler for Dispatch {
+        /// Latch modality onto the surface while it is still true.
+        ///
+        /// `xdg_dialog_v1`'s destructor resets the hint back to `Unknown`, and a
+        /// well-behaved client fires it alongside the toplevel — so a reader at
+        /// teardown would see nothing. The mark is sticky for that reason.
+        ///
+        /// Only `Modal` marks. A plain `Dialog` is a client saying "I am
+        /// subordinate", which floating find/replace panels and tool palettes also
+        /// say; it is logged so the decision to widen can be made on evidence.
+        fn dialog_hint_changed(&mut self, toplevel: ToplevelSurface, hint: ToplevelDialogHint) {
+            match hint {
+                ToplevelDialogHint::Modal => {
+                    compositor_support_smithay_state_ephemeral_mark::mark::mark(toplevel.wl_surface());
+                    trace!("xdg-dialog: toplevel marked modal");
+                }
+                ToplevelDialogHint::Dialog => trace!("xdg-dialog: toplevel marked dialog (non-modal)"),
+                ToplevelDialogHint::Unknown => trace!("xdg-dialog: toplevel hint cleared"),
+            }
+        }
+    }
     impl FractionalScaleHandler for Dispatch {
         fn new_fractional_scale(&mut self, surface: WlSurface) {
             let Some(scale) = self.fractional.last_emitted() else { return; };
@@ -751,7 +905,19 @@ mod handler_impls {
             self.schedule_redraw();
         }
         fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
-            self.destroyed_toplevels.push(surface);
+            // Carried right now, or abandoned by a cancel of ours. Consumed on the
+            // way past: the verdict belongs to this one destroy.
+            let abandoned = self
+                .toplevel_drag
+                .abandoned
+                .iter()
+                .position(|s| s == surface.wl_surface());
+            if let Some(at) = abandoned {
+                self.toplevel_drag.abandoned.remove(at);
+            }
+            let carried = abandoned.is_some()
+                || self.toplevel_drag.is_carrying(surface.wl_surface());
+            self.destroyed_toplevels.push((surface, carried));
             self.schedule_redraw();
         }
         fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {
@@ -798,7 +964,162 @@ mod handler_impls {
     impl BufferHandler for Dispatch {
         fn buffer_destroyed(&mut self, _buffer: &WlBuffer) {}
     }
-    impl SelectionHandler for Dispatch { type SelectionUserData = (); }
+    // ── Clipboard persistence ────────────────────────────────────────────────
+    // A wayland selection is a live `wl_data_source` owned by the copying client, and
+    // there is no OS-level clipboard behind it — so when the app exits, the clipboard
+    // is gone. These three hooks snapshot the bytes while the source is alive and hand
+    // them back at the moment it dies. `clipboard.capture` holds the slot; the reads
+    // and writes themselves are pumped by `wire.clipboard` on the event loop.
+    //
+    // Nothing here may log clipboard CONTENT — mime names, byte counts and generations
+    // only.
+    impl SelectionHandler for Dispatch {
+        // The capture generation the selection was installed against, so a read that
+        // raced a newer copy is refused instead of served stale.
+        type SelectionUserData = u64;
+
+        fn new_selection(
+            &mut self,
+            ty: SelectionTarget,
+            source: Option<SelectionSource>,
+            _seat: Seat<Self>,
+        ) {
+            if ty != SelectionTarget::Clipboard {
+                return;
+            }
+            // Invalidate FIRST: bump the generation and drop the head before a single
+            // byte of the new selection is read. Without this an in-flight capture that
+            // completes late would refill the slot with the copy the user just replaced.
+            let advertised = source.as_ref().map(|s| s.mime_types().len()).unwrap_or(0);
+            let generation = self.clipboard.capture.arm(advertised);
+            // Cancel whatever the worker is still reading, including when the clipboard was
+            // merely CLEARED — that path returns below without ever reaching the drain, so
+            // this is the only thing that stops the superseded reads.
+            if let Some(worker) = self.clipboard.worker.as_ref() {
+                worker.arm(generation);
+            }
+            let Some(source) = source else {
+                trace!("clipboard cleared by client generation={generation}");
+                return;
+            };
+            let mime_types = policy::ordered(&source.mime_types());
+            trace!(
+                "clipboard copy generation={generation} flavors={advertised} \
+                 mimes={mime_types:?}"
+            );
+            // Deferred, NOT captured here: smithay calls us before it installs the new
+            // selection, so reading now would read the previous clipboard.
+            self.clipboard.pending_capture = Some((generation, mime_types));
+        }
+
+        fn selection_source_destroyed(
+            &mut self,
+            ty: SelectionTarget,
+            _seat: &Seat<Self>,
+        ) -> Option<(Vec<String>, Self::SelectionUserData)> {
+            if ty != SelectionTarget::Clipboard {
+                return None;
+            }
+            // The owning client is gone and smithay is about to clear the clipboard.
+            // Answering here rather than re-installing afterwards is what keeps this to
+            // ONE state transition: clients never see `selection(nil)` followed by a
+            // fresh offer.
+            //
+            // Reads still in flight are taken back from the worker and finished in place.
+            // Safe without blocking: the client's exit closed every write end (that is why
+            // we are in its destructor) and our own copy was dropped at arm time, so the
+            // pipes have no writer left and drain straight to EOF. This is what rescues the
+            // common copy-then-immediately-close, where a transfer is still moving at exit.
+            //
+            // No redraw is scheduled: this runs inside `dispatch_clients`, and the
+            // clipboard has no on-screen representation of its own.
+            let generation = self.clipboard.capture.generation();
+            // First, whatever the worker finished but the drain has not picked up yet.
+            let ready = self
+                .clipboard
+                .worker
+                .as_ref()
+                .map(|worker| worker.collect())
+                .unwrap_or_default();
+            for done in ready {
+                self.clipboard.capture.admit(
+                    done.generation,
+                    done.order,
+                    done.mime,
+                    done.bytes,
+                    policy::BUDGET,
+                );
+            }
+            let mut readers = self
+                .clipboard
+                .worker
+                .as_ref()
+                .map(|worker| worker.reclaim())
+                .unwrap_or_default();
+            for reader in readers.iter_mut() {
+                // What the budget has left, not the whole budget: flavors are finished
+                // one at a time here, and each is admitted before the next is read, so
+                // `used` is the running total. Passing the full budget instead would let
+                // every remaining flavor buffer all of it before `admit` refused it.
+                let headroom = self.clipboard.capture.headroom(policy::BUDGET);
+                if !matches!(pump::pump(reader, headroom), pump::Pump::Eof) {
+                    // Blocked means somebody else still holds the write end (a forked
+                    // child); nothing more will arrive for us. Don't spin — drop it.
+                    continue;
+                }
+                let bytes = std::mem::take(&mut reader.buffer);
+                self.clipboard.capture.admit(
+                    reader.generation,
+                    reader.order,
+                    reader.mime.clone(),
+                    bytes,
+                    policy::BUDGET,
+                );
+            }
+
+            if self.clipboard.capture.is_empty() {
+                trace!("clipboard owner gone with nothing captured generation={generation}");
+                return None;
+            }
+            let mime_types = self.clipboard.capture.mime_types();
+            // captured < advertised means the offer shrank across the exit — the one
+            // thing a receiver can observe that the user never asked for.
+            info!(
+                "clipboard persisted across client exit generation={generation} \
+                 captured={} advertised={} bytes={} mimes={mime_types:?}",
+                mime_types.len(),
+                self.clipboard.capture.advertised(),
+                self.clipboard.capture.used()
+            );
+            Some((mime_types, generation))
+        }
+
+        fn send_selection(
+            &mut self,
+            ty: SelectionTarget,
+            mime_type: String,
+            fd: std::os::fd::OwnedFd,
+            _seat: Seat<Self>,
+            user_data: &Self::SelectionUserData,
+            client: ClientId,
+        ) {
+            if ty != SelectionTarget::Clipboard {
+                return;
+            }
+            // Async: a payload past the pipe buffer would block the compositor if it
+            // were written inline. Dropping `fd` on a mismatch closes the pipe, which
+            // the pasting client reads as an empty transfer.
+            if !self.clipboard.capture.is_current(*user_data) {
+                trace!("clipboard read refused, stale generation={user_data}");
+                return;
+            }
+            // No redraw: `receive` is handled inside `dispatch_clients`, so `serve` arms
+            // the writer in the same iteration's drain, and what the user actually sees
+            // is the PASTING client committing a buffer — which schedules its own redraw
+            // through the normal commit path.
+            self.clipboard.pending_sends.push((*user_data, client, mime_type, fd));
+        }
+    }
     impl DataDeviceHandler for Dispatch {
         fn data_device_state(&mut self) -> &mut DataDeviceState { &mut self.clipboard.data_device_state }
     }
@@ -913,10 +1234,42 @@ mod handler_impls {
             self.pending_dmabuf.push((global.clone(), dmabuf, notifier));
         }
     }
+    impl ToplevelDragHost for Dispatch {
+        fn queue_toplevel_drag_move(&mut self, surface: WlSurface, location: Point<f64, Logical>) {
+            // Last write wins: the grab emits one of these per motion event, and
+            // only the newest position is meaningful by the time the drain runs.
+            if let Some(slot) = self.toplevel_drag.moves.iter_mut().find(|(s, _)| *s == surface) {
+                slot.1 = location;
+            } else {
+                self.toplevel_drag.moves.push((surface, location));
+            }
+            self.schedule_redraw();
+        }
+    }
     impl DndGrabHandler for Dispatch {
-        fn cancelled(&mut self, _: Seat<Self>, _: Point<f64, Logical>) { self.dnd.icon = None; self.schedule_redraw(); }
+        fn cancelled(&mut self, _: Seat<Self>, _: Point<f64, Logical>) {
+            self.dnd.icon = None;
+            self.toplevel_drag.settled.extend(self.toplevel_drag.carried_surface());
+            // Anything the grab queued on its last motion is now a position for a
+            // drag that is over. The frame hook applies these, so leaving them
+            // would move the window once more after the carry ended.
+            self.toplevel_drag.moves.clear();
+            self.toplevel_drag.deactivate_all();
+            self.schedule_redraw();
+        }
         fn dropped(&mut self, _: Option<smithay::input::dnd::DndTarget<'_, Self>>, _: bool, _: Seat<Self>, _: Point<f64, Logical>) {
-            self.dnd.icon = None; self.schedule_redraw();
+            self.dnd.icon = None;
+            // The dragged toplevel keeps the position it was carried to: the
+            // spec settles it "as if a xdg_toplevel_move operation ended".
+            // Read the carried surface BEFORE deactivating — that is what
+            // `carried_surface` filters on.
+            //
+            // This runs with the drag still active: on a physical drop the inner
+            // `DnDGrab` is what gets unset (it passes ITSELF to `unset_grab`), so
+            // the wrapper's `unset` — which clears `active` — only runs afterwards.
+            self.toplevel_drag.settled.extend(self.toplevel_drag.carried_surface());
+            self.toplevel_drag.deactivate_all();
+            self.schedule_redraw();
         }
     }
     impl WaylandDndGrabHandler for Dispatch {
@@ -925,9 +1278,30 @@ mod handler_impls {
                 GrabType::Pointer => {
                     let Some(ptr) = seat.get_pointer() else { return; };
                     let Some(start_data) = ptr.grab_start_data() else { return; };
-                    let grab = DnDGrab::new_pointer(&self.output.display_handle, start_data, source, seat);
+                    // `Src` is concretely `WlDataSource` on the wayland path
+                    // (`data_device::device`), which is how a toplevel drag
+                    // created for this source is recovered. Downcast rather
+                    // than widen the handler: other Source impls (xwayland,
+                    // client-local) have no drag object and must stay plain.
+                    let attached = (&source as &dyn std::any::Any)
+                        .downcast_ref::<WlDataSource>()
+                        .and_then(|s| self.toplevel_drag.for_source(s).cloned());
+                    // Where the drag started, captured before `start_data` is
+                    // consumed by the grab. A drag that goes on to attach THIS
+                    // toplevel has torn nothing off — see `ToplevelDragData::live`.
+                    let origin = start_data.focus.as_ref().map(|(s, _)| s.clone());
                     self.dnd.icon = icon;
-                    ptr.set_grab(self, grab, serial, Focus::Keep);
+                    let grab = DnDGrab::new_pointer(&self.output.display_handle, start_data, source, seat);
+                    match attached {
+                        Some(drag) => {
+                            if let Some(d) = drag.data::<ToplevelDragData>() {
+                                d.set_active(true);
+                                d.set_origin(origin.as_ref());
+                            }
+                            ptr.set_grab(self, ToplevelDragGrab::new(grab, drag), serial, Focus::Keep);
+                        }
+                        None => ptr.set_grab(self, grab, serial, Focus::Keep),
+                    }
                 }
                 GrabType::Touch => { source.cancel(); }
             }

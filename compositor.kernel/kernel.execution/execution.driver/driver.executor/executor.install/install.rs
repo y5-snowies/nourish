@@ -9,7 +9,7 @@ use compositor_introspection_execution_launch_policy::policy::{LaunchBackend, La
 use compositor_introspection_execution_launch_dispatch::dispatch::LaunchWorker;
 use compositor_introspection_execution_launch_reap::reap::reap_zombies;
 use compositor_introspection_execution_launch_types::types::LaunchOutcome;
-use compositor_kernel_execution_driver_executor_base::executor::{Executor, EXECUTOR};
+use compositor_kernel_execution_driver_executor_base::executor::{BaseEnv, Executor, EXECUTOR};
 
 /// Block SIGCHLD process-wide before any thread is spawned, so the reaper's
 /// signalfd is the sole consumer. Call at the very top of `main()`. No-op under
@@ -67,17 +67,28 @@ fn systemd_booted() -> bool {
     std::path::Path::new("/run/systemd/system").exists()
 }
 
-/// The faithful environment every launched app inherits (built once at startup).
-fn base_env(state: &Loop) -> Vec<(String, String)> {
+/// Builds the faithful environment every launched app gets, RE-EVALUATED per
+/// launch — see [`BaseEnv`] for why this is a closure and not a snapshot.
+///
+/// Only the socket name is captured, because it is fixed for the compositor's
+/// lifetime (the listening socket is created once, before this runs). Anything
+/// that could differ between launches is read inside the closure.
+fn base_env(state: &Loop) -> BaseEnv {
     let wayland_display = state.inner.loader.socket_name.to_string_lossy().into_owned();
-    let desktop = compositor_orchestration_environment_type_base::base::Get().DesktopName;
-    vec![
-        ("WAYLAND_DISPLAY".into(), wayland_display),
-        ("DISPLAY".into(), String::new()),
-        ("XDG_SESSION_TYPE".into(), "wayland".into()),
-        ("XDG_CURRENT_DESKTOP".into(), desktop.clone()),
-        ("XDG_SESSION_DESKTOP".into(), desktop),
-    ]
+    Box::new(move || {
+        let desktop = compositor_orchestration_environment_type_base::base::Get().DesktopName;
+        vec![
+            ("WAYLAND_DISPLAY".into(), wayland_display.clone()),
+            // Deliberately EMPTY: keeps apps off the X11 fallback. A real
+            // display here would make Electron/SDL/Java and some Qt configs
+            // PREFER X11 over Wayland, so the satellite's `:12` belongs only on
+            // the launches that are actually X11 apps — not on every child.
+            ("DISPLAY".into(), String::new()),
+            ("XDG_SESSION_TYPE".into(), "wayland".into()),
+            ("XDG_CURRENT_DESKTOP".into(), desktop.clone()),
+            ("XDG_SESSION_DESKTOP".into(), desktop),
+        ]
+    })
 }
 
 /// signalfd(SIGCHLD) wrapped in a Generic source — calloop's `signals` feature

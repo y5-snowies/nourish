@@ -25,8 +25,10 @@
     "compositor_introspection_sampler_window_base",
     // Launch/execution subsystem: build the request, launch via the kernel executor,
     // and arm restoration from the synchronously-available outcome (REQUIRE_PID).
-    "compositor_introspection_execution_launch_build",
     "compositor_introspection_execution_launch_policy",
-    "compositor_kernel_execution_driver_executor_base"
+    "compositor_kernel_execution_driver_executor_base",
+    "compositor_introspection_execution_launch_build_container",
+    "compositor_support_smithay_state_session_claim",
+    "compositor_support_smithay_state_ephemeral_mark"
   ]
 }

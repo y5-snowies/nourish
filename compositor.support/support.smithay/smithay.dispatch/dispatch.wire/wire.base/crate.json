@@ -38,6 +38,10 @@
     "compositor_support_smithay_state_cursor_shape_factory",
     "compositor_support_smithay_state_text_input_factory",
     "compositor_support_smithay_state_dnd_factory",
-    "compositor_support_smithay_state_singlepixel_factory"
+    "compositor_support_smithay_state_singlepixel_factory",
+    "compositor_support_smithay_dispatch_wire_session",
+    "compositor_support_smithay_dispatch_wire_drag",
+    "compositor_support_smithay_dispatch_wire_clipboard",
+    "compositor_support_smithay_state_xdg_dialog_factory"
   ]
 }

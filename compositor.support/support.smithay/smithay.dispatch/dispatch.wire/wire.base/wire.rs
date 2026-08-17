@@ -85,6 +85,22 @@ impl<A: WireTrait + 'static> Wire<A> {
         // cached state by the introspection extraction (see `Meta::xdg_icon_name`),
         // so there is no per-surface state to keep here.
         compositor_support_smithay_dispatch_wire_icon::icon::create_global::<Dispatch>(display_handle);
+        // `xdg_session_management_v1`: lets a client declare durable identity for
+        // its toplevels instead of us inferring it after the fact. Advertised
+        // unconditionally — a client that never binds it is unaffected, and the
+        // placeholder path treats the identity as an ADDITIONAL signal on top of
+        // the activation token / pid tree, never a replacement.
+        compositor_support_smithay_dispatch_wire_session::session::create_global::<Dispatch>(display_handle);
+        // `xdg_toplevel_drag_v1` — browsers bind this to detach a tab into its
+        // own window, and Chromium/Firefox only enable that UI when the global
+        // is present, so it is advertised unconditionally like the rest.
+        compositor_support_smithay_dispatch_wire_drag::drag::create_global::<Dispatch>(display_handle);
+        // Both namespaces are advertised: `xdg_` is the current staging name,
+        // `xx_` is the pre-rename one GTK 4.22 actually binds — and today GTK is
+        // the only shipping client, so without this no real app reaches the
+        // feature at all. A client binds whichever it knows; both land in the
+        // same store, so the placeholder path cannot tell them apart.
+        compositor_support_smithay_dispatch_wire_session::session::create_legacy_global::<Dispatch>(display_handle);
         Self { state: dispatch, inner, loop_handle }
     }
 }
@@ -106,6 +122,7 @@ pub fn new_dispatch(
         xdg_shell: compositor_support_smithay_state_xdg_shell_factory::factory::new::<Dispatch>(display_handle),
         xdg_decoration: compositor_support_smithay_state_xdg_decoration_factory::factory::new::<Dispatch>(display_handle),
         xdg_foreign_state: compositor_support_smithay_state_xdg_foreign_factory::factory::new::<Dispatch>(display_handle),
+        xdg_dialog: compositor_support_smithay_state_xdg_dialog_factory::factory::new::<Dispatch>(display_handle),
         shm: compositor_support_smithay_state_shm_factory::factory::new::<Dispatch>(display_handle),
         output: compositor_support_smithay_state_output_factory::factory::new::<Dispatch>(display_handle),
         popup: compositor_support_smithay_state_popup_factory::factory::new::<Dispatch>(),
@@ -129,6 +146,9 @@ pub fn new_dispatch(
         dnd: compositor_support_smithay_state_dnd_factory::factory::new(),
         singlepixel: compositor_support_smithay_state_singlepixel_factory::factory::new::<Dispatch>(display_handle),
         tablet: Default::default(),
+        session: Default::default(),
+        session_live: Default::default(),
+        toplevel_drag: Default::default(),
         needs_redraw: true,
         redraw_ping: None,
         render_in_flight: false,
@@ -145,7 +165,6 @@ pub fn new_dispatch(
         pending_constraint_activation: None,
         pending_restoration: vec![],
         pending_blockers: vec![],
-        pending_data_focus: None,
     }
 }
 
@@ -216,13 +235,16 @@ impl<A: WireTrait + 'static> Wire<A> {
         self.foreign_reconcile();
     }
 
-    /// The rim's full response to a `WORLD_SWITCHED` event, in order: put the cursor
-    /// back where the hand left it, carry keyboard focus + `activated` to the incoming
-    /// world (this sets the new activation), then re-advertise the foreign-toplevel
-    /// mirror against it. Kept together here so the composition root only wires an
-    /// opaque "on world switched" and stays agnostic of which concerns (pointer, focus,
-    /// docks) react to a switch.
+    /// The rim's full response to a `WORLD_SWITCHED` event, in order: cancel a
+    /// toplevel drag that was carrying a window (it must go first — tearing down its
+    /// pointer grab moves focus itself), put the cursor back where the hand left it,
+    /// carry keyboard focus + `activated` to the incoming world (this sets the new
+    /// activation), then re-advertise the foreign-toplevel mirror against it. Kept
+    /// together here so the composition root only wires an opaque "on world switched"
+    /// and stays agnostic of which concerns (drag, pointer, focus, docks) react to a
+    /// switch.
     pub fn on_world_switched(&mut self) {
+        self.abort_toplevel_drag();
         self.apply_world_switch_pointer();
         self.apply_world_switch_focus();
         self.foreign_reconcile();
@@ -255,6 +277,51 @@ impl<A: WireTrait + 'static> Wire<A> {
         let time = self.state.compositor.clock.now().as_millis() as u32;
         pointer.motion(&mut self.state, None, &MotionEvent { location, serial, time });
         pointer.frame(&mut self.state);
+    }
+
+    /// End an `xdg_toplevel_drag_v1` that was carrying a window when the world
+    /// changed under it.
+    ///
+    /// A carry has no coherent meaning across a switch: the window stays in the
+    /// world it was torn off in, while the drop target, the DnD focus and the
+    /// placeholder record all belong to a world that is no longer on screen.
+    /// Cancelling is also what the client is prepared for — the spec has it delete
+    /// a newly created toplevel on `cancelled`, which is exactly right for a tab
+    /// whose destination just vanished.
+    ///
+    /// Runs FIRST, before focus is carried across, because tearing down a pointer
+    /// grab moves focus itself and the drag should be dismantled against the state
+    /// it was started in.
+    ///
+    /// `unset_grab` reaches `DnDGrab::unset`, which routes on `should_drop` — set
+    /// only by a physical button release. This path therefore lands on `cancel()`
+    /// and can never emit `dnd_drop_performed`, which is owed to real drops alone.
+    fn abort_toplevel_drag(&mut self) {
+        let Some(carried) = self.state.toplevel_drag.carried_surface() else {
+            return;
+        };
+        let Some(pointer) = self.state.seat.seat.get_pointer() else {
+            return;
+        };
+        let serial = SERIAL_COUNTER.next_serial();
+        let time = self.state.compositor.clock.now().as_millis() as u32;
+        info!("toplevel drag: world switched mid-carry — cancelling the drag");
+        // Both of these are recorded BEFORE cancelling, while the carry is still a
+        // fact. This path is the mirror of a physical drop: there the inner
+        // `DnDGrab` unsets itself first, so `dropped` still sees a live carry and
+        // reads it straight out of the handler. Here the pointer unsets the
+        // INSTALLED grab, whose `unset` clears `active` before `cancelled` runs —
+        // so the handler read comes back empty and the facts must be taken here.
+        //
+        // The settle keeps the window's placeholder at the position the carry left
+        // it at, for a client that holds on to the window.
+        self.state.toplevel_drag.settled.push(carried.clone());
+        // The abandon verdict is for a client that does the usual thing instead
+        // and deletes the toplevel: the destroy then arrives after the carry has
+        // ended, too late to ask whether it was being carried.
+        self.state.toplevel_drag.abandoned.clear();
+        self.state.toplevel_drag.abandoned.push(carried);
+        pointer.unset_grab(&mut self.state, serial, time);
     }
 
     /// Reconcile the foreign-toplevel mirror against the space(s) it advertises: just the
@@ -394,8 +461,8 @@ impl<A: WireTrait + 'static> Wire<A> {
             }
         }
         // Destroyed toplevels.
-        for surface in std::mem::take(&mut self.state.destroyed_toplevels) {
-            self.inner.destroy_surface_data(surface);
+        for (surface, drag_discard) in std::mem::take(&mut self.state.destroyed_toplevels) {
+            self.inner.destroy_surface_data(surface, drag_discard);
         }
         // wlr foreign-toplevel-management: reconcile the dock-facing mirror against
         // the now-updated Space(s) (announce new toplevels, close gone ones, push
@@ -442,12 +509,33 @@ impl<A: WireTrait + 'static> Wire<A> {
             if let Err(err) = result { warn!("failed to insert syncobj source err={err:?}"); }
         }
         // Deferred data-device focus (needs DataDeviceHandler, available here).
-        if let Some(client) = self.state.pending_data_focus.take() {
+        if let Some(client) = self.state.clipboard.pending_focus.take() {
             set_data_device_focus(&self.state.output.display_handle, &self.state.seat.seat, client);
         }
+        // Clipboard persistence: start reading a selection the client just set, retire
+        // finished readers, write persisted flavors back to pasting clients. All of it
+        // needs the `loop_handle` the handlers have no access to. Note this runs right
+        // after `dispatch_clients`, so a reader abandoned inside
+        // `selection_source_destroyed` is unregistered in the same iteration.
+        compositor_support_smithay_dispatch_wire_clipboard::clipboard::drain(
+            &mut self.state,
+            &self.loop_handle,
+            |wire: &mut Wire<A>| &mut wire.state,
+        );
         // Pointer-constraint restorations (seat warp + space read).
         for token in std::mem::take(&mut self.state.pending_restoration) {
             self.apply_constraint_restoration(token);
+        }
+        // `xdg_toplevel_drag_v1` drops: queue the placeholder re-sync so it lands
+        // ORDERED behind this same drain's `InitialMap`. A tab torn off and dropped
+        // inside one frame produces both, and the record the settle needs does not
+        // exist until the map ahead of it has been applied.
+        //
+        // The carried MOVES are deliberately not applied here — a carried window is
+        // only ever observed at render, so the frame hook applies the latest queued
+        // position once per frame instead (window.lifecycle/lifecycle.interface).
+        for surface in std::mem::take(&mut self.state.toplevel_drag.settled) {
+            self.inner.settle_toplevel_drag(surface);
         }
         // Refresh the geometry mirror for synchronous handler reads.
         let geoms: Vec<(WlSurface, smithay::utils::Rectangle<i32, smithay::utils::Logical>)> =

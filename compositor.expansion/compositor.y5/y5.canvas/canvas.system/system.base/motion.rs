@@ -35,6 +35,7 @@ use compositor_y5_group_protocol_base::protocol::{GroupBufferMessage, GroupBuffe
 use compositor_y5_surface_system_base::base::SURFACE;
 use compositor_y5_surface_protocol_base::protocol::{SurfaceMessage, SurfaceMessageType};
 use compositor_y5_window_interface_record::window::LoopWindow;
+use compositor_y5_placeholder_surface_base::breakpoint::{MIN_H as PH_MIN_H, MIN_W as PH_MIN_W};
 use crate::base::{CanvasCmd, CANVAS, CANVAS_BUF};
 use crate::snap;
 
@@ -194,17 +195,26 @@ pub(crate) fn motion(cx: &mut SystemCx, x: f64, y: f64, _screen_x: f64, _screen_
                     let rdx = dx + sdx;
                     let rdy = dy + sdy;
                     let mut new_geo = *start_geo;
+                    // A placeholder is not a client surface: it is our own iced
+                    // tile, and its floor is the smallest size its responsive
+                    // layout is designed for — much shorter than a window's 300,
+                    // since the compact step is a single row (icon | identity |
+                    // actions). See `placeholder.surface::breakpoint`. The same
+                    // floor is re-applied by the placeholder state on every
+                    // geometry write, so this drag can't be the one path that
+                    // escapes it.
+                    let (min_w, min_h) = (PH_MIN_W as f64, PH_MIN_H as f64);
                     // --- X-AXIS --- (mirrors the window arm above: anchor the
                     // fixed edge, clamp the moving edge so width never drops below
-                    // 300, with NO upper bound on growth and NO position drift.)
+                    // the floor, with NO upper bound on growth and NO position drift.)
                     if horizontal {
                         let new_w = (start_geo.size.w as f64 + rdx).round() as i32;
-                        new_geo.size.w = new_w.max(300);
+                        new_geo.size.w = new_w.max(min_w as i32);
                     } else {
                         let start_left = start_geo.loc.x as f64;
                         let start_right = start_geo.loc.x as f64 + start_geo.size.w as f64;
                         let new_left_f = start_left + rdx;
-                        let min_left = start_right - 300.0;
+                        let min_left = start_right - min_w;
                         let new_left = new_left_f.min(min_left).round() as i32;
                         let right_i = start_right.round() as i32;
                         new_geo.loc.x = new_left;
@@ -213,12 +223,12 @@ pub(crate) fn motion(cx: &mut SystemCx, x: f64, y: f64, _screen_x: f64, _screen_
                     // --- Y-AXIS ---
                     if vertical {
                         let new_h = (start_geo.size.h as f64 + rdy).round() as i32;
-                        new_geo.size.h = new_h.max(300);
+                        new_geo.size.h = new_h.max(min_h as i32);
                     } else {
                         let start_top = start_geo.loc.y as f64;
                         let start_bottom = start_geo.loc.y as f64 + start_geo.size.h as f64;
                         let new_top_f = start_top + rdy;
-                        let min_top = start_bottom - 300.0;
+                        let min_top = start_bottom - min_h;
                         let new_top = new_top_f.min(min_top).round() as i32;
                         let bottom_i = start_bottom.round() as i32;
                         new_geo.loc.y = new_top;

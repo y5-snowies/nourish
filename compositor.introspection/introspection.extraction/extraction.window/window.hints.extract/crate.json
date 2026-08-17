@@ -6,6 +6,7 @@
     "compositor_introspection_extraction_window_hints_inferred",
     "compositor_introspection_extraction_window_hints_source",
     "compositor_introspection_extraction_window_hints_values",
-    "compositor_introspection_extraction_window_meta_types"
+    "compositor_introspection_extraction_window_meta_types",
+    "compositor_introspection_extraction_window_hints_container_extract"
   ]
 }

@@ -138,7 +138,7 @@ impl WireTrait for Orchestrator {
         // }
     }
 
-    fn destroy_surface_data(&mut self, surface: ToplevelSurface) {
+    fn destroy_surface_data(&mut self, surface: ToplevelSurface, drag_discard: bool) {
         let activation_details = with_states(surface.wl_surface(), |states| {
             states.data_map.get::<ActivationDetails>().cloned()
         });
@@ -156,7 +156,17 @@ impl WireTrait for Orchestrator {
             info!("destroy_surface_data: {:?}", data);
             // Shift-close mark: surface user data set by the selection toolbar —
             // the placeholder destroy path must not spawn a tile for this window.
-            let discard_placeholder = states.data_map.get::<DiscardPlaceholder>().is_some();
+            // `drag_discard` is the same verdict reached the other way: a torn-off
+            // tab destroyed mid-drag because another toplevel adopted it.
+            //
+            // `Ephemeral` is the third route to the same verdict, and the only one
+            // the user never asked for: a modal dialog, or a window from a
+            // `NoDisplay=true` entry (the portal file chooser being the one that
+            // actually bites). Both facts were latched while the window lived —
+            // neither is still readable here.
+            let discard_placeholder = drag_discard
+                || states.data_map.get::<DiscardPlaceholder>().is_some()
+                || compositor_support_smithay_state_ephemeral_mark::mark::is_marked(states);
             self.window_lifecycle_mut()
                 .incoming
                 .push(WindowLifecycleEvent::Destroyed(data, activation_details, discard_placeholder));
@@ -181,6 +191,12 @@ impl WireTrait for Orchestrator {
         self.window_lifecycle_mut()
             .incoming
             .push(WindowLifecycleEvent::Activate(window, origin));
+    }
+
+    fn settle_toplevel_drag(&mut self, surface: WlSurface) {
+        self.window_lifecycle_mut()
+            .incoming
+            .push(WindowLifecycleEvent::DragSettled(surface));
     }
 
     fn apply_pointer(&mut self, storage_point: Point<f64, Logical>) {

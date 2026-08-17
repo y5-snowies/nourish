@@ -312,10 +312,26 @@ where
             }
         }
 
+        // y5 patch: `dnd_drop_performed` and `cancelled` are ORTHOGONAL, not
+        // alternatives. The spec defines the former as "the user performed the
+        // drop action... this event does not indicate acceptance,
+        // wl_data_source.cancelled may still be emitted afterwards if the drop
+        // destination does not accept any mime type", and lists "the operation
+        // was performed but didn't happen over a surface" among the reasons for
+        // the latter. `drop()` is only reached when the user physically released
+        // (see `unset`: `should_drop`), so the release event is always owed.
+        //
+        // Sending only `cancelled` loses the single signal `xdg_toplevel_drag_v1`
+        // keys on: "when a drag operation ends as indicated by
+        // wl_data_source.dnd_drop_performed the dragged toplevel window's final
+        // position is determined as if a xdg_toplevel_move operation ended". A
+        // torn-off tab dropped on empty desktop has no data target by
+        // construction, so under the old behaviour it could only ever be
+        // cancelled — and the spec tells clients to delete newly created windows
+        // on cancel, which is why the tab always snapped back.
+        self.data_source.drop_performed();
         if !validated {
             self.data_source.cancel();
-        } else {
-            self.data_source.drop_performed();
         }
 
         DndGrabHandler::dropped(

@@ -8,6 +8,7 @@
     "compositor_introspection_extraction_window_hints_source",
     "compositor_introspection_extraction_window_hints_values",
     "compositor_introspection_extraction_window_icon",
-    "compositor_introspection_extraction_window_meta_types"
+    "compositor_introspection_extraction_window_meta_types",
+    "compositor_introspection_extraction_window_hints_env_replay"
   ]
 }

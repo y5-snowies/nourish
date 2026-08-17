@@ -70,6 +70,7 @@
     "compositor_y5_window_lifecycle_event",
     "compositor_support_smithay_state_xdg_activation_dispatch",
     "compositor_introspection_sampler_window_base",
-    "compositor_y5_launcher_draw_state"
+    "compositor_y5_launcher_draw_state",
+    "compositor_support_smithay_state_ephemeral_mark"
   ]
 }

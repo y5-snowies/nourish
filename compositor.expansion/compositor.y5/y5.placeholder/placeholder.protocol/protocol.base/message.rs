@@ -11,5 +11,9 @@ pub struct PlaceholderMessage {
 pub enum PlaceholderAction {
     Save(LaunchPlan),
     Erase(),
-    Launch()
+    Launch(),
+    /// Launch after starting the plan's container, which the user confirmed in
+    /// the prompt `Launch` raises when it finds the container stopped. Distinct
+    /// from `Launch` so a plain Launch can never start a container implicitly.
+    LaunchStartingContainer(),
 }

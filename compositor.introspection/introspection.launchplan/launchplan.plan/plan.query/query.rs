@@ -19,15 +19,29 @@ pub fn current<A: HintAttribute>(
 ) -> Option<A::Value> {
     match A::category() {
         AttributeCategory::Identity | AttributeCategory::Launch => {
-            if !global_preferences.is_enabled::<A>() { return None; }
-            global_preferences.get::<A>().or_else(|| application_data.best_value::<A>())
+            let inferred = application_data.best_value::<A>();
+            // An attribute the user has never touched has no entry, and its
+            // enabled state defaults from whether there is anything to
+            // enable. Defaulting to `true` unconditionally meant a stray
+            // override on an attribute with no hint — an empty string left
+            // behind by clearing the editor — still resolved to a value.
+            //
+            // Once the user touches the attribute an entry exists, so their
+            // explicit choice always wins over this default.
+            if !global_preferences.is_enabled_or::<A>(inferred.is_some()) { return None; }
+            global_preferences.get::<A>().or(inferred)
         }
         AttributeCategory::HandlerScoped(handler_id) => {
             if active_handler != Some(handler_id) { return None; }
+            let inferred = application_data.best_value::<A>();
             let prefs = handler_preferences.get(&handler_id);
-            let enabled = prefs.map(|p| p.is_enabled::<A>()).unwrap_or(true);
+            // Same hint-aware default as the arm above, so a handler-scoped
+            // attribute resolves by the same rule as a global one.
+            let enabled = prefs
+                .map(|p| p.is_enabled_or::<A>(inferred.is_some()))
+                .unwrap_or(inferred.is_some());
             if !enabled { return None; }
-            prefs.and_then(|p| p.get::<A>()).or_else(|| application_data.best_value::<A>())
+            prefs.and_then(|p| p.get::<A>()).or(inferred)
         }
     }
 }

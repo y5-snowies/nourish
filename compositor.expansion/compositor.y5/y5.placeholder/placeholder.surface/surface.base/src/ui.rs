@@ -29,24 +29,56 @@ use crate::view;
 pub struct PlaceholderUi {
     pub(crate) canonical: LaunchPlan,
     pub(crate) session: Option<LaunchPlan>,
+    /// Whether the captured window's client declared an
+    /// `xdg-session-management-v1` identity.
+    ///
+    /// NOT `session` above, which is the pending-sample plan and unrelated
+    /// despite the name. This is what makes the tile restorable by identity
+    /// rather than by guesswork, which is worth showing.
+    pub(crate) has_session_identity: bool,
     pub(crate) working: LaunchPlan,
     pub(crate) mode: Mode,
     pub(crate) registry: Arc<HandlerRegistry>,
     pub(crate) combo_active: Option<&'static str>,
     pub(crate) combo_state: combo_box::State<String>,
+    /// Container named by the pending [`Mode::ConfirmContainerStart`] prompt.
+    pub(crate) pending_container: Option<String>,
+    /// Attributes whose inferred value was refreshed because something they
+    /// were derived from changed: attribute key -> the source that changed.
+    ///
+    /// UI state, not plan state — it explains a change the user just caused
+    /// and has no meaning once the working copy is replaced. So it is dropped
+    /// wholesale by Cancel / Discard / Pull rather than persisted.
+    pub(crate) refreshed: Vec<(&'static str, &'static str, bool)>,
 }
 
 impl PlaceholderUi {
-    pub fn new(plan: LaunchPlan, plan_session: Option<LaunchPlan>, registry: Arc<HandlerRegistry>) -> Self {
+    pub fn new(
+        plan: LaunchPlan,
+        plan_session: Option<LaunchPlan>,
+        has_session_identity: bool,
+        registry: Arc<HandlerRegistry>,
+    ) -> Self {
         Self {
             working: plan.clone(),
             canonical: plan,
             session: plan_session,
+            has_session_identity,
             mode: Mode::View,
             registry,
             combo_active: None,
             combo_state: combo_box::State::new(Vec::new()),
+            pending_container: None,
+            refreshed: Vec::new(),
         }
+    }
+
+    /// Whether the compositor has delivered a newer sample than the saved
+    /// plan — i.e. this placeholder was restored into a live window at some
+    /// point and the sampler re-extracted it. Only then is there anything to
+    /// pull, so the button is offered only then.
+    pub fn has_pending_sample(&self) -> bool {
+        self.session.is_some()
     }
 
     /// The currently-edited plan in Settings mode, or the canonical
@@ -54,8 +86,10 @@ impl PlaceholderUi {
     /// effective values via this accessor.
     pub fn shown_plan(&self) -> &LaunchPlan {
         match self.mode {
-            Mode::View => &self.canonical,
             Mode::Settings => &self.working,
+            // The confirmation prompt is a modal over the View, so it reads the
+            // same canonical plan the tile behind it does.
+            Mode::View | Mode::ConfirmContainerStart => &self.canonical,
         }
     }
 }
@@ -72,15 +106,29 @@ impl IcedUi for PlaceholderUi {
                 // Compositor-handled. Do nothing in the UI.
             }
             
+            // "Discard changes": throw away the edits made since entering
+            // Settings and go back to what is SAVED. It used to prefer the
+            // session plan when one existed, which made it look like a
+            // re-pull that only ever restored your own saved edits — pulling
+            // a fresh sample is `PullSample`, and the two are now distinct.
             PlaceholderMessage::RestoreClicked { } => {
-                let restore_plan = self.session.clone();
-                let restore_plan = if let Some(restore_plan) = restore_plan{
-                    restore_plan.clone()
-                } else {
-                    self.canonical.clone()
-                };
-                self.working = restore_plan;
-                
+                self.working = self.canonical.clone();
+                self.refreshed.clear();
+            }
+
+            // "Pull latest": adopt the newest sample and drop every saved
+            // preference. Built with `LaunchPlan::new`, so it carries the
+            // sample's inferred hints and NO overrides — that is what makes
+            // a deleted env var (or any other edit) come back.
+            PlaceholderMessage::PullSample => {
+                if let Some(session) = &self.session {
+                    self.working = LaunchPlan::new(session.application_data.clone());
+                }
+                // A pulled plan's hints all came from one extraction, so
+                // nothing is derived-from-something-stale; and the overrides
+                // that could have conflicted are gone by definition. Clearing
+                // the tips is the whole of "act on invalidate" here.
+                self.refreshed.clear();
             }
             
             PlaceholderMessage::SaveClicked { .. } => {
@@ -103,18 +151,42 @@ impl IcedUi for PlaceholderUi {
             PlaceholderMessage::EnterViewMode => {
                 self.mode = Mode::View;
                 self.working = self.canonical.clone();
+                self.pending_container = None;
+            }
+
+            PlaceholderMessage::ConfirmContainerStart { container } => {
+                self.pending_container = Some(container);
+                self.mode = Mode::ConfirmContainerStart;
+            }
+            PlaceholderMessage::CancelContainerStart => {
+                self.pending_container = None;
+                self.mode = Mode::View;
+            }
+            PlaceholderMessage::ContainerStartConfirmed => {
+                // Compositor-handled. Drop the prompt here so the tile is back
+                // to its normal face while the container starts.
+                self.pending_container = None;
+                self.mode = Mode::View;
             }
 
             PlaceholderMessage::EnterSettings => {
                 self.working = self.canonical.clone();
                 self.mode = Mode::Settings;
+                self.refreshed.clear();
             }
             PlaceholderMessage::CancelSettings => {
                 self.working = self.canonical.clone();
                 self.mode = Mode::View;
+                self.refreshed.clear();
             }
             PlaceholderMessage::ActiveHandlerChanged(handler) => {
                 self.working.set_active_handler(handler);
+            }
+            PlaceholderMessage::AttributeOverrideCleared { descriptor_key } => {
+                if let Some(d) = self.descriptor_by_key(descriptor_key) {
+                    self.working.clear_pref_override(&d);
+                }
+                self.invalidate_dependents(descriptor_key);
             }
             PlaceholderMessage::AttributeEnabledChanged {
                 descriptor_key,
@@ -123,6 +195,7 @@ impl IcedUi for PlaceholderUi {
                 if let Some(d) = self.descriptor_by_key(descriptor_key) {
                     self.working.set_enabled_raw(&d, enabled);
                 }
+                self.invalidate_dependents(descriptor_key);
             }
             PlaceholderMessage::AttributeCaptureToggled {
                 descriptor_key,
@@ -137,12 +210,14 @@ impl IcedUi for PlaceholderUi {
                 value,
             } => {
                 self.apply_text_change(descriptor_key, value);
+                self.invalidate_dependents(descriptor_key);
             }
             PlaceholderMessage::AttributeBoolChanged {
                 descriptor_key,
                 value,
             } => {
                 self.apply_bool_change(descriptor_key, value);
+                self.invalidate_dependents(descriptor_key);
             }
             PlaceholderMessage::AttributeStringListItemChanged {
                 descriptor_key,
@@ -216,6 +291,7 @@ impl IcedUi for PlaceholderUi {
                 label,
             } => {
                 self.apply_alternative(descriptor_key, &label);
+                self.invalidate_dependents(descriptor_key);
                 self.combo_active = None;
                 self.combo_state = combo_box::State::new(Vec::new());
             }
@@ -245,16 +321,63 @@ impl PlaceholderUi {
         )
     }
 
+    /// Refresh whatever was derived from `key`, and remember what moved so
+    /// the editor can explain it. Automatic rather than offered: the refreshed
+    /// values are the true ones, and leaving stale derivations on screen while
+    /// asking permission to fix them would be the worse trade.
+    fn invalidate_dependents(&mut self, key: &'static str) {
+        let registry = self.registry.clone();
+        let refreshed = compositor_introspection_launchplan_plan_invalidate::invalidate::on_changed(
+            &mut self.working,
+            key,
+            &registry,
+        );
+        for item in refreshed {
+            self.refreshed.retain(|(attr, _, _)| *attr != item.attribute);
+            self.refreshed.push((item.attribute, key, item.recomputed));
+        }
+    }
+
+    /// What to tell the user about `key`, if anything refreshed it.
+    pub(crate) fn refresh_note(&self, key: &str) -> Option<String> {
+        let (_, source, recomputed) = self.refreshed.iter().find(|(attr, _, _)| *attr == key)?;
+        Some(if *recomputed {
+            format!("updated — re-derived after {source} changed")
+        } else {
+            format!("may be out of date — {source} changed and this cannot be re-derived")
+        })
+    }
+
     fn apply_text_change(&mut self, key: &str, value: String) {
         let Some(d) = self.descriptor_by_key(key) else { return };
         use compositor_introspection_extraction_window_base::AttributeKind as K;
         match &d.kind {
-            K::Text | K::EnumOf(_) => {
+            K::Text => {
                 self.working.set_pref_raw(
                     &d,
                     Arc::new(value),
                     TypeId::of::<String>(),
                 );
+            }
+            // An EnumOf attribute's value is its OWN type, not a String —
+            // `terminal.kind` is a `TerminalKind`. Writing the variant name as
+            // a `String` stored an override whose TypeId did not match the
+            // attribute, so `Preferences::get::<A>()` rejected it on the type
+            // check and the launch silently ignored it, while `get_raw` (which
+            // does not check) happily showed it as applied in the editor. An
+            // override that looks applied and isn't is worse than none.
+            //
+            // Decode through the codec registry — the same one persistence
+            // uses to rebuild typed overrides — so the stored value carries
+            // the attribute's real type.
+            K::EnumOf(_) => {
+                compositor_introspection_extraction_window_hints_codec_register::register::register_standard_codecs();
+                let json = serde_json::Value::String(value);
+                let decoded = compositor_introspection_extraction_window_hints_codec::codec::decode(d.key, &json);
+                let type_id = compositor_introspection_extraction_window_hints_codec::codec::value_type_id(d.key);
+                if let (Some(arc), Some(type_id)) = (decoded, type_id) {
+                    self.working.set_pref_raw(&d, arc, type_id);
+                }
             }
             K::Path => {
                 use std::path::PathBuf;
@@ -341,25 +464,65 @@ impl PlaceholderUi {
         self.alternatives_for(descriptor)
             .iter()
             .map(|alt| {
-                format!(
+                let base = format!(
                     "{}  ·  {:?}  ·  {}",
-                    crate::view::settings::attribute_widget::summarize_value(&alt.value),
-                    alt.source.method,
-                    confidence_label(alt.confidence),
-                )
+                    crate::view::settings::attribute_widget::summarize_value(&alt.raw.value),
+                    alt.raw.source.method,
+                    confidence_label(alt.raw.confidence),
+                );
+                // Mark the era. Without it the list silently mixes what was
+                // saved with what has since been observed, and picking one
+                // would be a guess about which you were getting.
+                if alt.from_sample {
+                    format!("{base}  ·  latest sample")
+                } else {
+                    base
+                }
             })
             .collect()
     }
 
-    /// Get the alternatives for an attribute by descriptor.
-    pub(crate) fn alternatives_for(
-        &self,
-        descriptor: &AttributeDescriptor,
-    ) -> Vec<compositor_introspection_extraction_window_base::RawAlternative> {
-        self.working
-            .application_data
-            .hints
-            .available_raw(descriptor.key)
+    /// Every candidate value offered for an attribute: those in the SAVED
+    /// plan, plus those the newest sample found.
+    ///
+    /// Merging the sample in gives per-attribute granularity that "Pull
+    /// latest" cannot — adopt one freshly-observed value while keeping every
+    /// other override — and it makes the picker appear at all for an
+    /// attribute that has no saved alternatives but does have a new one.
+    ///
+    /// Deduplicated by VALUE, saved entries first, so a value present in both
+    /// appears once and keeps its saved provenance. Identity is the codec's
+    /// JSON encoding (the same value-equality trick restoration matching
+    /// uses), falling back to the rendered summary for an attribute with no
+    /// registered codec — two entries that would read identically in the
+    /// picker are duplicates as far as the user is concerned.
+    pub(crate) fn alternatives_for(&self, descriptor: &AttributeDescriptor) -> Vec<Alternative> {
+        compositor_introspection_extraction_window_hints_codec_register::register::register_standard_codecs();
+        let key = descriptor.key;
+
+        let saved = self.working.application_data.hints.available_raw(key);
+        let sampled = self
+            .session
+            .as_ref()
+            .map(|s| s.application_data.hints.available_raw(key))
+            .unwrap_or_default();
+
+        let mut out: Vec<Alternative> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+        let tagged = saved
+            .into_iter()
+            .map(|raw| (raw, false))
+            .chain(sampled.into_iter().map(|raw| (raw, true)));
+
+        for (raw, from_sample) in tagged {
+            let identity = alternative_identity(key, &raw);
+            if seen.contains(&identity) {
+                continue;
+            }
+            seen.push(identity);
+            out.push(Alternative { raw, from_sample });
+        }
+        out
     }
 
     fn open_combo(&mut self, key: &'static str) {
@@ -375,9 +538,29 @@ impl PlaceholderUi {
         let labels = self.alternative_labels(&d);
         let Some(index) = labels.iter().position(|l| l == chosen_label) else { return };
         let alt = &alternatives[index];
-        let type_id = (*alt.value).type_id();
-        self.working.set_pref_raw(&d, alt.value.clone(), type_id);
+        let type_id = (*alt.raw.value).type_id();
+        self.working.set_pref_raw(&d, alt.raw.value.clone(), type_id);
     }
+}
+
+/// One candidate value in an attribute's picker, and which era it came from.
+pub(crate) struct Alternative {
+    pub(crate) raw: compositor_introspection_extraction_window_base::RawAlternative,
+    /// From the newest sample rather than the saved plan.
+    pub(crate) from_sample: bool,
+}
+
+/// Dedup key for an alternative: the codec's JSON encoding where the
+/// attribute has one, else the summary the picker would render. Never the
+/// `Arc` pointer — the same value observed in two samples is two allocations
+/// and would not dedup.
+fn alternative_identity(
+    key: &str,
+    alt: &compositor_introspection_extraction_window_base::RawAlternative,
+) -> String {
+    compositor_introspection_extraction_window_hints_codec::codec::encode(key, &alt.value)
+        .map(|json| json.to_string())
+        .unwrap_or_else(|| crate::view::settings::attribute_widget::summarize_value(&alt.value))
 }
 
 fn confidence_label(c: compositor_introspection_extraction_window_base::Confidence) -> &'static str {

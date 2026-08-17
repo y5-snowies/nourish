@@ -355,6 +355,17 @@ impl XdgShellSurfaceUserData {
     pub fn xdg_surface(&self) -> &xdg_surface::XdgSurface {
         &self.xdg_surface
     }
+
+    /// Associated `wl_surface`.
+    ///
+    /// y5 patch: external protocols that take an `xdg_toplevel` argument (e.g.
+    /// `xdg_session_management_v1.add_toplevel`) need to reach the underlying
+    /// surface to write role-independent surface data, and the raw resource is
+    /// all the request hands them. Smithay itself only ever needs this from
+    /// inside the module, so upstream leaves the field `pub(crate)`.
+    pub fn wl_surface(&self) -> &wl_surface::WlSurface {
+        &self.wl_surface
+    }
 }
 
 impl IsAlive for XdgToplevel {

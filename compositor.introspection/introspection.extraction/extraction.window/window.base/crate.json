@@ -23,6 +23,7 @@
     "compositor_introspection_extraction_window_meta_proc_tree",
     "compositor_introspection_extraction_window_meta_types",
     "compositor_introspection_extraction_window_meta_wayland",
-    "compositor_introspection_extraction_window_meta_wayland_surface"
+    "compositor_introspection_extraction_window_meta_wayland_surface",
+    "compositor_introspection_extraction_window_hints_attributes_container"
   ]
 }

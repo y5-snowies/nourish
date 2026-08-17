@@ -120,6 +120,34 @@ pub enum Command {
     IconBoth(String),
     /// `set_icon(null)` — the toplevel goes back to having no declared icon.
     IconClear,
+    // --- Extra toplevels + teardown ---
+    /// Create an additional toplevel (its own surface + xdg_surface + toplevel).
+    /// Reported back on stderr with the index used by `win-close`.
+    WinAdd,
+    /// Fully DESTROY extra window `n` — toplevel, xdg_surface and wl_surface, in
+    /// protocol order. Distinct from `unmap`, which only attaches a nil buffer
+    /// and keeps every object alive.
+    WinClose(u32),
+    /// Add-then-destroy `n` times as fast as the loop allows. The churn case:
+    /// object lifetime races, not steady state.
+    WinCycle(u32),
+    /// Destroy the MAIN window's object graph. The subject stays alive so the
+    /// compositor can be inspected with a client that still holds a connection
+    /// but no toplevel; `win-rebuild` brings it back.
+    WinTeardown,
+    /// Recreate the main window after `win-teardown`.
+    WinRebuild,
+
+    // --- Drag and drop (wl_data_device + xdg_toplevel_drag_v1) ---
+    /// Arm the next button press to begin a drag. `start_drag` needs the serial
+    /// of a real implicit pointer grab, so this cannot be driven purely from a
+    /// script — arm it, then press and drag with the pointer.
+    DragArm(DragMode),
+    /// Whether windows accept an incoming offer (`accept` + `set_actions`).
+    /// Off exercises the reject path, where the source must see `cancelled`.
+    DropAccept(bool),
+    /// The payload offered as `text/plain;charset=utf-8`.
+    DragText(String),
 
     // --- Lifecycle ---
     Map,
@@ -127,6 +155,23 @@ pub enum Command {
     MapCycle(bool),
     Size(u32, u32),
     Quit,
+}
+
+/// What the next button press should start.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DragMode {
+    /// Disarmed — button presses behave normally.
+    Off,
+    /// Ordinary DnD: a `wl_data_source` offering text, no window carried.
+    Plain,
+    /// Ordinary DnD PLUS `xdg_toplevel_drag_v1`: a fresh toplevel is created and
+    /// attached, so the compositor carries it with the cursor. This is the
+    /// browser tab-tear shape, and the only path that exercises `attach`.
+    Toplevel,
+    /// Attach a toplevel that is ALREADY mapped rather than a fresh one — the
+    /// protocol's other documented entry point, and the one where the window
+    /// jumps to the cursor instead of appearing under it.
+    ToplevelExisting,
 }
 
 impl Anchor {
@@ -277,6 +322,37 @@ impl Command {
                 let _ = write!(s, "icon-both {name}");
             }
             Command::IconClear => s.push_str("icon-clear"),
+            Command::WinAdd => s.push_str("win-add"),
+            Command::WinClose(n) => {
+                let _ = write!(s, "win-close {n}");
+            }
+            Command::WinCycle(n) => {
+                let _ = write!(s, "win-cycle {n}");
+            }
+            Command::WinTeardown => s.push_str("win-teardown"),
+            Command::WinRebuild => s.push_str("win-rebuild"),
+
+            Command::DragArm(m) => {
+                let _ = write!(
+                    s,
+                    "drag {}",
+                    match m {
+                        DragMode::Off => "off",
+                        DragMode::Plain => "plain",
+                        DragMode::Toplevel => "toplevel",
+                        DragMode::ToplevelExisting => "toplevel-existing",
+                    }
+                );
+            }
+            Command::DropAccept(on) => {
+                let _ = write!(s, "drop-accept {}", on8(*on));
+            }
+            // Spaces would break the space-separated wire form, so they ride as
+            // `_` and are restored on parse.
+            Command::DragText(t) => {
+                let _ = write!(s, "drag-text {}", t.replace(' ', "_"));
+            }
+
             Command::Map => s.push_str("map"),
             Command::Unmap => s.push_str("unmap"),
             Command::MapCycle(on) => {
@@ -380,6 +456,22 @@ impl Command {
             }
             "icon-both" => Command::IconBoth(next()?.to_string()),
             "icon-clear" => Command::IconClear,
+            "win-add" => Command::WinAdd,
+            "win-close" => Command::WinClose(next()?.parse().ok()?),
+            "win-cycle" => Command::WinCycle(next()?.parse().ok()?),
+            "win-teardown" => Command::WinTeardown,
+            "win-rebuild" => Command::WinRebuild,
+
+            "drag" => Command::DragArm(match next()? {
+                "off" => DragMode::Off,
+                "plain" => DragMode::Plain,
+                "toplevel" => DragMode::Toplevel,
+                "toplevel-existing" => DragMode::ToplevelExisting,
+                _ => return None,
+            }),
+            "drop-accept" => Command::DropAccept(parse_on(next()?)?),
+            "drag-text" => Command::DragText(next()?.replace('_', " ")),
+
             "map" => Command::Map,
             "unmap" => Command::Unmap,
             "mapcycle" => Command::MapCycle(parse_on(next()?)?),
@@ -425,6 +517,16 @@ mod tests {
             Command::DpiScale(2),
             Command::SpFill(255, 0, 0, 255),
             Command::Size(800, 600),
+            Command::WinAdd,
+            Command::WinClose(2),
+            Command::WinCycle(50),
+            Command::WinTeardown,
+            Command::WinRebuild,
+            Command::DragArm(DragMode::Toplevel),
+            Command::DragArm(DragMode::ToplevelExisting),
+            Command::DragArm(DragMode::Off),
+            Command::DropAccept(false),
+            Command::DragText("torn tab".into()),
             Command::Quit,
         ];
         for c in cases {

@@ -38,6 +38,14 @@
     "compositor_support_smithay_dispatch_wire_redraw",
     "compositor_support_smithay_state_xdg_activation_request",
     "compositor_support_smithay_wayland_connection_record",
-    "compositor_model_debug_instance_record"
+    "compositor_model_debug_instance_record",
+    "compositor_support_smithay_state_clipboard_policy",
+    "compositor_support_smithay_state_clipboard_pump",
+    "compositor_support_smithay_state_xdg_dialog_base",
+    "compositor_support_smithay_state_ephemeral_mark",
+    "compositor_support_smithay_dispatch_wire_session",
+    "compositor_support_smithay_dispatch_wire_drag",
+    "compositor_support_smithay_state_grab_drag_state",
+    "compositor_support_smithay_state_session_store"
   ]
 }

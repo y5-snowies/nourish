@@ -19,6 +19,18 @@ pub struct LaunchRequest {
     /// Ties the outcome back to an originator (e.g. a placeholder uuid).
     /// `None` for launches nobody needs to correlate (plain launcher tiles).
     pub correlation: Option<Uuid>,
+    /// Container (name, else id) to run this launch inside; `None` = host.
+    ///
+    /// Carried as DATA rather than applied at build time on purpose: the
+    /// rewrite into `podman exec` turns `env` into `--env` flags, and `env` is
+    /// not final until the Executor has prepended its `base_env`. Wrapping
+    /// earlier silently dropped the live `WAYLAND_DISPLAY` (and the rest of
+    /// base_env) from every containerised launch, applying it to the podman
+    /// client instead — where it does nothing for the app inside.
+    pub container: Option<String>,
+    /// Start `container` before exec'ing into it. Only ever set from a
+    /// confirmed answer to the "container is not running" prompt.
+    pub start_container: bool,
 }
 
 /// The result of attempting a launch. Doubles as the payload of the general

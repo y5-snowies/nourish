@@ -32,10 +32,15 @@ impl LaunchPlan {
     // Launch execution moved to the introspection.execution subsystem; the plan
     // now only exposes the data (program/args/env/cwd) it builds the command from.
     // ── Dynamic (string-keyed) accessors, for descriptor-driven UIs ──
+    /// Mirrors `query::current`, including its treatment of a missing
+    /// preferences container as "no explicit choice" rather than "disabled" —
+    /// the container is allocated lazily, so its absence must not hide an
+    /// inferred value the launch would happily use.
     pub fn current_raw(&self, descriptor: &AttributeDescriptor) -> Option<Arc<dyn Any + Send + Sync>> {
-        let prefs = self.prefs_for(&descriptor.category)?;
-        if !prefs.is_enabled_by_name(descriptor.key) { return None; }
-        prefs.get_raw(descriptor.key).or_else(|| self.application_data.hints.best_raw(descriptor.key))
+        if !self.is_pref_enabled(descriptor) { return None; }
+        self.prefs_for(&descriptor.category)
+            .and_then(|p| p.get_raw(descriptor.key))
+            .or_else(|| self.application_data.hints.best_raw(descriptor.key))
     }
     pub fn set_pref_raw(&mut self, descriptor: &AttributeDescriptor, value: Arc<dyn Any + Send + Sync>, type_id: TypeId) {
         self.prefs_for_mut(&descriptor.category).set_raw(descriptor.key, value, type_id);
@@ -43,11 +48,33 @@ impl LaunchPlan {
     pub fn set_enabled_raw(&mut self, descriptor: &AttributeDescriptor, enabled: bool) {
         self.prefs_for_mut(&descriptor.category).set_enabled_by_name(descriptor.key, enabled);
     }
+    /// Same default rule as `query::current`, so the checkbox the user sees
+    /// always matches whether the attribute actually resolves to a value.
     pub fn is_pref_enabled(&self, descriptor: &AttributeDescriptor) -> bool {
-        match self.prefs_for(&descriptor.category) {
-            Some(p) => p.is_enabled_by_name(descriptor.key),
-            None => false,
+        if !descriptor.category.applies_to(self.active_handler) {
+            return false;
         }
+        let has_something = self.best_raw(descriptor).is_some();
+        match self.prefs_for(&descriptor.category) {
+            Some(p) => p.is_enabled_by_name_or(descriptor.key, has_something),
+            // No container yet — lazily created on the first write, so this
+            // is allocation state, not user intent. Returning `false` here is
+            // what made ticking one handler-scoped attribute tick its
+            // siblings: the write created the container and flipped every
+            // sibling from this branch to the one above.
+            None => has_something,
+        }
+    }
+    /// Whether the shown value is the user's override rather than the
+    /// inferred one — the editor renders both identically otherwise.
+    pub fn has_pref_override(&self, descriptor: &AttributeDescriptor) -> bool {
+        self.prefs_for(&descriptor.category)
+            .is_some_and(|p| p.has_override_by_name(descriptor.key))
+    }
+    /// Drop the override, keeping enabled/capture, so the attribute falls
+    /// back to its inferred value.
+    pub fn clear_pref_override(&mut self, descriptor: &AttributeDescriptor) {
+        self.prefs_for_mut(&descriptor.category).clear_override_by_name(descriptor.key);
     }
     pub fn clear_pref_raw(&mut self, descriptor: &AttributeDescriptor) { self.prefs_for_mut(&descriptor.category).clear_by_name(descriptor.key); }
     pub fn best_raw(&self, descriptor: &AttributeDescriptor) -> Option<Arc<dyn Any + Send + Sync>> { self.application_data.hints.best_raw(descriptor.key) }

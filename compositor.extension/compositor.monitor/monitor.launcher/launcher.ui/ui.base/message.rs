@@ -46,6 +46,11 @@ pub enum LauncherMessage {
 
     /// User focused an app and chose a direction. The compositor
     /// spawns the process and places the resulting window.
+    ///
+    /// `bin`/`args` are the SELECTED entry's, not necessarily the app's main
+    /// entry — picking "New Window" launches what the desktop file declares
+    /// for that action. `id` stays the app's, so usage stats aggregate per
+    /// app rather than fragmenting per action.
     Launch {
         id: String,
         bin: PathBuf,
@@ -61,6 +66,12 @@ pub enum LauncherMessage {
 
     /// Move selection cursor by `delta` slots. Clamps at row ends.
     MoveCursor(i32),
+
+    /// Move the ENTRY cursor within the focused app by `delta` — its main
+    /// entry and each action its desktop file declares. Clamps at both ends.
+    /// Up/Down while browsing; they were unbound there, and stay bound to
+    /// spawn direction once an app is focused.
+    MoveEntry(i32),
 
     /// Promote browse → focused. `event_process` emits this only when
     /// the visible list is non-empty.

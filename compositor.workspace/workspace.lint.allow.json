@@ -836,5 +836,80 @@
       "size"
     ],
     "reason": "One ordered fallback chain for the hover card's icon. Its length IS the order, and the order is the behaviour — splitting it hides which source beat which."
+  },
+  "compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.session": [
+    "size"
+  ],
+  "compositor.introspection/introspection.extraction/extraction.window/window.hints.container.query": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One cache backs both lookups the runtime can answer (name, running state) because both come from a single `podman ps` call; splitting the non-blocking and blocking entry points into separate crates would duplicate the cache or force a shared-state crate between them."
+  },
+  "compositor.introspection/introspection.launchplan/launchplan.plan/plan.invalidate": {
+    "allow": [
+      "size"
+    ],
+    "reason": "The graph itself now lives on the attribute descriptors; what remains is the optional re-derivation layer, where each arm exists BECAUSE of what one specific extractor does. Splitting an arm from the pass that dispatches it would separate a capability from its only caller."
+  },
+  "compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.clipboard": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One clipboard transfer, both directions. Handing the worker the capture pipes, admitting what it finished and writing flavors back to a pasting client share the generation bookkeeping and the same non-blocking pipe discipline; splitting them would separate the invariant (only our end is non-blocking, only the client writes) from the code that depends on it."
+  },
+  "compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.drag": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One protocol: both interfaces of xdg-toplevel-drag-v1 plus the source->drag registry their invalid_source/toplevel_attached/ongoing_drag errors are defined against. The manager exists only to mint the drag object, so splitting them would separate a two-request protocol from the single map that makes its errors decidable."
+  },
+  "compositor.support/support.smithay/smithay.state/state.clipboard/clipboard.capture": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One slot: the head's flavors, the generation that invalidates them, and the budget arithmetic deciding what may enter. The headroom a reader is granted is a function of what is already admitted plus what the other live readers hold, so moving the budget away from the flavors it bounds would separate the limit from the state it is computed over."
+  },
+  "compositor.support/support.smithay/smithay.state/state.clipboard/clipboard.policy": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One policy: every limit the clipboard transfer layer answers to — how much is held, for how long in each direction, in what order flavors are taken, and how big a bite each direction takes. They are chosen against each other (the chunk sizes are what the idle windows grant time for; the capture pipe is sized to the read chunk), so splitting them would scatter one set of trade-offs across crates."
+  },
+  "compositor.support/support.smithay/smithay.state/state.clipboard/clipboard.worker": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One thread and the handle that speaks to it. The command set, the tick that services it and the budget/deadline arithmetic are the same ownership story — fds move in, finished flavors move out, nothing is shared — and splitting the handle from the loop would put the two halves of that protocol in different crates."
+  },
+  "compositor.support/support.smithay/smithay.state/state.grab/grab.drag.state": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One grab: PointerGrab has fourteen methods and this type exists to forward all of them to the wrapped DnDGrab unchanged, adding the carry only in motion. The bulk is the forwarding surface itself, which cannot be split without splitting a single trait impl."
+  },
+  "compositor.support/support.smithay/smithay.state/state.session/session.claim": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One correlation unit: the claim registry plus both predicates it resolves on (activation token from /proc environ, pid parent chain) — splitting them would separate a lookup from the two ways it answers."
+  },
+  "compositor.support/support.smithay/smithay.state/state.session/session.store": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One store: the durable name index plus the live grant bookkeeping the protocol's name_in_use/already_added errors are defined against. Splitting them would separate a lookup from the invariants that make it correct."
+  },
+  "compositor.introspection/introspection.launchplan/launchplan.plan/plan.core": {
+    "allow": [
+      "size"
+    ],
+    "reason": "LaunchPlan's descriptor-keyed accessors (has_pref_override / clear_pref_override / is_pref_enabled) resolve preferences AND inferred hints together — is_pref_enabled defaults from whether a hint exists — so they need both private halves of the plan and cannot be split out."
+  },
+  "compositor.introspection/introspection.launchplan/launchplan.plan/plan.preferences": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One type, one private map. The name-keyed accessors the settings UI needs (is_enabled_by_name_or / has_override_by_name / clear_override_by_name) must be methods on Preferences because they read and mutate its private `fields`; hoisting them into a sibling crate would force the map public and make the override/enabled invariants unenforceable."
   }
 }

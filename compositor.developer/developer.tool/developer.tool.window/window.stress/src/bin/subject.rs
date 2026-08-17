@@ -10,6 +10,23 @@
 //! on whichever of its surfaces the pointer is over.
 
 use std::io::BufRead;
+use std::os::fd::{AsFd, OwnedFd};
+
+use window_stress::session::{
+    self, Namespace, SessionState, XdgSessionManagerV1, XdgSessionV1, XdgToplevelSessionV1,
+    XxSessionManagerV1, XxSessionV1, XxToplevelSessionV1, xdg_session_manager_v1, xdg_session_v1,
+    xdg_toplevel_session_v1, xx_session_manager_v1, xx_session_v1, xx_toplevel_session_v1,
+};
+
+/// The session objects, held for the lifetime of the toplevel — dropping them
+/// makes the compositor stop tracking the session. Which variant is live
+/// depends on `--xx`; the two namespaces are separate globals with different
+/// wire shapes, so they cannot share a type.
+enum SessionObjects {
+    None,
+    Xdg(XdgSessionV1, XdgToplevelSessionV1),
+    Xx(XxSessionV1, XxToplevelSessionV1),
+}
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
@@ -40,6 +57,10 @@ use wayland_client::{
         wl_pointer::WlPointer,
         wl_seat::WlSeat,
         wl_shm::Format,
+        wl_data_device::{self, WlDataDevice},
+        wl_data_device_manager::{DndAction, WlDataDeviceManager},
+        wl_data_offer::{self, WlDataOffer},
+        wl_data_source::{self, WlDataSource},
         wl_subsurface::WlSubsurface,
         wl_surface::WlSurface,
     },
@@ -73,12 +94,19 @@ use wayland_protocols::{
             xdg_toplevel_icon_manager_v1::{self, XdgToplevelIconManagerV1},
             xdg_toplevel_icon_v1::XdgToplevelIconV1,
         },
+        toplevel_drag::v1::client::{
+            xdg_toplevel_drag_manager_v1::XdgToplevelDragManagerV1,
+            xdg_toplevel_drag_v1::XdgToplevelDragV1,
+        },
     },
 };
 
 use window_stress::canvas::{Canvas, color};
 use window_stress::diag;
-use window_stress::protocol::{Anchor, Command, DecoMode};
+use window_stress::dnd::{
+    self, MIME, Origin, TAB_H, TAB_W, TAB_X0, TAB_Y, TornTab, Win, tab_at,
+};
+use window_stress::protocol::{Anchor, Command, DecoMode, DragMode};
 use window_stress::{font, info, warn};
 
 // ----------------------------------------------------------------------------------------
@@ -90,6 +118,9 @@ use window_stress::{font, info, warn};
 enum Role {
     Main,
     Popup(u32),
+    /// An additional toplevel created by `win-add` — the drop target for a
+    /// cross-window drag, and the window `xdg_toplevel_drag_v1.attach` carries.
+    Extra(u32),
 }
 /// Userdata for `xdg_surface` (carries the role).
 #[derive(Clone, Copy, Debug)]
@@ -200,6 +231,15 @@ struct Subject {
     frac_mgr: Option<WpFractionalScaleManagerV1>,
     sp_mgr: Option<WpSinglePixelBufferManagerV1>,
 
+    /// Session management: our durable identity + the value keyed by it.
+    session: SessionState,
+    /// Kept alive for the lifetime of the toplevel — see [`SessionObjects`].
+    _session_obj: SessionObjects,
+    /// Ignore stdin EOF. Set by `--detached`, which the placeholder replays —
+    /// a subject relaunched from a tile has no controller pipe, and a compositor
+    /// with no stdin would otherwise kill it the moment it started.
+    detached: bool,
+
     main_surface: WlSurface,
     main_xdg: XdgSurface,
     toplevel: XdgToplevel,
@@ -278,6 +318,58 @@ struct Subject {
     ptr: Option<(WlSurface, f64, f64)>,
     click: Option<ClickFx>,
     exit: bool,
+
+    // --- Extra toplevels + teardown ---
+    /// Additional windows, addressed by 1-based index in `win-close`.
+    wins: Vec<Win>,
+    next_win_id: u32,
+    /// Set by `win-teardown`: the main object graph is gone. Every path that
+    /// touches `toplevel`/`main_xdg`/`main_surface` must check this first —
+    /// a request on a destroyed proxy is a protocol error, i.e. a kill.
+    torn_down: bool,
+
+    // --- Drag and drop ---
+    data_device_mgr: Option<WlDataDeviceManager>,
+    data_device: Option<WlDataDevice>,
+    toplevel_drag_mgr: Option<XdgToplevelDragManagerV1>,
+    /// What the next button press starts.
+    drag_arm: DragMode,
+    /// The live outgoing drag, kept until `dnd_finished`/`cancelled` so the
+    /// source can serve `send` and the drag object survives the whole drag —
+    /// destroying either early is a protocol error.
+    drag_source: Option<WlDataSource>,
+    toplevel_drag: Option<XdgToplevelDragV1>,
+    /// Payload offered as [`MIME`].
+    drag_text: String,
+    /// Whether an incoming offer is accepted. Off drives the reject path.
+    drop_accept: bool,
+    /// The current incoming offer and where it is hovering.
+    offer: Option<WlDataOffer>,
+    /// Last payload actually received on drop — drawn into the overlay so a
+    /// cross-window drag can be confirmed visually, not just in the log.
+    dropped_text: Option<String>,
+    /// Serial of the most recent button press, required by `start_drag`.
+    last_press_serial: Option<u32>,
+    /// A drop whose data has been requested but not yet read. Completed from the
+    /// main loop, never from inside a dispatch — see the `Drop` arm.
+    pending_recv: Option<(WlDataOffer, OwnedFd)>,
+    /// The main window's tab strip.
+    main_tabs: Vec<String>,
+    /// The tab lifted by the in-flight tear, so a cancelled drag can restore it.
+    torn: Option<TornTab>,
+    /// Which window the current offer is hovering, set on data-device `Enter`.
+    /// `Drop` carries no surface, so the dock target has to be remembered here.
+    offer_target: Option<Origin>,
+    /// Next tab label, so torn tabs stay distinguishable.
+    next_tab: u32,
+    /// Set by `dnd_drop_performed`: the user physically released. Distinguishes
+    /// "released but nothing accepted" (a successful tear) from a true abort.
+    drop_performed: bool,
+    /// Which window is currently being CARRIED by an xdg_toplevel_drag, if any.
+    /// It is not a drop target — the protocol says the attached window "does not
+    /// participate in the selection of the drag target" — so it must not look
+    /// like one either.
+    carried_win: Option<u32>,
 }
 
 const DEFAULT_W: i32 = 480;
@@ -318,6 +410,28 @@ fn main() {
     let use_vp = !args.iter().any(|a| a == "--no-viewporter");
     let use_fs = !args.iter().any(|a| a == "--no-fractional-scale");
     let use_sp = !args.iter().any(|a| a == "--no-single-pixel");
+    let use_session = !args.iter().any(|a| a == "--no-session");
+    // Which namespace to bind. `xdg_` is the current staging name; `--xx`
+    // selects the pre-rename one GTK 4.22 binds. They are separate globals, so
+    // this picks which of the compositor's two implementations gets exercised.
+    let ns = if args.iter().any(|a| a == "--xx") { Namespace::Xx } else { Namespace::Xdg };
+    let detached = args.iter().any(|a| a == "--detached");
+    let flag = |name: &str| {
+        args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
+    };
+    // The toplevel's name INSIDE the session. Stays fixed across runs — it is
+    // the key the compositor matches on for `restore_toplevel`.
+    let session_name = flag("--session-name").unwrap_or_else(|| "main".to_string());
+    let session_store =
+        flag("--session-store").map(std::path::PathBuf::from).unwrap_or_else(session::default_store);
+    // NOTE: there is deliberately no per-instance flag here — no `--tag`, no
+    // index, nothing. Several session subjects are spawned with byte-identical
+    // argv, because a placeholder relaunches by replaying the argv it captured:
+    // any stable discriminator on the command line would be an alternative
+    // explanation for a value coming back, and the harness would only rule it
+    // out by code inspection. With argv identical, the session id the compositor
+    // mints per placeholder is the ONLY thing that can tell two subjects apart.
+    // On-screen identity comes from the SESSION line in the overlay instead.
 
     let conn = Connection::connect_to_env().expect("connect to wayland");
     let (globals, event_queue) = registry_queue_init::<Subject>(&conn).expect("registry init");
@@ -354,6 +468,22 @@ fn main() {
     if icon_mgr.is_none() {
         warn!("icon: compositor does not advertise xdg_toplevel_icon_manager_v1");
     }
+    // Drag and drop. Both are optional: a compositor without either still runs
+    // every other scenario, and `drag` reports the miss rather than aborting.
+    let data_device_mgr: Option<WlDataDeviceManager> =
+        bind_ver(&globals, &qh, "wl_data_device_manager", 1..=3);
+    let toplevel_drag_mgr: Option<XdgToplevelDragManagerV1> =
+        bind_opt(&globals, &qh, "xdg_toplevel_drag_manager_v1");
+    info!(
+        "dnd: data_device_manager={} (v{}) xdg_toplevel_drag_manager_v1={}",
+        data_device_mgr.is_some(),
+        data_device_mgr.as_ref().map(|m| m.version()).unwrap_or(0),
+        toplevel_drag_mgr.is_some()
+    );
+    let xdg_session_mgr: Option<XdgSessionManagerV1> =
+        if use_session && ns == Namespace::Xdg { bind_opt(&globals, &qh, ns.global()) } else { None };
+    let xx_session_mgr: Option<XxSessionManagerV1> =
+        if use_session && ns == Namespace::Xx { bind_opt(&globals, &qh, ns.global()) } else { None };
 
     info!(
         "globals: xdg_wm_base + decoration={} viewporter={} fractional={} single_pixel={}",
@@ -366,6 +496,9 @@ fn main() {
     let main_surface = compositor.create_surface(&qh);
     let main_xdg = wm_base.get_xdg_surface(&main_surface, &qh, XdgSurfData(Role::Main));
     let toplevel = main_xdg.get_toplevel(&qh, ());
+    // Same title for every subject, on purpose — see the argv note in `main`.
+    // A distinguishing title would also be a capture-matchable attribute, so it
+    // would muddy which signal bound the window to its placeholder.
     toplevel.set_title("y5 window-stress SUBJECT".into());
     toplevel.set_app_id("y5.window.stress.subject".into());
 
@@ -377,6 +510,37 @@ fn main() {
     // binding must not itself change behaviour.
     let tearing_ctl = tearing_mgr.as_ref().map(|m| m.get_tearing_control(&main_surface, &qh, ()));
     info!("tearing_control global: {}", tearing_mgr.is_some());
+
+    // --- session identity -------------------------------------------------------------
+    // Always ask with NULL: the subject is launched from a placeholder tile with
+    // no state of its own beyond the store file, and it has no way to know WHICH
+    // of several stored ids is "its own". The compositor does — it knows which
+    // placeholder spawned this pid — so we let it choose and then look our value
+    // up under whatever it hands back. That is exactly the asymmetry the protocol
+    // leaves to the compositor.
+    //
+    // `restore_toplevel` (not `add_toplevel`) and strictly BEFORE the first
+    // commit, which the protocol requires: it is what makes the compositor emit
+    // `restored` when it already knows this name in this session.
+    let bound = xdg_session_mgr.is_some() || xx_session_mgr.is_some();
+    let mut session = SessionState::new(session_name.clone(), session_store, ns, bound);
+    let session_obj = if let Some(mgr) = &xdg_session_mgr {
+        let s = mgr.get_session(xdg_session_manager_v1::Reason::Launch, None, &qh, ());
+        let ts = s.restore_toplevel(&toplevel, session_name.clone(), &qh, ());
+        info!("session(xdg): requested (name='{session_name}')");
+        SessionObjects::Xdg(s, ts)
+    } else if let Some(mgr) = &xx_session_mgr {
+        // Same call shape; the `xx_` differences are on the toplevel handle
+        // (`remove` vs `rename`) and in the `restored` event's argument.
+        let s = mgr.get_session(xx_session_manager_v1::Reason::Launch, None, &qh, ());
+        let ts = s.restore_toplevel(&toplevel, session_name.clone(), &qh, ());
+        info!("session(xx): requested (name='{session_name}')");
+        SessionObjects::Xx(s, ts)
+    } else {
+        info!("session: {} unavailable", ns.global());
+        session.phase = session::SessionPhase::Absent;
+        SessionObjects::None
+    };
 
     main_surface.commit();
 
@@ -394,6 +558,9 @@ fn main() {
         viewporter,
         frac_mgr,
         sp_mgr,
+        session,
+        _session_obj: session_obj,
+        detached,
         main_surface,
         main_xdg,
         toplevel,
@@ -443,6 +610,33 @@ fn main() {
         subs: Vec::new(),
         popups: Vec::new(),
         next_popup_id: 1,
+        wins: Vec::new(),
+        next_win_id: 1,
+        torn_down: false,
+        data_device_mgr,
+        data_device: None,
+        toplevel_drag_mgr,
+        drag_arm: DragMode::Off,
+        drag_source: None,
+        toplevel_drag: None,
+        drag_text: "y5 stress payload".to_string(),
+        drop_accept: true,
+        offer: None,
+        dropped_text: None,
+        last_press_serial: None,
+        pending_recv: None,
+        // The MAIN window deliberately has no tabs. It is the scale-abuse
+        // subject (fractional scale, viewport, DPI mismatch), so its buffer
+        // pixels and its surface-local pointer coordinates are not the same
+        // space — a hit-tested strip there would land in the wrong place in
+        // exactly the modes this harness exists to break. Tabs live on the WIN
+        // windows, which are always unscaled 1:1.
+        main_tabs: Vec::new(),
+        torn: None,
+        offer_target: None,
+        next_tab: 5,
+        drop_performed: false,
+        carried_win: None,
         ptr: None,
         click: None,
         exit: false,
@@ -463,10 +657,16 @@ fn main() {
         .handle()
         .insert_source(rx, |event, _, state| match event {
             ChanEvent::Msg(line) => state.on_line(&line),
-            // Controller closed the pipe (e.g. it exited): shut down too.
+            // Controller closed the pipe (e.g. it exited): shut down too — unless
+            // we were started detached, in which case there is no controller and
+            // stdin is whatever the compositor happened to inherit.
             ChanEvent::Closed => {
-                info!("stdin closed; exiting");
-                state.exit = true;
+                if state.detached {
+                    info!("stdin closed; staying up (--detached)");
+                } else {
+                    info!("stdin closed; exiting");
+                    state.exit = true;
+                }
             }
         })
         .expect("insert stdin channel");
@@ -486,6 +686,43 @@ fn main() {
     info!("subject ready; waiting for configure");
     loop {
         event_loop.dispatch(std::time::Duration::from_millis(50), &mut subject).unwrap();
+
+        // Complete a pending drop OUTSIDE the dispatch handler, reading without
+        // ever blocking. For a same-process drag the writer is our own
+        // `wl_data_source.send` handler, so the loop must keep dispatching while
+        // it reads; and if the drop is cancelled there is no writer at all, so
+        // it must also be able to give up. Blocking on either wedges the client.
+        if let Some((offer, rx)) = subject.pending_recv.take() {
+            dnd::set_nonblocking(&rx);
+            let mut f = std::fs::File::from(rx);
+            let mut out: Vec<u8> = Vec::new();
+            let mut done = false;
+            // ~2s ceiling: far longer than a local transfer, short enough that a
+            // peer that never writes cannot hang the harness.
+            for _ in 0..200 {
+                match dnd::read_step(&mut f, &mut out) {
+                    Ok(true) => {
+                        done = true;
+                        break;
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        warn!("drop: transfer read failed: {e}");
+                        done = true;
+                        break;
+                    }
+                }
+                event_loop
+                    .dispatch(std::time::Duration::from_millis(10), &mut subject)
+                    .unwrap();
+            }
+            if !done {
+                warn!("drop: transfer timed out — peer never closed the pipe");
+            }
+            let text = String::from_utf8_lossy(&out).into_owned();
+            subject.complete_drop(offer, text);
+        }
+
         if subject.exit {
             info!("subject exiting");
             break;
@@ -499,7 +736,28 @@ where
     I: Proxy + 'static,
     Subject: Dispatch<I, ()>,
 {
-    match globals.bind::<I, Subject, ()>(qh, 1..=1, ()) {
+    bind_ver(globals, qh, name, 1..=1)
+}
+
+/// Bind an optional global over an explicit version range.
+///
+/// The `1..=1` default is deliberate for the layout protocols, but DnD needs
+/// version 3: `wl_data_source.set_actions`, `wl_data_offer.set_actions` and
+/// `wl_data_offer.finish` do not exist before it, and sending one to a v1 object
+/// is a protocol error — which kills the whole client, taking every window with
+/// it. Asking for `1..=3` still binds on a v1-only compositor; the call sites
+/// check `version()` before using the v3 requests.
+fn bind_ver<I>(
+    globals: &GlobalList,
+    qh: &QueueHandle<Subject>,
+    name: &str,
+    range: std::ops::RangeInclusive<u32>,
+) -> Option<I>
+where
+    I: Proxy + 'static,
+    Subject: Dispatch<I, ()>,
+{
+    match globals.bind::<I, Subject, ()>(qh, range, ()) {
         Ok(p) => Some(p),
         Err(e) => {
             warn!("global {name} unavailable: {e}");
@@ -648,6 +906,40 @@ impl Subject {
             Command::IconBuffer(edges) => self.set_icon(None, &edges),
             Command::IconBoth(name) => self.set_icon(Some(&name), &[64]),
             Command::IconClear => self.clear_icon(),
+            Command::WinAdd => {
+                self.add_win();
+            }
+            Command::WinClose(n) => self.close_win(n),
+            Command::WinCycle(n) => {
+                // Add and destroy back-to-back without waiting for a configure:
+                // the window is torn down while its first configure may still be
+                // in flight, which is the race worth stressing.
+                for _ in 0..n {
+                    let idx = self.add_win();
+                    self.close_win(idx as u32);
+                }
+                info!("win: cycled {n} add/destroy pairs");
+            }
+            Command::WinTeardown => self.teardown_main(),
+            Command::WinRebuild => self.rebuild_main(),
+
+            Command::DragArm(m) => {
+                self.drag_arm = m;
+                if m == DragMode::Off {
+                    info!("drag: disarmed");
+                } else {
+                    info!("drag: armed ({m:?}) — press and drag to start");
+                }
+            }
+            Command::DropAccept(on) => {
+                self.drop_accept = on;
+                info!("drop: accept = {on}");
+            }
+            Command::DragText(t) => {
+                info!("drag: payload = {t:?}");
+                self.drag_text = t;
+            }
+
             Command::Map => self.set_mapped(true),
             Command::Unmap => self.set_mapped(false),
             Command::MapCycle(on) => self.mapcycle = on,
@@ -1230,6 +1522,9 @@ impl Subject {
                 if self.icon_mgr.is_some() { "yes" } else { "NO" },
                 self.icon_sizes
             ),
+            // The restoration check: after a relaunch from a placeholder tile
+            // this must read RESTORED with the SAME value as before the close.
+            self.session.overlay(),
         ];
         if self.show_counter {
             lines.insert(0, format!("FRAME {}  COMMIT {} Hz", self.commits, self.commit_hz));
@@ -1412,6 +1707,470 @@ fn to_gravity(a: Anchor) -> xdg_positioner::Gravity {
 // sctk handler impls
 // ==========================================================================================
 
+// ----------------------------------------------------------------------------------------
+// Extra toplevels, teardown, and drag-and-drop
+// ----------------------------------------------------------------------------------------
+
+/// Size of a `win-add` window. Small enough that several fit on screen at once,
+/// which is the point — a cross-window drag needs a visible source and target.
+const EXTRA_W: i32 = 300;
+const EXTRA_H: i32 = 200;
+const EXTRA_COLORS: [u32; 4] = [color::CYAN, color::YELLOW, color::MAGENTA, color::GREEN];
+
+impl Subject {
+    /// Create a complete additional toplevel. Returns its 1-based index.
+    ///
+    /// A window made to CARRY a torn tab starts empty (`begin_drag` puts the
+    /// torn tab in it); every other one is seeded with tabs so there is always
+    /// something to tear.
+    fn add_win(&mut self) -> usize {
+        let carrying = self.torn.is_some();
+        let seed_tabs: Vec<String> = if carrying {
+            Vec::new()
+        } else {
+            (0..3)
+                .map(|_| {
+                    let n = self.next_tab;
+                    self.next_tab += 1;
+                    format!("tab{n}")
+                })
+                .collect()
+        };
+        let qh = self.qh.clone();
+        let id = self.next_win_id;
+        self.next_win_id += 1;
+
+        let surface = self.compositor.create_surface(&qh);
+        let xdg = self.wm_base.get_xdg_surface(&surface, &qh, XdgSurfData(Role::Extra(id)));
+        let toplevel = xdg.get_toplevel(&qh, ());
+        toplevel.set_title(format!("y5 stress WIN {id}"));
+        toplevel.set_app_id("y5.window.stress.subject".into());
+        toplevel.set_min_size(80, 60);
+        // Commit without a buffer to request the first configure — the buffer
+        // goes on in `draw_win` once the compositor has answered.
+        surface.commit();
+
+        self.wins.push(Win {
+            id,
+            surface,
+            xdg,
+            toplevel,
+            mapped: false,
+            configured: false,
+            size: (EXTRA_W, EXTRA_H),
+            tabs: seed_tabs,
+        });
+        let idx = self.wins.len();
+        info!("win: added window {id} (index {idx}, total {})", self.wins.len());
+        idx
+    }
+
+    /// Destroy extra window `n` (1-based, as reported by `win-add`).
+    fn close_win(&mut self, n: u32) {
+        let idx = match (n as usize).checked_sub(1) {
+            Some(i) if i < self.wins.len() => i,
+            _ => {
+                warn!("win-close {n}: no such window (have {})", self.wins.len());
+                return;
+            }
+        };
+        let win = self.wins.remove(idx);
+        let id = win.id;
+        // If this window is the one being carried by a toplevel drag, the drag
+        // object outlives it deliberately: the protocol treats destroying the
+        // dragged toplevel as "snap it back", not as an error.
+        win.destroy();
+        info!("win: destroyed window {id} ({} left)", self.wins.len());
+    }
+
+    fn draw_win(&mut self, idx: usize) {
+        let (w, h) = (self.wins[idx].size.0.max(1), self.wins[idx].size.1.max(1));
+        let id = self.wins[idx].id;
+        let surface = self.wins[idx].surface.clone();
+        let carried = self.carried_win == Some(id);
+        // The carried window gets its own colour so it is never mistaken for a
+        // drop target — they are the two windows on screen during a tab-tear and
+        // they behave differently.
+        let color_bg =
+            if carried { color::RED } else { EXTRA_COLORS[(id as usize) % EXTRA_COLORS.len()] };
+        let ptr_local = self
+            .ptr
+            .as_ref()
+            .filter(|(s, _, _)| s == &surface)
+            .map(|(_, x, y)| (*x, *y));
+        let dropped = self.dropped_text.clone();
+        let tabs = self.wins[idx].tabs.clone();
+        let stride = w * 4;
+        let (buffer, slice) =
+            self.pool.create_buffer(w, h, stride, Format::Argb8888).expect("win buffer");
+        {
+            let mut cv = Canvas::new(slice, w, h);
+            cv.clear(color_bg);
+            cv.frame(0, 0, w, h, 2, color::WHITE);
+            font::text(&mut cv, 6, 6, 2, color::BLACK, &format!("WIN {id}"));
+            font::text(
+                &mut cv,
+                6,
+                26,
+                1,
+                color::BLACK,
+                if carried { "CARRIED - not a drop target" } else { "drop target" },
+            );
+            Subject::draw_tabs(&mut cv, &tabs, carried);
+            // The received payload is drawn here so a cross-window drag can be
+            // confirmed on screen rather than only in the log.
+            if let Some(t) = dropped {
+                font::text(&mut cv, 6, 44, 1, color::BLACK, &format!("got: {t}"));
+            }
+            if let Some((px, py)) = ptr_local {
+                cv.crosshair(px as i32, py as i32, 10, color::BLACK);
+            }
+        }
+        surface.damage_buffer(0, 0, w, h);
+        buffer.attach_to(&surface).expect("attach win");
+        surface.commit();
+        self.wins[idx].mapped = true;
+    }
+
+    /// Destroy the main window's object graph, leaving the connection open.
+    fn teardown_main(&mut self) {
+        if self.torn_down {
+            warn!("win-teardown: already torn down");
+            return;
+        }
+        // Children first: popups and subsurfaces reference the main surface, so
+        // destroying it underneath them would be the protocol error we are
+        // trying to test the compositor against, not one we want to commit.
+        for p in std::mem::take(&mut self.popups) {
+            p.popup.destroy();
+            p.xdg_surface.destroy();
+            p.surface.destroy();
+        }
+        for s in std::mem::take(&mut self.subs) {
+            s.subsurface.destroy();
+            s.surface.destroy();
+        }
+        if let Some(d) = self.decoration.take() {
+            d.destroy();
+        }
+        if let Some(v) = self.viewport.take() {
+            v.destroy();
+        }
+        self.toplevel.destroy();
+        self.main_xdg.destroy();
+        self.main_surface.destroy();
+        self.torn_down = true;
+        self.mapped = false;
+        self.configured = false;
+        info!("win: main window torn down (connection still open)");
+    }
+
+    /// Recreate the main window after [`Self::teardown_main`].
+    fn rebuild_main(&mut self) {
+        if !self.torn_down {
+            warn!("win-rebuild: main window is not torn down");
+            return;
+        }
+        let qh = self.qh.clone();
+        self.main_surface = self.compositor.create_surface(&qh);
+        self.main_xdg =
+            self.wm_base.get_xdg_surface(&self.main_surface, &qh, XdgSurfData(Role::Main));
+        self.toplevel = self.main_xdg.get_toplevel(&qh, ());
+        self.toplevel.set_title("y5 window-stress SUBJECT".into());
+        self.toplevel.set_app_id("y5.window.stress.subject".into());
+        self.decoration = self
+            .decoration_mgr
+            .as_ref()
+            .map(|m| m.get_toplevel_decoration(&self.toplevel, &qh, ()));
+        self.viewport = self
+            .viewporter
+            .as_ref()
+            .map(|v| v.get_viewport(&self.main_surface, &qh, ()));
+        self.main_surface.commit();
+        self.torn_down = false;
+        self.pending_size = (DEFAULT_W, DEFAULT_H);
+        info!("win: main window rebuilt");
+    }
+
+    /// Draw a tab strip. Shared by the main window and every extra window so a
+    /// tab looks the same wherever it currently lives.
+    fn draw_tabs(cv: &mut Canvas, tabs: &[String], carried: bool) {
+        for (i, label) in tabs.iter().enumerate() {
+            let x = TAB_X0 + i as i32 * TAB_W;
+            let bg = if carried { color::WHITE } else { color::BLACK };
+            cv.rect(x, TAB_Y, TAB_W - 4, TAB_H, bg);
+            cv.frame(x, TAB_Y, TAB_W - 4, TAB_H, 1, color::WHITE);
+            let fg = if carried { color::BLACK } else { color::WHITE };
+            font::text(cv, x + 4, TAB_Y + 5, 1, fg, label);
+        }
+    }
+
+    /// Which window a surface is, for tab bookkeeping.
+    fn origin_of(&self, s: &WlSurface) -> Option<Origin> {
+        if !self.torn_down && s == &self.main_surface {
+            return Some(Origin::Main);
+        }
+        self.wins.iter().find(|w| &w.surface == s).map(|w| Origin::Win(w.id))
+    }
+
+    fn tabs_of(&self, o: Origin) -> &[String] {
+        match o {
+            Origin::Main => &self.main_tabs,
+            Origin::Win(id) => self
+                .wins
+                .iter()
+                .find(|w| w.id == id)
+                .map(|w| w.tabs.as_slice())
+                .unwrap_or(&[]),
+        }
+    }
+
+    /// Put a tab into a window's strip.
+    fn dock_tab(&mut self, o: Origin, label: String, at: Option<usize>) {
+        let tabs = match o {
+            Origin::Main => &mut self.main_tabs,
+            Origin::Win(id) => match self.wins.iter_mut().find(|w| w.id == id) {
+                Some(w) => &mut w.tabs,
+                None => return,
+            },
+        };
+        let i = at.unwrap_or(tabs.len()).min(tabs.len());
+        tabs.insert(i, label);
+    }
+
+    /// Repaint whichever window this origin refers to.
+    fn redraw(&mut self, o: Origin) {
+        match o {
+            Origin::Main => {
+                if self.configured && self.mapped && !self.torn_down {
+                    self.draw_main();
+                }
+            }
+            Origin::Win(id) => {
+                if let Some(i) = self.wins.iter().position(|w| w.id == id) {
+                    if self.wins[i].configured {
+                        self.draw_win(i);
+                    }
+                }
+            }
+        }
+    }
+
+    /// A press landed on a surface: if it hit a tab, tear that tab into its own
+    /// window and start a toplevel drag carrying it. Returns true if it did.
+    ///
+    /// The tab leaves its strip immediately, the way a browser tears one — and
+    /// is restored by [`Self::restore_torn`] if the drag is cancelled.
+    fn try_tear_tab(&mut self, surface: &WlSurface, x: f64, y: f64, serial: u32) -> bool {
+        let Some(origin) = self.origin_of(surface) else { return false };
+        // A window that is itself being carried has no tearable strip.
+        if self.carried_win.is_some() {
+            return false;
+        }
+        let Some(idx) = tab_at(x, y, self.tabs_of(origin).len()) else { return false };
+        if self.drag_source.is_some() {
+            warn!("tab: a drag is already in flight");
+            return false;
+        }
+
+        let label = match origin {
+            Origin::Main => self.main_tabs.remove(idx),
+            Origin::Win(id) => match self.wins.iter_mut().find(|w| w.id == id) {
+                Some(w) => w.tabs.remove(idx),
+                None => return false,
+            },
+        };
+        self.torn = Some(TornTab { label: label.clone(), origin, index: idx });
+        self.drag_text = label.clone();
+        info!("tab: tearing {label:?} out of {origin:?}");
+
+        // Force the tab-tear shape regardless of what the DRAG buttons last set:
+        // a fresh window is created and attached, which is what a torn tab is.
+        self.drag_arm = DragMode::Toplevel;
+        self.begin_drag(surface.clone(), serial);
+        self.redraw(origin);
+        true
+    }
+
+    /// A cancelled drag puts the tab back where it came from.
+    fn restore_torn(&mut self) {
+        let Some(t) = self.torn.take() else { return };
+        info!("tab: drag cancelled — restoring {:?} to {:?}", t.label, t.origin);
+        self.dock_tab(t.origin, t.label, Some(t.index));
+        self.redraw(t.origin);
+    }
+
+    /// Which of our surfaces this is, for logging a drop's destination — the
+    /// whole point of the cross-window test is knowing which window received it.
+    fn surface_label(&self, s: &WlSurface) -> String {
+        if !self.torn_down && s == &self.main_surface {
+            return "MAIN".to_string();
+        }
+        if let Some(w) = self.wins.iter().find(|w| &w.surface == s) {
+            return format!("WIN {}", w.id);
+        }
+        if let Some(p) = self.popups.iter().find(|p| &p.surface == s) {
+            return format!("POPUP {}", p.id);
+        }
+        "unknown surface".to_string()
+    }
+
+    /// Begin a drag from `origin` against the implicit grab `serial`.
+    ///
+    /// Sequencing matters and is the part worth testing: the toplevel drag must
+    /// exist BEFORE `start_drag`, because the compositor resolves it from the
+    /// source as the drag begins. Attaching afterwards is legal too (that is
+    /// the tab-tear case) but then the window only starts moving on the next
+    /// motion.
+    fn begin_drag(&mut self, origin: WlSurface, serial: u32) {
+        let mode = self.drag_arm;
+        if self.drag_source.is_some() {
+            warn!("drag: a drag is already in flight");
+            return;
+        }
+        let (Some(mgr), Some(dd)) = (self.data_device_mgr.clone(), self.data_device.clone())
+        else {
+            warn!("drag: compositor has no wl_data_device_manager");
+            return;
+        };
+        let qh = self.qh.clone();
+
+        self.drop_performed = false;
+        let source = mgr.create_data_source(&qh, ());
+        source.offer(MIME.to_string());
+        // v3 request. On a v1 data-device this is a protocol error, and a
+        // protocol error kills the CLIENT — which is why an unguarded call here
+        // made the drop target and the subject vanish together: they are the
+        // same process.
+        if source.version() >= 3 {
+            source.set_actions(DndAction::Copy | DndAction::Move);
+        }
+
+        // The toplevel drag, when asked for.
+        if mode != DragMode::Plain {
+            match self.toplevel_drag_mgr.clone() {
+                Some(tdm) => {
+                    let drag = tdm.get_xdg_toplevel_drag(&source, &qh, ());
+                    let carried = match mode {
+                        // Fresh, unmapped toplevel: the browser tab-tear shape.
+                        // `attach` before the first commit is explicitly allowed.
+                        DragMode::Toplevel => {
+                            let idx = self.add_win();
+                            Some(idx - 1)
+                        }
+                        // An already-mapped window: the other documented entry
+                        // point. Falls back to creating one if none exists.
+                        DragMode::ToplevelExisting => {
+                            if self.wins.is_empty() {
+                                let idx = self.add_win();
+                                Some(idx - 1)
+                            } else {
+                                Some(self.wins.len() - 1)
+                            }
+                        }
+                        _ => None,
+                    };
+                    if let Some(i) = carried {
+                        // Offset places the cursor inside the carried window
+                        // rather than at its corner, which is what a real tab
+                        // tear looks like.
+                        drag.attach(&self.wins[i].toplevel, EXTRA_W / 2, 12);
+                        let cid = self.wins[i].id;
+                        // The carried window shows the tab it is carrying, so a
+                        // tear reads as one tab moving between two strips.
+                        if let Some(t) = &self.torn {
+                            self.wins[i].tabs = vec![t.label.clone()];
+                        }
+                        self.carried_win = Some(cid);
+                        info!("drag: attached window {cid} to the toplevel drag (CARRIED)");
+                        if self.wins[i].configured {
+                            self.draw_win(i);
+                        }
+                    }
+                    self.toplevel_drag = Some(drag);
+                }
+                None => warn!("drag: compositor has no xdg_toplevel_drag_manager_v1"),
+            }
+        }
+
+        dd.start_drag(Some(&source), &origin, None, serial);
+        info!("drag: started ({mode:?}) with payload {:?}", self.drag_text);
+        self.drag_source = Some(source);
+        // One drag per arming: leaving it armed would start a new drag on the
+        // press that ends this one.
+        self.drag_arm = DragMode::Off;
+    }
+
+    /// Finish a drop whose pipe was handed to us in the `Drop` event.
+    ///
+    /// Called from the main loop AFTER the queue has been pumped, so that a
+    /// same-process drag has already had its `wl_data_source.send` delivered and
+    /// the payload written. Doing this inside the dispatch handler deadlocks.
+    fn complete_drop(&mut self, offer: WlDataOffer, text: String) {
+        info!("drop: received {text:?}");
+        self.dropped_text = Some(text.clone());
+        // v3-only, and only legal after a transfer on an accepted offer.
+        if offer.version() >= 3 {
+            offer.finish();
+        }
+        offer.destroy();
+
+        // A torn tab that lands on a window DOCKS there: it joins that strip and
+        // the window that was carrying it goes away, which is what makes this a
+        // move rather than a copy.
+        if let (Some(t), Some(target)) = (self.torn.take(), self.offer_target.take()) {
+            // MAIN has no strip, so a tab dropped there has nowhere to go —
+            // put it back rather than deleting it.
+            if target == Origin::Main {
+                info!("tab: dropped on MAIN, which has no strip — restoring");
+                self.torn = Some(t);
+                self.restore_torn();
+                return;
+            }
+            info!("tab: docking {:?} into {target:?}", t.label);
+            self.dock_tab(target, text, None);
+            if let Some(id) = self.carried_win.take() {
+                if let Some(i) = self.wins.iter().position(|w| w.id == id) {
+                    self.wins.remove(i).destroy();
+                    info!("tab: carried window {id} destroyed after docking");
+                }
+            }
+            self.redraw(target);
+            self.redraw(t.origin);
+        }
+
+        for i in 0..self.wins.len() {
+            if self.wins[i].configured {
+                self.draw_win(i);
+            }
+        }
+        if self.configured && self.mapped && !self.torn_down {
+            self.draw_main();
+        }
+    }
+
+    /// Tear down the outgoing drag objects once the compositor says the drag is
+    /// over. `xdg_toplevel_drag_v1.destroy` before that point is an
+    /// `ongoing_drag` protocol error, so ordering here is deliberate.
+    fn end_drag(&mut self) {
+        if let Some(d) = self.toplevel_drag.take() {
+            d.destroy();
+        }
+        if let Some(s) = self.drag_source.take() {
+            s.destroy();
+        }
+        // The window stays — it is a normal toplevel again, so repaint it out of
+        // the CARRIED colour.
+        if let Some(id) = self.carried_win.take() {
+            if let Some(i) = self.wins.iter().position(|w| w.id == id) {
+                if self.wins[i].configured {
+                    self.draw_win(i);
+                }
+            }
+        }
+    }
+}
+
 impl CompositorHandler for Subject {
     fn scale_factor_changed(&mut self, _: &Connection, _: &QueueHandle<Self>, surface: &WlSurface, new: i32) {
         if surface == &self.main_surface {
@@ -1456,10 +2215,25 @@ impl SeatHandler for Subject {
     fn seat_state(&mut self) -> &mut SeatState {
         &mut self.seat_state
     }
-    fn new_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: WlSeat) {}
+    fn new_seat(&mut self, _: &Connection, qh: &QueueHandle<Self>, seat: WlSeat) {
+        // One data device per seat, taken as soon as the seat exists — a drag
+        // can be armed before any pointer capability has been announced.
+        if self.data_device.is_none() {
+            if let Some(mgr) = self.data_device_mgr.clone() {
+                self.data_device = Some(mgr.get_data_device(&seat, qh, ()));
+                info!("dnd: data device acquired");
+            }
+        }
+    }
     fn new_capability(&mut self, _: &Connection, qh: &QueueHandle<Self>, seat: WlSeat, cap: Capability) {
         if cap == Capability::Pointer && self.pointer.is_none() {
             self.pointer = self.seat_state.get_pointer(qh, &seat).ok();
+        }
+        if self.data_device.is_none() {
+            if let Some(mgr) = self.data_device_mgr.clone() {
+                self.data_device = Some(mgr.get_data_device(&seat, qh, ()));
+                info!("dnd: data device acquired");
+            }
         }
     }
     fn remove_capability(&mut self, _: &Connection, _: &QueueHandle<Self>, _: WlSeat, cap: Capability) {
@@ -1484,7 +2258,7 @@ impl PointerHandler for Subject {
                         self.ptr = None;
                     }
                 }
-                PointerEventKind::Press { button, .. } => {
+                PointerEventKind::Press { button, serial, .. } => {
                     self.click = Some(ClickFx {
                         surface: e.surface.clone(),
                         x: e.position.0,
@@ -1492,6 +2266,17 @@ impl PointerHandler for Subject {
                         ttl: CLICK_TTL,
                         button,
                     });
+                    self.last_press_serial = Some(serial);
+                    // A press on a tab tears it — no arming needed, because
+                    // pressing a tab IS the intent. Falls through to the DRAG
+                    // arm commands only when the press missed the strip.
+                    let surface = e.surface.clone();
+                    let torn = self.try_tear_tab(&surface, e.position.0, e.position.1, serial);
+                    // `start_drag` is only valid against the serial of a real
+                    // implicit grab, so the drag can only begin from a press.
+                    if !torn && self.drag_arm != DragMode::Off {
+                        self.begin_drag(surface, serial);
+                    }
                 }
                 _ => {}
             }
@@ -1529,6 +2314,156 @@ delegate_registry!(Subject);
 // Manual Dispatch impls for raw protocol objects
 // ==========================================================================================
 
+// --- Drag and drop -----------------------------------------------------------------
+
+impl Dispatch<WlDataDeviceManager, ()> for Subject {
+    fn event(_: &mut Self, _: &WlDataDeviceManager, _: <WlDataDeviceManager as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<XdgToplevelDragManagerV1, ()> for Subject {
+    fn event(_: &mut Self, _: &XdgToplevelDragManagerV1, _: <XdgToplevelDragManagerV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<XdgToplevelDragV1, ()> for Subject {
+    // The drag object is request-only; it carries no events.
+    fn event(_: &mut Self, _: &XdgToplevelDragV1, _: <XdgToplevelDragV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<WlDataSource, ()> for Subject {
+    fn event(state: &mut Self, _: &WlDataSource, event: wl_data_source::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            // The target asked for the data: write it and close the fd.
+            wl_data_source::Event::Send { mime_type, fd } => {
+                info!("drag: source send({mime_type})");
+                dnd::write_payload(fd, &state.drag_text.clone());
+            }
+            // Drop happened. The objects must NOT be destroyed here — the
+            // protocol still delivers `dnd_finished` (or `cancelled`), and
+            // destroying the toplevel drag before the drag ends is an
+            // `ongoing_drag` error.
+            // The PHYSICAL release. Per spec this "does not indicate
+            // acceptance" and `cancelled` may follow — but for a torn tab it is
+            // the signal that the tear completed, so the carried window keeps
+            // its position instead of being reverted.
+            wl_data_source::Event::DndDropPerformed => {
+                info!("drag: drop performed (physical release)");
+                state.drop_performed = true;
+            }
+            wl_data_source::Event::DndFinished => {
+                info!("drag: finished — tearing down source + toplevel drag");
+                state.end_drag();
+            }
+            // Rejected, or the compositor pulled the drag. Same teardown; this
+            // is also the path a `drop-accept off` run exercises.
+            wl_data_source::Event::Cancelled => {
+                // Two very different cases arrive here. A `cancelled` that
+                // FOLLOWS `dnd_drop_performed` means "released, but nothing
+                // accepted the data" — for a tab tear that is success: the
+                // window stays where it was dropped. A `cancelled` on its own
+                // means the drag was aborted (escape, grab broken), and only
+                // then should the tab go back.
+                if state.drop_performed {
+                    info!("drag: cancelled after a physical drop — keeping the torn window");
+                    state.torn = None;
+                    state.carried_win = None;
+                } else {
+                    info!("drag: aborted — restoring the tab");
+                    state.restore_torn();
+                }
+                state.end_drag();
+            }
+            wl_data_source::Event::Action { dnd_action } => {
+                info!("drag: action selected {dnd_action:?}");
+            }
+            wl_data_source::Event::Target { mime_type } => {
+                info!("drag: target mime {mime_type:?}");
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<WlDataOffer, ()> for Subject {
+    fn event(state: &mut Self, offer: &WlDataOffer, event: wl_data_offer::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_data_offer::Event::Offer { mime_type } = event {
+            // Accepting has to happen against the enter serial, so it is done
+            // in the data-device `Enter` arm; here we only note the type.
+            info!("drop: offered {mime_type}");
+            // `set_actions` is version 3+; sending it to an older offer is a
+            // protocol error, i.e. an instant kill for this client.
+            if mime_type == MIME && state.drop_accept && offer.version() >= 3 {
+                offer.set_actions(DndAction::Copy | DndAction::Move, DndAction::Copy);
+            }
+        }
+    }
+}
+
+impl Dispatch<WlDataDevice, ()> for Subject {
+    fn event(state: &mut Self, _: &WlDataDevice, event: wl_data_device::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            // A new offer object arrives before `Enter`; hold it until then.
+            wl_data_device::Event::DataOffer { id } => {
+                state.offer = Some(id);
+            }
+            wl_data_device::Event::Enter { serial, surface, id, .. } => {
+                let which = state.surface_label(&surface);
+                // `Drop` carries no surface, so the dock target is remembered here.
+                state.offer_target = state.origin_of(&surface);
+                info!("drop: enter {which}");
+                if let Some(offer) = id.or_else(|| state.offer.clone()) {
+                    if state.drop_accept {
+                        offer.accept(serial, Some(MIME.to_string()));
+                        if offer.version() >= 3 {
+                            offer.set_actions(DndAction::Copy | DndAction::Move, DndAction::Copy);
+                        }
+                    } else {
+                        // Explicit refusal — the source must then see
+                        // `cancelled` rather than a drop.
+                        offer.accept(serial, None);
+                    }
+                    state.offer = Some(offer);
+                }
+            }
+            wl_data_device::Event::Leave => {
+                info!("drop: leave");
+                state.offer = None;
+            }
+            wl_data_device::Event::Drop => {
+                let Some(offer) = state.offer.clone() else {
+                    warn!("drop: drop with no offer");
+                    return;
+                };
+                if !state.drop_accept {
+                    info!("drop: refusing (drop-accept off)");
+                    offer.destroy();
+                    state.offer = None;
+                    return;
+                }
+                // Ask for the data, but do NOT read here. We are inside an event
+                // dispatch, and for a drag that started in this same process the
+                // writer is US: the payload only gets written when our own
+                // `wl_data_source.send` handler runs, which cannot happen while
+                // this handler blocks on the pipe. Reading here self-deadlocks
+                // (and spins the event loop at 100% CPU). The main loop pumps
+                // the queue first, then reads — see `complete_drop`.
+                match std::io::pipe() {
+                    Ok((rx, tx)) => {
+                        offer.receive(MIME.to_string(), tx.as_fd());
+                        drop(tx);
+                        state.pending_recv = Some((offer, OwnedFd::from(rx)));
+                        state.offer = None;
+                    }
+                    Err(e) => warn!("drop: pipe() failed: {e}"),
+                }
+            }
+            _ => {}
+        }
+    }
+    wayland_client::event_created_child!(Subject, WlDataDevice, [
+        wl_data_device::EVT_DATA_OFFER_OPCODE => (WlDataOffer, ()),
+    ]);
+}
+
 impl Dispatch<XdgWmBase, ()> for Subject {
     fn event(_: &mut Self, wm: &XdgWmBase, event: xdg_wm_base::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         if let xdg_wm_base::Event::Ping { serial } = event {
@@ -1553,6 +2488,13 @@ impl Dispatch<XdgSurface, XdgSurfData> for Subject {
                         state.popups[idx].serial = Some(serial);
                         state.popups[idx].configured = true;
                         state.draw_popup(idx);
+                    }
+                }
+                Role::Extra(id) => {
+                    if let Some(idx) = state.wins.iter().position(|w| w.id == id) {
+                        state.wins[idx].xdg.ack_configure(serial);
+                        state.wins[idx].configured = true;
+                        state.draw_win(idx);
                     }
                 }
             }
@@ -1608,6 +2550,111 @@ impl Dispatch<XdgPopup, PopupTag> for Subject {
 
 impl Dispatch<XdgPositioner, ()> for Subject {
     fn event(_: &mut Self, _: &XdgPositioner, _: xdg_positioner::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+// ---- xdg_session_management_v1 -----------------------------------------------------------
+// The manager itself is eventless. `xdg_session_v1` answers `get_session` with
+// exactly one of created/restored/replaced; `xdg_toplevel_session_v1.restored`
+// arrives before the first xdg_toplevel configure when the compositor knew our
+// toplevel name.
+
+impl Dispatch<XdgSessionManagerV1, ()> for Subject {
+    fn event(_: &mut Self, _: &XdgSessionManagerV1, _: <XdgSessionManagerV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<XdgSessionV1, ()> for Subject {
+    fn event(state: &mut Self, _: &XdgSessionV1, event: xdg_session_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            // A session we did not have: the compositor chose the id. Look our
+            // value up under it — a HIT here after a placeholder relaunch is the
+            // whole point, and it means the compositor re-minted the same string.
+            xdg_session_v1::Event::Created { session_id } => {
+                let found = state.session.bind(session_id.clone());
+                state.session.phase = if found {
+                    session::SessionPhase::Restored
+                } else {
+                    session::SessionPhase::Created
+                };
+                info!(
+                    "session created id={session_id} store_hit={found} value={}",
+                    state.session.value.as_deref().unwrap_or("-")
+                );
+                state.draw_main();
+            }
+            // We passed an id the compositor recognised.
+            xdg_session_v1::Event::Restored => {
+                info!("session restored by compositor");
+                state.session.phase = session::SessionPhase::Restored;
+                state.draw_main();
+            }
+            xdg_session_v1::Event::Replaced => {
+                warn!("session taken over by another client");
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<XdgToplevelSessionV1, ()> for Subject {
+    fn event(state: &mut Self, _: &XdgToplevelSessionV1, event: xdg_toplevel_session_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let xdg_toplevel_session_v1::Event::Restored = event {
+            info!("toplevel session '{}' restored", state.session.name);
+            state.session.phase = session::SessionPhase::Restored;
+            state.draw_main();
+        }
+    }
+}
+
+// ---- xx_ namespace (--xx) ----------------------------------------------------------------
+// Identical handling; the wire shapes differ (see `session::legacy`), so the
+// impls cannot be shared even though the state they update is the same.
+
+impl Dispatch<XxSessionManagerV1, ()> for Subject {
+    fn event(_: &mut Self, _: &XxSessionManagerV1, _: <XxSessionManagerV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<XxSessionV1, ()> for Subject {
+    fn event(state: &mut Self, _: &XxSessionV1, event: xx_session_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            // NB: the `xx_` event names its argument `id`, not `session_id`.
+            xx_session_v1::Event::Created { id } => {
+                let found = state.session.bind(id.clone());
+                state.session.phase = if found {
+                    session::SessionPhase::Restored
+                } else {
+                    session::SessionPhase::Created
+                };
+                info!(
+                    "session(xx) created id={id} store_hit={found} value={}",
+                    state.session.value.as_deref().unwrap_or("-")
+                );
+                state.draw_main();
+            }
+            xx_session_v1::Event::Restored => {
+                info!("session(xx) restored by compositor");
+                state.session.phase = session::SessionPhase::Restored;
+                state.draw_main();
+            }
+            xx_session_v1::Event::Replaced => warn!("session(xx) taken over by another client"),
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<XxToplevelSessionV1, ()> for Subject {
+    fn event(state: &mut Self, _: &XxToplevelSessionV1, event: xx_toplevel_session_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        // Unlike `xdg_`, this event carries the toplevel back — checking it is
+        // ours is the cheapest test that the compositor serialised it correctly.
+        if let xx_toplevel_session_v1::Event::Restored { surface } = event {
+            let ours = surface == state.toplevel;
+            info!("toplevel session(xx) '{}' restored (toplevel matches: {ours})", state.session.name);
+            if !ours {
+                warn!("session(xx): restored carried a DIFFERENT toplevel than ours");
+            }
+            state.session.phase = session::SessionPhase::Restored;
+            state.draw_main();
+        }
+    }
 }
 
 impl Dispatch<ZxdgDecorationManagerV1, ()> for Subject {

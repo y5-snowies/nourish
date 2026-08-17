@@ -2,6 +2,7 @@ use compositor_introspection_extraction_window_hints_attributes_identity::attrib
 use compositor_introspection_extraction_window_hints_attributes_launch::attributes::{
     ExecArgs, ExecProgram, WorkingDirectory,
 };
+use compositor_introspection_extraction_window_hints_container_extract::extract::push_container_hints;
 use compositor_introspection_extraction_window_hints_extract_entry::extract::{
     push_desktop_hints, push_env_hints, push_surface_identity_hints, push_toplevel_icon_hints,
 };
@@ -81,6 +82,9 @@ pub fn extract_base_hints(node: &MetaNode, icon: Option<&ToplevelIcon>) -> Infer
     if let Some(icon) = icon {
         push_toplevel_icon_hints(icon, &mut hints);
     }
+    // No-op for a host process; lets a relaunch target the container rather
+    // than an exe path that only exists inside it.
+    push_container_hints(meta, &mut hints);
 
     // ---- Fallback display name -----------------------------------------
     if !hints.has::<DisplayName>() {
