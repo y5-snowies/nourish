@@ -49,8 +49,18 @@ impl<E: Element> Element for RescaleRenderElement<E> {
         let mut element_geometry = self.element.geometry(scale);
         // First we make the element relative to the origin
         element_geometry.loc -= self.origin;
-        // Then we scale it by our scale
-        element_geometry = element_geometry.to_f64().upscale(self.scale).to_i32_round();
+        // Then we scale it by our scale, rounding each CORNER once rather than rounding the
+        // location and the size independently. `round(loc) + round(size)` does not equal
+        // `round(loc + size)`, so the independent form moves an element's right/bottom edge
+        // by up to a pixel relative to where the next element's left/top edge lands — which
+        // opens a one-pixel seam between every pair of abutting subsurfaces at any
+        // non-integer scale, even when their logical coordinates tile exactly. Deriving the
+        // size from two rounded corners keeps shared edges shared. This mirrors what
+        // `WaylandSurfaceRenderElement::size` already does for the unscaled case.
+        let scaled = element_geometry.to_f64().upscale(self.scale);
+        let loc = scaled.loc.to_i32_round();
+        let br = (scaled.loc + scaled.size.to_point()).to_i32_round();
+        element_geometry = Rectangle::new(loc, (br - loc).to_size());
         // At last we move it back to the origin
         element_geometry.loc += self.origin;
         element_geometry

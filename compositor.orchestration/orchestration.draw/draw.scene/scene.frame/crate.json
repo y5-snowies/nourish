@@ -42,6 +42,7 @@
     "compositor_y5_guide_shader_create",
     "compositor_y5_window_lifecycle_interface",
     "compositor_y5_camera_transform_translate",
+    "compositor_support_smithay_state_compositor_place",
     "compositor_support_smithay_state_fractional_dispatch",
     "compositor_orchestration_draw_dispatch_frame",
     "compositor_monitor_compositor_iced_base",

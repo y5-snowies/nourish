@@ -27,6 +27,26 @@ use smithay::utils::{Logical, Point, Rectangle, Size};
 /// the stress harness's oversized/viewport cases overshoot by hundreds.
 pub const MARGIN_FILL_THRESHOLD: i32 = 250;
 
+/// How far a surface may fall **short** of its slot (logical px, per axis) and still be drawn at
+/// 1:1 rather than being magnified to fill it.
+///
+/// The `cover` regime exists for surfaces that overshoot the slot (CSD shadow — fill and crop the
+/// margin). A surface that undershoots has nothing to crop away, so `cover` magnifies it and then
+/// shaves the edges, which is strictly worse than showing all of it: the content is resampled off
+/// its own pixel grid AND loses its outermost pixels.
+///
+/// The undershoot is usually not a client bug and cannot be configured away. Cell-quantised
+/// clients — terminals such as foot, which round the window down to a whole character grid — can
+/// only ever commit a multiple of their cell size, so they land a fraction of a cell short of
+/// whatever slot they are given and **stay** there: the compositor re-sends the decided size, the
+/// client re-answers with the same quantised one, and `reassert_size_if_diverged` exhausts its
+/// nudges and gives up. The magnification is therefore permanent, not a transient during settling.
+///
+/// Sized to clear a character cell with room to spare while staying far below
+/// [`MARGIN_FILL_THRESHOLD`], so a window that is *genuinely* undersized still grows into its slot
+/// instead of sitting in a large black frame.
+pub const QUANTIZE_SLACK: i32 = 64;
+
 /// The resolved placement of a window's content inside its compositor-decided **slot**, shared
 /// by the render path (`window.draw.frame::scene`) and the input path
 /// (`surface.interface.base::hit`) so they never disagree.
@@ -63,7 +83,9 @@ pub struct WindowFit {
 /// - **margin** (`|view_dst − slot| ≤ MARGIN_FILL_THRESHOLD`): the surface is about slot-sized,
 ///   so the excess is shadow/reserved space — fit the **geometry** and **cover** the slot
 ///   (fill it, crop the small margin; no letterbox). This is the common real-app path and makes
-///   the popup factor `ref_size/geom == 1`, so cursor-anchored menus stay on the cursor.
+///   the popup factor `ref_size/geom == 1`, so cursor-anchored menus stay on the cursor. `cover`
+///   only ever shrinks: a surface that falls SHORT of the slot by at most [`QUANTIZE_SLACK`] is
+///   held at 1:1 and letterboxed instead of being magnified into it.
 /// - **oversized** (genuine, large mismatch — viewport/oversized buffer): fit `view_dst` and
 ///   **contain** (letterbox), so the whole surface stays visible.
 ///
@@ -114,6 +136,13 @@ pub fn window_fit(
         let sw = slot.w as f64 / (ref_size.w.max(1) as f64);
         let sh = slot.h as f64 / (ref_size.h.max(1) as f64);
         let s = if cover { sw.max(sh) } else { sw.min(sh) };
+        // Never MAGNIFY to paper over a small shortfall (see `QUANTIZE_SLACK`): a surface that
+        // undershoots its slot has nothing to crop, so `cover`'s `max` would only resample it off
+        // its own pixel grid and shave the edges. Hold 1:1 and let the caller's letterbox bars —
+        // the slot minus the content, which it already paints — take the remainder. A surface that
+        // OVERSHOOTS is untouched: `s <= 1.0` there, and cropping the margin is the point.
+        let short = (slot.w - ref_size.w).max(slot.h - ref_size.h);
+        let s = if s > 1.0 && short <= QUANTIZE_SLACK { 1.0 } else { s };
         if s.is_finite() && s > 0.0 { s } else { 1.0 }
     };
     let fit_surf = (

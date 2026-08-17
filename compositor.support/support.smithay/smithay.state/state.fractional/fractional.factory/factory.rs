@@ -19,13 +19,29 @@ where
         + 'static,
     I: FractionalScaleHandler + 'static {
     let mut fractional_manager_state = FractionalScaleManagerState::new::<I>(&display_handle);
+    let cfg = FractionalScaleConfig::default();
+    // Seed the published scale rather than starting at "unknown".
+    //
+    // `last_emitted_scale` is what a brand-new surface or scale object is handed before any
+    // render pass has run, and it was only ever assigned from `emit_best_per_surface` — so
+    // until the first window had been drawn it was `None` and the answer was to send
+    // nothing at all. A client then laid its FIRST buffer out at scale 1, and only learnt
+    // the real scale afterwards; anything that does not spontaneously repaint (or whose
+    // size the compositor has since frozen) stayed wrong until something forced it to
+    // redraw. Under v2 that is worse than blurry, because surface-local geometry is
+    // expressed in the declared space: the whole subsurface layout comes out at the wrong
+    // size and stays there.
+    //
+    // The floor is the right seed. A window being mapped is on screen by definition, so it
+    // gets at least the lattice minimum instead of 1.0, and the first real render pass
+    // replaces it with the window's own value.
     return Fractional {
         state: fractional_manager_state,
-        cfg: FractionalScaleConfig::default(),
+        last_emitted_scale: Some(cfg.min_scale),
+        cfg,
         last_observed: None,
         cycle: None,
         armed: false,
         last_emit_at: None,
-        last_emitted_scale: None,
     };
 }

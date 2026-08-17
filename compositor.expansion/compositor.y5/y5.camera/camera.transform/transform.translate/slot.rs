@@ -92,6 +92,22 @@ pub fn expected_size(window: &Window) -> Option<Size<i32, Logical>> {
     }
 }
 
+/// The size the compositor has explicitly DECIDED for `window`, or `None` when it has made no
+/// decision yet (`Auto` / unset). Unlike [`expected_size`], an `Auto` window answers `None`
+/// rather than reporting its own committed geometry back — so a caller re-asserting the
+/// compositor's authority cannot accidentally hold a self-sizing window (a dialog / child
+/// toplevel) to whatever size it happened to pick.
+pub fn decided_size(window: &Window) -> Option<Size<i32, Logical>> {
+    match window
+        .user_data()
+        .get::<ExpectedSize>()
+        .and_then(|e| *e.0.lock().unwrap())
+    {
+        Some(Slot::Decided(size)) => Some(size),
+        _ => None,
+    }
+}
+
 /// Put `window` in `Auto`: the slot follows the client's committed `geometry()` until the
 /// compositor makes its first explicit sizing decision (`set_expected_size`). Used at initial
 /// map — accept the client's size while it settles, without freezing the stale first frame.
