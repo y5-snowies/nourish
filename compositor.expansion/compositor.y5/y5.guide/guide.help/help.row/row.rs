@@ -29,17 +29,22 @@ const SHOWN: &[(&str, &str, &str)] = &[
     ("zoom_focus", "zoom_fit", "Zoom"),
 ];
 
-/// Nested (winit) runs every Super binding on Ctrl instead — see the `nosuper`
-/// remap in `inline_shortcut_handlers`. The registries format the UNremapped
-/// combo, so a nested session would otherwise be told to press a key that does
-/// nothing. Token-wise, and de-duplicating: `Super+Ctrl+Alt` is `Ctrl+Alt`.
+/// Nested (winit) substitutes Right Ctrl for Super — the host owns Super and
+/// never forwards it (`seat.keyboard/keyboard.input::shortcut_modifiers`). The
+/// registries format the UNsubstituted combo, so a nested session would otherwise
+/// be told to press a key that does nothing.
+///
+/// ONLY `Super` moves. A `Ctrl` in a combo still means Ctrl — the LEFT one, which
+/// stays free for the clients inside the session and for genuinely Ctrl-based
+/// compositor bindings. `Super+Ctrl+Alt` (the Hand tool) therefore reads
+/// `RCtrl+Ctrl+Alt`: two different physical keys, which is exactly what it is.
 fn remap(combo: &str, nested: bool) -> String {
     if !nested {
         return combo.to_string();
     }
     let mut parts: Vec<&str> = Vec::new();
     for token in combo.split('+') {
-        let token = if token == "Super" { "Ctrl" } else { token };
+        let token = if token == "Super" { "RCtrl" } else { token };
         if !parts.contains(&token) {
             parts.push(token);
         }

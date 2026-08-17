@@ -1,0 +1,34 @@
+{
+  "deps": [
+    "compositor_support_system_persist_mark_base",
+    "compositor_orchestration_driver_introspection_base",
+    "compositor_model_debug_instance_record",
+    "compositor_orchestration_draw_layer_base",
+    "compositor_support_world_order_track_base",
+    "compositor_support_smithay_state_compositor_place",
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_placeholder_record_base",
+    "compositor_y5_placeholder_system_base",
+    "compositor_support_world_host_space_base",
+    "compositor_y5_camera_transform_translate",
+    "compositor_y5_window_interface_record",
+    "uuid",
+    "compositor_y5_surface_draw_handle",
+    "compositor_y5_placeholder_surface_base",
+    "compositor_introspection_launchplan_plan_base",
+    "compositor_introspection_launchplan_plan_capture",
+    "compositor_y5_placeholder_protocol_base",
+    "compositor_y5_surface_protocol_base",
+    "compositor_introspection_extraction_window_base",
+    "compositor_introspection_restoration_state_base",
+    "compositor_introspection_sampler_window_base",
+    // Launch/execution subsystem: build the request, launch via the kernel executor,
+    // and arm restoration from the synchronously-available outcome (REQUIRE_PID).
+    "compositor_introspection_execution_launch_policy",
+    "compositor_kernel_execution_driver_executor_base",
+    "compositor_introspection_execution_launch_build_container",
+    "compositor_support_smithay_state_session_claim",
+    "compositor_support_smithay_state_ephemeral_mark"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_orchestration_draw_dispatch_frame",
+    "compositor_pipeline_bundle_require_base",
+    "compositor_pipeline_abi_worldset_base",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

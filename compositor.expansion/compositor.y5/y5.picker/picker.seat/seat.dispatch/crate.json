@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_picker_seat_keyboard",
+    "compositor_y5_picker_seat_pointer",
+    "compositor_y5_picker_seat_touch",
+    "smithay"
+  ]
+}

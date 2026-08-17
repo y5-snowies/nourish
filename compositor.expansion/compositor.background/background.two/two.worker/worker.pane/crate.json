@@ -1,0 +1,13 @@
+{
+  "deps": [
+    "compositor_background_two_worker_key",
+    "compositor_pipeline_execute_warpmap_base",
+    "compositor_pipeline_execute_graph_base",
+    "ash",
+    "smithay",
+    "compositor_background_two_worker_buffers",
+    "compositor_background_two_worker_target",
+    "compositor_model_debug_instance_record",
+    "compositor_background_two_worker_history"
+  ]
+}

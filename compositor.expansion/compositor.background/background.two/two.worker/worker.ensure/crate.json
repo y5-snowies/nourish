@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_background_two_worker_key",
+    "compositor_background_two_worker_alloc",
+    "compositor_background_two_worker_device",
+    "compositor_background_two_worker_pane",
+    "compositor_background_two_worker_target"
+  ]
+}

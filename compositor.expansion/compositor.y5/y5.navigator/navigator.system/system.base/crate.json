@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_y5_navigator_lock_state",
+    "compositor_y5_navigator_tick_base",
+    "compositor_y5_navigator_tick_warp",
+    "compositor_support_system_world_frame_base",
+    "compositor_support_system_buffer_token_base",
+    "compositor_support_system_trait_system_base",
+    "compositor_y5_navigator_state_base"
+  ]
+}

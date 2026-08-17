@@ -1,0 +1,22 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "smithay",
+    // Compositor dependencies (CI ensures availability in workspace)
+    "compositor_kernel_input_libinput_config_base",
+    "compositor_kernel_input_loop_libinput_base",
+    "compositor_kernel_native_wire_input_map",
+    "compositor_kernel_native_context_render_base",
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_seat_pointer_restore",
+    "compositor_support_smithay_dispatch_state_base",
+    "compositor_support_smithay_dispatch_wire_tablet",
+    "compositor_orchestration_draw_state_lifecycle",
+    "compositor_orchestration_driver_lid_base",
+    "compositor_orchestration_input_drive_base",
+    "compositor_support_system_input_event_base",
+    "compositor_orchestration_seat_pointer_input",
+    "compositor_model_environment_preference_base",
+    "compositor_orchestration_driver_settings_base"
+  ]
+}

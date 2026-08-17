@@ -1,0 +1,17 @@
+{
+  "deps": [
+    "compositor_y5_guide_interface_base",
+    "compositor_support_system_input_event_base",
+    "compositor_orchestration_input_drive_base",
+    "compositor_y5_overlay_interface_keyboard",
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_canvas_input_keyboard",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_y5_launcher_input_base",
+    "compositor_orchestration_driver_lid_base",
+    "compositor_orchestration_driver_settings_base",
+    "compositor_model_environment_preference_base",
+    "compositor_orchestration_driver_output_base"
+  ]
+}

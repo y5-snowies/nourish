@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_support_bevy_core_space_base",
+    "compositor_orchestration_draw_dispatch_frame",
+    "smithay"
+  ]
+}

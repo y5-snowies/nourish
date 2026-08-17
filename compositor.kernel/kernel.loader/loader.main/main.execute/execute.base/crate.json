@@ -1,0 +1,72 @@
+{
+  "deps": [
+    "compositor_pipeline_world_system_base",
+    "compositor_support_library_process_child_hygiene",
+    "compositor_background_three_system_prewarm",
+    "compositor_orchestration_driver_capture_base",
+    "compositor_y5_graphic_capture_registry",
+    "compositor_orchestration_driver_introspection_base",
+    "compositor_support_world_kind_build_base",
+    "compositor_y5_select_system_base",
+    "compositor_y5_select_overlay_system",
+    "compositor_y5_group_system_base",
+    "compositor_y5_guide_system_base",
+    "compositor_y5_overview_system_base",
+    "compositor_y5_launcher_system_base",
+    "compositor_y5_placeholder_system_base",
+    "compositor_orchestration_seat_system_pointer",
+    "compositor_y5_canvas_system_base",
+    "compositor_y5_window_system_base",
+    "compositor_y5_camera_system_base",
+    "compositor_y5_navigator_system_base",
+    "compositor_orchestration_world_manager_base",
+    "compositor_support_system_persist_engine_base",
+    "compositor_support_system_storage_slot_base",
+    "compositor_orchestration_smithay_data_base",
+    "compositor_y5_lock_system_base",
+    "compositor_y5_picker_system_base",
+    "compositor_y5_surface_system_base",
+    "compositor_y5_group_interface_base",
+    "compositor_y5_select_interface_base",
+    "compositor_background_two_system_base",
+    "compositor_background_three_system_base",
+    "compositor_orchestration_environment_interface_lifecycle",
+    "compositor_orchestration_environment_type_base",
+    // Diagnostics registry (developer Statistics tab) — direct cross-workspace path dep.
+    "compositor_model_stats_registry_base",
+    "compositor_support_bevy_core_runtime_base",
+    "smithay",
+    "compositor_kernel_native_wire_entry_base",
+    "compositor_kernel_winit_wire_entry_base",
+    "compositor_kernel_vulkan_renderer_core_base",
+    "compositor_orchestration_draw_state_lifecycle",
+    "compositor_orchestration_core_state_base",
+    "compositor_support_smithay_dispatch_state_base",
+    "compositor_support_smithay_state_text_input_launch",
+    "compositor_support_smithay_dispatch_wire_trait",
+    "compositor_support_smithay_wayland_connection_record",
+    "compositor_support_library_debug_client_base",
+    "compositor_remote_transport_server_base",
+    "compositor_orchestration_driver_remote_base",
+    "compositor_monitor_runtime_surface_base",
+    "compositor_introspection_sampler_window_base",
+    "compositor_introspection_extraction_window_base",
+    // Developer structured logging (separate compositor.developer workspace). Direct path deps
+    // keep the wiring local — no edits to this workspace's link.json/GENERATED block.
+    "compositor_model_log_process_main",
+    "compositor_model_debug_instance_record",
+    // Central environment config — read once at the very top of main() (before logging).
+    "compositor_model_environment_config_base",
+    // Embedded default UI font (Inter) — installed in main() before any iced
+    // surface exists, so text renders on systems with no fonts installed.
+    "compositor_support_iced_font_default_base",
+    "compositor_kernel_loader_main_priority_base",
+    "compositor_kernel_loader_main_priority_arm",
+    // Opt-in experimental gpu_* flags — read once right after config (before logging).
+    "compositor_model_environment_experimental_base",
+    "compositor_y5_picker_world_restore",
+    // App-launch executor wiring (kernel.execution driver) — main() calls
+    // block_sigchld() + install() and nothing else from the launch subsystem.
+    "compositor_kernel_execution_driver_executor_install"
+  ]
+}

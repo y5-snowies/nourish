@@ -8,6 +8,9 @@ pub fn hooks(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Phys
     // Promote any disk-restored placeholders (spawn-target world) into visible
     // launcher tiles — needs the renderer, so it can't happen at rehydrate time.
     compositor_y5_placeholder_interface_base::interface::promote_restored(state, renderer);
+    // Session identities: seed the store from persisted placeholders once, then
+    // carry client renames onto every placeholder holding the old key.
+    compositor_y5_placeholder_interface_base::interface::reconcile_sessions(state);
     compositor_y5_surface_draw_hook::wgpu::hook(state, renderer, size);
     compositor_y5_graphic_capture_interface::interface::per_frame(state, renderer, size);
     // Reconcile the align/distribute selection toolbar against the live selection.

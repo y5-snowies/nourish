@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_orchestration_draw_layer_base",
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_monitor_compositor_iced_base"
+  ]
+}

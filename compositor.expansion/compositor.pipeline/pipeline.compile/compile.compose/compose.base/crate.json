@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "naga_oil",
+    "compositor_pipeline_compile_spirv_base"
+  ]
+}

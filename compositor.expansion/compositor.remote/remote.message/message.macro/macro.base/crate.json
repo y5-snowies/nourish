@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_remote_message_macro_define",
+    "compositor_remote_message_macro_broadcast"
+  ]
+}

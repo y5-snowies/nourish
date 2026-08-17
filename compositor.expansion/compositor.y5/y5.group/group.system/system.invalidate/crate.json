@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "uuid",
+    "compositor_y5_group_state_base",
+    "compositor_y5_group_protocol_base",
+    "compositor_y5_group_surface_base",
+    "compositor_y5_surface_protocol_base"
+  ]
+}

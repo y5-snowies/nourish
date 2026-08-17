@@ -1,0 +1,24 @@
+{
+  "deps": [
+    "compositor_support_bevy_core_context_base",
+    "compositor_support_bevy_core_element_base",
+    "compositor_support_bevy_core_error_base",
+    "compositor_support_bevy_core_frame_base",
+    "compositor_support_bevy_core_handle_base",
+    "compositor_support_bevy_core_instance_base",
+    "compositor_support_bevy_core_item_base",
+    "compositor_support_bevy_core_lifecycle_base",
+    "compositor_support_bevy_core_mutate_base",
+    "compositor_support_bevy_core_order_base",
+    "compositor_support_bevy_core_scene_base",
+    "compositor_support_bevy_core_shared_base",
+    "compositor_support_bevy_core_space_base",
+    "compositor_support_bevy_core_worker_base",
+    "compositor_support_bevy_core_worker_spawn",
+    "compositor_model_stats_registry_base",
+    "compositor_model_environment_interface_base",
+    "compositor_model_debug_instance_record",
+    "wgpu",
+    "smithay"
+  ]
+}

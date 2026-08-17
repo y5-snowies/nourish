@@ -540,7 +540,10 @@ name = "y5-window-stress"
 version = "0.1.0"
 dependencies = [
  "calloop",
+ "libc",
  "smithay-client-toolkit",
+ "wayland-backend",
  "wayland-client",
  "wayland-protocols",
+ "wayland-scanner",
 ]

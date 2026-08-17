@@ -11,7 +11,7 @@ driver scripts at the top do the work:
 | Script              | Purpose                                                                 |
 | ------------------- | ----------------------------------------------------------------------- |
 | `prepare-source.sh` | **Run in the sandbox** — materialize a self-contained clone (`.src`)     |
-| `image.sh`          | Build the per-distro image (clone `.src` + compile the winit binary)     |
+| `image.sh`          | Build the per-distro image — `<distro> <bundle\|devloop>`, MODE required |
 | `run.sh`            | **(A)** Open a shell on that distro; `exec.sh` launches the winit compositor |
 | `build.sh`          | **(B)** Compile the binary on that distro and extract it to the host      |
 
@@ -19,9 +19,9 @@ driver scripts at the top do the work:
 distributions/
   common.sh           # shared helpers (repo root, distro discovery, image/container names)
   prepare-source.sh   # ./prepare-source.sh            (run in the sandbox; writes .src)
-  image.sh            # ./image.sh <distro> [debug|release]
-  run.sh              # ./run.sh   <distro> [debug|release]
-  build.sh            # ./build.sh <distro> [debug|release] [out-dir]
+  image.sh            # ./image.sh <distro> <bundle|devloop>   (MODE is required)
+  run.sh              # ./run.sh   <distro>                    (devloop only)
+  build.sh            # ./build.sh <distro> [out-dir]          (devloop only)
   fedora-43/Containerfile
   fedora-44/Containerfile
   ubuntu-24.04/Containerfile
@@ -62,7 +62,7 @@ worktree. The **dev sandbox has it; the host does not.** So the flow is split:
    host can't resolve the original worktree's `.git`.
 
 `image.sh` auto-runs step 1 if `.src` is missing **and** the git data is available — so in the
-sandbox a bare `./image.sh fedora` just works. For the host, materialize `.src` in the sandbox
+sandbox `./image.sh fedora-44 devloop` just works. For the host, materialize `.src` in the sandbox
 first (it lives under the worktree, so a shared filesystem carries it over; otherwise copy it).
 
 - **Only committed changes are built.** Commit (or stash→commit), then re-run `prepare-source.sh`
@@ -86,11 +86,11 @@ first (it lives under the worktree, so a shared filesystem carries it over; othe
 #     podman exec -it -e WAYLAND_DISPLAY=wayland-1 y5-distro-fedora-43 foot
 
 # (B) Compile + extract the binary for a distro (lands in ./out/<distro>/):
-./build.sh ubuntu-24.04 release
+./build.sh ubuntu-24.04
 ./build.sh debian-11         # -> out/debian-11/y5_compositor
 
 # Rebuild an image after committing source changes:
-./image.sh arch release
+./image.sh arch devloop
 ```
 
 `run.sh` reuses the GPU/session env from `../container.env` (NVIDIA EGL paths,
@@ -147,9 +147,9 @@ Clear a cache with `rm -rf .cache/<distro>` (or all of `.cache/`).
 Create `distributions/<distro>-<version>/Containerfile` following one of the existing ones —
 install that distro's equivalents of the build deps (rust/cargo, clang/libclang, pkg-config,
 protobuf, the Wayland/smithay devel libs, mesa + Vulkan loader, ffmpeg, dbus + pulse), then the
-same `git clone /repo` + `environment/build.sh winit ${PROFILE}` steps. Use the `<distro>-<version>`
+same `git clone /repo` + `environment/build.sh winit` steps. Use the `<distro>-<version>`
 naming so the image tag carries the version. The driver scripts discover it automatically — no
-edits needed (`./image.sh <distro>-<version>` just works). Package names differ across releases;
+edits needed (`./image.sh <distro>-<version> devloop` just works). Package names differ across releases;
 adjust as needed (e.g. `debian-11` may lack a few newer devel libs).
 
 ## Verifying the installer's runtime package names (`verify-packages.sh`)

@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "uuid",
+    "compositor_introspection_extraction_window_base",
+    "compositor_introspection_launchplan_plan_base",
+    "compositor_introspection_launchplan_plan_query",
+    "compositor_introspection_execution_launch_types"
+  ]
+}

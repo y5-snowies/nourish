@@ -1,0 +1,13 @@
+{
+  "deps": [
+    "compositor_configurator_settings_surface_message",
+    "compositor_configurator_settings_surface_style",
+    "compositor_configurator_settings_surface_control",
+    "compositor_configurator_settings_surface_preview",
+    "compositor_pipeline_bundle_builtin_base",
+    "compositor_monitor_selection_font_base",
+    "compositor_support_iced_core_engine_base",
+    "iced_core",
+    "iced_widget"
+  ]
+}

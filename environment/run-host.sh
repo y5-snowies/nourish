@@ -5,9 +5,8 @@
 # builds via build.sh and execs the binary on the bare-metal host, so it nests
 # into your real Wayland session (winit) or drives DRM/KMS on a TTY (udev).
 #
-# Usage: ./run-host.sh [winit|udev] [debug|release] [--it] [--env=FILE] [--write-settings]
+# Usage: ./run-host.sh [winit|udev] [--it] [--env=FILE] [--write-settings]
 #   winit | udev      backend (default: winit). udev = DRM/KMS, run from a TTY.
-#   debug | release   cargo profile (default: debug).
 #   --it, -i          interactively prompt for every supported env var, showing
 #                     each one's description + current default (Enter = keep it).
 #   --env=FILE        source FILE first as the env base before prompting/running,
@@ -15,6 +14,9 @@
 #   --write-settings  (re)generate the compositor settings file from the env knobs.
 #                     The file is written automatically when it doesn't exist yet;
 #                     pass this to overwrite an existing one with the current knobs.
+#
+# There is no profile argument: the build is always release-fast. Fat-LTO release
+# binaries come from build-optimized.sh and are not what you iterate on.
 #
 # Without --it it runs with the defaults below (inheriting your shell env). The
 # renderer is chosen at runtime via COMPOSITOR_RENDERER (no rebuild needed):
@@ -24,18 +26,19 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 BACKEND=winit
-PROFILE=debug
 INTERACTIVE=0
 ENV_FILE=""
 WRITE_SETTINGS=0
 for arg in "$@"; do
     case "$arg" in
         winit | udev | native) BACKEND="$arg" ;;
-        debug | release | release-fast) PROFILE="$arg" ;;
+        debug | release | fast | release-fast)
+            echo "run-host.sh: profiles are gone — the build is always release-fast." >&2
+            exit 1 ;;
         --it | -i) INTERACTIVE=1 ;;
         --env=*) ENV_FILE="${arg#--env=}" ;;
         --write-settings) WRITE_SETTINGS=1 ;;
-        -h | --help) sed -n '2,23p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        -h | --help) sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "run-host.sh: unknown arg '$arg' (see --help)" >&2; exit 1 ;;
     esac
 done
@@ -105,6 +108,6 @@ else
     echo ">> using existing compositor settings $SETTINGS_PATH (pass --write-settings to regenerate)" >&2
 fi
 
-BIN="$("$HERE/build.sh" "$BACKEND" "$PROFILE")"
-echo ">> running $BIN  [backend=$BACKEND profile=$PROFILE renderer=${COMPOSITOR_RENDERER:-vulkan}]" >&2
+BIN="$("$HERE/build.sh" "$BACKEND")"
+echo ">> running $BIN  [backend=$BACKEND renderer=${COMPOSITOR_RENDERER:-vulkan}]" >&2
 exec "$BIN"

@@ -2,6 +2,7 @@ use compositor_introspection_extraction_window_handler_traits::traits::AppHandle
 use compositor_introspection_extraction_window_hints_id::handler_id::HandlerId;
 use compositor_introspection_extraction_window_hints_inferred::inferred::InferredHints;
 use compositor_introspection_extraction_window_hints_source::source::Confidence;
+use compositor_introspection_extraction_window_hints_values::values::ToplevelIcon;
 use compositor_introspection_extraction_window_meta_types::types::MetaNode;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -75,10 +76,12 @@ impl HandlerRegistry {
     }
 
     /// Full hint extraction: base hints, detection (recorded as a hint),
-    /// then only the detected handler's own hints.
-    pub fn extract_all_hints(&self, node: &MetaNode) -> InferredHints {
+    /// then only the detected handler's own hints. `icon` is the live toplevel's
+    /// icon state when the caller has a surface to read it from (see
+    /// [`extract_hints_with`]).
+    pub fn extract_all_hints(&self, node: &MetaNode, icon: Option<&ToplevelIcon>) -> InferredHints {
         let detected = self.detect(node);
-        compositor_introspection_extraction_window_handler_hints::extract::extract_all_hints(node, detected, self.get(detected.0))
+        compositor_introspection_extraction_window_handler_hints::extract::extract_all_hints(node, detected, self.get(detected.0), icon)
     }
 }
 
@@ -90,6 +93,20 @@ impl Default for HandlerRegistry {
 
 /// Extract `InferredHints` from a (possibly stale) `MetaNode`. Pure data +
 /// filesystem reads; does NOT touch the window or `/proc`.
+///
+/// This is the form the background sampler uses — it has no surface, so the
+/// toplevel-icon hints are absent from its results.
 pub fn extract_hints(meta: &MetaNode, registry: &HandlerRegistry) -> InferredHints {
-    registry.extract_all_hints(meta)
+    registry.extract_all_hints(meta, None)
+}
+
+/// [`extract_hints`] plus the extra context only a caller holding a LIVE window
+/// can supply: the `xdg_toplevel_icon_v1` icon read off its surface
+/// (`window.icon.toplevel::read`). Everything else is identical.
+pub fn extract_hints_with(
+    meta: &MetaNode,
+    registry: &HandlerRegistry,
+    icon: Option<&ToplevelIcon>,
+) -> InferredHints {
+    registry.extract_all_hints(meta, icon)
 }

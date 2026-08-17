@@ -268,18 +268,19 @@ jobs:
 
       - name: Build full install bundle for ${{ matrix.distro }} (${{ matrix.arch }})
         env:
-          # BUNDLE=1 flips the Containerfile from the dev-loop winit binary to prepare.sh (all
-          # components); VERSION stamps the STABLE release number in — the same value the
-          # Fedora `bundle` job writes to VERSION, so every artifact of this run agrees.
+          # VERSION stamps the STABLE release number in — the same value the Fedora
+          # `bundle` job writes to VERSION, so every artifact of this run agrees. The
+          # build MODE is image.sh's second argument (`bundle`), not an extra build-arg —
+          # the Containerfile REQUIRES it and fails if it is missing, so this path cannot
+          # silently fall back to the nested winit dev binary.
           Y5_EXTRA_BUILD_ARGS: >-
-            --build-arg BUNDLE=1
             --build-arg VERSION=${{ needs.version.outputs.version }}
-        run: environment.container/distributions/image.sh "${{ matrix.distro }}" release
+        run: environment.container/distributions/image.sh "${{ matrix.distro }}" bundle
 
       - name: Extract + package the bundle
         run: |
           combo="${{ matrix.distro }}-${{ matrix.arch }}"
-          img="y5-distro-${{ matrix.distro }}-release"
+          img="y5-distro-${{ matrix.distro }}-bundle"
           cid="$(podman create "$img")"
           trap 'podman rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           mkdir -p dist

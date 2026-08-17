@@ -1,0 +1,14 @@
+{
+  "deps": [
+    "compositor_pipeline_abi_seam_base",
+    "compositor_pipeline_bundle_builtin_base",
+    "compositor_pipeline_bundle_load_base",
+    "compositor_pipeline_build_pipeline_base",
+    "compositor_pipeline_build_place_base",
+    "compositor_background_two_storage_base",
+    "compositor_configurator_settings_surface_message",
+    "compositor_model_stats_registry_base",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_guide_shader_view"
+  ]
+}

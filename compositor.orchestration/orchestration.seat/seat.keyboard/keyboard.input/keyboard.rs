@@ -47,6 +47,96 @@ fn is_modifier_keysym(raw: u32) -> bool {
 /// Escape keysym — cancels a pen key-bind capture.
 const KEY_ESCAPE: u32 = 0xff1b;
 
+/// `Control_L` / `Control_R`. Nested sessions treat the two as DIFFERENT
+/// modifiers — see [`nested_shortcut_view`].
+const KEY_CONTROL_L: u32 = 0xffe3;
+const KEY_CONTROL_R: u32 = 0xffe4;
+/// `Super_L` — what Right Ctrl presents AS in a nested session.
+const KEY_SUPER_L: u32 = 0xffeb;
+
+/// The keysym + modifier state the SHORTCUT matchers are asked about.
+///
+/// Identity on real hardware, and identity whenever Ctrl is not held at all.
+///
+/// Nested (winit) is the exception, and the rule there is one substitution, not a
+/// remap of every binding:
+///
+/// * **Right Ctrl stands in for Super.** The host session owns Super and never
+///   forwards it, so the compositor would otherwise have no modifier of its own.
+/// * **Left Ctrl stays Ctrl.** It is what the clients running INSIDE the session
+///   use — Ctrl+C, Ctrl+T, everything — and it is also what a genuinely
+///   Ctrl-based COMPOSITOR binding means. Both keep working.
+///
+/// So a `Super+X` binding matches on RCtrl+X, a `Ctrl+X` binding matches on
+/// LCtrl+X, and `Super+Ctrl+Alt` (the Hand tool) matches on RCtrl+LCtrl+Alt —
+/// each without a single binding being rewritten. Substituting at the INPUT is
+/// what makes that possible: the old approach rewrote every Super combo's `logo`
+/// into `ctrl`, which collapsed the two meanings into one bit and left no way to
+/// express a real Ctrl shortcut in a nested session.
+///
+/// `logo` is OR-ed rather than assigned, so a host that does forward Super (none
+/// do today) would still work.
+///
+/// Read off the live pressed set rather than tracked on the side: the seat
+/// already knows which physical keys are held, and a flag maintained here would
+/// drift on any release the compositor never saw.
+///
+/// This is the matchers' view ONLY. Clients are forwarded the untouched xkb state
+/// (`input_forward` takes `mods_changed`), so a nested client still sees a plain
+/// Ctrl on either key.
+fn nested_shortcut_view(
+    _loop: &Loop,
+    shortcut_sym: Keysym,
+    modifiers: smithay::input::keyboard::ModifiersState,
+) -> (Keysym, smithay::input::keyboard::ModifiersState) {
+    if !_loop.inner.storage.nested {
+        return (shortcut_sym, modifiers);
+    }
+    // The KEY identity moves with the modifier bit. `Key::from_keysym` folds both
+    // controls onto `Key::Ctrl`, and `KeyCombo::matches` cross-checks the pressed
+    // key against the combo's modifiers — so a modifier-only combo like the Move
+    // grab (`Super` held, no key) is asked "is the key you pressed the Super this
+    // combo wants?" and would answer no for a bare `Control_R`, leaving every
+    // grab tool dead in a nested session. Substituting only the bits is not
+    // enough; the sym has to say Super too.
+    let shortcut_sym = if shortcut_sym.raw() == KEY_CONTROL_R {
+        Keysym::new(KEY_SUPER_L)
+    } else {
+        shortcut_sym
+    };
+    // No Ctrl held at all ⇒ neither half is down, so the full computation below
+    // would return exactly these bits. Skip the pressed-set scan.
+    //
+    // This is also what makes RELEASE correct: when the last Ctrl goes up, xkb has
+    // already cleared `ctrl` (smithay's `key_input` removes the keycode from the
+    // pressed set BEFORE the filter runs), so the early return yields
+    // `logo: false, ctrl: false` — "Super released" — and a held grab cancels.
+    if !modifiers.ctrl {
+        return (shortcut_sym, modifiers);
+    }
+    let (left, right) = _loop
+        .state
+        .seat
+        .seat
+        .get_keyboard()
+        .map(|keyboard| {
+            keyboard.with_pressed_keysyms(|syms| {
+                let raw = |h: &smithay::input::keyboard::KeysymHandle<'_>| h.modified_sym().raw();
+                (
+                    syms.iter().any(|h| raw(h) == KEY_CONTROL_L),
+                    syms.iter().any(|h| raw(h) == KEY_CONTROL_R),
+                )
+            })
+        })
+        .unwrap_or((false, false));
+    let modifiers = smithay::input::keyboard::ModifiersState {
+        logo: modifiers.logo || right,
+        ctrl: left,
+        ..modifiers
+    };
+    (shortcut_sym, modifiers)
+}
+
 /// The evdev+8 (xkb) keycodes of the LEFT modifiers held, in a stable order — for a
 /// captured combo, replayed by the injector (`tablet/inject.rs`).
 fn modifier_keycodes(m: &smithay::input::keyboard::ModifiersState) -> Vec<u32> {
@@ -167,6 +257,12 @@ pub fn input_received<I: InputBackend>(event: &I::KeyboardKeyEvent, _loop: &mut 
     if key_state == KeyState::Pressed && !is_modifier_keysym(shortcut_sym.raw()) {
         compositor_y5_guide_interface_base::base::on_key(_loop, shortcut_sym.raw());
     }
+
+    // Shortcut matching sees the nested substitution (Right Ctrl AS Super, Left
+    // Ctrl still Ctrl) — both the modifier bits and the key identity. The pen
+    // capture above deliberately took the RAW pair: it records the physical combo
+    // the user pressed, not what the compositor binds it to.
+    let (shortcut_sym, modifiers) = nested_shortcut_view(_loop, shortcut_sym, modifiers);
 
     if should_forward::<I>(_loop, keysym, shortcut_sym, key_state, &modifiers) {
         keyboard.input_forward(&mut _loop.state, key_code, key_state, serial, time, mods_changed);

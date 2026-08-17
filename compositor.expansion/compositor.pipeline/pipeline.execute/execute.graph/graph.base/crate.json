@@ -1,0 +1,12 @@
+{
+  "deps": [
+    "compositor_pipeline_abi_seam_base",
+    "compositor_pipeline_abi_worldset_base",
+    "ash",
+    "compositor_kernel_vulkan_device_factory_base",
+    "compositor_kernel_vulkan_renderer_error_base",
+    "compositor_pipeline_execute_effect_base",
+    "compositor_orchestration_seat_pointer_publish",
+    "compositor_pipeline_abi_clock_base"
+  ]
+}

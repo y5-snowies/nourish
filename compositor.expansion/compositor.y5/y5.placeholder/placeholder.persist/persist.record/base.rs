@@ -4,6 +4,7 @@ use compositor_introspection_extraction_window_hints_codec_register::register;
 use compositor_introspection_inference_hint_base::{ApplicationData, InferredHints};
 use compositor_introspection_launchplan_plan_base::LaunchPlan;
 use compositor_introspection_launchplan_plan_preferences::Preferences;
+use compositor_introspection_restoration_state_pending::pending::SessionKey;
 
 /// One persisted inferred hint: its codec-encoded value + provenance. Restored
 /// verbatim into `InferredHints`, so the full hint set survives a reboot.
@@ -44,12 +45,34 @@ pub struct PersistedLaunch {
     pub active_handler: Option<String>,
 }
 
+/// The `xdg_session_management_v1` identity of the window this placeholder
+/// captured. THE durable half of the record: the geometry above says where the
+/// window goes, this says which window it is — a question the activation token
+/// (in-memory, per-launch) has never been able to answer across a restart.
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PersistedSession {
+    pub session_id: String,
+    pub name: String,
+}
+
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PlaceholderRecord {
     pub position: (i32, i32),
     pub size: (i32, i32),
     pub persistent: bool,
     pub launch: PersistedLaunch,
+    /// `default` so configs written before session support load cleanly.
+    #[serde(default)]
+    pub session: Option<PersistedSession>,
+}
+
+/// Round-trip the session identity between its matcher form and its stored form.
+pub fn to_persisted_session(key: &SessionKey) -> PersistedSession {
+    PersistedSession { session_id: key.session_id.clone(), name: key.name.clone() }
+}
+
+pub fn to_session_key(s: &PersistedSession) -> SessionKey {
+    SessionKey { session_id: s.session_id.clone(), name: s.name.clone() }
 }
 
 /// Project a live launch plan to its full persisted state via the codec registry.

@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "iced_core",
+    "iced_widget",
+    "iced_wgpu",
+    "compositor_monitor_selection_font_base",
+    "compositor_support_iced_core_engine_base"
+  ]
+}

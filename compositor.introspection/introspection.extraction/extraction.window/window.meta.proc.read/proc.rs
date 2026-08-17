@@ -21,8 +21,8 @@ pub fn extract_meta_for_pid(pid: u32) -> Option<Meta> {
     info.comm = fs::read_to_string(format!("{proc_dir}/comm"))
         .ok()
         .map(|s| s.trim().to_string());
-    info.exe = fs::read_link(format!("{proc_dir}/exe")).ok();
-    info.cwd = fs::read_link(format!("{proc_dir}/cwd")).ok();
+    info.exe = fs::read_link(format!("{proc_dir}/exe")).ok().map(undeleted);
+    info.cwd = fs::read_link(format!("{proc_dir}/cwd")).ok().map(undeleted);
     info.cgroup = fs::read_to_string(format!("{proc_dir}/cgroup")).ok();
     info.cmdline = fs::read(format!("{proc_dir}/cmdline")).ok().map(|bytes| {
         bytes
@@ -33,6 +33,34 @@ pub fn extract_meta_for_pid(pid: u32) -> Option<Meta> {
     });
     info.selected_env = read_filtered_env(&proc_dir);
     Some(info)
+}
+
+/// What the kernel appends to a `/proc/<pid>/{exe,cwd}` link target once the
+/// dentry it points at has been unlinked.
+const DELETED_MARKER: &str = " (deleted)";
+
+/// Strip the kernel's `" (deleted)"` marker from a `/proc` link target.
+///
+/// `/proc/<pid>/exe` resolves through `d_path()`, which appends that literal
+/// suffix when the inode the process exec'd has since been unlinked. That is
+/// routine, not exotic: an in-place package upgrade, a self-updating app, or a
+/// rebuild over a running binary all unlink the old file while the process
+/// keeps running. `read_link` hands the marker back as part of the PATH, so it
+/// then travels into `ExecProgram`, into every persisted placeholder record,
+/// and into transient-capture comparison — where the stored value can never
+/// equal a freshly-launched window's clean path, and a relaunch would ENOENT.
+///
+/// A file genuinely named `"… (deleted)"` still resolves on disk, so only
+/// strip when the raw target does not exist. One suffix is removed, so a
+/// deleted file with that name (`"x (deleted) (deleted)"`) degrades correctly.
+fn undeleted(path: PathBuf) -> PathBuf {
+    let Some(stripped) = path.to_str().and_then(|s| s.strip_suffix(DELETED_MARKER)) else {
+        return path;
+    };
+    if path.exists() {
+        return path;
+    }
+    PathBuf::from(stripped)
 }
 
 fn read_filtered_env(proc_dir: &str) -> Option<HashMap<String, String>> {

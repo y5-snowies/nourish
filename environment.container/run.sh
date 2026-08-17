@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Build + run the compositor inside the dev container, under the host's nested Wayland.
-# Usage: ./run.sh [winit|udev] [debug|release]   (default: winit debug)
+# Usage: ./run.sh [winit|udev]   (default: winit)
+# Always release-fast — build.sh has no profile argument (see environment/build.sh).
 set -euo pipefail
 
 BACKEND="${1:-winit}"
-PROFILE="${2:-debug}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/.." && pwd)"
 
@@ -37,4 +37,4 @@ podman run -it --rm \
     -w /working.directory \
     --security-opt label=disable \
     --entrypoint=/bin/bash \
-    "$IMAGE" /working.directory/entrypoint.sh "$BACKEND" "$PROFILE"
+    "$IMAGE" /working.directory/entrypoint.sh "$BACKEND"

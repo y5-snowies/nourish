@@ -191,13 +191,49 @@ pub fn fit(state: &mut Loop, zoom_1: bool, fit_1: bool) {
 /// Travel the camera to a single specific window (the overview cell the user
 /// clicked). Unlike `fit_window`, the target window is explicit rather than
 /// derived from the selection/focus — and the placement uses the SAME flag
-/// recipe as Super+Left/Right (`view_directional`'s default set), so clicking a
-/// cell lands with the directional-travel zoom feel (fill ~70% of the viewport,
-/// no crop, padded) instead of an exact fit.
+/// recipe as Super+Alt+Left/Right ("navigate and zoom", `view_directional`'s
+/// `alternative = false` set), so the cell lands zoomed in to fill ~70% of the
+/// viewport, no crop, padded — instead of an exact fit.
 pub fn fit_to_window(state: &mut Loop, window: &Window) {
-    use compositor_support_action_camera_fit_element::element::{
-        CameraPlacementFlags, PlacementResult, compute_placement,
-    };
+    use compositor_support_action_camera_fit_element::element::CameraPlacementFlags;
+    place_window(state, window, DIRECTIONAL_SET | CameraPlacementFlags::ZOOM_GOAL_FILL_VIEWPORT);
+}
+
+/// Travel the camera to a single specific window WITHOUT zooming in to fill it:
+/// the SAME flag recipe as plain Super+Left/Right (`view_directional`'s
+/// `alternative = true` set). `ZOOM_GOAL_MIN_CHANGE` in place of
+/// `ZOOM_GOAL_FILL_VIEWPORT` keeps the current zoom level whenever the window
+/// already fits, so activating an overview cell pans there rather than diving in.
+pub fn travel_to_window(state: &mut Loop, window: &Window) {
+    use compositor_support_action_camera_fit_element::element::CameraPlacementFlags;
+    place_window(state, window, DIRECTIONAL_SET | CameraPlacementFlags::ZOOM_GOAL_MIN_CHANGE);
+}
+
+/// Flags shared by both single-window travels — `view_directional`'s set minus the
+/// one zoom goal that distinguishes "fill the viewport" from "keep my zoom".
+const DIRECTIONAL_SET: compositor_support_action_camera_fit_element::element::CameraPlacementFlags = {
+    use compositor_support_action_camera_fit_element::element::CameraPlacementFlags as F;
+    F::PAN_CENTER
+        .union(F::ZOOM_IN_TO_FIT)
+        .union(F::ZOOM_OUT_TO_FIT)
+        .union(F::ZOOM_GOAL_NO_CROP)
+        .union(F::PAN_GOAL_MIN_MOVEMENT)
+        .union(F::PAN_GOAL_MAX_VISIBILITY)
+        .union(F::PAN_GOAL_NO_CUTOFF)
+        .union(F::PAN_GOAL_NO_OVERSHOOT)
+        .union(F::PAN_DOMINANCE)
+        .union(F::ZOOM_DOMINANCE)
+        .union(F::PAD_DEFAULT)
+};
+
+/// Compute and issue the travel that places `window` under `set`. No-op if the
+/// window has no geometry in the space.
+fn place_window(
+    state: &mut Loop,
+    window: &Window,
+    set: compositor_support_action_camera_fit_element::element::CameraPlacementFlags,
+) {
+    use compositor_support_action_camera_fit_element::element::{PlacementResult, compute_placement};
     let Some(bbox) = state.inner.space_state().state.element_geometry(window).map(|r| r.to_f64())
     else {
         return;
@@ -210,18 +246,6 @@ pub fn fit_to_window(state: &mut Loop, window: &Window) {
         .output_geometry(output)
         .unwrap_or_else(|| abort!("output has geometry"));
     let screen_size: Size<f64, Logical> = output_geom.size.to_f64();
-    let set = CameraPlacementFlags::PAN_CENTER
-        | CameraPlacementFlags::ZOOM_IN_TO_FIT
-        | CameraPlacementFlags::ZOOM_OUT_TO_FIT
-        | CameraPlacementFlags::ZOOM_GOAL_FILL_VIEWPORT
-        | CameraPlacementFlags::ZOOM_GOAL_NO_CROP
-        | CameraPlacementFlags::PAN_GOAL_MIN_MOVEMENT
-        | CameraPlacementFlags::PAN_GOAL_MAX_VISIBILITY
-        | CameraPlacementFlags::PAN_GOAL_NO_CUTOFF
-        | CameraPlacementFlags::PAN_GOAL_NO_OVERSHOOT
-        | CameraPlacementFlags::PAN_DOMINANCE
-        | CameraPlacementFlags::ZOOM_DOMINANCE
-        | CameraPlacementFlags::PAD_DEFAULT;
     let placement = compute_placement(
         set,
         bbox,

@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_orchestration_seat_pointer_element",
+    "compositor_orchestration_seat_pointer_texture"
+  ]
+}

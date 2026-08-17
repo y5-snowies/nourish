@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_support_bevy_core_handle_base",
+    "compositor_support_bevy_core_publish_base",
+    "compositor_support_bevy_core_shared_base",
+    "smithay",
+    "wgpu"
+  ]
+}

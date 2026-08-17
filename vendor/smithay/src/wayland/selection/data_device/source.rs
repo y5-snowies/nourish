@@ -21,9 +21,10 @@ use crate::input::{
 };
 use crate::utils::{IsAlive, alive_tracker::AliveTracker};
 use crate::wayland::Dispatch2;
+use crate::wayland::selection::SelectionTarget;
 use crate::wayland::selection::offer::OfferReplySource;
 use crate::wayland::selection::seat_data::SeatData;
-use crate::wayland::selection::source::SelectionSourceProvider;
+use crate::wayland::selection::source::{CompositorSelectionProvider, SelectionSourceProvider};
 
 use super::DataDeviceHandler;
 
@@ -93,20 +94,40 @@ where
             None => return,
         };
 
-        let mut seat_data = seat
+        let seat_data = seat
             .user_data()
             .get::<RefCell<SeatData<D::SelectionUserData>>>()
-            .unwrap()
-            .borrow_mut();
+            .unwrap();
 
-        match seat_data.get_clipboard_selection() {
+        // Ownership test under a SCOPED immutable borrow. The replacement hook below takes
+        // `&mut D`; holding a `SeatData` borrow across it would panic for any handler that
+        // reaches back into this seat's data.
+        let owns_clipboard = matches!(
+            seat_data.borrow().get_clipboard_selection(),
             Some(OfferReplySource::Client(SelectionSourceProvider::DataDevice(set_source)))
-                if set_source == source =>
-            {
-                seat_data.set_clipboard_selection::<D>(&self.display_handle, None)
-            }
-            _ => (),
+                if set_source == source
+        );
+        if !owns_clipboard {
+            return;
         }
+
+        // Ask the compositor for a replacement so the selection is swapped in ONE transition.
+        // Clearing here and letting the compositor re-install afterwards would make clients
+        // observe `wl_data_device.selection(nil)` followed by a fresh offer. The default impl
+        // returns `None`, which reproduces the previous behaviour exactly.
+        let replacement = state
+            .selection_source_destroyed(SelectionTarget::Clipboard, &seat)
+            .map(|(mime_types, user_data)| {
+                OfferReplySource::Compositor(CompositorSelectionProvider {
+                    ty: SelectionTarget::Clipboard,
+                    mime_types,
+                    user_data,
+                })
+            });
+
+        seat_data
+            .borrow_mut()
+            .set_clipboard_selection::<D>(&self.display_handle, replacement);
     }
 }
 

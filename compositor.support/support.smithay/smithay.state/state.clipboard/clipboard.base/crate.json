@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_support_smithay_state_clipboard_capture",
+    "compositor_support_smithay_state_clipboard_worker"
+  ]
+}

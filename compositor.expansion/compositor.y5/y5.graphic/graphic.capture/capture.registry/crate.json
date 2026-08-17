@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "compositor_kernel_graphic_bridge_negotiate_base",
+    "thiserror",
+    "wgpu",
+    "smithay",
+    "compositor_support_bevy_core_runtime_base"
+  ]
+}

@@ -142,6 +142,49 @@ impl PlaceholderSystem {
         if outcome.result.is_err() {
             return;
         }
+        // Bootstrap the session-id correlation: `xdg_session_management_v1` has
+        // no way for us to TELL a client its session id — the client asks with
+        // NULL and we choose the string we send back in `created`. So we note
+        // which placeholder this pid was spawned for, and mint that placeholder's
+        // uuid when the resulting client asks. Needed once per app; from then on
+        // the client hands the id back itself.
+        //
+        // Uses the raw pid regardless of `REQUIRE_PID` — that toggle exists to
+        // exercise the token-only MATCHING path, and this is not matching.
+        //
+        // Hand over the session id this placeholder ALREADY restores under, so a
+        // relaunch re-mints the same string rather than a fresh one. Without it
+        // the returning client would be handed a new id every generation and
+        // could never find the state it saved under the old one.
+        // Gated on the launch having SUCCEEDED, not on it yielding a pid.
+        //
+        // Those are different questions, and conflating them made the pid a hard
+        // requirement for the whole mechanism: the activation token is a predicate
+        // in its own right — the one that still works when the client double-forks,
+        // calls `setsid`, or lives in a sandbox whose pid tree we cannot follow —
+        // but it was unreachable without a pid, because on `None` no claim was
+        // registered at all. Today `pid: None` means the spawn failed, so this gate
+        // is the accurate one and nothing changes for the launch paths we have; a
+        // route that yields a token but no usable pid (D-Bus activation, a
+        // `systemd-run` scope) correlates instead of silently not.
+        //
+        // Only the claim is gated. `SetRestoration` below still runs either way,
+        // as it did before.
+        if outcome.result.is_ok() {
+            let known = cx
+                .storage
+                .get(&PLACEHOLDER)
+                .visible
+                .iter()
+                .find(|(ph, _)| ph.uuid == uuid)
+                .and_then(|(ph, _)| ph.session.as_ref().map(|s| s.session_id.clone()));
+            compositor_support_smithay_state_session_claim::claim::register(
+                outcome.pid,
+                uuid,
+                known,
+                outcome.token.clone(),
+            );
+        }
         let token = PlaceholderLaunchToken {
             token: outcome.token.clone(),
             child: if REQUIRE_PID { outcome.pid } else { None },
@@ -159,7 +202,14 @@ impl PlaceholderSystem {
             if w.0.uuid == ev.uuid { Some(w.1.id) } else { None }
         });
 
-        cx.write(&PLACEHOLDER_BUF, PlaceholderCmd::SetGeometry(ev.uuid, ev.position, ev.size));
+        // The layout floor, applied at the system boundary. The slot half is
+        // clamped again by `PlaceholderState`'s mutators, but the REGISTRY half
+        // below is computed straight from `ev` — without this, an announcer that
+        // skipped its own clamp could hand the iced surface a size the tile's
+        // responsive layout has no design for.
+        let size = ev.size.map(compositor_y5_placeholder_surface_base::breakpoint::clamp_size);
+
+        cx.write(&PLACEHOLDER_BUF, PlaceholderCmd::SetGeometry(ev.uuid, ev.position, size));
 
         if let Some(handle) = handle {
             // World → storage-physical: the iced surface was spawned at
@@ -185,7 +235,7 @@ impl PlaceholderSystem {
             // the world -> storage-physical hop, which only placeholders take.
             // (`Transform::into_storage_rect_physical` rounds apart too — uniting
             // them is deferred, so this fixes the path that shows it.)
-            let (position, size) = match (ev.position, ev.size) {
+            let (position, size) = match (ev.position, size) {
                 (Some((x, y)), Some((w, h))) => {
                     let left = (x as f64 * s).round() as i32;
                     let top = (y as f64 * s).round() as i32;

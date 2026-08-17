@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_monitor_compositor_iced_base",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_guide_menu_tip",
+    "compositor_y5_guide_menu_view",
+    "compositor_y5_guide_state_base",
+    "smithay"
+  ]
+}

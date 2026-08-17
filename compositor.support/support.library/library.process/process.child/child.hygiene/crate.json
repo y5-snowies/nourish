@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "libc",
+    "compositor_model_debug_instance_record"
+  ]
+}

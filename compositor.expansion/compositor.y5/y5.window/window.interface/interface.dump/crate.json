@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "compositor_introspection_extraction_window_meta_types",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_window_interface_record",
+    "smithay",
+    "uuid"
+  ]
+}

@@ -25,6 +25,7 @@
 //!
 //! This crate does NOT know about a Placeholder struct.
 
+pub mod breakpoint;
 pub mod message;
 pub mod mode;
 pub mod style;

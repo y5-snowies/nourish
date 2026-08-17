@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_support_action_canvas_layout_rect",
+    "compositor_support_action_canvas_layout_minsize",
+    "compositor_support_action_canvas_layout_side",
+    "compositor_support_action_canvas_layout_converge"
+  ]
+}

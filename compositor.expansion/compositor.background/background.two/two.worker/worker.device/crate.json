@@ -1,0 +1,13 @@
+{
+  "deps": [
+    "compositor_background_two_worker_ring",
+    "ash",
+    "smithay",
+    "compositor_kernel_vulkan_command_pool_base",
+    "compositor_kernel_vulkan_device_factory_base",
+    "compositor_kernel_vulkan_device_queue_base",
+    "compositor_kernel_vulkan_instance_factory_base",
+    "compositor_background_two_worker_physical",
+    "compositor_model_debug_instance_record"
+  ]
+}

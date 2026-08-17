@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_pipeline_abi_push_base",
+    "compositor_orchestration_draw_dispatch_frame",
+    "compositor_model_stats_registry_base"
+  ],
+  "build": [
+    "naga"
+  ]
+}

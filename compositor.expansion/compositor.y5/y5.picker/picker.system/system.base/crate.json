@@ -1,0 +1,14 @@
+{
+  "deps": [
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record",
+    "compositor_support_system_trait_system_base",
+    "compositor_y5_picker_state_base",
+    "compositor_orchestration_world_manager_base",
+    "compositor_y5_surface_state_base",
+    "compositor_y5_surface_system_base",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_y5_picker_persist_world",
+    "compositor_support_system_persist_document_entry"
+  ]
+}

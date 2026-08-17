@@ -1,0 +1,13 @@
+{
+  "deps": [
+    "compositor_model_environment_interface_base",
+    "compositor_support_bevy_core_context_base",
+    "compositor_support_bevy_core_element_base",
+    "compositor_support_bevy_core_error_base",
+    "compositor_support_bevy_core_handle_base",
+    "compositor_support_bevy_core_item_base",
+    "compositor_support_bevy_core_space_base",
+    "compositor_model_debug_instance_record",
+    "smithay"
+  ]
+}

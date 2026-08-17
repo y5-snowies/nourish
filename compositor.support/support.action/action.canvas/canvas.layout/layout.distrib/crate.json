@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_support_action_canvas_layout_rect",
+    "compositor_support_action_canvas_layout_minsize",
+    "compositor_support_action_canvas_layout_axis",
+    "compositor_support_action_canvas_layout_variant",
+    "compositor_support_action_canvas_layout_spacing",
+    "compositor_support_action_canvas_layout_primary"
+  ]
+}

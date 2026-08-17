@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "smithay",
+    "uuid",
+    "compositor_introspection_extraction_window_base",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_window_interface_record"
+  ]
+}

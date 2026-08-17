@@ -1,0 +1,16 @@
+{
+  "deps": [
+    "uuid",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_picker_state_base",
+    "compositor_y5_picker_system_base",
+    "compositor_y5_picker_scene_destroy",
+    "compositor_y5_picker_pick_navigate",
+    "compositor_y5_picker_three_orient",
+    "compositor_y5_picker_command_base",
+    "compositor_y5_picker_world_base",
+    "compositor_support_system_persist_mark_base",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

@@ -1,12 +1,13 @@
 use compositor_introspection_extraction_window_desktop_search::desktop::find_by_app_id;
 use compositor_introspection_extraction_window_hints_attributes_identity::attributes::{
-    DBusActivatable, DesktopEntryPath, DisplayName, IconName, IconPath,
+    DBusActivatable, DesktopEntryPath, DisplayName, IconName, IconPath, XdgIconName,
 };
-use compositor_introspection_extraction_window_hints_attributes_identity_more::attributes::{AppId, Title};
+use compositor_introspection_extraction_window_hints_attributes_identity_more::attributes::{AppId, NoDisplay, Title};
 use compositor_introspection_extraction_window_hints_attributes_launch::attributes::EnvOverlay;
+use compositor_introspection_extraction_window_hints_env_replay::replay::is_replayable;
 use compositor_introspection_extraction_window_hints_inferred::inferred::InferredHints;
 use compositor_introspection_extraction_window_hints_source::source::{Confidence, SourceMethod};
-use compositor_introspection_extraction_window_hints_values::values::EnvPair;
+use compositor_introspection_extraction_window_hints_values::values::{EnvPair, ToplevelIcon};
 use compositor_introspection_extraction_window_icon::icon::resolve as resolve_icon;
 use compositor_introspection_extraction_window_meta_types::types::Meta;
 use std::path::PathBuf;
@@ -15,15 +16,20 @@ use std::path::PathBuf;
 /// GIO_LAUNCHED_DESKTOP_FILE identity signal.
 pub fn push_env_hints(meta: &Meta, hints: &mut InferredHints) {
     let Some(env) = &meta.selected_env else { return };
-    if !env.is_empty() {
-        let pairs: Vec<EnvPair> = env
-            .iter()
-            .map(|(k, v)| EnvPair { key: k.clone(), value: v.clone() })
-            .collect();
+    // Capture is generous; REPLAY is not. The overlay is re-applied on top of
+    // the executor's base_env, so a session-owned value here (WAYLAND_DISPLAY
+    // above all) would override the live one with whatever was true when the
+    // placeholder was captured. See `window.hints.env.replay`.
+    let pairs: Vec<EnvPair> = env
+        .iter()
+        .filter(|(k, _)| is_replayable(k))
+        .map(|(k, v)| EnvPair { key: k.clone(), value: v.clone() })
+        .collect();
+    if !pairs.is_empty() {
         hints.push::<EnvOverlay>(
             pairs,
             SourceMethod::ProcEnviron,
-            "/proc/<pid>/environ (allowlisted)",
+            "/proc/<pid>/environ (replayable subset)",
             Confidence::High,
         );
     }
@@ -46,6 +52,44 @@ pub fn push_surface_identity_hints(meta: &Meta, hints: &mut InferredHints) {
     if let Some(title) = &meta.title {
         hints.push::<Title>(title.clone(), SourceMethod::WaylandSurface, "Wayland/X11 window title", Confidence::High);
     }
+}
+
+/// The `xdg_toplevel_icon_v1` icon the client declared for THIS toplevel.
+///
+/// `icon` is EXTRA CONTEXT: surface state, readable only from a live window on
+/// the compositor thread (`window.icon.toplevel::read`), which is why it arrives
+/// as an argument instead of on the [`Meta`] the sampler thread carries. Hints
+/// inferred without it simply lack these.
+///
+/// Only the NAMED half is recorded, as [`XdgIconName`] beside the desktop
+/// entry's own [`IconName`]. Attached pixel BUFFERS are deliberately not turned
+/// into a hint: hints outlive their window (a placeholder record is kept after
+/// the client is gone, and is persisted), and a decoded client buffer is not
+/// something to retain there — a consumer that wants those reads them live off
+/// the surface with `window.icon.toplevel::read`.
+///
+/// The name is promoted to [`IconPath`] only as a FALLBACK: if
+/// [`push_desktop_hints`] already resolved an icon file, that one stands (the
+/// desktop entry is the app's installed identity and matches what a launcher
+/// shows). So call this AFTER `push_desktop_hints`.
+pub fn push_toplevel_icon_hints(icon: &ToplevelIcon, hints: &mut InferredHints) {
+    let Some(name) = &icon.name else { return };
+    hints.push::<XdgIconName>(
+        name.clone(),
+        SourceMethod::WaylandSurface,
+        "xdg_toplevel_icon_v1 set_name",
+        Confidence::High,
+    );
+    if hints.has::<IconPath>() {
+        return; // desktop entry already resolved one — it is not overridden.
+    }
+    let Some(resolved) = resolve_icon(name) else { return };
+    hints.push::<IconPath>(
+        resolved,
+        SourceMethod::IconTheme,
+        format!("resolved xdg_toplevel_icon name '{name}'"),
+        Confidence::High,
+    );
 }
 
 /// Desktop-entry resolution by app_id: entry path, display name, D-Bus
@@ -72,6 +116,9 @@ pub fn push_desktop_hints(meta: &Meta, hints: &mut InferredHints) {
             "DBusActivatable=true",
             Confidence::High,
         );
+    }
+    if de.no_display {
+        hints.push::<NoDisplay>(true, SourceMethod::DesktopEntry, "NoDisplay=true", Confidence::High);
     }
     if let Some(icon) = &de.icon {
         hints.push::<IconName>(

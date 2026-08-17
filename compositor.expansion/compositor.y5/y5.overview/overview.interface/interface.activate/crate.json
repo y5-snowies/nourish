@@ -1,0 +1,14 @@
+{
+  "deps": [
+    "smithay",
+    "uuid",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_overview_interface_base",
+    "compositor_y5_overview_interface_surface",
+    "compositor_y5_navigator_interface_base",
+    "compositor_y5_picker_interface_embed",
+    "compositor_y5_window_interface_record",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

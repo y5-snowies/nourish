@@ -29,10 +29,24 @@ if is_github || is_gitlab; then
     git config --global --add safe.directory "$REPO_ROOT" 2>/dev/null || true
 fi
 
+# Generate every Cargo manifest, once per process tree. Every Cargo.toml in the linked
+# tree is a gitignored build artifact (see CLAUDE.md), so a CI checkout has NONE until
+# this runs — anything that greps a manifest has to call it first. Idempotent and cheap
+# on a second call, but flagged anyway so a script chain doesn't pay for it repeatedly.
+y5_generate_manifests() {
+    [ -z "${Y5_MANIFESTS_GENERATED:-}" ] || return 0
+    if [ -f "$REPO_ROOT/compositor.workspace/workspace.generate.js" ] && command -v node >/dev/null 2>&1; then
+        ( cd "$REPO_ROOT" && node compositor.workspace/workspace.generate.js >/dev/null ) \
+            || die "workspace.generate failed"
+    fi
+    export Y5_MANIFESTS_GENERATED=1
+}
+
 # Directory that owns the y5_compositor [[bin]] (rename-proof: keyed on the bin name),
 # printed relative to REPO_ROOT.
 y5_bin_crate_dir() {
     local abs
+    y5_generate_manifests
     abs="$(dirname "$(grep -rl --include=Cargo.toml 'name *= *"y5_compositor"' \
         "$REPO_ROOT"/compositor* | head -n1)")"
     [ -n "$abs" ] || die "could not find the y5_compositor crate"

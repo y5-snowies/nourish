@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_support_action_canvas_layout_base",
+    "compositor_support_action_canvas_layout_ordered",
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_window_lifecycle_interface"
+  ]
+}

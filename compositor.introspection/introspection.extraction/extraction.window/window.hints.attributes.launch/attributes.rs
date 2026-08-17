@@ -14,7 +14,7 @@ impl HintAttribute for ExecProgram {
     type Value = PathBuf;
     fn name() -> &'static str { "exec_program" }
     fn category() -> AttributeCategory { AttributeCategory::Launch }
-    fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "Program", Self::category(), AttributeKind::Path) }
+    fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "Program", Self::category(), AttributeKind::Path).invalidated_by(&["terminal.kind"]) }
 }
 
 /// argv tail (without the program), as a single value.

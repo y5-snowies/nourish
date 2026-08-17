@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_support_system_channel_router_base",
+    "compositor_support_system_channel_token_base",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_y5_group_surface_base",
+    "uuid"
+  ]
+}

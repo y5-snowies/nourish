@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_support_system_persist_entry_base",
+    "serde",
+    "serde_json"
+  ]
+}

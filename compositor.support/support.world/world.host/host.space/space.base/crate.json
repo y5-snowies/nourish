@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_support_world_host_window_base",
+    "compositor_support_smithay_state_space_base",
+    "compositor_support_system_storage_token_base"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "smithay",
+    "uuid",
+    "compositor_y5_window_interface_record"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "deps": [
+    "tonic",
+    "prost",
+    "tokio",
+    "compositor_remote_message_macro_base"
+  ],
+  "build": [
+    "tonic-prost-build"
+  ],
+  "keep": {
+    "prost": "spliced in by tonic::include_proto! from OUT_DIR"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "smithay",
+    // Compositor dependencies (CI ensures availability in workspace)
+    "compositor_kernel_winit_scene_compose_base",
+    "compositor_kernel_graphic_seat_modifier_clear",
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_draw_state_lifecycle",
+    "compositor_orchestration_seat_pointer_input",
+    "compositor_kernel_winit_input_capture_base"
+  ]
+}

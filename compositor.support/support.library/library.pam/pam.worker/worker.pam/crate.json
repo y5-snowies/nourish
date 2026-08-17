@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_support_library_pam_worker_auth",
+    "compositor_support_library_pam_worker_zerostr",
+    "smithay",
+    "pam-client"
+  ]
+}

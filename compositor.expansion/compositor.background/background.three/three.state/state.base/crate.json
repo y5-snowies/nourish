@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_y5_graphic_capture_registry",
+    "compositor_background_three_lock_scene",
+    "compositor_support_bevy_core_compositor_base"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_kernel_graphic_bridge_publish_retire",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_picker_system_base",
+    "compositor_background_three_system_base"
+  ]
+}

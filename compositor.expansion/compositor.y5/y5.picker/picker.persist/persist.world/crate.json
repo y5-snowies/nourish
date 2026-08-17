@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_y5_picker_state_base",
+    "compositor_support_system_persist_document_trait",
+    "serde",
+    "uuid"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "smithay",
+    // Compositor dependencies (CI ensures availability in workspace)
+    "compositor_orchestration_core_state_base"
+  ]
+}

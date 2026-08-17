@@ -1,0 +1,33 @@
+# Standalone session/portal probe. Answers one question: does the session bus
+# this process can see actually carry a working desktop portal, and everything a
+# GNOME app expects to find beside it?
+#
+# Deliberately OUTSIDE the repo's link.all.sh cross-workspace graph: its own
+# [workspace], its own Cargo.lock, crates.io deps only, plain-stdout output. It
+# depends on nothing in the compositor so it can be pointed at ANY bus — a
+# nested y5 session, or your ordinary host session as a baseline.
+[package]
+name = "y5-portal-stress"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+# Own workspace root so cargo does not walk up into the compositor workspaces.
+[workspace]
+
+[[bin]]
+name = "portal-stress"
+path = "src/main.rs"
+
+[dependencies]
+# Default features (async-io + blocking-api): the probe is synchronous top to
+# bottom, and async-io means no tokio runtime has to be stood up to make a
+# handful of method calls.
+zbus = "5"
+
+# Match the repo convention: release without LTO. Debug artifacts are not
+# viable on this disk, so this is the profile the harness is built with.
+[profile.release-fast]
+inherits = "release"
+lto = false

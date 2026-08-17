@@ -110,17 +110,23 @@
       <pre class="code"><button class="copy" data-copy>Copy</button><code>git clone https://github.com/y5-snowies/nourish
 cd nourish
 
+# Write the Cargo manifests — they are generated, so a fresh clone has none:
+compositor.workspace/link.all.sh
+
 # The compositor needs ~/.config/y5.compositor/settings.json to start.
 # Author it first by running the settings tool straight from source:
 cargo run --release --manifest-path compositor.installer/component/settings-editor/Cargo.toml
 
 # Build &amp; run the compositor nested in your current Wayland session:
-environment/run-host.sh winit release</code></pre>
+environment/run-host.sh winit</code></pre>
 
       <p>When you're ready to install it as a real login session, build the
       compositor binary:</p>
       <pre class="code"><button class="copy" data-copy>Copy</button><code># Build &amp; install the compositor binary to /usr/bin/y5.compositor:
-environment/build-release.sh system</code></pre>
+environment/build.sh udev --deploy
+
+# Or the optimized (fat LTO) build used for shipped artifacts — 10-20 min:
+environment/build-optimized.sh udev --deploy</code></pre>
 
       <p class="note">Building from source needs the Rust toolchain plus the
       system development libraries (Wayland, libinput, Mesa/Vulkan, ffmpeg, …).

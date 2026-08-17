@@ -38,6 +38,10 @@ impl Preferences {
     pub fn is_enabled<A: HintAttribute>(&self) -> bool {
         self.fields.get(A::name()).map(|f| f.enabled).unwrap_or(true)
     }
+    /// Typed form of [`Preferences::is_enabled_by_name_or`].
+    pub fn is_enabled_or<A: HintAttribute>(&self, default: bool) -> bool {
+        self.fields.get(A::name()).map(|f| f.enabled).unwrap_or(default)
+    }
     pub fn set_enabled<A: HintAttribute>(&mut self, enabled: bool) {
         self.fields.entry(A::name()).or_default().enabled = enabled;
     }
@@ -74,6 +78,27 @@ impl Preferences {
     }
     pub fn is_enabled_by_name(&self, name: &str) -> bool {
         self.fields.get(name).map(|f| f.enabled).unwrap_or(true)
+    }
+    /// As [`Preferences::is_enabled_by_name`], but the caller supplies the
+    /// default for an attribute with no entry. Callers that can see the
+    /// inferred hints pass "a hint exists": an attribute nothing knows
+    /// anything about has nothing to enable, and showing it ticked claims
+    /// otherwise.
+    pub fn is_enabled_by_name_or(&self, name: &str, default: bool) -> bool {
+        self.fields.get(name).map(|f| f.enabled).unwrap_or(default)
+    }
+    /// Whether the user has set an explicit override, by name.
+    pub fn has_override_by_name(&self, name: &str) -> bool {
+        self.fields.get(name).map(|f| f.has_override()).unwrap_or(false)
+    }
+    /// Drop the override, keeping `enabled` / `capture`. The distinct gesture
+    /// for "use the inferred value" — clearing the editor text cannot mean
+    /// that, because it has to keep meaning "override with an empty value".
+    pub fn clear_override_by_name(&mut self, name: &str) {
+        if let Some(field) = self.fields.get_mut(name) {
+            field.override_value = None;
+            field.override_type_id = None;
+        }
     }
     pub fn set_enabled_by_name(&mut self, name: &'static str, enabled: bool) {
         self.fields.entry(name).or_default().enabled = enabled;

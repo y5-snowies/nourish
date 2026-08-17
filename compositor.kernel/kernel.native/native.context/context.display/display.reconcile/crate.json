@@ -1,0 +1,24 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_kernel_native_context_render_base",
+    "compositor_kernel_native_context_display_build",
+    "compositor_kernel_drm_output_physical_base",
+    "compositor_support_smithay_dispatch_state_base",
+    "compositor_kernel_native_context_display_enumerate",
+    "compositor_kernel_native_context_display_base",
+    "compositor_kernel_drm_connector_scan_base",
+    "compositor_kernel_drm_edid_parse_base",
+    "compositor_kernel_drm_edid_identity_base",
+    "compositor_kernel_graphic_preference_output_profile",
+    "compositor_orchestration_core_state_base",
+    "compositor_kernel_graphic_bridge_publish_retire",
+    "compositor_orchestration_driver_output_base",
+    "compositor_orchestration_driver_lid_base",
+    "compositor_orchestration_event_output_base",
+    "compositor_model_environment_config_base",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record",
+    "compositor_kernel_native_wire_watchdog_settle"
+  ]
+}

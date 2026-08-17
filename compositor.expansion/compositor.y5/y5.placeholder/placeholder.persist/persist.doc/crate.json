@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_y5_placeholder_persist_record",
+    "compositor_y5_placeholder_record_base",
+    "compositor_y5_placeholder_state_base",
+    "compositor_support_system_persist_document_trait",
+    "uuid"
+  ]
+}

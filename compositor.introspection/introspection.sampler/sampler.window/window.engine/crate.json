@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_introspection_extraction_window_base",
+    "compositor_introspection_inference_hint_base",
+    "compositor_introspection_sampler_window_batch",
+    "compositor_introspection_sampler_window_schedule",
+    "smithay",
+    "uuid"
+  ]
+}

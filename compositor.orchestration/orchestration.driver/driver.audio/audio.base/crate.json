@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_support_system_storage_token_base",
+    "compositor_y5_audio_controller_interface"
+  ]
+}

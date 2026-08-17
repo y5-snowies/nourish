@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_support_system_channel_router_base",
+    "compositor_support_system_input_event_base",
+    "compositor_support_system_storage_slot_base",
+    "compositor_support_system_trait_system_base",
+    "compositor_support_system_persist_mark_base",
+    "compositor_support_system_persist_flush_base",
+    "uuid"
+  ]
+}

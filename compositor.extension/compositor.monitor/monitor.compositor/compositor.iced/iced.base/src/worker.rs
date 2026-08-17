@@ -126,6 +126,23 @@ struct Hosted {
     /// The world location paired with `size` — echoed back on every publish so
     /// the compositor can draw the rect this frame was actually rendered for.
     location: Point<i32, Physical>,
+    /// The ring generation last handed to the board.
+    ///
+    /// Publishing keys off THIS rather than off whether a particular `poll()`
+    /// call happened to be the one that retired a frame. Several places poll the
+    /// same ring in a frame — `advance` after a depth sync, `Ring::begin` under
+    /// backpressure, `set_depth` — and each discards its result. Whichever of
+    /// them retires the frame, the others then see nothing left to retire, so a
+    /// `moved` boolean says "nothing happened" for a frame that HAS been
+    /// retired, and the compositor is never told about it. A surface that
+    /// renders in a burst and then goes quiet keeps compositing the previous
+    /// generation for as long as it stays quiet. A generation cannot be stolen:
+    /// it either advanced since the last publish or it did not.
+    ///
+    /// Reset to 0 wherever the ring is REBUILT, since a fresh ring restarts its
+    /// own generation at 0 — that collision is the reason the earlier code
+    /// tracked a per-call signal instead.
+    published_gen: u64,
     /// Monotonic count of frames handed to the board, for THIS instance's whole
     /// life. Never reset.
     ///
@@ -208,7 +225,7 @@ fn apply(
                     None
                 }
             };
-            hosted.insert(id, Hosted { ui, ring, size, visible: true, stale: true, location, seq: 0, depth_failed: Attempt::new() });
+            hosted.insert(id, Hosted { ui, ring, size, visible: true, stale: true, location, published_gen: 0, seq: 0, depth_failed: Attempt::new() });
         }
         Job::Destroy(id) => {
             hosted.remove(&id);
@@ -229,6 +246,7 @@ fn apply(
                     match build_ring(ctx, render_node, size) {
                         Ok(r) => {
                             h.ring = Some(r);
+                            h.published_gen = 0; // fresh ring, fresh generation
                         }
                         Err(e) => warn!("iced worker: resize {id:?} failed: {e}"),
                     }
@@ -259,9 +277,13 @@ fn apply(
                 match visible {
                     // Released while hidden; the runtime keeps ticking, and
                     // `stale` makes it repaint once on reveal.
-                    false => h.ring = None,
+                    false => {
+                        h.ring = None;
+                        h.published_gen = 0;
+                    }
                     true if h.ring.is_none() => {
                         h.ring = build_ring(ctx, render_node, h.size).ok();
+                        h.published_gen = 0; // fresh ring, fresh generation
                         h.stale = true;
                     }
                     true => {}
@@ -352,17 +374,34 @@ fn advance(
 fn retire(id: HandleId, h: &mut Hosted, board: &Board, submitted_moved: bool) -> bool {
     let mut pending = false;
     if let Some(ring) = h.ring.as_mut() {
-        // THE signal is whether this poll retired a frame, not whether the
-        // generation differs from a number we remembered. A resize builds a
-        // fresh ring that restarts at generation 0, so a remembered cursor
-        // collides with it — the new frame comes back as generation 1, matches
-        // the 1 left from before the resize, and is skipped as "already
-        // published". During a drag that repeats every step and the surface
-        // freezes at the old content and the old size. `poll` cannot be wrong
-        // about this: it returns true exactly when it advanced the ring.
-        let moved = ring.poll() || submitted_moved;
+        // The signal is the ring's GENERATION against the one last published,
+        // not whether THIS poll was the call that retired a frame.
+        //
+        // The per-call signal was chosen to dodge a collision: a rebuilt ring
+        // restarts its generation at 0, so a remembered value from the old ring
+        // matches the new ring's first frame and skips it as "already
+        // published" — during a drag, every step, leaving the surface on the old
+        // content at the old size. That is now handled where it belongs, by
+        // resetting `published_gen` at each of the three places the ring is
+        // rebuilt, which is the only way the counter can go backwards.
+        //
+        // What the per-call signal could not survive is theft. `advance` polls
+        // after its depth sync, `Ring::begin` polls under backpressure, and
+        // `set_depth` polls — each discarding the result. Whichever call retires
+        // the frame, this one then finds nothing left and reports `false`, and a
+        // retired frame is never handed to the board. A surface that renders in
+        // a burst and goes quiet then composites the PREVIOUS generation for as
+        // long as it stays quiet; one that repaints continuously is corrected by
+        // its next frame, which is why this only showed on the overview's hover
+        // card. A generation cannot be stolen.
+        // Still polled here — this is where a frame finished between ticks gets
+        // retired. Its RESULT is no longer the publish signal; see `published_gen`.
+        let _ = ring.poll() || submitted_moved;
         pending = ring.has_pending();
+        let generation = ring.generation();
+        let moved = generation != h.published_gen;
         if moved {
+            h.published_gen = generation;
             h.seq += 1;
             board.publish(id, Published {
                 dmabuf: ring.published().dmabuf().clone(),

@@ -2,7 +2,7 @@
 # Cross-compile y5_compositor for aarch64 on an x86_64 host, against the local
 # sysroot in this directory. No container, no access to the target device.
 #
-# Usage: ./build.sh [winit|udev|native] [debug|release|fast]
+# Usage: ./build.sh [winit|udev|native] [release-fast|release]
 #
 # It only builds — copying the result to the device is yours to do. Remember to
 # `setcap cap_sys_nice+ep` it there: the capability cannot be set on a foreign-arch
@@ -58,11 +58,19 @@ REPO_ROOT="${Y5_REPO_ROOT:-}"
 if [ -z "$REPO_ROOT" ]; then
     d="$HERE"
     while [ "$d" != "/" ]; do
-        if compgen -G "$d/compositor*/Cargo.toml" >/dev/null 2>&1; then REPO_ROOT="$d"; break; fi
+        if [ -f "$d/compositor.workspace/workspace.catalog.json" ] \
+            || compgen -G "$d/compositor*/Cargo.toml" >/dev/null 2>&1; then REPO_ROOT="$d"; break; fi
         d="$(dirname "$d")"
     done
 fi
 [ -n "$REPO_ROOT" ] || { echo "build.sh: could not locate repo root (no compositor* dir found)" >&2; exit 1; }
+
+# Manifests are generated artifacts and a fresh clone has none, so generate before
+# the grep below goes looking for one (environment/build.sh does the same).
+if [ -f "$REPO_ROOT/compositor.workspace/workspace.generate.js" ] && command -v node >/dev/null 2>&1; then
+    ( cd "$REPO_ROOT" && node compositor.workspace/workspace.generate.js >/dev/null ) \
+        || { echo "build.sh: workspace.generate failed" >&2; exit 1; }
+fi
 
 EXECUTE_DIR="$(dirname "$(grep -rl --include=Cargo.toml --exclude-dir=target --exclude-dir=node_modules 'name *= *"y5_compositor"' "$REPO_ROOT"/compositor* | head -n1)")"
 [ -n "$EXECUTE_DIR" ] && [ -d "$EXECUTE_DIR" ] || { echo "build.sh: could not find the y5_compositor crate" >&2; exit 1; }
@@ -74,16 +82,15 @@ case "$BACKEND" in
     udev|native) feature_args=(--no-default-features --features backend-native) ;;
     *) echo "build.sh: unknown backend '$BACKEND' (expected winit|udev|native)" >&2; exit 1 ;;
 esac
+# Mirrors the host build.sh: no `debug`. `release` here is the fat-LTO profile
+# (the cross equivalent of build-optimized.sh), and Y5_PROFILE selects it too so
+# both scripts answer to the same env var.
+PROFILE="${Y5_PROFILE:-$PROFILE}"
 case "$PROFILE" in
-    debug)   profile_args=()          ; sub=debug ;;
-    release) profile_args=(--release) ; sub=release ;;
     fast|release-fast) profile_args=(--profile release-fast) ; sub=release-fast ;;
-    *) echo "build.sh: unknown profile '$PROFILE' (expected debug|release|fast)" >&2; exit 1 ;;
+    release) profile_args=(--release) ; sub=release ;;
+    *) echo "build.sh: unknown profile '$PROFILE' (expected release-fast|release)" >&2; exit 1 ;;
 esac
-if [ "$PROFILE" = "debug" ]; then
-    export CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-line-tables-only}"
-    export CARGO_PROFILE_DEV_SPLIT_DEBUGINFO="${CARGO_PROFILE_DEV_SPLIT_DEBUGINFO:-unpacked}"
-fi
 
 # --- Linker / C compiler shim ----------------------------------------------
 # rustc gives no way to inject --sysroot per link invocation and cc-rs needs the

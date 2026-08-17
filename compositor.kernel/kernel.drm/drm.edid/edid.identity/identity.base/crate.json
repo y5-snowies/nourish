@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    // Compositor dependencies (CI ensures availability in workspace)
+    "compositor_kernel_drm_edid_parse_base"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_support_system_storage_token_base",
+    "compositor_support_system_trait_system_base",
+    "compositor_y5_lock_state_base",
+    "compositor_y5_surface_state_base",
+    "compositor_y5_surface_system_base",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_orchestration_world_manager_base"
+  ]
+}

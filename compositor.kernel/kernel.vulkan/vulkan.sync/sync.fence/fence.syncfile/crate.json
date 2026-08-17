@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "libc",
+    "smithay",
+    "compositor_model_debug_instance_record"
+  ]
+}

@@ -9,7 +9,7 @@
 use smithay::backend::renderer::gles::GlesRenderer;
 use compositor_orchestration_core_state_base::Loop;
 use compositor_y5_overview_interface_surface::surface;
-use compositor_y5_overview_state_base::base::OverviewSurfaceMessage;
+use compositor_y5_overview_state_base::base::{OverviewSurfaceMessage, Tab};
 use compositor_y5_surface_protocol_base::protocol::{SurfaceMessage, SurfaceMessageType};
 
 /// Super+Tab: flip the overlay on/off. Defers the menu-bar surface op.
@@ -23,6 +23,15 @@ pub fn toggle(state: &mut Loop) {
         let overview = state.inner.overview_mut();
         overview.scroll = 0.0;
         overview.tab = tab;
+        // Cells are re-recorded by the first grid render of this opening. Drop
+        // the previous one's: the hover card resolves against them a step ahead
+        // of that render, and stale rects would place it against an old layout.
+        overview.cells.clear();
+        // Layout ONLY: the window grid is the one tab that reads sampled data.
+        // The sampler drops anything already fresh, so this is cheap to repeat.
+        if tab == Tab::Layout {
+            compositor_y5_overview_interface_sample::sample::request(state);
+        }
     }
     defer_reconcile(state);
 }
@@ -70,6 +79,11 @@ pub fn handle(state: &mut Loop, renderer: &mut GlesRenderer, message: OverviewSu
         }
         OverviewSurfaceMessage::SetTab(tab) => {
             state.inner.overview_mut().tab = tab;
+            // Arriving ON Layout asks too — opening on World and tabbing over is
+            // the same need as opening on Layout.
+            if tab == Tab::Layout {
+                compositor_y5_overview_interface_sample::sample::request(state);
+            }
             // Session-wide tab memory (survives world switches).
             *state.inner.kernel.get_mut(&compositor_y5_overview_state_base::base::OVERVIEW_TAB_MUT) = tab;
         }

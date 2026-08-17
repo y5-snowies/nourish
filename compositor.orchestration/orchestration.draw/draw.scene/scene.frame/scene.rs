@@ -136,14 +136,49 @@ fn update_fractional(state: &mut Loop) {
         );
     }
     let per: Vec<(f64, WlSurface)> = best.into_values().collect();
-    FRAC_SENT.with(|sent| {
+    let emitted = FRAC_SENT.with(|sent| {
         compositor_support_smithay_state_fractional_dispatch::emit_best_per_surface(
             &mut state.state.fractional,
             &mut sent.borrow_mut(),
             &per,
             &idle,
-        );
+        )
     });
+    reassert_slots_after_scale(state, &emitted);
+}
+
+/// Re-state the compositor-decided size to every window that was just handed a NEW scale.
+///
+/// A scale change makes a client re-lay itself out, and a client that quantises its window to a
+/// unit it cannot subdivide — a terminal's character cell — cannot land back on the size it was
+/// configured to: it re-grids at the new cell size, keeps its cell COUNT, and commits whatever
+/// logical size that rounds to. Nothing else re-configures it (the slot is unchanged; a zoom is
+/// not a resize), so the divergence sticks, and the next scale change compounds it. Left alone
+/// the window random-walks away from its slot and is cropped against it.
+///
+/// So arm the startup grace again here. It is the same jiggle used at map, aimed at the same
+/// problem — a client that sizes itself against the compositor's decision — and it is
+/// edge-triggered on the client's committed size, so a window that does NOT move costs nothing.
+/// The client settles at or just under its slot, which the fit then renders 1:1
+/// (see `fit::QUANTIZE_SLACK`).
+///
+/// Only `Decided` windows are re-asserted: an `Auto` window (a dialog / child toplevel) has been
+/// left to size itself deliberately, and holding it to its own geometry would fight it.
+fn reassert_slots_after_scale(state: &mut Loop, emitted: &[WlSurface]) {
+    if emitted.is_empty() {
+        return;
+    }
+    for window in state.inner.space_state().state.elements().cloned().collect::<Vec<_>>() {
+        let Some(surface) = window.wl_surface() else { continue };
+        if !emitted.iter().any(|s| s == surface.as_ref()) {
+            continue;
+        }
+        let Some(decided) = compositor_y5_camera_transform_translate::slot::decided_size(&window)
+        else {
+            continue;
+        };
+        compositor_support_smithay_state_compositor_place::arm_size_propagation(&window, decided);
+    }
 }
 
 

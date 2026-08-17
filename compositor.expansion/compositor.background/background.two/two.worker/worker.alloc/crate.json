@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_kernel_graphic_bridge_negotiate_report",
+    "smithay",
+    "compositor_background_two_worker_target",
+    "compositor_kernel_vulkan_device_factory_base",
+    "compositor_kernel_vulkan_format_query_base",
+    "compositor_kernel_vulkan_format_modifier_base",
+    "compositor_kernel_vulkan_memory_export_base"
+  ]
+}

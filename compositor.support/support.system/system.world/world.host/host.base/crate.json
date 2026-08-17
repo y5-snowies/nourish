@@ -1,0 +1,21 @@
+{
+  "deps": [
+    "compositor_support_system_world_flow_base",
+    "compositor_support_system_channel_router_base",
+    "compositor_support_system_persist_entry_base",
+    "compositor_support_system_persist_document_entry",
+    "compositor_support_system_persist_boot_base",
+    "uuid",
+    "compositor_support_system_input_event_base",
+    "compositor_support_system_storage_slot_base",
+    "compositor_support_system_trait_system_base",
+    "compositor_support_system_world_frame_base"
+  ],
+  "dev": [
+    "compositor_support_system_storage_slot_base",
+    "compositor_support_system_buffer_token_base",
+    "compositor_support_system_channel_token_base",
+    "compositor_support_system_input_layer_base",
+    "compositor_support_system_storage_token_base"
+  ]
+}

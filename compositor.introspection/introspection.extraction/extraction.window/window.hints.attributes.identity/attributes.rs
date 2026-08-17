@@ -15,7 +15,7 @@ impl HintAttribute for DisplayName {
     type Value = String;
     fn name() -> &'static str { "display_name" }
     fn category() -> AttributeCategory { AttributeCategory::Identity }
-    fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "Display name", Self::category(), AttributeKind::Text) }
+    fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "Display name", Self::category(), AttributeKind::Text).invalidated_by(&["app_id"]) }
 }
 
 /// Absolute path to a `.desktop` file describing this app.
@@ -25,7 +25,7 @@ impl HintAttribute for DesktopEntryPath {
     type Value = PathBuf;
     fn name() -> &'static str { "desktop_entry_path" }
     fn category() -> AttributeCategory { AttributeCategory::Identity }
-    fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "Desktop entry", Self::category(), AttributeKind::Path) }
+    fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "Desktop entry", Self::category(), AttributeKind::Path).invalidated_by(&["app_id"]) }
 }
 
 /// Which handler the registry detected for this window.
@@ -45,7 +45,7 @@ impl HintAttribute for IconPath {
     type Value = PathBuf;
     fn name() -> &'static str { "icon_path" }
     fn category() -> AttributeCategory { AttributeCategory::Identity }
-    fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "Icon file", Self::category(), AttributeKind::Path) }
+    fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "Icon file", Self::category(), AttributeKind::Path).invalidated_by(&["app_id", "desktop_entry_path"]) }
 }
 
 /// Icon name from the desktop entry (pre-resolution).
@@ -55,7 +55,23 @@ impl HintAttribute for IconName {
     type Value = String;
     fn name() -> &'static str { "icon_name" }
     fn category() -> AttributeCategory { AttributeCategory::Identity }
-    fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "Icon name", Self::category(), AttributeKind::Text) }
+    fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "Icon name", Self::category(), AttributeKind::Text).invalidated_by(&["app_id", "desktop_entry_path"]) }
+}
+
+/// Icon name the client declared over `xdg_toplevel_icon_v1` (pre-resolution).
+///
+/// Sits BESIDE [`IconName`] rather than replacing it: the desktop entry's icon
+/// identifies the application, this one identifies the toplevel, and an app may
+/// have both (or disagree with itself). Which one becomes the [`IconPath`] is
+/// decided in `window.hints.extract.entry` — the desktop entry wins, and this
+/// is resolved only when the entry gave nothing that exists on disk.
+#[derive(Debug)]
+pub struct XdgIconName;
+impl HintAttribute for XdgIconName {
+    type Value = String;
+    fn name() -> &'static str { "xdg_icon_name" }
+    fn category() -> AttributeCategory { AttributeCategory::Identity }
+    fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "Toplevel icon name", Self::category(), AttributeKind::Text) }
 }
 
 /// Sandbox identity (Flatpak/Snap/etc).
@@ -75,7 +91,7 @@ impl HintAttribute for DBusActivatable {
     type Value = bool;
     fn name() -> &'static str { "dbus_activatable" }
     fn category() -> AttributeCategory { AttributeCategory::Identity }
-    fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "D-Bus activatable", Self::category(), AttributeKind::Bool) }
+    fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "D-Bus activatable", Self::category(), AttributeKind::Bool).invalidated_by(&["app_id", "desktop_entry_path"]) }
 }
 
 /// D-Bus service name (typically derived from the desktop file's stem).

@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_kernel_vulkan_memory_external_base",
+    "ash",
+    "smithay",
+    "compositor_kernel_vulkan_device_factory_base",
+    "compositor_kernel_vulkan_format_query_base",
+    "compositor_kernel_vulkan_renderer_error_base"
+  ]
+}

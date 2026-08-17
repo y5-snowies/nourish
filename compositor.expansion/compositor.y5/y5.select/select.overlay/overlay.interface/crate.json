@@ -1,0 +1,22 @@
+{
+  "deps": [
+    "compositor_support_library_process_child_hygiene",
+    "smithay",
+    "uuid",
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_seat_gesture_touch",
+    "compositor_orchestration_driver_selection_base",
+    "compositor_orchestration_draw_layer_base",
+    "compositor_support_world_order_track_base",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_monitor_selection_scene_base",
+    "compositor_monitor_selection_font_base",
+    "compositor_y5_window_interface_record",
+    "compositor_y5_surface_draw_handle",
+    "compositor_y5_surface_protocol_base",
+    "compositor_remote_message_client_base",
+    "compositor_remote_client_handle_selection",
+    "compositor_remote_client_handle_aspect",
+    "compositor_model_debug_instance_record"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "deps": [
+    "compositor_kernel_vulkan_renderer_core_base",
+    "compositor_model_debug_instance_record",
+    "smithay",
+    // Compositor dependencies (CI ensures availability in workspace)
+    "compositor_kernel_drm_edid_parse_base",
+    "compositor_kernel_scanout_surface_output_base",
+    "compositor_kernel_graphic_draw_plan_tap",
+    "compositor_kernel_graphic_preference_enable_safety",
+    "compositor_orchestration_core_state_base"
+  ]
+}

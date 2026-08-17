@@ -8,7 +8,8 @@ use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 use compositor_introspection_launchplan_plan_base::LaunchPlan;
-use compositor_introspection_restoration_state_base::{PendingRestoration, match_window};
+use compositor_introspection_extraction_window_base::hints::extract::push_toplevel_icon_hints;
+use compositor_introspection_restoration_state_base::{PendingRestoration, SessionKey, match_window};
 use compositor_introspection_sampler_window_base::sampler::SampleBatch;
 use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_orchestration_core_state_base::{Loop, Transform};
@@ -17,6 +18,7 @@ use compositor_y5_window_interface_record::window::LoopWindow;
 use compositor_y5_placeholder_protocol_base::message::PlaceholderAction;
 use compositor_y5_placeholder_protocol_base::message::PlaceholderAction::Launch;
 use compositor_y5_placeholder_record_base::placeholder::{Placeholder, PlaceholderVisible};
+use compositor_y5_placeholder_surface_base::breakpoint::clamp_size;
 use compositor_y5_placeholder_surface_base::{PlaceholderMessage, PlaceholderUi};
 
 // Whenever a new window is created it must be attached to a placeholder.
@@ -24,7 +26,38 @@ use compositor_y5_placeholder_surface_base::{PlaceholderMessage, PlaceholderUi};
 // CHECK: Unrestore(unset the flag, erase the token) restoring placeholders if they have stalled for over 1 minute.
 // CHECK: GC For the tokens
 
-pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
+/// `restore`: whether this window may be attached to an existing placeholder.
+///
+/// `false` for a window an `xdg_toplevel_drag_v1` is already carrying. Everything
+/// ABOVE the restoration step still runs — the `NoDisplay` latch and the sampler
+/// registration are owed to every toplevel that maps, and the introspection they
+/// need is only resolvable here — but a torn-off tab must not be bound to a
+/// remembered placeholder. It is under the user's cursor at this instant, so
+/// there is nothing to restore it to.
+/// How long a launch stays a match candidate.
+///
+/// `launching` is set when the tile is clicked and never cleared — a launch that
+/// produces no window (a single-instance app that just focused an existing one, a
+/// crash, a splash that never maps) leaves the tile armed indefinitely. Long
+/// enough to cover a cold start; short enough that the next unrelated window does
+/// not get adopted by it.
+const LAUNCH_GRACE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The same, for a launch that had to START its container first.
+///
+/// Only that case: a `podman exec` into a container already up is as quick as a
+/// host launch and gets the normal grace. Starting one is different — `podman start` then `podman exec`, with an image pull and whatever the
+/// container's own init does in between. Thirty seconds is a plausible time for a
+/// host binary to map its first window and nowhere near enough for that, and a
+/// tile that stops matching mid-start hands its window to a fresh placeholder,
+/// losing the position and session identity the tile carried.
+///
+/// Matched to the session claim's TTL so the two predicates that associate a
+/// window with a launch expire together rather than leaving a window that matches
+/// the tile but is minted a different session id.
+const CONTAINER_LAUNCH_GRACE: std::time::Duration = std::time::Duration::from_secs(120);
+
+pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) -> bool {
     if window.toplevel().is_none() {
         return false;
     }
@@ -33,6 +66,30 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
         window.application(&state.inner.space_state().state, &state.inner.loader.display_handle);
 
     if let Some(data) = window_data_0 {
+        // `NoDisplay=true` means no menu will ever offer this program: a portal
+        // backend, a MIME handler, a session helper. The user did not launch this
+        // window and cannot launch it again, so it must not leave a tile.
+        //
+        // Latched here rather than at destroy because by then the process is gone
+        // and its desktop entry is no longer resolvable — and latched from THIS
+        // function rather than beside the tearing tag because `window.application`
+        // walks /proc and scans every XDG applications dir, and the answer is
+        // already in hand right here.
+        let no_display = data
+            .best_value::<compositor_introspection_extraction_window_base::attributes::NoDisplay>()
+            .unwrap_or(false);
+        // Both halves matter when this misfires: `no_display=false` with an app_id
+        // that looks like a service means the desktop entry did not resolve at all
+        // (`find_by_app_id` matches on the filename stem, and a client is free to
+        // report a bus name instead), not that the entry said it was displayable.
+        trace!(
+            "map: app_id={:?} entry_resolved={} no_display={no_display}",
+            data.meta.meta.app_id,
+            data.has::<compositor_introspection_extraction_window_base::attributes::DesktopEntryPath>()
+        );
+        if no_display && let Some(toplevel) = window.toplevel() {
+            compositor_support_smithay_state_ephemeral_mark::mark::mark(toplevel.wl_surface());
+        }
         if let Some(uuid) = window.uuid() {
             if let Some(sampler) = state.inner.kernel.get(&compositor_orchestration_driver_introspection_base::base::SAMPLER) {
                 if let Some(pid) = data.meta.meta.pid {
@@ -47,10 +104,15 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
         window.application(&state.inner.space_state().state, &state.inner.loader.display_handle);
     let mut window_plan_0: Option<_> = None;
     let mut restored_ph: Option<Uuid> = None;
+    let mut candidate_session: Option<SessionKey> = None;
 
     if let Some(window_data_0) = window_data_0 {
         // On first-commit:
         let candidate_token = window.activation();
+        // The client-declared `xdg_session_management_v1` identity, if any. Read
+        // here rather than inferred later: `restore_toplevel` had to precede the
+        // first commit, so it is already on the surface by now.
+        candidate_session = window.session();
 
         let candidate_token_string = if let Some(candi) = &candidate_token {
             Some(candi.token.as_str())
@@ -61,12 +123,28 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
         let mut pending_restoration: Vec<PendingRestoration> = vec![];
         for (ph, _) in &state.inner.placeholder_mut().visible {
             // A placeholder is a match candidate if it's mid-launch (token/PID
-            // restoration) OR has capture-armed attributes (adopt-on-map). A
-            // capture-only candidate carries no token and pid `-1`, so neither
-            // the token nor the PID-tree signal can spuriously bind it.
-            let is_launching = ph.launching && ph.restoration.is_some();
+            // restoration), has capture-armed attributes (adopt-on-map), OR
+            // knows a session identity. A capture-only candidate carries no
+            // token and pid `-1`, so neither the token nor the PID-tree signal
+            // can spuriously bind it.
+            //
+            // The session arm is what lets a tile claim a window NOBODY here
+            // launched — the client came back on its own and re-declared which
+            // window it is. The other two can only ever claim our own spawns.
+            // Bounded by `launch_at`: nothing ever clears `launching`, so a tile
+            // whose launch produced no window stays a match candidate forever and
+            // can adopt an unrelated app that opens much later. The bound applies
+            // ONLY to this predicate — a capture-armed or session-bearing tile
+            // qualifies on its own terms below and is not time-limited, because
+            // those signals identify the window rather than a launch in flight.
+            let grace = match ph.launch_started_container {
+                true => CONTAINER_LAUNCH_GRACE,
+                false => LAUNCH_GRACE,
+            };
+            let fresh = ph.launch_at.is_some_and(|at| at.elapsed() < grace);
+            let is_launching = ph.launching && ph.restoration.is_some() && fresh;
             let is_capture_armed = !compositor_introspection_launchplan_plan_capture::capture::capture_keys(&ph.launch).is_empty();
-            if !is_launching && !is_capture_armed {
+            if !is_launching && !is_capture_armed && ph.session.is_none() {
                 continue;
             }
 
@@ -90,18 +168,34 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
                 plan: ph.launch.clone(),
                 launched_pid,
                 activation_env,
+                session: ph.session.clone(),
+                launch_at: ph.launch_at,
             });
         }
 
         // println!("CHecking pending restoration");
-        if let Some(placeholder_id) = match_window(
-            pending_restoration.as_slice(),
-            &window_data_0.meta.clone(),
-            &window_data_0.hints.clone(),
-            candidate_token_string,
-            &state.inner.placeholder_mut().restoration_registry,
-        ) {
+        // `restore` gates only the MATCH. A carried window still falls through to
+        // the branch below that creates a fresh placeholder and records it —
+        // skipping that would leave a live window with no record at all, and a
+        // window with no record leaves no tile when it is eventually closed.
+        let matched = restore
+            .then(|| {
+                match_window(
+                    pending_restoration.as_slice(),
+                    &window_data_0.meta.clone(),
+                    &window_data_0.hints.clone(),
+                    candidate_token_string,
+                    candidate_session.as_ref(),
+                    &state.inner.placeholder_mut().restoration_registry,
+                )
+            })
+            .flatten();
+        if let Some(placeholder_id) = matched {
             restored_ph = Some(placeholder_id);
+            // The bootstrap pid→placeholder claim has served its purpose (or was
+            // never needed); drop it so a later, unrelated client cannot inherit
+            // this placeholder's session id.
+            compositor_support_smithay_state_session_claim::claim::release(placeholder_id);
             // CHECK: Update placeholder state to retain placeholder_id.
             // Remove token from registry.
             if let Some(candidate_token) = candidate_token {
@@ -181,17 +275,27 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window) -> bool {
             launch_session: window_plan_0,
             session_time: Instant::now(),
             persistent: true,
+            // Prefer what the client just declared over what we had stored —
+            // `xdg_toplevel_session_v1.rename` is allowed to re-key a toplevel,
+            // and re-declaring is the only way we learn about it.
+            session: candidate_session.clone().or(restored_ph.session),
         }
     } else {
         // Otherwise, create a placeholder and attach to the window
         let mut placeholder = Placeholder {
             uuid: Uuid::now_v7(),
-            size: (100, 100), // Just sane defaults so it doesnt zero out. however this must be an no-op
+            // The layout floor, not an arbitrary number: this is a real size
+            // the tile can be rendered at if the window never reports one.
+            size: clamp_size((0, 0)),
             position: (0, 0),
             launch: window_plan_0,
             launch_session: None,
             session_time: Instant::now(),
             persistent: false,
+            // A window we did not restore, but if its client declared an
+            // identity we record it now: that is what makes the NEXT close /
+            // reopen cycle an exact match instead of a guess.
+            session: candidate_session.clone(),
         };
         placeholder
     };
@@ -237,22 +341,43 @@ pub fn on_window_destroy(
     // The window is destroyed. the placeholder should become visible.
     // this shouldn't erase the placeholder at all.
     //
-    if !state.inner.placeholder_mut().map.contains_key(&uuid) {
+    // The record lives in the world the window was MAPPED in, which is not
+    // necessarily the one on screen now — a window is free to exit while the user
+    // is looking at another world. Resolving against `spawn_target` here searched
+    // the wrong world, found nothing, and dismissed the tile the window had
+    // earned, leaving its record orphaned in the origin world for good measure.
+    let Some(world) = state.inner.world_of_placeholder(uuid) else {
         return;
-    }
-    // there is a small exception: placeholders that were not previously saved, i.e they werent from a launchplan, should be erased if they lived for less than 1 minute.
-    let ph = state.inner.placeholder_mut().erase(&uuid);
+    };
+    let hosted = world == state.inner.worlds.spawn_target();
+    // there is a small exception: placeholders that were not previously saved, i.e they werent from a launchplan, should be erased if they lived for less than the grace below (10s).
+    let ph = state.inner.placeholder_of_mut(world).erase(&uuid);
     // Erasing a placeholder is a discrete, important event → persist IMMEDIATELY.
-    compositor_support_system_persist_mark_base::base::mark_world(state.inner.worlds.active_id(), true);
+    // The record's OWN world, not the active one — they differ whenever a window
+    // exits while the user is elsewhere.
+    compositor_support_system_persist_mark_base::base::mark_world(world, true);
 
-    // Shift-closed from the selection toolbar: the user asked for NO placeholder.
-    // (Read off the destroyed surface's data_map by the wire layer.)
+    // No tile wanted. Either the user asked for none (Shift-close from the
+    // selection toolbar) or the window was never theirs to begin with — a modal
+    // dialog, or a `NoDisplay=true` entry such as the portal file chooser. Both
+    // arrive as surface user data read by the wire layer.
     if discard_placeholder {
         return;
     }
 
     if !ph.persistent && ph.session_time.elapsed().lt(&Duration::from_secs(10)) {
         // Discard it all completely.
+        return;
+    }
+
+    // The tile belongs to the window's own world, at the position it was closed
+    // at. Building it needs the renderer AND the world's iced registry, neither of
+    // which applies to a world that is not on screen — so hand it to that world's
+    // `pending_restore`, which `promote_restored` drains on the first frame that
+    // world is the spawn-target. Same deferral the disk-restore path already uses.
+    if !hosted {
+        state.inner.placeholder_of_mut(world).pending_restore.push(ph);
+        compositor_support_system_persist_mark_base::base::mark_world(world, true);
         return;
     }
 
@@ -269,12 +394,20 @@ pub fn on_window_destroy(
 pub fn spawn_visible(
     state: &mut Loop,
     renderer: &mut GlesRenderer,
-    ph: Placeholder,
+    mut ph: Placeholder,
     predecessor: Option<Uuid>,
 ) {
     let Some(plan) = ph.launch.clone() else {
         return; // no launch plan → nothing to relaunch; discard.
     };
+    // Clamp HERE, at the boundary, rather than inside the placeholder store:
+    // storage stays idempotent and callers own their geometry. This is the one
+    // point where a record becomes a rendered tile, so it is where a size the
+    // UI has no design for has to be corrected — a tile inheriting a tiny
+    // window's geometry, or rehydrated from a record written before the floor
+    // existed. The same `ph` is moved into `push_visible` below, so the
+    // surface and the stored record cannot disagree.
+    ph.size = clamp_size(ph.size);
     let loc_logical: Point<i32, Logical> = Point::new(ph.position.0, ph.position.1);
     let size_logical: Size<i32, Logical> = Size::new(ph.size.0, ph.size.1);
     let t: Transform = (Rectangle::new(loc_logical, size_logical), state.size_ctx_all()).into();
@@ -284,7 +417,12 @@ pub fn spawn_visible(
     let handle = compositor_y5_surface_draw_handle::handle::load(
         state,
         renderer,
-        PlaceholderUi::new(plan, ph.launch_session.clone(), application_registry),
+        PlaceholderUi::new(
+            plan,
+            ph.launch_session.clone(),
+            ph.session.is_some(),
+            application_registry,
+        ),
         t.into_storage_rect_physical(),
         compositor_y5_surface_draw_handle::handle::IcedSpace::World,
         compositor_orchestration_draw_layer_base::base::Layer::SCENE.bits(),
@@ -340,19 +478,127 @@ pub fn promote_restored(state: &mut Loop, renderer: &mut GlesRenderer) {
     }
 }
 
+/// Keep the session store and the placeholders that carry session identities in
+/// step with each other. Runs every frame; both halves are cheap no-ops at rest.
+///
+/// **Seeding** (once): the store's remembered half — which names exist in which
+/// session — lives in the protocol state and dies with the compositor, while the
+/// placeholder carrying the same identity is persisted per world. After a restart
+/// the two disagree, so `restore_toplevel` finds the session unknown, skips the
+/// `restored` event, and the client treats a returning window as new — losing the
+/// state the protocol exists to carry. Seeding from the persisted placeholders
+/// restores the remembered half before any client can ask.
+///
+/// **Renames**: `xdg_toplevel_session_v1.rename` re-keys an identity mid-run. The
+/// wire layer records it (it cannot reach placeholders); this applies it to every
+/// placeholder holding the old key, in EVERY world — the window may have been
+/// mapped in one world while its tile lives in another, and a stale name stops the
+/// client matching on its next run.
+///
+/// Persistence is marked LAZY: rename cadence is the client's to choose, and an
+/// immediate write per rename would let a chatty client drive the disk.
+pub fn reconcile_sessions(state: &mut Loop) {
+    static SEEDED: std::sync::Once = std::sync::Once::new();
+    SEEDED.call_once(|| {
+        let mut seen: Vec<(String, String)> = vec![];
+        for world in state.inner.worlds.ids() {
+            let Some(ph) = state
+                .inner
+                .worlds
+                .get(world)
+                .storage()
+                .try_get(&compositor_y5_placeholder_system_base::base::PLACEHOLDER)
+            else {
+                continue;
+            };
+            let from_map = ph.map.values().filter_map(|rc| rc.borrow().session.clone());
+            let from_visible = ph.visible.iter().filter_map(|(v, _)| v.session.clone());
+            let from_pending = ph.pending_restore.iter().filter_map(|p| p.session.clone());
+            seen.extend(
+                from_map
+                    .chain(from_visible)
+                    .chain(from_pending)
+                    .map(|k| (k.session_id, k.name)),
+            );
+        }
+        for (session_id, name) in seen {
+            state.state.session.remember(&session_id, &name);
+        }
+    });
+
+    let renames = std::mem::take(&mut state.state.session_live.renames);
+    for (session_id, from, to) in renames {
+        let mut touched: Vec<uuid::Uuid> = vec![];
+        for world in state.inner.worlds.ids() {
+            let ph = state.inner.placeholder_of_mut(world);
+            let matches = |k: &Option<SessionKey>| {
+                k.as_ref().is_some_and(|k| k.session_id == session_id && k.name == from)
+            };
+            let mut hit = false;
+            for rc in ph.map.values() {
+                let mut record = rc.borrow_mut();
+                if matches(&record.session) {
+                    record.session = Some(SessionKey { session_id: session_id.clone(), name: to.clone() });
+                    hit = true;
+                }
+            }
+            for (visible, _) in ph.visible.iter_mut() {
+                if matches(&visible.session) {
+                    visible.session = Some(SessionKey { session_id: session_id.clone(), name: to.clone() });
+                    hit = true;
+                }
+            }
+            for pending in ph.pending_restore.iter_mut() {
+                if matches(&pending.session) {
+                    pending.session = Some(SessionKey { session_id: session_id.clone(), name: to.clone() });
+                    hit = true;
+                }
+            }
+            if hit {
+                touched.push(world);
+            }
+        }
+        // The store's remembered half follows too, so the next boot seeds the new
+        // name rather than the one the client has stopped using.
+        state.state.session.remember(&session_id, &to);
+        for world in touched {
+            compositor_support_system_persist_mark_base::base::mark_world(world, false);
+        }
+        info!("session: renamed '{from}' -> '{to}' in session {session_id}");
+    }
+}
+
 // CHECK : Change to native watch events instead of polling
 pub fn on_window_sample(state: &mut Loop, sample: &SampleBatch) {
-    //
+    // Which worlds a batch actually touched. A batch is not scoped to the focused
+    // world, so persisting `active_id` would leave another world's refreshed
+    // hints unsaved.
+    let mut modified: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
     for item in &sample.results {
         let Some(data) = &item.data else { continue };
 
-        let Some(_) = state.inner.placeholder_mut().map.get_mut(&item.uuid) else {
+        // Establish the owning world FIRST. Two reasons, in order of importance:
+        // it is what makes the `modify` below safe (that call ABORTS on a missing
+        // record — deliberately, as the invariant "a sample belongs to a record"),
+        // and no record anywhere means everything after it — cloning the sample,
+        // reading the window's surface — is work for nothing.
+        let Some(world) = owning_world(state, item.uuid) else {
             continue;
         };
 
-        // println!("Received sample for active placeholder");
+        // The sampler thread has no surface, so its hints carry no toplevel icon.
+        // Add it HERE — applying a batch runs on the compositor thread, where the
+        // window is reachable — so a sample result is complete for anything
+        // reading it. Ordering still holds: the desktop entry resolved on the
+        // sampler thread is already in `hints`, so the toplevel's name stays a
+        // fallback behind it.
+        let mut data = data.clone();
+        if let Some(icon) = window_icon(state, item.uuid) {
+            push_toplevel_icon_hints(&icon, &mut data.hints);
+        }
 
-        state.inner.placeholder_mut().modify(&item.uuid, |placeholder| {
+        modified.insert(world);
+        modify_in(state, world, &item.uuid, |placeholder| {
             if let Some(ref existing) = placeholder.launch_session {
                 placeholder.launch_session = Some(LaunchPlan {
                     application_data: data.clone(),
@@ -370,9 +616,79 @@ pub fn on_window_sample(state: &mut Loop, sample: &SampleBatch) {
     }
     // Sampler refresh runs continuously — persist the placeholders DEBOUNCED so
     // the inferred-hint changes survive a restart without spamming the disk.
-    if !sample.results.is_empty() {
-        compositor_support_system_persist_mark_base::base::mark_world(state.inner.worlds.active_id(), false);
+    for world in modified {
+        compositor_support_system_persist_mark_base::base::mark_world(world, false);
     }
+}
+
+/// The world whose placeholder map holds `uuid`, if any.
+///
+/// Samples are NOT scoped to the focused world: a batch is flushed on the
+/// sampler's own cadence and can land while the user is elsewhere, and the world
+/// that owns the window is the one whose record has to move. Reading through the
+/// focus accessor — as the check here used to — silently drops those.
+///
+/// This is the precondition for [`modify_in`], which asserts rather than tolerates
+/// a missing record.
+fn owning_world(state: &Loop, uuid: Uuid) -> Option<Uuid> {
+    state.inner.worlds.ids().into_iter().find(|id| {
+        state
+            .inner
+            .worlds
+            .get(*id)
+            .storage()
+            .try_get(&compositor_y5_placeholder_system_base::base::PLACEHOLDER)
+            .is_some_and(|placeholders| placeholders.map.contains_key(&uuid))
+    })
+}
+
+/// Apply `action` to the placeholder for `uuid` in `world`.
+///
+/// Both accessors here ABORT rather than fall back: the storage slot must exist
+/// on a world that has placeholders, and `PlaceholderState::modify` aborts on a
+/// missing record. That is the intended shape — the record's existence is an
+/// invariant a caller establishes with [`owning_world`], and a silent no-op here
+/// would turn a broken invariant into data quietly going missing. The world-scoped
+/// mirror of what `placeholder_mut().modify(..)` does for the focused world.
+fn modify_in(state: &mut Loop, world: Uuid, uuid: &Uuid, action: impl FnMut(&mut Placeholder)) {
+    state
+        .inner
+        .worlds
+        .get_mut(world)
+        .storage_mut()
+        .get_mut(&compositor_y5_placeholder_system_base::base::PLACEHOLDER_MUT)
+        .modify(uuid, action);
+}
+
+/// The live window carrying `uuid`, searched across EVERY world for the same
+/// reason [`owning_world`] is.
+fn window_of(state: &Loop, uuid: Uuid) -> Option<Window> {
+    for id in state.inner.worlds.ids() {
+        let host = state
+            .inner
+            .worlds
+            .get(id)
+            .storage()
+            .try_get(&compositor_support_world_host_space_base::base::SPACE)?;
+        if let Some(window) = host.inner.state.elements().find(|w| w.uuid() == Some(uuid)) {
+            return Some(window.clone());
+        }
+    }
+    None
+}
+
+/// The live toplevel icon of the window carrying `uuid`, NAMED half only.
+///
+/// The pixel buffers are deliberately dropped here: a placeholder record outlives
+/// its window, and a decoded icon is client state that would then be retained —
+/// unresolvable, unpersistable and unbounded — for as long as the tile exists.
+/// A name survives all of that and re-resolves against the icon theme on demand.
+fn window_icon(state: &Loop, uuid: Uuid) -> Option<compositor_introspection_extraction_window_base::ToplevelIcon> {
+    let icon = window_of(state, uuid)?.toplevel_icon()?;
+    Some(compositor_introspection_extraction_window_base::ToplevelIcon {
+        name: icon.name,
+        pixels: None,
+    })
 }
 
 // Generally unsafe. Commited state for size takes a few frames.
@@ -386,9 +702,10 @@ pub fn invalidate_geometry(state: &mut Loop, window: Window) {
     let position = geometry.loc;
     let mut size = geometry.size;
 
+    let (w, h) = clamp_size((size.w, size.h));
     state.inner.placeholder_mut().modify(&window_uuid, |placeholder| {
-        placeholder.size.0 = size.w;
-        placeholder.size.1 = size.h;
+        placeholder.size.0 = w;
+        placeholder.size.1 = h;
         placeholder.position.0 = position.x;
         placeholder.position.1 = position.y;
     });
@@ -400,6 +717,7 @@ pub fn set_visible_geometry(
     geometry: (Option<(i32, i32)>, Option<(i32, i32)>),
 ) {
     let (position, size) = geometry;
+    let size = size.map(clamp_size);
 
     let handle = state.inner.placeholder_mut()
         .modify_visible(&uuid, |placeholder| {
@@ -439,10 +757,11 @@ pub fn set(
 ) {
     let window_uuid = window.uuid().unwrap_or_else(|| abort!("Windows to have UUID"));
 
+    let size = size.map(|s| clamp_size((s.w, s.h)));
     state.inner.placeholder_mut().modify(&window_uuid, |placeholder| {
         if let Some(size) = size {
-            placeholder.size.0 = size.w;
-            placeholder.size.1 = size.h;
+            placeholder.size.0 = size.0;
+            placeholder.size.1 = size.1;
         }
         if let Some(position) = position {
             placeholder.position.0 = position.x;
@@ -458,6 +777,9 @@ fn __dispatch(
 ) {
     let dispatch = match msg {
         PlaceholderMessage::LaunchClicked => Some(PlaceholderAction::Launch()),
+        PlaceholderMessage::ContainerStartConfirmed => {
+            Some(PlaceholderAction::LaunchStartingContainer())
+        }
         PlaceholderMessage::SaveClicked { updated_plan } => {
             Some(PlaceholderAction::Save(updated_plan.as_ref().clone()))
         }

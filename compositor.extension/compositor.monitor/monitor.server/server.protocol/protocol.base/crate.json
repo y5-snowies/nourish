@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "wayland-server",
+    "wayland-client",
+    "wayland-scanner"
+  ]
+}

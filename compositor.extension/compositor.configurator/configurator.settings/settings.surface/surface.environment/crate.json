@@ -1,0 +1,12 @@
+{
+  "deps": [
+    "compositor_configurator_settings_surface_message",
+    "compositor_configurator_settings_surface_style",
+    "compositor_configurator_settings_surface_control",
+    "compositor_model_environment_config_base",
+    "compositor_configurator_hardware_gpu_base",
+    "compositor_support_iced_core_engine_base",
+    "iced_core",
+    "iced_widget"
+  ]
+}

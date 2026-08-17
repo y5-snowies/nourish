@@ -1,0 +1,22 @@
+{
+  "deps": [
+    "compositor_pipeline_abi_seam_base",
+    "compositor_pipeline_build_seam_base",
+    "compositor_pipeline_abi_push_base",
+    "compositor_model_environment_background_base",
+    "compositor_pipeline_build_place_base",
+    "compositor_pipeline_compile_program_base",
+    "compositor_pipeline_bundle_load_base",
+    "compositor_pipeline_compile_spirv_base",
+    "compositor_pipeline_bundle_property_base",
+    "compositor_pipeline_bundle_builtin_base",
+    "compositor_pipeline_build_pipeline_base",
+    "compositor_pipeline_bundle_manifest_base",
+    "compositor_pipeline_bundle_locate_base",
+    "compositor_pipeline_bundle_embed_base",
+    "compositor_model_stats_registry_base",
+    "compositor_model_debug_instance_record",
+    "compositor_orchestration_draw_dispatch_frame",
+    "smithay"
+  ]
+}

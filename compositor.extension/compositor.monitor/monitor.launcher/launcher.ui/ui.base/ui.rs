@@ -31,6 +31,28 @@ use crate::model::{Application, Direction};
 use crate::{style, view};
 use crate::{search};
 
+/// Label for one entry, before any disambiguation.
+///
+/// An action's `Name` alone loses the app — "New Window" does not say whose —
+/// so an action qualifies its app rather than replacing it.
+///
+/// The plain new-window action is the exception: it is the DEFAULT entry, so
+/// qualifying it would put the same parenthetical on every app in the
+/// carousel and say nothing. There the app name alone carries it. Recognised
+/// by the same two independent indicators the desktop parser uses — the
+/// action id, or its name — so a localised `Nouvelle fenêtre` is still caught
+/// by its id.
+fn entry_label(app: &Application, index: usize) -> String {
+    let Some(entry) = app.entry(index) else { return app.title.clone() };
+    let Some(action) = entry.action.as_deref() else {
+        return app.title.clone(); // main entry
+    };
+    if action.eq_ignore_ascii_case("new-window") || entry.title.eq_ignore_ascii_case("new window") {
+        return app.title.clone();
+    }
+    format!("{} ({})", app.title, entry.title)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mode {
     Browsing,
@@ -49,28 +71,59 @@ pub struct Launcher {
     /// (clamped to a valid sub-window of `visible`).
     pub(crate) scroll_offset: usize,
     pub(crate) mode: Mode,
+    /// Which entry of the app under `cursor` is selected — its main entry or
+    /// one of its declared actions. Reset to that app's `default_entry`
+    /// whenever the cursor lands somewhere new, so the choice is per-visit
+    /// rather than sticky across apps with unrelated action lists.
+    pub(crate) entry_cursor: usize,
 }
 
 impl Launcher {
     pub fn new(apps: Vec<Application>) -> Self {
         let visible = search::rank_default(&apps, SystemTime::now());
-        Self {
+        let mut ui = Self {
             apps,
             query: String::new(),
             visible,
             cursor: 0,
             scroll_offset: 0,
             mode: Mode::Browsing,
-        }
+            entry_cursor: 0,
+        };
+        ui.reset_entry_cursor();
+        ui
     }
 
     // ─── Read-only accessors used by `view` ─────────────────────────
 
-    pub(crate) fn current_title(&self) -> &str {
-        self.visible
-            .get(self.cursor)
-            .map(|&i| self.apps[i].title.as_str())
-            .unwrap_or("")
+    /// The app under the cursor, if the visible list is non-empty.
+    pub(crate) fn current_app(&self) -> Option<&Application> {
+        self.visible.get(self.cursor).map(|&i| &self.apps[i])
+    }
+
+    /// The selected entry of the app under the cursor.
+    pub(crate) fn current_entry(&self) -> Option<&crate::model::AppEntry> {
+        self.current_app()?.entry(self.entry_cursor)
+    }
+
+    /// Title shown in the footer. See [`entry_label`] for the base rule.
+    pub(crate) fn current_title(&self) -> String {
+        let Some(app) = self.current_app() else { return String::new() };
+        let label = entry_label(app, self.entry_cursor);
+
+        // Collapsing the new-window action to the bare app name makes it
+        // collide with the MAIN entry, which renders to the same thing — so
+        // moving between them changed nothing on screen. Mark the main entry
+        // as the default when, and only when, that collision actually
+        // happens; an app whose actions are all distinctly named needs no
+        // qualifier on its main entry.
+        let is_main = app.entry(self.entry_cursor).is_some_and(|e| e.action.is_none());
+        let collides = (0..app.entries.len())
+            .any(|i| i != self.entry_cursor && entry_label(app, i) == label);
+        if is_main && collides {
+            return format!("{label} (default)");
+        }
+        label
     }
 
     pub(crate) fn is_focused(&self) -> bool {
@@ -131,6 +184,7 @@ impl Launcher {
         if n == 0 {
             self.cursor = 0;
             self.scroll_offset = 0;
+            self.entry_cursor = 0;
             return;
         }
 
@@ -138,6 +192,29 @@ impl Launcher {
         let new_cursor = (self.cursor as i32 + delta).clamp(0, n_i - 1) as usize;
         self.cursor = new_cursor;
         self.clamp_scroll();
+        self.reset_entry_cursor();
+    }
+
+    /// Point the entry cursor at the app's preferred entry — its declared
+    /// "new window" action where it has one, else its main entry.
+    fn reset_entry_cursor(&mut self) {
+        self.entry_cursor = self.current_app().map(|a| a.default_entry).unwrap_or(0);
+    }
+
+    /// Move within the current app's entries. Clamped, not wrapping: the list
+    /// is short and usually two long, so wrapping would make Up and Down
+    /// indistinguishable.
+    fn move_entry(&mut self, delta: i32) {
+        let Some(count) = self.current_app().map(|a| a.entries.len()) else {
+            self.entry_cursor = 0;
+            return;
+        };
+        if count == 0 {
+            self.entry_cursor = 0;
+            return;
+        }
+        self.entry_cursor =
+            (self.entry_cursor as i32 + delta).clamp(0, count as i32 - 1) as usize;
     }
 
     fn set_apps(&mut self, apps: Vec<Application>) {
@@ -147,15 +224,28 @@ impl Launcher {
         self.cursor = 0;
         self.scroll_offset = 0;
         self.recompute_visible();
+        self.reset_entry_cursor();
     }
 
     // ─── Event-process helpers ──────────────────────────────────────
+
+    /// `MoveEntry` only when there is somewhere to move to.
+    fn entry_step(&self, delta: i32) -> Vec<LauncherMessage> {
+        match self.current_app() {
+            Some(app) if app.has_choices() => vec![LauncherMessage::MoveEntry(delta)],
+            _ => Vec::new(),
+        }
+    }
 
     fn decode_browsing(&self, key: &Key, text: Option<&str>) -> Vec<LauncherMessage> {
         match key {
             Key::Named(Named::ArrowLeft) => vec![LauncherMessage::MoveCursor(-1)],
             Key::Named(Named::ArrowRight) => vec![LauncherMessage::MoveCursor(1)],
-            Key::Named(Named::ArrowUp) | Key::Named(Named::ArrowDown) => Vec::new(),
+            // Entry selection within the current app. Only meaningful when
+            // the app declares actions, so apps with a single entry keep the
+            // previous no-op behaviour rather than swallowing the key.
+            Key::Named(Named::ArrowUp) => self.entry_step(-1),
+            Key::Named(Named::ArrowDown) => self.entry_step(1),
             Key::Named(Named::Enter) => {
                 if self.visible.is_empty() {
                     Vec::new()
@@ -205,14 +295,14 @@ impl Launcher {
         };
 
         let Some(direction) = direction else { return Vec::new() };
-        let Some(&idx) = self.visible.get(self.cursor) else { return Vec::new() };
+        let Some(app) = self.current_app() else { return Vec::new() };
+        let Some(entry) = app.entry(self.entry_cursor) else { return Vec::new() };
 
-        let app = &self.apps[idx];
         vec![
             LauncherMessage::Launch {
                 id: app.id.clone(),
-                bin: app.bin.clone(),
-                args: app.args.clone(),
+                bin: entry.bin.clone(),
+                args: entry.args.clone(),
                 direction,
             },
             // LauncherMessage::Exit,
@@ -247,6 +337,8 @@ impl IcedUi for Launcher {
 
             LauncherMessage::MoveCursor(delta) => self.move_cursor(delta),
 
+            LauncherMessage::MoveEntry(delta) => self.move_entry(delta),
+
             LauncherMessage::FocusSelection => {
                 if !self.visible.is_empty() {
                     self.mode = Mode::Focused;
@@ -262,6 +354,7 @@ impl IcedUi for Launcher {
                 self.cursor = 0;
                 self.scroll_offset = 0;
                 self.recompute_visible();
+                self.reset_entry_cursor();
             }
 
             LauncherMessage::Backspace => {
@@ -270,6 +363,7 @@ impl IcedUi for Launcher {
                     self.cursor = 0;
                     self.scroll_offset = 0;
                     self.recompute_visible();
+                    self.reset_entry_cursor();
                 }
             }
 
@@ -279,6 +373,7 @@ impl IcedUi for Launcher {
                     self.cursor = 0;
                     self.scroll_offset = 0;
                     self.recompute_visible();
+                    self.reset_entry_cursor();
                 }
             }
 

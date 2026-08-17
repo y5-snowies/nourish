@@ -1,0 +1,51 @@
+{
+  "deps": [
+    "compositor_support_smithay_state_tearing_gate",
+    "compositor_support_smithay_dispatch_wire_tearing",
+    "compositor_support_smithay_state_tearing_pacer",
+    "compositor_support_smithay_state_singlepixel_base",
+    "compositor_support_smithay_state_dnd_base",
+    "smithay",
+    "compositor_support_smithay_state_dmabuf_base",
+    "compositor_support_smithay_state_clipboard_base",
+    "compositor_support_smithay_state_seat_base",
+    "compositor_support_smithay_state_xdg_shell_base",
+    "compositor_support_smithay_state_xdg_decoration_base",
+    "compositor_support_smithay_state_xdg_activation_base",
+    "compositor_support_smithay_state_xdg_foreign_base",
+    "compositor_support_smithay_state_shm_base",
+    "compositor_support_smithay_state_output_base",
+    "compositor_support_smithay_state_popup_base",
+    "compositor_support_smithay_state_layershell_base",
+    // wlr-foreign-toplevel-management: the manager/handle GlobalDispatch+Dispatch
+    // orphan impls live here (crate that defines `Dispatch`); state + emit logic is
+    // in foreign.base.
+    "compositor_support_smithay_state_foreign_base",
+    "compositor_support_smithay_state_compositor_base",
+    "compositor_support_smithay_state_presentation_base",
+    "compositor_support_smithay_state_viewporter_base",
+    "compositor_support_smithay_state_fractional_base",
+    "compositor_support_smithay_state_cursor_shape_base",
+    "compositor_support_smithay_state_text_input_base",
+    // `delegate_dispatch2!(Dispatch)` + the color-management wayland_server::Dispatch
+    // orphan impls must live in the crate that DEFINES `Dispatch` (orphan rule —
+    // document/SMITHAY_DECOUPLING.md P2 flip).
+    "compositor_support_smithay_dispatch_wire_color",
+    "compositor_support_smithay_dispatch_wire_colorsurf",
+    "compositor_support_smithay_dispatch_wire_tablet",
+    // Handler-impl bodies (orphan-required here) use these leaf helpers (no
+    // `*.dispatch` crate, which would cycle — document/SMITHAY_DECOUPLING.md P2).
+    "compositor_support_smithay_dispatch_wire_redraw",
+    "compositor_support_smithay_state_xdg_activation_request",
+    "compositor_support_smithay_wayland_connection_record",
+    "compositor_model_debug_instance_record",
+    "compositor_support_smithay_state_clipboard_policy",
+    "compositor_support_smithay_state_clipboard_pump",
+    "compositor_support_smithay_state_xdg_dialog_base",
+    "compositor_support_smithay_state_ephemeral_mark",
+    "compositor_support_smithay_dispatch_wire_session",
+    "compositor_support_smithay_dispatch_wire_drag",
+    "compositor_support_smithay_state_grab_drag_state",
+    "compositor_support_smithay_state_session_store"
+  ]
+}

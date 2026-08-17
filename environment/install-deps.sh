@@ -41,3 +41,13 @@ sudo dnf install -y \
 sudo dnf install -y \
     libxcb-devel xcb-util-cursor-devel
 
+
+# --- Workspace tooling ------------------------------------------------------
+# cargo-shear backs the `deps-unused` lint rule: it parses each crate's Rust with
+# syn and reports dependencies nothing references. The rule is skipped (with a
+# note) when the binary is absent, so this is a convenience, not a build
+# requirement — but a crate.json that accumulates unused entries will not be
+# caught locally without it.
+#
+# --locked so the tool itself is reproducible.
+cargo install --locked cargo-shear

@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_support_smithay_state_fractional_config",
+    "compositor_support_smithay_state_fractional_debounce"
+  ]
+}

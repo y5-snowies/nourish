@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_support_action_camera_find_window",
+    "compositor_support_action_camera_find_flags",
+    "compositor_support_action_camera_find_axes",
+    "compositor_support_action_camera_find_origin",
+    "compositor_support_action_camera_find_band"
+  ]
+}

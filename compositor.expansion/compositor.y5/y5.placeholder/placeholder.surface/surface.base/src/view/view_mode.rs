@@ -1,118 +1,208 @@
-//! View mode: centered icon + title + app_id + Launch / Edit buttons.
+//! View mode: the placeholder's face — icon, identity, and the
+//! Launch / Edit / Dismiss actions.
 //!
 //! Visual goals:
-//! - Whole content centered both axes inside the surface.
+//! - Whole content centered on both axes inside the surface, at every step.
 //! - Icon sits inside a soft "glassy" circular backdrop with a subtle
 //!   highlight border and outer glow — approximating glassmorphism
 //!   without backdrop blur (which iced doesn't support natively).
 //! - Buttons use the accent color, rounded corners, slightly raised.
+//!
+//! Two arrangements, chosen by the [`Breakpoint`] the caller measured:
+//! [`Breakpoint::Compact`] is a ROW (icon | two text lines | actions flush
+//! right), the others a centered COLUMN. Both fit their step without
+//! scrolling, so a tile at the layout floor is as usable as a full-size one.
 
 use std::path::PathBuf;
 
+use iced_core::text::{Ellipsis, Wrapping};
 use iced_core::{alignment, Alignment, Background, Border, Color, ContentFit, Element, Length, Padding, Shadow, Theme, Vector};
-use iced_widget::{button, column, container, image, row, svg, text, Space};
-use compositor_introspection_extraction_window_base::attributes::{DisplayName, IconPath};
+use iced_widget::{button, column, container, image, row, svg, text};
+use compositor_introspection_extraction_window_base::attributes::{AppId, DisplayName, ExecArgs, ExecProgram, IconPath};
 use compositor_support_iced_core_engine_base::Renderer;
 
+use crate::breakpoint::{Action, Breakpoint};
 use crate::message::PlaceholderMessage;
 use crate::style;
 use crate::ui::PlaceholderUi;
 
-const ICON_PX: f32 = 96.0;
 /// Outer "glass" backdrop is a bit larger than the icon itself.
-const ICON_BACKDROP_PX: f32 = 132.0;
+const ICON_BACKDROP_SCALE: f32 = 1.375;
 
-pub fn render(ui: &PlaceholderUi) -> Element<'_, PlaceholderMessage, Theme, Renderer> {
+pub fn render(
+    ui: &PlaceholderUi,
+    step: Breakpoint,
+) -> Element<'_, PlaceholderMessage, Theme, Renderer> {
     let plan = ui.shown_plan();
+    let icon_px = step.icon_px();
 
     let icon = match plan.current::<IconPath>() {
-        Some(path) => render_icon(path),
-        None => fallback_glyph(),
+        Some(path) => render_icon(path, icon_px),
+        None => fallback_glyph(icon_px),
     };
     let icon_with_backdrop = icon;
-    // let icon_with_backdrop = backdrop(icon);
+    // let icon_with_backdrop = backdrop(icon, icon_px);
 
-    let display_name = plan
-        .current::<DisplayName>()
-        .unwrap_or_else(|| "Unknown".to_string());
-    let app_id = plan.application_data.meta.meta.app_id.clone();
+    // Read the app_id as an ATTRIBUTE, not off `application_data.meta`. The raw
+    // Meta is only populated while the window is alive: a plan rebuilt from a
+    // persisted record carries `Meta::default()`, so a restored tile would show
+    // no app_id at all. The hint survives persistence and honours user edits.
+    let app_id = plan.current::<AppId>();
+    let exec = exec_line(plan);
 
-    let title =
-        text(display_name)
-            .size(style::TEXT_SIZE_TITLE)
-            .style(|_| iced_widget::text::Style {
-                color: Some(style::TEXT),
-            });
+    let content: Element<'_, _, _, _> = if step.is_row() {
+        // Compact: icon | two identity lines | actions, flush right. The text
+        // column takes the slack so the actions sit against the right edge.
+        let display_name = plan.current::<DisplayName>();
+        row![
+            icon_with_backdrop,
+            column![
+                detail_line(app_id.or(display_name).unwrap_or_default(), step, style::TEXT_DIM, Ellipsis::End),
+                detail_line(exec.unwrap_or_default(), step, style::TEXT_HINT, Ellipsis::Start),
+            ]
+            .spacing(step.line_gap())
+            .width(Length::Fill),
+            buttons(step),
+        ]
+        .spacing(step.gap())
+        .align_y(Alignment::Center)
+        .into()
+    } else {
+        let display_name = plan
+            .current::<DisplayName>()
+            .unwrap_or_else(|| "Unknown".to_string());
+        let mut col = column![
+            icon_with_backdrop,
+            text(display_name)
+                .size(step.title_size())
+                .align_x(alignment::Horizontal::Center)
+                .style(|_| iced_widget::text::Style {
+                    color: Some(style::TEXT),
+                }),
+        ]
+        .spacing(step.gap())
+        .align_x(Alignment::Center);
 
-    let app_id_line: Element<'_, _, _, _> = match app_id {
-        Some(s) => text(s)
-            .size(style::TEXT_SIZE_HINT)
-            .style(|_| iced_widget::text::Style {
-                color: Some(style::TEXT_DIM),
-            })
-            .into(),
-        None => text("").size(style::TEXT_SIZE_HINT).into(),
+        if let Some(app_id) = app_id {
+            col = col.push(detail_line(app_id, step, style::TEXT_DIM, Ellipsis::End));
+        }
+        if let Some(exec) = exec {
+            col = col.push(detail_line(exec, step, style::TEXT_HINT, Ellipsis::Start));
+        }
+
+        col.push(buttons(step)).into()
     };
 
-    let edit_btn =
-        button(
-            text("Edit")
-                .size(style::TEXT_SIZE_BODY)
-                .style(|_| iced_widget::text::Style {
-                    color: Some(style::TEXT),
-                }),
-        )
-        .padding(style::PAD_MEDIUM)
-        .on_press(PlaceholderMessage::EnterSettings)
-        .style(button_secondary);
-    
-    let dismiss_btn =
-        button(
-            text("Dismiss")
-                .size(style::TEXT_SIZE_BODY)
-                .style(|_| iced_widget::text::Style {
-                    color: Some(style::TEXT),
-                }),
-        )
-        .padding(style::PAD_MEDIUM)
-        .on_press(PlaceholderMessage::DismissClicked)
-        .style(button_secondary);
-
-    let launch_btn =
-        button(
-            text("Launch")
-                .size(style::TEXT_SIZE_BODY)
-                .style(|_| iced_widget::text::Style {
-                    color: Some(Color::WHITE),
-                }),
-        )
-        .padding(style::PAD_MEDIUM)
-        .on_press(PlaceholderMessage::LaunchClicked)
-        .style(button_primary);
-
-    let buttons = row![edit_btn, launch_btn, dismiss_btn]
-        .spacing(12)
-        .align_y(Alignment::Center);
-
-
-
-    let body = column![
-        icon_with_backdrop,
-        title,
-        app_id_line,
-        buttons,
-    ]
-    .spacing(16)
-    .align_x(Alignment::Center);
-
-    container(body)
-        .padding(Padding::new(32.0).top(128))
+    container(content)
+        .padding(step.outer_padding())
         .width(Length::Fill)
         .height(Length::Fill)
-        .center_y(Length::Fill)
         .align_x(alignment::Horizontal::Center)
         .align_y(alignment::Vertical::Center)
         .into()
+}
+
+/// The command line the plan would run: `ExecProgram` followed by `ExecArgs`.
+///
+/// Both are what a default launch actually uses — `request_from_plan` hands
+/// exactly this pair to `generic_command` — so showing the program alone
+/// under-reported the launch whenever the app carried arguments.
+///
+/// It is the PLAN's command, not the final argv: an active handler's
+/// synthesizer may add flags of its own, and a containerised launch is
+/// wrapped in `podman exec` later. Showing the plan is the right call here —
+/// it is the thing the user edits in Settings.
+///
+/// Arguments containing whitespace are quoted, so a single argument with a
+/// space in it doesn't read as two.
+fn exec_line(plan: &compositor_introspection_launchplan_plan_base::LaunchPlan) -> Option<String> {
+    let program = plan.current::<ExecProgram>()?;
+    let mut line = program.to_string_lossy().into_owned();
+    for arg in plan.current::<ExecArgs>().unwrap_or_default() {
+        line.push(' ');
+        if arg.chars().any(char::is_whitespace) {
+            line.push('"');
+            line.push_str(&arg);
+            line.push('"');
+        } else {
+            line.push_str(&arg);
+        }
+    }
+    Some(line)
+}
+
+/// One secondary identity line (app_id or executable path).
+///
+/// Held to a single line: these are long, unbreakable strings, and letting
+/// them wrap would grow the content past the step it was measured for — the
+/// very thing the breakpoints exist to prevent. `ellipsis` picks which end
+/// survives the truncation: [`Ellipsis::Start`] for a path, so the binary
+/// name stays readable, [`Ellipsis::End`] for an app_id, so its prefix does.
+fn detail_line<'a>(
+    value: String,
+    step: Breakpoint,
+    color: Color,
+    ellipsis: Ellipsis,
+) -> Element<'a, PlaceholderMessage, Theme, Renderer> {
+    text(value)
+        .size(step.detail_size())
+        .width(Length::Fill)
+        .align_x(if step.is_row() {
+            alignment::Horizontal::Left
+        } else {
+            alignment::Horizontal::Center
+        })
+        .wrapping(Wrapping::None)
+        .ellipsis(ellipsis)
+        .style(move |_| iced_widget::text::Style { color: Some(color) })
+        .into()
+}
+
+/// The Edit / Launch / Dismiss row. Order is fixed across breakpoints so the
+/// buttons don't move under the pointer when the tile is resized; only their
+/// labels (words → glyphs) and metrics change.
+fn buttons<'a>(step: Breakpoint) -> Element<'a, PlaceholderMessage, Theme, Renderer> {
+    row![
+        action_button(step, Action::Edit, PlaceholderMessage::EnterSettings, false),
+        action_button(step, Action::Launch, PlaceholderMessage::LaunchClicked, true),
+        action_button(step, Action::Dismiss, PlaceholderMessage::DismissClicked, false),
+    ]
+    .spacing(step.button_gap())
+    .align_y(Alignment::Center)
+    .into()
+}
+
+/// One action button, sized per step: content-sized with padding where the
+/// label is a word, a fixed square where it is a glyph (so the rounding lands
+/// on a true circle rather than an ellipse).
+fn action_button<'a>(
+    step: Breakpoint,
+    action: Action,
+    message: PlaceholderMessage,
+    primary: bool,
+) -> Element<'a, PlaceholderMessage, Theme, Renderer> {
+    let color = if primary { Color::WHITE } else { style::TEXT };
+    let label = text(step.label(action))
+        .size(step.button_text_size())
+        .style(move |_| iced_widget::text::Style { color: Some(color) });
+
+    // A fixed-size button gives the glyph no room to sit off-centre, so the
+    // label fills the button and centers itself in both axes.
+    let btn = match step.button_diameter() {
+        Some(d) => button(label.width(Length::Fill).height(Length::Fill).center())
+            .width(Length::Fixed(d))
+            .height(Length::Fixed(d))
+            .padding(Padding::ZERO),
+        None => button(label).padding(step.button_padding()),
+    };
+    let btn = btn.on_press(message);
+
+    let radius = step.button_radius();
+    if primary {
+        btn.style(move |theme, status| button_primary(theme, status, radius)).into()
+    } else {
+        btn.style(move |theme, status| button_secondary(theme, status, radius)).into()
+    }
 }
 
 // ── Icon rendering ──────────────────────────────────────────────────
@@ -120,18 +210,20 @@ pub fn render(ui: &PlaceholderUi) -> Element<'_, PlaceholderMessage, Theme, Rend
 /// Wrap the icon in a soft circular "glassy" backdrop.
 fn backdrop<'a>(
     inner: Element<'a, PlaceholderMessage, Theme, Renderer>,
+    icon_px: f32,
 ) -> Element<'a, PlaceholderMessage, Theme, Renderer> {
+    let backdrop_px = icon_px * ICON_BACKDROP_SCALE;
     container(inner)
-        .width(Length::Fixed(ICON_BACKDROP_PX))
-        .height(Length::Fixed(ICON_BACKDROP_PX))
+        .width(Length::Fixed(backdrop_px))
+        .height(Length::Fixed(backdrop_px))
         .align_x(alignment::Horizontal::Center)
         .align_y(alignment::Vertical::Center)
-        .style(|_| container::Style {
+        .style(move |_| container::Style {
             background: Some(Background::Color(style::ICON_BG)),
             border: Border {
                 color: style::ICON_HIGHLIGHT,
                 width: 1.0,
-                radius: (ICON_BACKDROP_PX / 2.0).into(),
+                radius: (backdrop_px / 2.0).into(),
             },
             // Outer accent glow gives the "lit from behind" feeling.
             shadow: Shadow {
@@ -145,7 +237,7 @@ fn backdrop<'a>(
         .into()
 }
 
-fn render_icon<'a>(path: PathBuf) -> Element<'a, PlaceholderMessage, Theme, Renderer> {
+fn render_icon<'a>(path: PathBuf, icon_px: f32) -> Element<'a, PlaceholderMessage, Theme, Renderer> {
     let is_svg = path
         .extension()
         .and_then(|s| s.to_str())
@@ -154,29 +246,29 @@ fn render_icon<'a>(path: PathBuf) -> Element<'a, PlaceholderMessage, Theme, Rend
 
     if is_svg {
         svg(svg::Handle::from_path(path))
-            .width(Length::Fixed(ICON_PX))
-            .height(Length::Fixed(ICON_PX))
+            .width(Length::Fixed(icon_px))
+            .height(Length::Fixed(icon_px))
             .content_fit(ContentFit::Contain)
             .into()
     } else {
         image(image::Handle::from_path(path))
-            .width(Length::Fixed(ICON_PX))
-            .height(Length::Fixed(ICON_PX))
+            .width(Length::Fixed(icon_px))
+            .height(Length::Fixed(icon_px))
             .content_fit(ContentFit::Contain)
             .into()
     }
 }
 
-fn fallback_glyph<'a>() -> Element<'a, PlaceholderMessage, Theme, Renderer> {
+fn fallback_glyph<'a>(icon_px: f32) -> Element<'a, PlaceholderMessage, Theme, Renderer> {
     container(
         text("?")
-            .size(ICON_PX / 2.0)
+            .size(icon_px / 2.0)
             .style(|_| iced_widget::text::Style {
                 color: Some(style::TEXT_HINT),
             }),
     )
-    .width(Length::Fixed(ICON_PX))
-    .height(Length::Fixed(ICON_PX))
+    .width(Length::Fixed(icon_px))
+    .height(Length::Fixed(icon_px))
     .align_x(alignment::Horizontal::Center)
     .align_y(alignment::Vertical::Center)
     .into()
@@ -187,6 +279,7 @@ fn fallback_glyph<'a>() -> Element<'a, PlaceholderMessage, Theme, Renderer> {
 fn button_primary(
     _theme: &Theme,
     status: iced_widget::button::Status,
+    radius: f32,
 ) -> iced_widget::button::Style {
     use iced_widget::button::Status;
     let bg = match status {
@@ -210,7 +303,7 @@ fn button_primary(
         border: Border {
             color: style::BORDER_BRIGHT,
             width: 0.0,
-            radius: style::RADIUS_MEDIUM.into(),
+            radius: radius.into(),
         },
         shadow: Shadow {
             color: style::GLOW,
@@ -224,6 +317,7 @@ fn button_primary(
 fn button_secondary(
     _theme: &Theme,
     status: iced_widget::button::Status,
+    radius: f32,
 ) -> iced_widget::button::Style {
     use iced_widget::button::Status;
     let bg = match status {
@@ -252,7 +346,7 @@ fn button_secondary(
         border: Border {
             color: style::BORDER_BRIGHT,
             width: 1.0,
-            radius: style::RADIUS_MEDIUM.into(),
+            radius: radius.into(),
         },
         shadow: Shadow::default(),
         snap: true,

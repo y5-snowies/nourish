@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_introspection_extraction_window_handler_registry",
+    "compositor_introspection_extraction_window_handler_traits",
+    "compositor_introspection_extraction_window_hints_id",
+    "compositor_introspection_extraction_window_hints_source",
+    "compositor_introspection_extraction_window_meta_types"
+  ]
+}

@@ -19,6 +19,22 @@ impl HintAttribute for Title {
     fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "Window title", Self::category(), AttributeKind::Text) }
 }
 
+/// `NoDisplay=true` on the resolved desktop entry: the entry exists so the
+/// desktop knows how to start the program, but no menu ever offers it — DBus
+/// service backends (xdg-desktop-portal), MIME handlers, session helpers.
+///
+/// A window from such an entry is not one the user launched and not one they
+/// can launch again, which is what makes it worth recording separately from
+/// `DBusActivatable` (many ordinary apps are D-Bus activatable too).
+#[derive(Debug)]
+pub struct NoDisplay;
+impl HintAttribute for NoDisplay {
+    type Value = bool;
+    fn name() -> &'static str { "no_display" }
+    fn category() -> AttributeCategory { AttributeCategory::Identity }
+    fn descriptor() -> AttributeDescriptor { AttributeDescriptor::new(Self::name(), "No display", Self::category(), AttributeKind::Bool) }
+}
+
 /// Wayland `app_id` (xdg-shell) or X11 `WM_CLASS` surfaced via xwayland.
 #[derive(Debug)]
 pub struct AppId;

@@ -1,0 +1,16 @@
+{
+  "deps": [
+    "compositor_y5_window_interface_dump",
+    "compositor_model_environment_keybinding_base",
+    "compositor_support_library_input_keyboard_format",
+    "compositor_orchestration_driver_audio_base",
+    "compositor_y5_lock_system_base",
+    "compositor_y5_picker_system_base",
+    "compositor_y5_picker_interface_base",
+    "compositor_y5_picker_interface_entry",
+    "compositor_model_debug_instance_record",
+    "compositor_support_library_input_keyboard_base",
+    "compositor_orchestration_core_state_base",
+    "smithay"
+  ]
+}

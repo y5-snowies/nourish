@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_pipeline_bundle_manifest_base",
+    // `contained` — the one rule about texture paths, stated where the decoder is so
+    // validation and loading cannot disagree about what a legal path is.
+    "compositor_pipeline_compile_decode_base"
+  ]
+}

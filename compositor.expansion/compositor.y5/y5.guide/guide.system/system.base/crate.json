@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_support_system_trait_system_base",
+    "compositor_y5_guide_state_base"
+  ]
+}

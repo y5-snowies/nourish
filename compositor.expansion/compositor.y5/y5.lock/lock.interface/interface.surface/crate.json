@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_support_library_pam_worker_base",
+    "compositor_support_iced_core_engine_base",
+    "iced_core",
+    "iced_widget"
+  ]
+}

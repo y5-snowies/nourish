@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_support_action_camera_fit_aspect_types",
+    "compositor_support_action_camera_fit_aspect_extend",
+    "compositor_support_action_camera_fit_aspect_maximize"
+  ]
+}

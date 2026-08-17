@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "compositor_background_three_system_base",
+    "compositor_support_bevy_core_compositor_base",
+    "compositor_support_system_storage_slot_base"
+  ]
+}

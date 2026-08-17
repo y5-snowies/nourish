@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_seat_pointer_input",
+    "compositor_y5_canvas_input_gesture"
+  ]
+}

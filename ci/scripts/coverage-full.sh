@@ -22,6 +22,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 entry="${1:?usage: coverage-full.sh <entry-path>}"
 [ -d "$REPO_ROOT/$entry" ] || die "no such entry: $entry"
+# The manifests cargo-llvm-cov is about to read are generated artifacts, absent from a
+# fresh checkout. (y5_bin_crate_dir below does this too, but Y5_COV_FEATURES skips it.)
+y5_generate_manifests
 command -v cargo-llvm-cov >/dev/null 2>&1 || cargo llvm-cov --version >/dev/null 2>&1 \
     || die "cargo-llvm-cov is required (cargo install cargo-llvm-cov)"
 

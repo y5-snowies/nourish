@@ -26,3 +26,17 @@ compositor_installer_process_layout_compute_base = { path = "process.layout/layo
 lto = "fat"
 codegen-units = 1
 strip = "symbols"
+
+[profile.release-fast]
+# What every local build and `environment/check.sh` use: release optimizations
+# without LTO. Declared in EVERY workspace root because cargo only honours
+# `[profile.*]` at the root it is invoked from — defined in one root only,
+# `--profile release-fast` simply fails from all the others.
+# Comments sit INSIDE the table: `workspace.link.js` inserts its generated block
+# immediately before the first `[header]` after [workspace.dependencies], so a
+# comment block above this one would be orphaned above the generated links.
+# `inherits = "release"` refers to cargo's built-in release profile — no local
+# `[profile.release]` is needed here.
+inherits = "release"
+lto = false
+codegen-units = 16

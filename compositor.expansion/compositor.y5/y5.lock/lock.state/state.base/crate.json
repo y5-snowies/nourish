@@ -1,0 +1,13 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "compositor_support_library_pam_worker_base",
+    "compositor_y5_graphic_capture_registry",
+    "compositor_background_three_lock_scene",
+    "compositor_support_bevy_core_compositor_base",
+    "compositor_y5_lock_tty_interface",
+    "compositor_y5_lock_interface_surface",
+    "compositor_monitor_compositor_iced_base",
+    "smithay"
+  ]
+}

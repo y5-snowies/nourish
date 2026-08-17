@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_configurator_settings_interface_handle",
+    "compositor_configurator_settings_surface_message",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_guide_shader_view",
+    "smithay"
+  ]
+}

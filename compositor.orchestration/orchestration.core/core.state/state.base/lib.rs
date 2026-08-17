@@ -6,9 +6,7 @@ pub mod wire;
 
 pub use state::Orchestrator as DrawState;
 pub use state::Orchestrator;
-use compositor_support_smithay_dispatch_wire_base::wire::Wire;
-
-pub type Loop = Wire<Orchestrator>;
+pub use state::Loop;
 
 pub mod export {
     pub use compositor_y5_canvas_state_base::*;

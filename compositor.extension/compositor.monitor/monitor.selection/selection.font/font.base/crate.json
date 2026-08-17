@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "iced_core",
+    "iced_runtime",
+    "iced_graphics"
+  ]
+}

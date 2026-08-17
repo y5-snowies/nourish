@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_kernel_vulkan_sync_fence_syncfile",
+    "ash",
+    "smithay",
+    "compositor_model_debug_instance_record"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_y5_window_draw_element",
+    "compositor_y5_canvas_draw_element",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

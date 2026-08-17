@@ -1,0 +1,18 @@
+{
+  "deps": [
+    "compositor_support_system_storage_slot_base",
+    "compositor_support_system_world_identity_base",
+    "compositor_support_system_persist_document_entry",
+    "compositor_support_system_persist_store_base",
+    "compositor_support_system_persist_store_reconcile",
+    "compositor_support_system_persist_path_base",
+    "compositor_model_debug_instance_record",
+    "uuid"
+  ],
+  "dev": [
+    "compositor_support_system_persist_document_trait",
+    "compositor_support_system_persist_document_sync",
+    "compositor_support_system_storage_token_base",
+    "serde"
+  ]
+}

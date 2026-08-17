@@ -10,5 +10,7 @@
 
 pub mod canvas;
 pub mod diag;
+pub mod dnd;
 pub mod font;
 pub mod protocol;
+pub mod session;

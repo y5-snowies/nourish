@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_model_log_process_instance_bind",
+    "tokio"
+  ]
+}

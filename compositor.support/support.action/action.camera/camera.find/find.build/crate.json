@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_support_action_camera_find_flags",
+    "compositor_support_action_camera_find_passes"
+  ]
+}

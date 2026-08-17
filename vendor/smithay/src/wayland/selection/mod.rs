@@ -13,6 +13,8 @@
 
 use std::os::unix::io::OwnedFd;
 
+use wayland_server::backend::ClientId;
+
 use crate::input::{Seat, SeatHandler};
 
 pub mod data_device;
@@ -36,10 +38,38 @@ pub trait SelectionHandler: Sized + SeatHandler {
     #[allow(unused_variables)]
     fn new_selection(&mut self, ty: SelectionTarget, source: Option<SelectionSource>, seat: Seat<Self>) {}
 
+    /// The client owning the `ty` selection is gone and the selection is about to be
+    /// cleared.
+    ///
+    /// Return `Some((mime_types, user_data))` to install a compositor-provided
+    /// replacement **atomically in place of the clear**, or `None` to let the selection
+    /// be cleared as usual (the default).
+    ///
+    /// This exists so a compositor that persists the clipboard across client exit does
+    /// not have to clear-then-refill: that sequence makes clients observe a
+    /// `wl_data_device.selection(nil)` immediately followed by a fresh offer, and apps
+    /// act on the `nil` (greying out Paste, dropping cached offer state).
+    ///
+    /// Called with no borrow held on the seat's selection data, so the implementation
+    /// may touch seat state — but it must not re-enter the selection API itself.
+    #[allow(unused_variables)]
+    fn selection_source_destroyed(
+        &mut self,
+        ty: SelectionTarget,
+        seat: &Seat<Self>,
+    ) -> Option<(Vec<String>, Self::SelectionUserData)> {
+        None
+    }
+
     /// A client requested to read the server-set selection.
     ///
     /// * `mime_type` - the requested mime type
     /// * `fd` - the fd to write into
+    /// * `client` - the client that asked, so a compositor writing asynchronously can tell
+    ///   which transfers belong together. A client may `receive` several mime types at once
+    ///   and drain them in sequence, which leaves the pipes it has not reached yet looking
+    ///   idle; without an identity to group by, those are indistinguishable from a client
+    ///   that stopped reading altogether.
     #[allow(unused_variables)]
     fn send_selection(
         &mut self,
@@ -48,6 +78,7 @@ pub trait SelectionHandler: Sized + SeatHandler {
         fd: OwnedFd,
         seat: Seat<Self>,
         user_data: &Self::SelectionUserData,
+        client: ClientId,
     ) {
     }
 }

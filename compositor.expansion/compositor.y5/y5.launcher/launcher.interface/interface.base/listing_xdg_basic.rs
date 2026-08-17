@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use compositor_monitor_launcher_ui_base::Application;
+use compositor_monitor_launcher_ui_base::{AppEntry, Application};
 
 /// Load every visible application from the standard XDG locations.
 pub fn load_applications() -> Vec<Application> {
@@ -177,15 +177,121 @@ fn parse_desktop_file(
         .unwrap_or("")
         .to_string();
 
-    Some(Application {
-        id,
-        title: name,
+    let main = AppEntry {
+        action: None,
+        title: name.clone(),
         bin,
         args,
         icon_path,
+    };
+    let (entries, default_entry) = read_entries(&contents, &entry, main, locale, icon_dirs);
+
+    Some(Application {
+        id,
+        title: name,
+        entries,
+        default_entry,
         usage_count: 0,
         usage_time: None,
     })
+}
+
+/// Read ONE named group. `read_desktop_entry_group` stops at the first group
+/// boundary, which is right for `[Desktop Entry]` but cannot reach the
+/// `[Desktop Action <id>]` groups that follow it.
+fn read_group(contents: &str, group: &str) -> Option<HashMap<String, String>> {
+    let header = format!("[{group}]");
+    let mut map = HashMap::new();
+    let mut inside = false;
+    for raw in contents.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') && line.ends_with(']') {
+            if inside {
+                break;
+            }
+            inside = line == header;
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        if let Some((k, v)) = line.split_once('=') {
+            map.insert(k.trim().to_string(), v.trim().to_string());
+        }
+    }
+    (!map.is_empty()).then_some(map)
+}
+
+/// Build the entry list for an app: its main entry first, then every action
+/// `Actions=` declares, in declaration order.
+///
+/// Everything here comes from what the desktop file itself states — the
+/// action ids, their `Name`, their `Exec`, their `Icon`. y5 never appends a
+/// flag of its own, because "the flag that opens a new window" is not
+/// something the spec defines and guessing it per app would be wrong as
+/// often as right. Chrome is the case in point: its declared `new-window`
+/// action runs the bare binary, not `--new-window`.
+/// Returns the entries and the index to select by default.
+///
+/// The default is the app's declared "new window" action, identified by two
+/// INDEPENDENT indicators, either of which suffices:
+///
+/// - the action **id** is `new-window` — machine-readable, but app-chosen and
+///   unregistered, so not every app uses it;
+/// - the action's **unlocalised `Name`** is `New Window` — the string the app
+///   itself ships. Read from the raw group rather than the localised title on
+///   purpose: `Name[fr]=Nouvelle fenêtre` must not stop a French desktop from
+///   recognising its own new-window action.
+///
+/// Requiring both would miss apps that follow one convention and not the
+/// other; requiring neither would mean guessing, which we don't do.
+fn read_entries(
+    contents: &str,
+    entry: &HashMap<String, String>,
+    main: AppEntry,
+    locale: Option<&str>,
+    icon_dirs: &[PathBuf],
+) -> (Vec<AppEntry>, usize) {
+    let mut entries = vec![main];
+    let mut default = 0usize;
+
+    let Some(actions) = entry.get("Actions") else { return (entries, default) };
+    for id in actions.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+        let Some(group) = read_group(contents, &format!("Desktop Action {id}")) else {
+            continue;
+        };
+        // An action without `Exec` is only launchable over D-Bus, which we
+        // do not implement — skip it rather than offer something inert.
+        let Some(exec_raw) = group.get("Exec") else { continue };
+        let Some((bin, args)) = parse_exec(exec_raw) else { continue };
+        let title = lookup_localised(&group, "Name", locale)
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| id.to_string());
+        let icon_path = group
+            .get("Icon")
+            .and_then(|name| resolve_icon(name, icon_dirs))
+            .or_else(|| entries[0].icon_path.clone());
+
+        let is_new_window = id.eq_ignore_ascii_case("new-window")
+            || group.get("Name").is_some_and(|n| n.eq_ignore_ascii_case("New Window"));
+
+        entries.push(AppEntry {
+            action: Some(id.to_string()),
+            title,
+            bin,
+            args,
+            icon_path,
+        });
+        // First match wins, so an app declaring several new-window-ish
+        // actions gets its earliest-declared one.
+        if is_new_window && default == 0 {
+            default = entries.len() - 1;
+        }
+    }
+    (entries, default)
 }
 
 fn read_desktop_entry_group(contents: &str) -> Option<HashMap<String, String>> {

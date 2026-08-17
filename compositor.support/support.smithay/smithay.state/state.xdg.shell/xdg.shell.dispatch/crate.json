@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_support_smithay_state_xdg_shell_toplevel",
+    "compositor_support_smithay_state_xdg_shell_popup",
+    "compositor_support_smithay_state_xdg_shell_grab"
+  ]
+}

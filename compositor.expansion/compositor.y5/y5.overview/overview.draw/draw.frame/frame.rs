@@ -40,6 +40,8 @@ pub fn prepare(state: &mut Loop, gles: &mut GlesRenderer, size: Size<i32, Physic
     compositor_y5_overview_draw_settings::settings::per_frame(state, gles, size);
     // Menu-bar clock + Display FPS (throttled) + keep the menu bar output-width-sized.
     compositor_y5_overview_draw_status::status::per_frame(state, size);
+    // Layout-tab hover card (icon + title of the window under the cursor).
+    compositor_y5_overview_draw_hover::hover::per_frame(state, gles, size);
     if state.inner.overview().visible && state.inner.overview().overlay_ready() && state.inner.overview().is_world() {
         compositor_y5_overview_draw_world::world::prepare_world(state, gles, size)
     } else {

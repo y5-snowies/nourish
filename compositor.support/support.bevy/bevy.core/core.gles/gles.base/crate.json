@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_support_bevy_core_fault_base",
+    "compositor_model_debug_instance_record",
+    "smithay"
+  ]
+}

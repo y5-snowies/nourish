@@ -15,6 +15,20 @@ pub struct AttributeDescriptor {
     pub category: AttributeCategory,
     /// What kind of editor to render.
     pub kind: AttributeKind,
+    /// Attribute keys whose change makes this attribute's INFERRED value
+    /// suspect — because it was derived from them, or because it contradicts
+    /// them.
+    ///
+    /// Declared here rather than in a central table so the fact lives beside
+    /// the attribute that owns it: a new derived attribute cannot be added
+    /// without the edge, and a central list cannot silently fall behind.
+    ///
+    /// Optional. An empty list means "nothing invalidates this", which is the
+    /// correct answer for anything extracted straight from `/proc` or the
+    /// Wayland surface. Declaring an edge only buys the report; whether the
+    /// value can actually be RE-DERIVED is a separate, also-optional
+    /// capability — see the invalidation pass.
+    pub invalidated_by: &'static [&'static str],
 }
 
 /// What kind of value an attribute carries, from the UI's perspective.
@@ -44,6 +58,13 @@ impl AttributeDescriptor {
         category: AttributeCategory,
         kind: AttributeKind,
     ) -> Self {
-        Self { key, label, category, kind }
+        Self { key, label, category, kind, invalidated_by: &[] }
+    }
+
+    /// Declare what makes this attribute's inferred value suspect. Builder so
+    /// the common case — nothing does — stays a plain `new`.
+    pub fn invalidated_by(mut self, sources: &'static [&'static str]) -> Self {
+        self.invalidated_by = sources;
+        self
     }
 }

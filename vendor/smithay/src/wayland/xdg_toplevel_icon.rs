@@ -389,6 +389,30 @@ impl<D: XdgToplevelIconHandler> Dispatch2<XdgToplevelIconV1, D> for XdgToplevelI
                 self.register_buffer_destruction_hook(buffer.clone(), shm, {
                     let icon = icon.clone();
                     move || {
+                        // y5 patch: this hook also fires while the CLIENT is being torn
+                        // down, and posting a protocol error there aborts the compositor.
+                        //
+                        // `wl_client_destroy` emits its destroy signal first — which is
+                        // where wayland-backend frees the client's user data — and only
+                        // then walks the object map destroying resources. So by the time
+                        // this `wl_buffer` destructor runs, `client_id_from_ptr()` answers
+                        // `None`, while the icon object (not yet reached in that walk) is
+                        // still `alive` and therefore sails past the liveness guard at the
+                        // top of `post_error`. The `.unwrap()` on the next line of
+                        // `wayland-backend/src/sys/server_impl/mod.rs` then panics, and the
+                        // panic unwinds out of the `extern "C"` resource destructor:
+                        // "panic in a function that cannot unwind" -> SIGABRT.
+                        //
+                        // `Resource::client()` resolves through that same
+                        // `client_id_from_ptr`, so it is exactly the condition that makes
+                        // `post_error` unsound — check it rather than `is_alive()`, which
+                        // is about the OBJECT and is still true here.
+                        //
+                        // Nothing is lost by staying quiet: the error only exists to tell a
+                        // client it outlived its own buffer, and there is no client left.
+                        if icon.client().is_none() {
+                            return;
+                        }
                         icon.post_error(
                             xdg_toplevel_icon_v1::Error::NoBuffer,
                             "The provided buffer has been destroyed before the toplevel icon",

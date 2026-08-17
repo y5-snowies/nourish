@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_pipeline_execute_warpmap_base",
+    "compositor_pipeline_host_hit_base"
+  ]
+}

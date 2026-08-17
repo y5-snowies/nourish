@@ -9,7 +9,6 @@ use smithay::desktop::{Window, layer_map_for_output};
 use compositor_y5_graphic_capture_registry::CaptureRegistry;
 use compositor_y5_lock_state_base::state::LockState;
 
-use crate::Loop;
 use smithay::reexports::calloop::{EventLoop, LoopSignal, RegistrationToken};
 use smithay::reexports::wayland_server::DisplayHandle;
 use std::cell::RefCell;
@@ -389,7 +388,43 @@ impl Orchestrator {
     /// world's windows. Use this instead of `self.worlds.set_spawn_target` directly.
     pub fn set_spawn_target_world(&mut self, id: uuid::Uuid) {
         let previous = self.worlds.spawn_target();
+        // The cursor's hardware position, read off the world being LEFT (before the
+        // reassignment moves what `pointer()` resolves to).
+        let carried = self
+            .worlds
+            .get(previous)
+            .storage()
+            .try_get(&compositor_orchestration_seat_system_pointer::base::POINTER)
+            .map(|pointer| pointer.motion);
         if self.worlds.set_spawn_target(id) {
+            // Hand the incoming world that position.
+            //
+            // `PointerState` is a per-world slot, so the incoming world answers
+            // `pointer()` with its OWN accumulator: a stale one from the last visit,
+            // or — for a world never entered — the constructor's physical `(0, 0)`,
+            // which is the output's top-left CORNER and so already past two extents.
+            // Left alone, the first mouse move accumulates from there: the cursor
+            // snaps to the corner, and with edge pan on the overflow it starts with
+            // is a screen-wide shove of the camera. The rim then re-states the seat's
+            // world location from the carried position
+            // (`Wire::apply_world_switch_pointer`), which together keep the cursor
+            // visually still across the switch.
+            //
+            // The edge hold is dropped on BOTH sides because it lives in the slot
+            // too: left armed, the outgoing world resumes its pan the moment it is
+            // re-entered, and the incoming world inherits one nobody is pushing.
+            self.clear_edge_hold(previous);
+            if let Some(motion) = carried {
+                if let Some(pointer) = self
+                    .worlds
+                    .get_mut(id)
+                    .storage_mut()
+                    .try_get_mut(&compositor_orchestration_seat_system_pointer::base::POINTER_MUT)
+                {
+                    pointer.motion = motion;
+                    pointer.edge_hold = None;
+                }
+            }
             // The outgoing world's off-thread background panes are now nobody's:
             // per-pane targets, a `history` image and a persistent ping-pong pair
             // are the largest thing that feature owns, and without a deterministic
@@ -410,7 +445,51 @@ impl Orchestrator {
                 );
                 self.release_world_surfaces(previous);
             }
+            // Narrow the introspection sampler to the world now in view. Its
+            // entries are process-tree walks; spending them on windows nothing is
+            // showing is pure cost, and the out-of-scope ones stay QUEUED with
+            // their captured meta so re-entering resumes without re-walking.
+            self.scope_sampler();
             self.bus.send(&WORLD_SWITCHED_TX, WorldSwitched);
+        }
+    }
+
+    /// Tell the sampler which windows are worth sampling: the spawn-target
+    /// world's. No-op before the sampler exists (early startup).
+    fn scope_sampler(&self) {
+        let Some(sampler) = self
+            .kernel
+            .get(&compositor_orchestration_driver_introspection_base::base::SAMPLER)
+        else {
+            return;
+        };
+        let target = self.worlds.spawn_target();
+        let Some(host) = self
+            .worlds
+            .get(target)
+            .storage()
+            .try_get(&compositor_support_world_host_space_base::base::SPACE)
+        else {
+            return;
+        };
+        use compositor_y5_window_interface_record::window::LoopWindow;
+        sampler.set_scope(host.inner.state.elements().filter_map(|w| w.uuid()).collect());
+    }
+
+    /// Drop `world`'s armed edge pan, if it has a pointer slot at all (overlay
+    /// worlds do not). The seat's own `extent::release` only ever reaches the
+    /// spawn target; this is for the world on the other side of a switch.
+    fn clear_edge_hold(&mut self, world: uuid::Uuid) {
+        if !self.worlds.contains(world) {
+            return;
+        }
+        if let Some(pointer) = self
+            .worlds
+            .get_mut(world)
+            .storage_mut()
+            .try_get_mut(&compositor_orchestration_seat_system_pointer::base::POINTER_MUT)
+        {
+            pointer.edge_hold = None;
         }
     }
 
@@ -656,6 +735,45 @@ impl Orchestrator {
             .get(target)
             .storage()
             .get(&compositor_support_world_host_space_base::base::SPACE)
+            .inner
+    }
+
+    /// The world whose Space holds the toplevel behind `surface`, with the window.
+    ///
+    /// A drag is the one flow that can outlive the world it started in, so a
+    /// carried window must never be resolved against `spawn_target`: after a
+    /// switch it is still in the world it was torn off in.
+    pub fn window_of_surface(
+        &self,
+        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) -> Option<(uuid::Uuid, smithay::desktop::Window)> {
+        use smithay::wayland::seat::WaylandFocus;
+        self.worlds.ids().into_iter().find_map(|id| {
+            let found = self
+                .worlds
+                .get(id)
+                .storage()
+                .try_get(&compositor_support_world_host_space_base::base::SPACE)?
+                .inner
+                .state
+                .elements()
+                .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface))
+                .cloned()?;
+            Some((id, found))
+        })
+    }
+
+    /// A NAMED world's Space. See `window_of_surface` for why the drag paths
+    /// cannot use the `spawn_target`-bound accessor below.
+    pub fn space_of_mut(
+        &mut self,
+        world: uuid::Uuid,
+    ) -> &mut compositor_support_smithay_state_space_base::state::SpaceState {
+        &mut self
+            .worlds
+            .get_mut(world)
+            .storage_mut()
+            .get_mut(&compositor_support_world_host_space_base::base::SPACE_MUT)
             .inner
     }
 
@@ -1109,6 +1227,33 @@ impl Orchestrator {
         self.worlds.get_mut(target).storage_mut().get_mut(&compositor_y5_placeholder_system_base::base::PLACEHOLDER_MUT)
     }
 
+    /// The world holding the placeholder record for `uuid`.
+    ///
+    /// Records live in the world the window was mapped in, but a window can be
+    /// closed while the user is looking somewhere else — and every accessor above
+    /// resolves against `spawn_target`, so the destroy path would otherwise search
+    /// the wrong world, find nothing, and dismiss the tile the window earned.
+    /// Derived by lookup, never named: same shape as `world_of_window`.
+    pub fn world_of_placeholder(&self, uuid: uuid::Uuid) -> Option<uuid::Uuid> {
+        self.worlds.ids().into_iter().find(|&id| {
+            self.worlds
+                .get(id)
+                .storage()
+                .try_get(&compositor_y5_placeholder_system_base::base::PLACEHOLDER)
+                .map(|p| p.map.contains_key(&uuid))
+                .unwrap_or(false)
+        })
+    }
+
+    /// A NAMED world's placeholders, for the paths that must act on the world a
+    /// window belonged to rather than the one on screen.
+    pub fn placeholder_of_mut(
+        &mut self,
+        world: uuid::Uuid,
+    ) -> &mut compositor_y5_placeholder_state_base::state::PlaceholderState {
+        self.worlds.get_mut(world).storage_mut().get_mut(&compositor_y5_placeholder_system_base::base::PLACEHOLDER_MUT)
+    }
+
     /// FOCUS ACCESSOR: the focused world's launcher slot.
     pub fn launcher(&self) -> &compositor_y5_launcher_draw_state::state::State {
         let target = self.worlds.spawn_target();
@@ -1392,3 +1537,5 @@ impl CoordinateTrait for Loop {
 
 }
 
+/// The compositor loop: protocol state (`Dispatch`) + the orchestrator.
+pub type Loop = Wire<Orchestrator>;

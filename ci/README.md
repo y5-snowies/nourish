@@ -21,9 +21,8 @@ coverage, packaging and report-generation are identical on both.
 | Script | Does |
 | --- | --- |
 | `lib.sh` | shared helpers (repo root, bin-crate discovery, platform predicates) |
-| `discover-workspaces.sh` | emit the **workspace entries** (dirs with `Cargo.toml` **and** `link.json`) as JSON / lines — drives the GitHub matrix and the GitLab child pipeline |
+| `discover-workspaces.sh` | emit the **workspace entries** (the roots declared in `workspace.catalog.json`) as JSON / lines — drives the GitHub matrix and the GitLab child pipeline |
 | `gen-child-pipeline.sh` | GitLab-only: entries → a child pipeline (lint/build/test/coverage per entry + a merge job) |
-| `link-drift.sh` | re-run `workspace.link.js` in every entry with a generated links block; fail if the committed block is stale (the "forgot `link.all.sh`" guard) |
 | `coverage-full.sh` | per-entry coverage **including dead code** (LLVM region baseline + unit-test merge) → `.ci-coverage/<slug>.lcov` |
 | `merge-coverage.sh` | fuse all entry lcov → `coverage.lcov` + `cobertura.xml` + `html/` + **per-crate `coverage-crates.md`** + self-hosted **`coverage.svg`** badge + a `Coverage: NN.N%` line |
 | `build-docs.sh` | landing page → `public/`; folds in the coverage report + badge and lists the reference guides when present |
@@ -51,9 +50,15 @@ registry as `…/y5-ci:fedora44`; every job runs inside it.
 
 ## Workspace entries
 
-The build/test/coverage unit. An *entry* is a directory (≤ 2 deep, excluding `target/`)
-holding both a workspace-root `Cargo.toml` **and** a `link.json`. Today there are 9.
+The build/test/coverage unit. An *entry* is a workspace root declared in
+`workspace.catalog.json` — the same file that drives manifest generation, so the CI
+matrix cannot describe a tree different from the one being built. Today there are 29.
 Nothing is hardcoded, so adding/renaming a workspace needs **no pipeline edit**.
+
+It used to be "a directory holding both a `Cargo.toml` and a `link.json`". Both halves
+became wrong: `Cargo.toml` is a generated artifact and is absent from a fresh checkout,
+and the `link.json` marker was stale — four roots never had one, so CI silently skipped
+them.
 
 ## Branch flow
 

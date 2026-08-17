@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_support_system_storage_token_base",
+    "compositor_monitor_compositor_iced_base",
+    "smithay"
+  ]
+}

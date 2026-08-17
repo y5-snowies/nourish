@@ -1,0 +1,47 @@
+{
+  "deps": [
+    "compositor_support_smithay_dispatch_wire_tearing",
+    "compositor_support_smithay_dispatch_wire_icon",
+    "compositor_model_debug_instance_record",
+    "compositor_model_environment_preference_base",
+    "smithay",
+    "compositor_support_smithay_dispatch_state_base",
+    "compositor_support_smithay_dispatch_state_bounds",
+    "compositor_support_smithay_dispatch_wire_trait",
+    "compositor_support_smithay_dispatch_wire_color",
+    "compositor_support_smithay_dispatch_wire_colorsurf",
+    "compositor_support_smithay_dispatch_wire_tablet",
+    "compositor_support_smithay_dispatch_wire_redraw",
+    "compositor_support_smithay_state_dmabuf_dispatch",
+    "compositor_support_smithay_state_layershell_dispatch",
+    "compositor_support_smithay_state_compositor_dispatch",
+    // Relocated factory (document/SMITHAY_DECOUPLING.md P2): `new_dispatch()` builds
+    // the concrete `Dispatch` here, where `Dispatch: GlobalDispatch<…>` holds via
+    // `delegate_dispatch2!(Dispatch)`. Needs every per-protocol factory directly.
+    "compositor_support_smithay_state_xdg_activation_factory",
+    "compositor_support_smithay_state_dmabuf_factory",
+    "compositor_support_smithay_state_clipboard_factory",
+    "compositor_support_smithay_state_seat_factory",
+    "compositor_support_smithay_state_xdg_shell_factory",
+    "compositor_support_smithay_state_xdg_decoration_factory",
+    "compositor_support_smithay_state_xdg_foreign_factory",
+    "compositor_support_smithay_state_shm_factory",
+    "compositor_support_smithay_state_output_factory",
+    "compositor_support_smithay_state_popup_factory",
+    "compositor_support_smithay_state_layershell_factory",
+    "compositor_support_smithay_state_foreign_factory",
+    "compositor_support_smithay_state_foreign_base",
+    "compositor_support_smithay_state_compositor_factory",
+    "compositor_support_smithay_state_presentation_factory",
+    "compositor_support_smithay_state_viewporter_factory",
+    "compositor_support_smithay_state_fractional_factory",
+    "compositor_support_smithay_state_cursor_shape_factory",
+    "compositor_support_smithay_state_text_input_factory",
+    "compositor_support_smithay_state_dnd_factory",
+    "compositor_support_smithay_state_singlepixel_factory",
+    "compositor_support_smithay_dispatch_wire_session",
+    "compositor_support_smithay_dispatch_wire_drag",
+    "compositor_support_smithay_dispatch_wire_clipboard",
+    "compositor_support_smithay_state_xdg_dialog_factory"
+  ]
+}

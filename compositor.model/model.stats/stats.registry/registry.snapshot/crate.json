@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_model_stats_registry_counter",
+    "compositor_model_stats_registry_meta",
+    "compositor_model_stats_registry_gpu"
+  ]
+}

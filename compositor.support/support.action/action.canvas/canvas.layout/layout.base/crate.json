@@ -1,0 +1,17 @@
+{
+  "deps": [
+    "compositor_support_action_canvas_layout_rect",
+    "compositor_support_action_canvas_layout_minsize",
+    "compositor_support_action_canvas_layout_flags",
+    "compositor_support_action_canvas_layout_variant",
+    "compositor_support_action_canvas_layout_axis",
+    "compositor_support_action_canvas_layout_side",
+    "compositor_support_action_canvas_layout_converge",
+    "compositor_support_action_canvas_layout_close",
+    "compositor_support_action_canvas_layout_align",
+    "compositor_support_action_canvas_layout_spacing",
+    "compositor_support_action_canvas_layout_distrib",
+    "compositor_support_action_canvas_layout_primary",
+    "compositor_support_action_canvas_layout_entry"
+  ]
+}

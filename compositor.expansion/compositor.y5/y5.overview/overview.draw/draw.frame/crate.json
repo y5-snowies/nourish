@@ -1,0 +1,20 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_draw_dispatch_frame",
+    "compositor_orchestration_draw_node_base",
+    "compositor_orchestration_draw_scene_element",
+    "compositor_support_system_world_frame_base",
+    "compositor_y5_overview_state_base",
+    "compositor_y5_overview_draw_backdrop",
+    "compositor_y5_overview_draw_world",
+    "compositor_y5_overview_draw_settings",
+    "compositor_y5_overview_draw_status",
+    "compositor_y5_overview_draw_hover",
+    "compositor_y5_overview_draw_scene",
+    "compositor_y5_picker_interface_embed",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

@@ -31,7 +31,7 @@ impl HintAttribute for TerminalKindAttr {
                 "Alacritty", "Foot", "GnomeTerminal", "GnomeConsole",
                 "Ptyxis", "Kitty", "WezTerm", "Konsole", "Xterm",
             ]),
-        )
+        ).invalidated_by(&["app_id"])
     }
 }
 

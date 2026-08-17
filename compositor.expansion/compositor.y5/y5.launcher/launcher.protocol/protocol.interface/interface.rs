@@ -35,6 +35,8 @@ pub fn handle(
                         token: String::new(),
                         unit,
                         correlation: None,
+                        container: None,
+                        start_container: false,
                     };
                     if let Some(executor) = _loop.inner.kernel.get(&EXECUTOR).as_ref() {
                         executor.launch(req);

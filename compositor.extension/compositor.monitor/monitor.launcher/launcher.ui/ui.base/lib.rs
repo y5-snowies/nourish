@@ -53,7 +53,7 @@ mod ui;
 mod view;
 
 pub use message::LauncherMessage;
-pub use model::{Application, Direction};
+pub use model::{AppEntry, Application, Direction};
 pub use ui::Launcher;
 
 // Re-export the style module so the compositor can match its banner

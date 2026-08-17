@@ -20,9 +20,19 @@ pub fn dispatch(
     // Overview overlay open → windows AND wlr layer surfaces are presentational: reject both
     // so pointer focus never enters them (iced screen surfaces — the overview UI — still match).
     let overview_open = _loop.inner.overview().visible;
+    // A window carried by `xdg_toplevel_drag_v1` is excluded from the hit test:
+    // it tracks the cursor, so it would otherwise be the answer to every hit and
+    // the drop target underneath would never be reached. Computed before the
+    // filter so the closure does not also borrow `_loop`.
+    let carried = _loop.state.toplevel_drag.carried_surface();
     let under = surface_under_filtered(_loop, position_normalized, &|hit| {
         if overview_open && (hit.window().is_some() || hit.is_layer()) {
             return false;
+        }
+        if let (Some(carried), Some(window)) = (carried.as_ref(), hit.window()) {
+            if window.toplevel().is_some_and(|t| t.wl_surface() == carried) {
+                return false;
+            }
         }
         if let Some(window) = hit.window() {
             return window.visible(_loop);

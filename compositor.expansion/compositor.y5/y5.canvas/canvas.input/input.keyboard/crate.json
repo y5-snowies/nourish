@@ -1,0 +1,24 @@
+{
+  "deps": [
+    "compositor_model_environment_keybinding_base",
+    "compositor_support_library_input_keyboard_format",
+    "compositor_support_action_camera_fit_aspect",
+    "compositor_y5_group_interface_base",
+    "compositor_y5_overview_input_keyboard",
+    "smithay",
+    "uuid",
+    "compositor_orchestration_core_state_base",
+    "compositor_support_library_input_keyboard_base",
+    "compositor_support_action_camera_find_base",
+    "compositor_y5_camera_zone_state",
+    "compositor_y5_navigator_travel_machine",
+    "compositor_y5_navigator_travel_state",
+    "compositor_y5_navigator_state_base",
+    "compositor_y5_window_interface_record",
+    "compositor_y5_window_interface_draw",
+    "compositor_y5_window_lifecycle_interface",
+    "compositor_y5_launcher_interface_base",
+    "compositor_y5_navigator_interface_base",
+    "compositor_y5_graphic_capture_interface"
+  ]
+}

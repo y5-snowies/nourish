@@ -1,0 +1,669 @@
+{
+  "roots": {
+    "compositor.expansion/compositor.background": {
+      "members": [
+        "background.*/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.expansion/compositor.pipeline": {
+      "members": [
+        "pipeline.*/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.expansion/compositor.remote": {
+      "members": [
+        "remote.client/*/*",
+        "remote.message/*/*",
+        "remote.transport/*/*"
+      ],
+      "resolver": "3",
+      "crates": {
+        "remote.client/client.handle/handle.base": {
+          "version": "0.1.0"
+        },
+        "remote.message/message.client/client.base": {
+          "version": "0.1.0"
+        },
+        "remote.message/message.macro/macro.base": {
+          "version": "0.1.0"
+        },
+        "remote.message/message.server/server.base": {
+          "version": "0.1.0"
+        },
+        "remote.message/message.state/state.base": {
+          "version": "0.1.0"
+        },
+        "remote.transport/transport.server/server.base": {
+          "version": "0.1.0"
+        }
+      }
+    },
+    "compositor.expansion/compositor.y5": {
+      "members": [
+        "y5.*/*/*"
+      ],
+      "resolver": "3",
+      "crates": {
+        "y5.graphic/graphic.capture/capture.registry": {
+          "version": "0.1.0"
+        },
+        "y5.graphic/graphic.capture/capture.vaapi": {
+          "build_script": "build.rs"
+        },
+        "y5.lock/lock.interface/interface.base": {
+          "version": "0.1.0",
+          "edition": "2021"
+        },
+        "y5.lock/lock.interface/interface.surface": {
+          "version": "0.1.0",
+          "edition": "2021"
+        },
+        "y5.picker/picker.three/three.build": {
+          "build_script": false
+        },
+        "y5.placeholder/placeholder.surface/surface.base": {
+          "version": "0.1.0",
+          "edition": "2021",
+          "lib": false
+        }
+      }
+    },
+    "compositor.extension/compositor.configurator": {
+      "members": [
+        "configurator.*/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.extension/compositor.monitor": {
+      "members": [
+        "monitor.*/*/*"
+      ],
+      "resolver": "3",
+      "crates": {
+        "monitor.compositor/compositor.iced/iced.base": {
+          "version": "0.1.0",
+          "lib": false
+        },
+        "monitor.launcher/launcher.ui/ui.base": {
+          "version": "0.1.0",
+          "edition": "2021"
+        },
+        "monitor.runtime/runtime.surface/surface.base": {
+          "version": "0.1.0",
+          "lib": false
+        },
+        "monitor.selection/selection.font/font.base": {
+          "version": "0.1.0",
+          "lib": false
+        },
+        "monitor.selection/selection.scene/scene.base": {
+          "version": "0.1.0",
+          "lib": false
+        },
+        "monitor.server/server.protocol/protocol.base": {
+          "version": "0.1.0"
+        }
+      }
+    },
+    "compositor.introspection": {
+      "members": [
+        "introspection.*/*/*"
+      ],
+      "resolver": "3",
+      "crates": {
+        "introspection.execution/execution.launch/launch.build": {
+          "build_script": false
+        },
+        // `build.rs` here is a normal module, not a Cargo build script.
+        "introspection.execution/execution.launch/launch.build.container": {
+          "build_script": false
+        },
+        "introspection.extraction/extraction.window/window.base": {
+          "version": "0.1.0"
+        },
+        "introspection.inference/inference.hint/hint.base": {
+          "version": "0.1.0",
+          "edition": "2021"
+        },
+        "introspection.launchplan/launchplan.plan/plan.base": {
+          "version": "0.1.0",
+          "edition": "2021"
+        },
+        "introspection.restoration/restoration.state/state.base": {
+          "version": "0.1.0",
+          "edition": "2021"
+        },
+        "introspection.sampler/sampler.window/window.base": {
+          "version": "0.1.0",
+          "edition": "2021"
+        }
+      }
+    },
+    "compositor.kernel/kernel.drm": {
+      "members": [
+        "drm.*/*/*"
+      ],
+      "resolver": "3",
+      "crates": {
+        "drm.mode/mode.synthesize/synthesize.base": {
+          "features": {
+            "mode-synthesize": [
+              "dep:drm-ffi"
+            ]
+          },
+          "optional": [
+            "drm-ffi"
+          ]
+        }
+      }
+    },
+    "compositor.kernel/kernel.execution": {
+      "members": [
+        "execution.*/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.kernel/kernel.gles": {
+      "members": [
+        "gles.*/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.kernel/kernel.gpu": {
+      "members": [
+        "gpu.*/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.kernel/kernel.graphic": {
+      "members": [
+        "graphic.*/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.kernel/kernel.input": {
+      "members": [
+        "input.*/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.kernel/kernel.loader": {
+      "members": [
+        "loader.main/*/*"
+      ],
+      "resolver": "3",
+      "links": {
+        "compositor_model_debug_instance_record": {
+          "default-features": false,
+          "features": [
+            "error",
+            "warn",
+            "info",
+            "trace"
+          ]
+        }
+      },
+      "crates": {
+        "loader.main/main.execute/execute.base": {
+          "package": {
+            "description": "y5 — a Wayland compositor with an infinite, zoomable canvas (the y5_compositor binary). Publicly branded Nourish.",
+            "license": "MIT OR Apache-2.0",
+            "repository": "https://github.com/y5-snowies/nourish",
+            "homepage": "https://nourish.snowies.com",
+            "readme": "README.md"
+          },
+          "lib": false,
+          "bin": [
+            {
+              "name": "y5_compositor",
+              "path": "main.rs"
+            }
+          ],
+          "features": {
+            "default": [
+              "backend-winit"
+            ],
+            "backend-native": [
+              "dep:compositor_kernel_native_wire_entry_base"
+            ],
+            "backend-winit": [
+              "dep:compositor_kernel_winit_wire_entry_base"
+            ],
+            "vulkan-validate": [
+              "dep:compositor_kernel_vulkan_renderer_core_base"
+            ],
+            "renderer-vulkan": [
+              "compositor_kernel_native_wire_entry_base?/renderer-vulkan"
+            ],
+            "native-scanout": [
+              "compositor_kernel_native_wire_entry_base?/native-scanout"
+            ],
+            "mode-synthesize": [
+              "compositor_kernel_native_wire_entry_base?/mode-synthesize"
+            ],
+            "modifier-fallback": [
+              "compositor_kernel_native_wire_entry_base?/modifier-fallback"
+            ],
+            "timing-throttle": [
+              "compositor_kernel_native_wire_entry_base?/timing-throttle"
+            ],
+            "timing-predict": [
+              "compositor_kernel_native_wire_entry_base?/timing-predict"
+            ],
+            "flip-estimate": [
+              "compositor_kernel_native_wire_entry_base?/flip-estimate"
+            ]
+          },
+          "optional": [
+            "compositor_kernel_native_wire_entry_base",
+            "compositor_kernel_vulkan_renderer_core_base",
+            "compositor_kernel_winit_wire_entry_base"
+          ]
+        },
+        "loader.main/main.priority/priority.arm": {
+          "package": {
+            "description": "y5 — a Wayland compositor with an infinite, zoomable canvas (the y5_compositor binary). Publicly branded Nourish.",
+            "license": "MIT OR Apache-2.0",
+            "repository": "https://github.com/y5-snowies/nourish",
+            "homepage": "https://nourish.snowies.com",
+            "readme": "README.md"
+          }
+        },
+        "loader.main/main.priority/priority.base": {
+          "package": {
+            "description": "y5 — a Wayland compositor with an infinite, zoomable canvas (the y5_compositor binary). Publicly branded Nourish.",
+            "license": "MIT OR Apache-2.0",
+            "repository": "https://github.com/y5-snowies/nourish",
+            "homepage": "https://nourish.snowies.com",
+            "readme": "README.md"
+          }
+        }
+      }
+    },
+    "compositor.kernel/kernel.native": {
+      "members": [
+        "native.*/*/*"
+      ],
+      "resolver": "3",
+      "crates": {
+        "native.assemble/assemble.display/display.base": {
+          "features": {
+            "mode-synthesize": [
+              "dep:compositor_kernel_drm_mode_synthesize_base",
+              "compositor_kernel_drm_mode_synthesize_base/mode-synthesize",
+              "dep:compositor_kernel_graphic_preference_enable_safety"
+            ]
+          },
+          "optional": [
+            "compositor_kernel_drm_mode_synthesize_base",
+            "compositor_kernel_graphic_preference_enable_safety"
+          ]
+        },
+        "native.assemble/assemble.renderer/renderer.base": {
+          "features": {
+            "native-scanout": [
+              "dep:compositor_kernel_scanout_swapchain_slot_base",
+              "compositor_kernel_scanout_swapchain_slot_base/native-scanout",
+              "dep:compositor_kernel_scanout_swapchain_acquire_base",
+              "compositor_kernel_scanout_swapchain_acquire_base/native-scanout",
+              "dep:compositor_kernel_scanout_framebuffer_import_base",
+              "compositor_kernel_scanout_framebuffer_import_base/native-scanout",
+              "dep:compositor_kernel_scanout_framebuffer_export_base",
+              "compositor_kernel_scanout_framebuffer_export_base/native-scanout",
+              "dep:compositor_kernel_scanout_commit_build_base",
+              "compositor_kernel_scanout_commit_build_base/native-scanout",
+              "dep:compositor_kernel_scanout_commit_submit_base",
+              "compositor_kernel_scanout_commit_submit_base/native-scanout",
+              "dep:compositor_kernel_scanout_fence_in_base",
+              "compositor_kernel_scanout_fence_in_base/native-scanout",
+              "dep:compositor_kernel_scanout_fence_out_base",
+              "compositor_kernel_scanout_fence_out_base/native-scanout",
+              "dep:compositor_kernel_drm_syncobj_device_base",
+              "dep:compositor_kernel_drm_connector_scan_base"
+            ],
+            "modifier-fallback": [
+              "dep:compositor_kernel_scanout_framebuffer_modifier_base",
+              "compositor_kernel_scanout_framebuffer_modifier_base/modifier-fallback",
+              "dep:compositor_kernel_graphic_preference_enable_safety"
+            ],
+            "renderer-vulkan": [
+              "dep:compositor_kernel_vulkan_instance_factory_base",
+              "dep:compositor_kernel_vulkan_instance_physical_base",
+              "dep:compositor_kernel_vulkan_device_factory_base",
+              "dep:compositor_kernel_vulkan_device_queue_base",
+              "dep:compositor_kernel_vulkan_memory_alloc_base",
+              "dep:compositor_kernel_vulkan_memory_export_base",
+              "dep:compositor_kernel_vulkan_memory_import_base",
+              "dep:compositor_kernel_vulkan_format_modifier_base",
+              "dep:compositor_kernel_vulkan_pipeline_cache_base",
+              "dep:compositor_kernel_vulkan_pipeline_composite_base",
+              "dep:compositor_kernel_vulkan_command_pool_base",
+              "dep:compositor_kernel_vulkan_command_record_base",
+              "dep:compositor_kernel_vulkan_element_solid_base",
+              "dep:compositor_kernel_vulkan_element_texture_base",
+              "dep:compositor_kernel_vulkan_sync_timeline_base",
+              "dep:compositor_kernel_vulkan_sync_export_base",
+              "dep:compositor_kernel_vulkan_sync_import_base",
+              "dep:compositor_kernel_drm_syncobj_timeline_base",
+              "dep:compositor_kernel_drm_syncobj_device_base",
+              "dep:ash"
+            ]
+          },
+          "optional": [
+            "ash",
+            "compositor_kernel_drm_connector_scan_base",
+            "compositor_kernel_drm_syncobj_device_base",
+            "compositor_kernel_drm_syncobj_timeline_base",
+            "compositor_kernel_graphic_preference_enable_safety",
+            "compositor_kernel_scanout_commit_build_base",
+            "compositor_kernel_scanout_commit_submit_base",
+            "compositor_kernel_scanout_fence_in_base",
+            "compositor_kernel_scanout_fence_out_base",
+            "compositor_kernel_scanout_framebuffer_export_base",
+            "compositor_kernel_scanout_framebuffer_import_base",
+            "compositor_kernel_scanout_framebuffer_modifier_base",
+            "compositor_kernel_scanout_swapchain_acquire_base",
+            "compositor_kernel_scanout_swapchain_slot_base",
+            "compositor_kernel_vulkan_command_pool_base",
+            "compositor_kernel_vulkan_command_record_base",
+            "compositor_kernel_vulkan_device_factory_base",
+            "compositor_kernel_vulkan_device_queue_base",
+            "compositor_kernel_vulkan_element_solid_base",
+            "compositor_kernel_vulkan_element_texture_base",
+            "compositor_kernel_vulkan_format_modifier_base",
+            "compositor_kernel_vulkan_instance_factory_base",
+            "compositor_kernel_vulkan_instance_physical_base",
+            "compositor_kernel_vulkan_memory_alloc_base",
+            "compositor_kernel_vulkan_memory_export_base",
+            "compositor_kernel_vulkan_memory_import_base",
+            "compositor_kernel_vulkan_pipeline_cache_base",
+            "compositor_kernel_vulkan_pipeline_composite_base",
+            "compositor_kernel_vulkan_sync_export_base",
+            "compositor_kernel_vulkan_sync_import_base",
+            "compositor_kernel_vulkan_sync_timeline_base"
+          ]
+        },
+        "native.context/context.display/display.build": {
+          "build_script": false
+        },
+        "native.render/render.execute/execute.base": {
+          "features": {
+            "flip-estimate": []
+          }
+        },
+        "native.wire/wire.entry/entry.base": {
+          "features": {
+            "renderer-vulkan": [
+              "compositor_kernel_native_assemble_renderer_base/renderer-vulkan"
+            ],
+            "mode-synthesize": [
+              "compositor_kernel_native_assemble_display_base/mode-synthesize"
+            ],
+            "native-scanout": [
+              "compositor_kernel_native_assemble_renderer_base/native-scanout"
+            ],
+            "modifier-fallback": [
+              "compositor_kernel_native_assemble_renderer_base/modifier-fallback"
+            ],
+            "timing-throttle": [
+              "compositor_kernel_native_wire_frame_base/timing-throttle"
+            ],
+            "timing-predict": [
+              "compositor_kernel_native_wire_frame_base/timing-predict"
+            ],
+            "flip-estimate": [
+              "compositor_kernel_native_wire_frame_base/flip-estimate"
+            ]
+          }
+        },
+        "native.wire/wire.frame/frame.base": {
+          "features": {
+            "timing-throttle": [
+              "dep:compositor_kernel_scanout_timing_throttle_base",
+              "compositor_kernel_scanout_timing_throttle_base/timing-throttle"
+            ],
+            "flip-estimate": [
+              "dep:compositor_kernel_scanout_flip_estimate_base",
+              "compositor_kernel_scanout_flip_estimate_base/flip-estimate",
+              "compositor_kernel_native_render_execute_base/flip-estimate"
+            ],
+            "timing-predict": [
+              "flip-estimate",
+              "dep:compositor_kernel_scanout_timing_predict_base",
+              "compositor_kernel_scanout_timing_predict_base/timing-predict"
+            ]
+          },
+          "optional": [
+            "compositor_kernel_scanout_flip_estimate_base",
+            "compositor_kernel_scanout_timing_predict_base",
+            "compositor_kernel_scanout_timing_throttle_base"
+          ]
+        }
+      }
+    },
+    "compositor.kernel/kernel.scanout": {
+      "members": [
+        "scanout.*/*/*"
+      ],
+      "resolver": "3",
+      "crates": {
+        "scanout.commit/commit.build/build.base": {
+          "build_script": false,
+          "features": {
+            "native-scanout": []
+          }
+        },
+        "scanout.commit/commit.submit/submit.base": {
+          "features": {
+            "native-scanout": []
+          }
+        },
+        "scanout.fence/fence.in/in.base": {
+          "features": {
+            "native-scanout": [
+              "compositor_kernel_scanout_commit_build_base/native-scanout"
+            ]
+          }
+        },
+        "scanout.fence/fence.out/out.base": {
+          "features": {
+            "native-scanout": [
+              "compositor_kernel_scanout_commit_build_base/native-scanout"
+            ]
+          }
+        },
+        "scanout.flip/flip.estimate/estimate.base": {
+          "features": {
+            "flip-estimate": []
+          }
+        },
+        "scanout.framebuffer/framebuffer.export/export.base": {
+          "features": {
+            "native-scanout": [
+              "compositor_kernel_scanout_framebuffer_import_base/native-scanout",
+              "compositor_kernel_scanout_swapchain_slot_base/native-scanout"
+            ]
+          }
+        },
+        "scanout.framebuffer/framebuffer.import/import.base": {
+          "features": {
+            "native-scanout": []
+          }
+        },
+        "scanout.framebuffer/framebuffer.modifier/modifier.base": {
+          "features": {
+            "modifier-fallback": []
+          }
+        },
+        "scanout.swapchain/swapchain.acquire/acquire.base": {
+          "features": {
+            "native-scanout": [
+              "compositor_kernel_scanout_swapchain_slot_base/native-scanout"
+            ]
+          }
+        },
+        "scanout.swapchain/swapchain.slot/slot.base": {
+          "features": {
+            "native-scanout": []
+          }
+        },
+        "scanout.timing/timing.predict/predict.base": {
+          "features": {
+            "timing-predict": []
+          }
+        },
+        "scanout.timing/timing.throttle/throttle.base": {
+          "features": {
+            "timing-throttle": []
+          }
+        }
+      }
+    },
+    "compositor.kernel/kernel.seat": {
+      "members": [
+        "seat.*/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.kernel/kernel.udev": {
+      "members": [
+        "udev.*/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.kernel/kernel.vulkan": {
+      "members": [
+        "vulkan.*/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.kernel/kernel.winit": {
+      "members": [
+        "winit.*/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.model": {
+      "members": [
+        "model.debug/*/*",
+        "model.environment/*/*",
+        "model.log/*/*",
+        "model.stats/*/*"
+      ],
+      "resolver": "3",
+      "links": {
+        "compositor_model_debug_instance_record": {
+          "default-features": false
+        }
+      },
+      "crates": {
+        "model.debug/debug.instance/instance.record": {
+          "features": {
+            "default": [
+              "error",
+              "warn",
+              "info",
+              "trace"
+            ],
+            "error": [],
+            "warn": [],
+            "info": [],
+            "trace": []
+          }
+        },
+        "model.log/log.process/process.instance.example": {
+          "lib": false,
+          "bin": [
+            {
+              "name": "stream_client",
+              "path": "main.rs"
+            }
+          ]
+        }
+      }
+    },
+    "compositor.orchestration": {
+      "members": [
+        "orchestration.*/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.support/support.action": {
+      "members": [
+        "action.*/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.support/support.bevy": {
+      "members": [
+        "bevy.*/*/*"
+      ],
+      "resolver": "3",
+      "crates": {
+        "bevy.core/core.compositor/compositor.base": {
+          "version": "0.1.0"
+        },
+        "bevy.core/core.engine/engine.base": {
+          "version": "0.1.0"
+        },
+        "bevy.core/core.runtime/runtime.base": {
+          "version": "0.1.0"
+        }
+      }
+    },
+    "compositor.support/support.iced": {
+      "members": [
+        "iced.*/*/*"
+      ],
+      "resolver": "3",
+      "crates": {
+        "iced.core/core.engine/engine.base": {
+          "version": "0.1.0",
+          "lib": false
+        }
+      }
+    },
+    "compositor.support/support.library": {
+      "members": [
+        "library.*/*/*"
+      ],
+      "resolver": "2",
+      "crates": {
+        "library.debug/debug.client/client.base": {
+          "version": "0.1.0"
+        },
+        "library.ease/ease.velocity/velocity.base": {
+          "version": "0.1.0"
+        },
+        "library.input/input.keyboard/keyboard.base": {
+          "version": "0.1.0"
+        },
+        "library.pam/pam.worker/worker.base": {
+          "version": "0.1.0"
+        }
+      }
+    },
+    "compositor.support/support.smithay": {
+      "members": [
+        "smithay.dispatch/*/*",
+        "smithay.state/*/*",
+        "smithay.wayland/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.support/support.system": {
+      "members": [
+        "system.*/*/*"
+      ],
+      "resolver": "3"
+    },
+    "compositor.support/support.world": {
+      "members": [
+        "world.*/*/*"
+      ],
+      "resolver": "3"
+    }
+  }
+}

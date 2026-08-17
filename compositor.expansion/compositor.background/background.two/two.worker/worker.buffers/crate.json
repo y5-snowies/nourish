@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_kernel_graphic_bridge_publish_wake"
+  ]
+}

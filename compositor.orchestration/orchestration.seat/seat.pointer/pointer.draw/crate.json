@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_orchestration_seat_pointer_publish",
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_seat_pointer_element"
+  ]
+}

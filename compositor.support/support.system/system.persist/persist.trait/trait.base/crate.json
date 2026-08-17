@@ -1,0 +1,15 @@
+{
+  "deps": [
+    "compositor_support_system_persist_entry_base",
+    "serde",
+    "serde_json"
+  ],
+  "dev": [
+    // Round-trip test wiring (tests/ is exempt from the size/flat policy).
+    "compositor_support_system_storage_slot_base",
+    "compositor_support_system_storage_token_base",
+    "compositor_support_system_persist_envelope_base",
+    "serde",
+    "serde_json"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_introspection_extraction_window_meta_proc_read",
+    "compositor_introspection_extraction_window_meta_proc_tree",
+    "compositor_introspection_extraction_window_meta_types",
+    "compositor_introspection_extraction_window_meta_wayland_surface",
+    "smithay"
+  ]
+}

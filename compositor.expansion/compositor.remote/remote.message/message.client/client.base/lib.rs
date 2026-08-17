@@ -1,20 +1,6 @@
-// reexport the generated bindings
-pub mod bind {
-    pub mod navigator {
-        tonic::include_proto!("y5.compositor.rpc.protocol.client.navigator");
-    }
-    pub mod debug {
-        tonic::include_proto!("y5.compositor.rpc.protocol.client.debug");
-    }
-    pub mod selection {
-        tonic::include_proto!("y5.compositor.rpc.protocol.client.selection");
-    }
-    pub mod shader {
-        tonic::include_proto!("y5.compositor.rpc.protocol.client.shader");
-    }
-}
-
 pub mod message;
 
-
+// The generated protobuf bindings live in `message` (a lib.rs holds no
+// definitions); the glob carries them, and the service traits, back to the
+// crate root where callers have always found them.
 pub use message::*;

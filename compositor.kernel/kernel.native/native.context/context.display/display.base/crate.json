@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_kernel_drm_connector_scan_base",
+    "compositor_kernel_drm_connector_kind_base",
+    "compositor_orchestration_driver_lid_base"
+  ]
+}

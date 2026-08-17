@@ -1,0 +1,12 @@
+{
+  "deps": [
+    "compositor_support_world_order_track_base",
+    "smithay",
+    "compositor_support_system_world_host_base",
+    "compositor_support_system_trait_system_base",
+    "compositor_support_system_storage_slot_base",
+    "compositor_support_smithay_state_space_base",
+    "compositor_support_world_host_space_base",
+    "uuid"
+  ]
+}

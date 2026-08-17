@@ -1,0 +1,16 @@
+{
+  "deps": [
+    "compositor_kernel_graphic_bridge_publish_retire",
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_monitor_overview_ui_base",
+    "compositor_y5_overview_state_base",
+    "compositor_y5_overview_draw_hover",
+    "compositor_y5_surface_protocol_base",
+    "compositor_y5_surface_draw_handle",
+    "compositor_orchestration_draw_layer_base",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

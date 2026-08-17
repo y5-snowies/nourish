@@ -6,15 +6,22 @@ use compositor_introspection_extraction_window_hints_codec::codec;
 use compositor_introspection_extraction_window_hints_codec_register::register;
 use compositor_introspection_launchplan_plan_capture::capture as plan_capture;
 use compositor_introspection_restoration_state_matcher::matcher::MatchResult;
-use compositor_introspection_restoration_state_pending::pending::PendingRestoration;
+use compositor_introspection_restoration_state_pending::pending::{PendingRestoration, SessionKey};
 use compositor_introspection_restoration_state_registry::registry::MatcherRegistry;
 
 /// Decide which pending restoration (if any) a newly-appeared window
 /// satisfies. Pure function.
 ///
-/// Runs two FIFO sweeps over `pendings`, each pass complete across *all*
+/// Runs three FIFO sweeps over `pendings`, each pass complete across *all*
 /// pendings before the next begins:
 ///
+/// 0. **Session pass.** For each pending, exact equality against the session
+///    identity the window's client declared through
+///    `xdg_session_management_v1`. First because it is the only signal that is
+///    *declared* rather than inferred: the client re-states it before its
+///    first commit on every run, so a hit here is not a heuristic. It also
+///    means the window may not have been launched by us at all — the other two
+///    passes can only ever claim windows a placeholder spawned.
 /// 1. **Explicit-launch pass.** For each pending, dispatch to the matcher
 ///    registered for `pending.plan.active_handler` (falling back to the
 ///    registry's generic matcher) and bind the first
@@ -37,14 +44,49 @@ use compositor_introspection_restoration_state_registry::registry::MatcherRegist
 /// - `candidate_token`: the activation token the surface received via
 ///   Wayland's xdg-activation protocol (set by the compositor from
 ///   `request_activation`). `None` if the surface didn't carry one.
+/// - `candidate_session`: the session identity the new window's client
+///   declared via `xdg_session_management_v1`, read off the toplevel's surface
+///   data. `None` if the client does not speak the protocol (most, today).
 /// - `matchers`: the per-handler matcher registry.
 pub fn match_window(
     pendings: &[PendingRestoration],
     candidate: &MetaNode,
     candidate_hints: &InferredHints,
     candidate_token: Option<&str>,
+    candidate_session: Option<&SessionKey>,
     matchers: &MatcherRegistry,
 ) -> Option<Uuid> {
+    // PASS 0 (declared session identity): exact, client-declared, and durable
+    // across restarts of both sides. Nothing below can be more certain than
+    // this, so it sweeps first and alone.
+    //
+    // The identity is not unique, though: two tiles can carry the same key — a
+    // session restored twice, or a tile duplicated — and taking the first in
+    // iteration order made the winner an artefact of list position. Worse, this
+    // pass runs BEFORE the token/pid pass, so an arbitrary session hit could beat
+    // the activation token of the tile the user actually clicked.
+    //
+    // Tie-broken by the most recent launch instead. Not by "is launching" alone:
+    // a tile whose launch never produced a window stays in that state, and a
+    // stale stuck one must not outrank a fresh click. A candidate with no launch
+    // at all loses to any that has one, and only an all-tie falls back to order.
+    if let Some(candidate_session) = candidate_session {
+        let claimed = pendings
+            .iter()
+            .filter(|pending| pending.session.as_ref() == Some(candidate_session));
+        let best = claimed.max_by(|a, b| match (a.launch_at, b.launch_at) {
+            (Some(a), Some(b)) => a.cmp(&b),
+            (Some(_), None) => std::cmp::Ordering::Greater,
+            (None, Some(_)) => std::cmp::Ordering::Less,
+            // `max_by` keeps the LAST maximum, so report the earlier one as
+            // greater to leave the first in order winning an all-tie.
+            (None, None) => std::cmp::Ordering::Greater,
+        });
+        if let Some(pending) = best {
+            return Some(pending.id);
+        }
+    }
+
     // PASS 1 (explicit launch): activation token / PID tree take precedence
     // across the whole list — a handler matcher claim on any pending beats a
     // transient capture on an earlier one.

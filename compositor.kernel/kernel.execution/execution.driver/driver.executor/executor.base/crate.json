@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_support_system_storage_token_base",
+    "compositor_introspection_execution_launch_policy",
+    "compositor_introspection_execution_launch_execute",
+    "compositor_introspection_execution_launch_dispatch",
+    "compositor_introspection_execution_launch_types",
+    "compositor_introspection_execution_launch_container"
+  ]
+}

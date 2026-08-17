@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_draw_platform_base",
+    "compositor_support_system_input_event_base"
+  ]
+}

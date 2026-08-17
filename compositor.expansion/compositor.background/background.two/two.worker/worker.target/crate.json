@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "ash",
+    "smithay",
+    "compositor_kernel_vulkan_device_factory_base"
+  ]
+}

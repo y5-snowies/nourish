@@ -1,0 +1,14 @@
+{
+  "deps": [
+    "tonic",
+    "prost",
+    "tonic-prost"
+  ],
+  "build": [
+    "tonic-prost-build"
+  ],
+  "keep": {
+    "prost": "spliced in by tonic::include_proto! from OUT_DIR",
+    "tonic-prost": "spliced in by tonic::include_proto! from OUT_DIR"
+  }
+}

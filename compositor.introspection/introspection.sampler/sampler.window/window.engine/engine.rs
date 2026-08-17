@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -8,8 +8,10 @@ use compositor_introspection_extraction_window_base::{extract_hints, refresh_met
 use compositor_introspection_inference_hint_base::ApplicationData;
 use compositor_introspection_sampler_window_batch::batch::{flush, SampleBatch, SampleResult};
 use compositor_introspection_sampler_window_schedule::schedule::{
-    apply_registration, tick_interval, Entry, Registration, BATCH_CAP, QUICK_DEBOUNCE, SLOW_DEBOUNCE,
+    apply_registration, should_sample, tick_interval, Entry, Registration, BATCH_CAP, QUICK_DEBOUNCE,
+    SLOW_DEBOUNCE,
 };
+use uuid::Uuid;
 
 pub fn run(
     rx: mpsc::Receiver<Registration>,
@@ -21,10 +23,22 @@ pub fn run(
     let mut flush_deadline: Option<Instant> = None;
     let mut last_flush_time = Instant::now() - SLOW_DEBOUNCE - Duration::from_secs(1);
     let mut next_sample_time = Instant::now();
+    // How many entries an explicit immediate REQUEST was granted since the last
+    // pass — already filtered to the stale ones by `apply_registration`. It
+    // widens the NEXT pass's sample budget past BATCH_CAP and pulls it forward to
+    // now, so one "sample every window on this world" request lands in a single
+    // batch instead of trickling out over the background cadence.
+    let mut forced: usize = 0;
+    // Windows worth sampling: the current world's. `None` until the first world
+    // switch says otherwise, which is when everything on screen is the one world.
+    let mut scope: Option<HashSet<Uuid>> = None;
 
     loop {
         while let Ok(reg) = rx.try_recv() {
-            apply_registration(&mut queue, reg);
+            forced += apply_registration(&mut queue, &mut scope, reg);
+        }
+        if forced > 0 {
+            next_sample_time = Instant::now();
         }
 
         if queue.is_empty() {
@@ -37,7 +51,7 @@ pub fn run(
             }
             match rx.recv() {
                 Ok(reg) => {
-                    apply_registration(&mut queue, reg);
+                    forced += apply_registration(&mut queue, &mut scope, reg);
                     next_sample_time = Instant::now();
                     continue;
                 }
@@ -54,7 +68,10 @@ pub fn run(
         }
         match rx.recv_timeout(next_wake.saturating_duration_since(now)) {
             Ok(reg) => {
-                apply_registration(&mut queue, reg);
+                forced += apply_registration(&mut queue, &mut scope, reg);
+                if forced > 0 {
+                    next_sample_time = Instant::now();
+                }
                 continue;
             }
             Err(RecvTimeoutError::Timeout) => {}
@@ -64,23 +81,58 @@ pub fn run(
 
         if now >= next_sample_time {
             let was_empty = buffer.is_empty();
-            for _ in 0..queue.len().min(BATCH_CAP) {
+            let this_pass = std::mem::take(&mut forced);
+            // The budget counts SAMPLES, not visits. A skipped entry is a rotation,
+            // not work, and charging it to the budget would let background-world
+            // windows crowd the pass out — the more of them there are, the slower
+            // the ones actually on screen, which is the reverse of what scoping is
+            // for. Visits are bounded by one full rotation instead, so a queue that
+            // is entirely out of scope ends the pass rather than spinning on it.
+            let budget = BATCH_CAP.max(this_pass);
+            let mut sampled = 0;
+            for _ in 0..queue.len() {
+                if sampled >= budget {
+                    break;
+                }
                 let Some(entry) = queue.pop_front() else { break };
+                // Another world's window that already has a sample: keep it queued
+                // with its captured meta so re-entering that world resumes without
+                // a fresh tree walk, but do not spend a `/proc` pass on something
+                // nothing is showing. A never-sampled one is taken regardless —
+                // see `should_sample`.
+                if !should_sample(&scope, &entry) {
+                    queue.push_back(entry);
+                    continue;
+                }
                 match refresh_meta_from_pid(entry.pid, &entry.previous_meta) {
                     Some(meta) => {
                         let hints = extract_hints(&meta, &registry);
                         let data = ApplicationData::new(meta.clone(), hints);
-                        queue.push_back(Entry { uuid: entry.uuid, pid: entry.pid, previous_meta: meta });
+                        queue.push_back(Entry {
+                            uuid: entry.uuid,
+                            pid: entry.pid,
+                            previous_meta: meta,
+                            last_sampled: Some(now),
+                        });
                         buffer.push(SampleResult { uuid: entry.uuid, data: Some(data) });
                     }
                     None => buffer.push(SampleResult { uuid: entry.uuid, data: None }),
                 }
+                // Both arms walked `/proc`, which is the cost the budget exists to
+                // cap — a failed read is charged the same as a successful one.
+                sampled += 1;
             }
             next_sample_time = now + tick_interval(queue.len());
 
             if was_empty && !buffer.is_empty() && flush_deadline.is_none() {
                 let quiet = now.duration_since(last_flush_time) > SLOW_DEBOUNCE;
                 flush_deadline = Some(now + if quiet { QUICK_DEBOUNCE } else { SLOW_DEBOUNCE });
+            }
+            // A requested pass is being waited on by a UI, so it does not get the
+            // steady-state debounce: pull any pending deadline in to QUICK.
+            if this_pass > 0 && !buffer.is_empty() {
+                let soon = now + QUICK_DEBOUNCE;
+                flush_deadline = Some(flush_deadline.map_or(soon, |d| d.min(soon)));
             }
         }
 

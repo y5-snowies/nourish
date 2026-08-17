@@ -1,0 +1,32 @@
+{
+  "deps": [
+    "compositor_orchestration_seat_pointer_warp",
+    // "is an overlay on screen" — the edge-pan policy and the pointer warp
+    // must give the same answer, so both read the one definition.
+    "compositor_orchestration_desktop_suppressed_base",
+    "compositor_y5_guide_interface_base",
+    "uuid",
+    "compositor_y5_canvas_input_state",
+    "compositor_orchestration_seat_pointer_state",
+    "compositor_support_system_input_event_base",
+    "compositor_orchestration_input_drive_base",
+    "compositor_y5_window_interface_draw",
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_viewport_interaction_base",
+    "compositor_orchestration_driver_output_base",
+    "compositor_y5_surface_interface_base",
+    "compositor_y5_overview_input_pointer",
+    "compositor_y5_canvas_input_gesture",
+    "compositor_orchestration_seat_gesture_touch",
+    "compositor_y5_window_interface_record",
+    "compositor_y5_camera_transform_translate",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_y5_launcher_interface_base",
+    "compositor_support_smithay_dispatch_state_base",
+    "compositor_support_smithay_dispatch_wire_tablet",
+    "compositor_model_environment_preference_base",
+    "compositor_orchestration_seat_pointer_publish",
+    "compositor_pipeline_abi_clock_base"
+  ]
+}

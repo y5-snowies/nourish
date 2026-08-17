@@ -1,9 +1,0 @@
-[package]
-name = "compositor_remote_message_macro_broadcast"
-version = "0.0.1"
-edition = "2024"
-
-[lib]
-path = "lib.rs"
-
-[dependencies]

@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_orchestration_seat_pointer_publish",
+    "compositor_model_debug_instance_record",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_picker_seat_iced",
+    "smithay"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "deps": [
+    "compositor_support_system_trait_system_base",
+    "compositor_support_system_channel_token_base",
+    "compositor_support_system_buffer_token_base",
+    "compositor_y5_select_interface_base",
+    "compositor_y5_select_state_base",
+    "compositor_remote_message_server_base",
+    "compositor_orchestration_driver_remote_base"
+  ]
+}

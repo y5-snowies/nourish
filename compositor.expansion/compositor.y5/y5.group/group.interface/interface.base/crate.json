@@ -1,0 +1,17 @@
+{
+  "deps": [
+    "compositor_support_system_channel_token_base",
+    "compositor_model_debug_instance_record",
+    "compositor_orchestration_draw_layer_base",
+    "compositor_y5_group_surface_base",
+    "compositor_y5_group_protocol_base",
+    "compositor_y5_surface_protocol_base",
+    "compositor_y5_surface_draw_handle",
+    "compositor_y5_group_state_base",
+    "compositor_y5_window_interface_record",
+    "compositor_y5_camera_transform_translate",
+    "compositor_orchestration_core_state_base",
+    "smithay",
+    "uuid"
+  ]
+}

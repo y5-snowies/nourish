@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "smithay",
+    "wgpu",
+    "ash",
+    "libc",
+    "pollster"
+  ]
+}

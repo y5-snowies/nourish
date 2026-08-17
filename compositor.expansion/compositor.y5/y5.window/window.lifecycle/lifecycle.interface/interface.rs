@@ -1,6 +1,7 @@
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::desktop::Window;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Rectangle, Size};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::seat::WaylandFocus;
@@ -63,6 +64,8 @@ fn activate_window(_loop: &mut Loop, window: Window) {
 /// Generally all hooks are temporary - they indicate something immediate is being deferred(due to complex ownership.)
 /// This hook is temporary because it wires the WireTrait impl and WireObject state.
 pub fn hook(_loop: &mut Loop, renderer: &mut GlesRenderer) {
+    _apply_toplevel_drag_moves(_loop);
+
     let process = std::mem::take(
         &mut _loop.inner.window_lifecycle_mut()
             .incoming,
@@ -94,6 +97,9 @@ pub fn hook(_loop: &mut Loop, renderer: &mut GlesRenderer) {
             WindowLifecycleEvent::Activate(window, _origin) => {
                 activate_window(_loop, window);
             }
+            WindowLifecycleEvent::DragSettled(surface) => {
+                _settled_toplevel_drag(_loop, surface);
+            }
             WindowLifecycleEvent::Destroyed(uuid, activation, discard_placeholder) => {
                 _destroy(_loop, uuid, renderer, discard_placeholder);
 
@@ -118,21 +124,120 @@ pub fn hook(_loop: &mut Loop, renderer: &mut GlesRenderer) {
     _loop.schedule_redraw();
 }
 
+/// Apply the positions an `xdg_toplevel_drag_v1` grab queued for the window it
+/// is carrying.
+///
+/// Once per frame, not once per motion. The grab cannot place the window itself
+/// (`Dispatch` owns no `Space`) so it queues a world position on every motion,
+/// but that position is only ever OBSERVED at render — applying it more often
+/// just overwrites values nothing has read, so a higher input rate than the
+/// frame rate buys no smoothness. Running here also gives it one defined place
+/// in the frame: ahead of the lifecycle queue below, so a drop settling this
+/// frame reads the position this frame put down.
+///
+/// The value is already y5-world — `map_element` stores camera-independent
+/// coordinates and the camera is applied at render time — so it goes in
+/// unprojected.
+fn _apply_toplevel_drag_moves(state: &mut Loop) {
+    for (surface, location) in std::mem::take(&mut state.state.toplevel_drag.moves) {
+        // Resolved across ALL worlds, and mapped into the one that actually holds
+        // it. A drag can outlive the world it started in, and every `space_state`
+        // accessor is bound to `spawn_target` — so after a switch the carried
+        // window is simply not found, and the move is dropped without a trace:
+        // the window freezes where it was and the drop lands at a stale position.
+        let Some((world, window)) = state.inner.window_of_surface(&surface) else {
+            continue;
+        };
+        state
+            .inner.space_of_mut(world)
+            .state
+            .map_element(window, location.to_i32_round(), false);
+    }
+}
+
+/// Sync the placeholder record of a window an `xdg_toplevel_drag_v1` has just
+/// finished carrying.
+///
+/// A window's live placeholder holds the geometry its tile will spawn at when
+/// the window is eventually closed, and it is normally kept in step by the
+/// canvas MOVE system as the window is dragged. A toplevel drag never goes
+/// through that — the grab places the window itself — so without this the
+/// record still holds the position the window was FIRST MAPPED at, and closing
+/// it later drops the tile back there. (Nudging the window by hand afterwards
+/// made it look correct because that nudge is a canvas move.)
+///
+/// Driven by `WindowLifecycleEvent::DragSettled` rather than a side channel, so
+/// it is ORDERED against the rest of the queue. A tab torn off and dropped in a
+/// single frame queues `InitialMap` and this in that order, and the record only
+/// exists once the map ahead of it has run — draining a separate list before the
+/// queue silently lost exactly that case, which is the one this function is for.
+fn _settled_toplevel_drag(state: &mut Loop, surface: WlSurface) {
+    // Across all worlds, for the same reason as the moves above.
+    let Some((world, window)) = state.inner.window_of_surface(&surface) else {
+        return;
+    };
+    // A uuid is NOT a record: `initialize_surface_data` stamps the uuid and maps
+    // the window at (0,0) on the `new_toplevels` drain, while the record only
+    // appears once `on_window_map_initial` has handled the `InitialMap`. Ordering
+    // makes that the normal case now, but a window whose map never produced a
+    // record still lands here, and `interface::set` -> `modify` aborts on a
+    // missing record rather than skipping. Same guard as `_destroy`.
+    let Some(uuid) = window.uuid() else { return };
+    if !state.inner.placeholder().map.contains_key(&uuid) {
+        return;
+    }
+    let Some(location) = state.inner.space_of_mut(world).state.element_location(&window) else {
+        return;
+    };
+    compositor_y5_placeholder_interface_base::interface::set(state, window, None, Some(location));
+}
+
 fn _initial_mapped(state: &mut Loop, window: Window) {
     // Resolve the tearing target tag here and nowhere else: this is the one
     // moment the window's process can be introspected off the commit path.
     compositor_y5_graphic_tearing_tag::tag::tag(state, &window);
+    // A toplevel that maps while an `xdg_toplevel_drag_v1` is ALREADY carrying it
+    // is a torn-off tab, not a new window: the user is holding it, so it belongs
+    // under the cursor at its attach offset. Centring it and letting the next
+    // pointer motion correct it is exactly the visible flick to mid-screen and
+    // back that a tab tear shows.
+    //
+    // Same arithmetic as the grab (`state.grab/grab.drag.state`): the pointer's
+    // location is already y5-world, so the surface-local offset subtracts
+    // straight off it with no projection.
+    //
+    // Resolved BEFORE the restore below, because it decides whether the restore's
+    // verdict may be honoured at all.
+    let carried = state
+        .state
+        .toplevel_drag
+        .carried_with_offset()
+        .filter(|(surface, _)| window.toplevel().is_some_and(|t| t.wl_surface() == surface))
+        .and_then(|(_, offset)| {
+            let pointer = state.state.seat.seat.get_pointer()?;
+            let at = pointer.current_location() - offset.to_f64();
+            Some((at.x, at.y))
+        });
+
     // Windows must be registetred at sampler
     // topleevel only
+    //
+    // Always called, even while carrying: the introspection half (the `NoDisplay`
+    // latch, the sampler registration) is owed to every toplevel that maps. Only
+    // the RESTORE half is refused for a carried window — a placeholder must not
+    // capture a window in flight and yank it to a remembered position mid-gesture.
     let restore_mapped =
         compositor_y5_placeholder_interface_base::interface::on_window_map_initial(
             state,
             window.clone(),
+            carried.is_none(),
         );
 
     if restore_mapped {
         return;
     }
+
+    let geometry = window.geometry();
 
     // Center on the ACTIVE monitor's camera (the output under the cursor), NOT
     // `camera_mut()`. This hook drains the InitialMap queue from inside the
@@ -140,10 +245,13 @@ fn _initial_mapped(state: &mut Loop, window: Window) {
     // being drawn (normally the primary) — `camera_mut()`/`current_output_key()`
     // would resolve THAT output's camera and spawn the window on the wrong monitor.
     // `active_camera()` ignores `render_output` and follows the user's screen.
-    let geometry = window.geometry();
-    let cam = state.inner.active_camera().transform.position();
-    let x = cam.x - geometry.size.w as f64 / 2.0;
-    let y = cam.y - geometry.size.h as f64 / 2.0;
+    let (x, y) = carried.unwrap_or_else(|| {
+        let cam = state.inner.active_camera().transform.position();
+        (
+            cam.x - geometry.size.w as f64 / 2.0,
+            cam.y - geometry.size.h as f64 / 2.0,
+        )
+    });
 
     let t: Transform = ((x, y), state.size_ctx_all()).into();
 

@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "uuid",
+    "compositor_introspection_launchplan_plan_base",
+    "compositor_introspection_restoration_state_pending"
+  ]
+}

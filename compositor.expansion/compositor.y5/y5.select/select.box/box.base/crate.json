@@ -1,0 +1,12 @@
+{
+  "deps": [
+    "compositor_y5_window_interface_draw",
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_camera_transform_translate",
+    "compositor_y5_surface_interface_base",
+    "compositor_y5_select_interface_base",
+    "compositor_y5_canvas_draw_context",
+    "compositor_y5_window_interface_record"
+  ]
+}

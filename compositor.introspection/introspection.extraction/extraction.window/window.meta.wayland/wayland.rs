@@ -48,6 +48,34 @@ pub fn extract_from_window(
     Some(meta)
 }
 
+/// The WAYLAND half of [`extract_from_window`] alone — surface identity plus
+/// client credentials, with no `/proc` walk at all.
+///
+/// This is what the compositor's main thread can afford to run over every
+/// window at once (the overview does, on open): the fields it fills are exactly
+/// the ones the sampler thread cannot refresh for itself, and the expensive
+/// process-tree half stays on that thread. `None` when the window yields
+/// nothing identifying.
+pub fn extract_surface_meta(window: &Window, display_handle: &DisplayHandle) -> Option<Meta> {
+    let (app_id, title, target_wl_surface) = read_surface_identity(window);
+    let mut meta = Meta { app_id, title, ..Meta::default() };
+
+    if let Some(wl_surface) = &target_wl_surface {
+        if let Some(client) = wl_surface.client() {
+            if let Ok(creds) = client.get_credentials(display_handle) {
+                meta.pid = Some(creds.pid as u32);
+                meta.uid = Some(creds.uid as u32);
+                meta.gid = Some(creds.gid as u32);
+            }
+        }
+    }
+
+    if meta.app_id.is_none() && meta.title.is_none() && meta.pid.is_none() {
+        return None;
+    }
+    Some(meta)
+}
+
 /// Same as `extract_from_window`, but also expands the process tree
 /// (children + parents) into a `MetaNode`.
 pub fn extract_node_from_window(

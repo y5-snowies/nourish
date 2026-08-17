@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_introspection_launchplan_plan_core",
+    "compositor_introspection_launchplan_plan_synthesizers_chrome",
+    "compositor_introspection_launchplan_plan_synthesizers_jetbrains",
+    "compositor_introspection_launchplan_plan_synthesizers_nautilus",
+    "compositor_introspection_launchplan_plan_synthesizers_terminal"
+  ]
+}

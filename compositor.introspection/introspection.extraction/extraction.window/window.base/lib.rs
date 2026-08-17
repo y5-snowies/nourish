@@ -24,6 +24,7 @@ pub mod handlers {
 pub mod hints {
     pub use compositor_introspection_extraction_window_hints_attribute::attribute;
     pub mod attributes {
+        pub use compositor_introspection_extraction_window_hints_attributes_container::attributes::*;
         pub use compositor_introspection_extraction_window_hints_attributes_identity::attributes::*;
         pub use compositor_introspection_extraction_window_hints_attributes_identity_more::attributes::*;
         pub use compositor_introspection_extraction_window_hints_attributes_launch::attributes::*;
@@ -49,11 +50,13 @@ pub mod hints {
     pub use self::inferred::{InferredHints, RawAlternative, RawHintView};
     pub use self::sandbox::parse_sandbox;
     pub use self::source::{Confidence, HintSource, SourceMethod};
-    pub use self::values::{EnvPair, SandboxIdentity};
+    pub use self::values::{EnvPair, IconPixels, SandboxIdentity, ToplevelIcon};
 }
 
 pub mod icon {
     pub use compositor_introspection_extraction_window_icon::icon::*;
+    /// The live-surface reader for `xdg_toplevel_icon_v1` (name + buffers).
+    pub use compositor_introspection_extraction_window_icon_toplevel::icon_toplevel as toplevel;
 }
 
 pub mod meta {
@@ -73,7 +76,7 @@ pub mod meta {
         walk_parents, DEFAULT_CHILD_DEPTH, DEFAULT_PARENT_STEPS,
     };
     pub use self::types::{Meta, MetaNode};
-    pub use self::wayland::{extract_from_window, extract_node_from_window};
+    pub use self::wayland::{extract_from_window, extract_node_from_window, extract_surface_meta};
 }
 
 pub use handler::{AppHandler, DetectResult, HandlerRegistry};
@@ -81,8 +84,8 @@ pub use handlers::default_registry;
 pub use hints::attributes;
 pub use hints::{
     AttributeCategory, AttributeDescriptor, AttributeKind, Confidence, EnvPair, HandlerId,
-    HintAttribute, HintSource, InferredHints, RawAlternative, SandboxIdentity, SourceMethod,
-    TypedHint,
+    HintAttribute, HintSource, IconPixels, InferredHints, RawAlternative, SandboxIdentity,
+    SourceMethod, ToplevelIcon, TypedHint,
 };
 pub use meta::{Meta, MetaNode, refresh_meta_from_pid};
 
@@ -90,6 +93,14 @@ pub use meta::{Meta, MetaNode, refresh_meta_from_pid};
 /// the window and its process are alive.**
 pub use meta::wayland::extract_meta;
 
+/// Extract the WAYLAND half of a [`Meta`] — surface identity + client
+/// credentials, no `/proc` walk. Cheap enough to run over every window at once.
+pub use meta::wayland::extract_surface_meta;
+
 /// Extract [`InferredHints`] from a (possibly stale) [`MetaNode`]. Pure data
 /// + filesystem reads; does not touch the window or `/proc`.
 pub use handler::registry::extract_hints;
+
+/// [`extract_hints`] with the extra context only a live window can supply: its
+/// `xdg_toplevel_icon_v1` icon. Read it with [`icon::toplevel::read`].
+pub use handler::registry::extract_hints_with;

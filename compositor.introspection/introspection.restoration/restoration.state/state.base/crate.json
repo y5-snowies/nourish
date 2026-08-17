@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_introspection_restoration_state_match",
+    "compositor_introspection_restoration_state_matcher",
+    "compositor_introspection_restoration_state_matchers",
+    "compositor_introspection_restoration_state_pending",
+    "compositor_introspection_restoration_state_registry",
+    "compositor_introspection_restoration_state_token"
+  ]
+}

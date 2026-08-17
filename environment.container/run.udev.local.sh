@@ -6,7 +6,8 @@
 # with a virtio-gpu device whose GL is accelerated by the host GPU via virglrenderer, starts a
 # seat (seatd) inside, and runs the udev binary there. No compositor source is modified.
 #
-# Usage: ./run.udev.local.sh [debug|release]   (default: debug)
+# Usage: ./run.udev.local.sh
+# Always release-fast — build.sh has no profile argument.
 #
 # Prerequisites (host/sandbox — done once, as root, by whoever provisions the container):
 #   1. Relaunch the sandbox with KVM exposed:   --device /dev/kvm   (keep /dev/dri/renderD129)
@@ -17,7 +18,6 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROFILE="${1:-debug}"
 RENDERNODE="${Y5_VIRGL_RENDERNODE:-/dev/dri/renderD129}"   # host GPU that backs virgl
 
 # ── prerequisite checks ─────────────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ if pgrep -f 'qemu-system-x86_64.*virtio-gpu-gl' >/dev/null 2>&1; then
 fi
 
 # ── build the udev binary (host side; virtme mounts this rootfs, so the guest sees it) ──────
-BIN="$("$HERE/../environment/build.sh" udev "$PROFILE")"
+BIN="$("$HERE/../environment/build.sh" udev)"
 
 # The compositor's settings JSON, computed host-side for the guest (written to the
 # guest's settings file below): in the VM the only card is the virtio-gpu
@@ -121,7 +121,7 @@ if [ "${Y5_VENUS:-1}" != 0 ]; then
     gpu="$gpu,blob=true,venus=true,hostmem=$VM_MEM,max_hostmem=$VM_MEM"
 fi
 
-echo ">> booting virtio-gpu VM (kernel $KVER, mem $VM_MEM, venus=${Y5_VENUS:-1}, display $QEMU_DISPLAY), launching udev [$PROFILE] ..." >&2
+echo ">> booting virtio-gpu VM (kernel $KVER, mem $VM_MEM, venus=${Y5_VENUS:-1}, display $QEMU_DISPLAY), launching udev ..." >&2
 exec vng --run "$KVER" \
     --disable-microvm \
     --user root \

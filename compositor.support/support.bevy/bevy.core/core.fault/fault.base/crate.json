@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "thiserror",
+    "gbm",
+    "smithay",
+    "wgpu"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_support_smithay_state_seat_xkb",
+    "compositor_orchestration_driver_settings_base",
+    "compositor_orchestration_driver_output_base",
+    "compositor_model_environment_config_base",
+    "compositor_model_environment_preference_base",
+    "compositor_model_environment_keybinding_base",
+    "compositor_orchestration_driver_audio_base",
+    "compositor_configurator_network_backend_base",
+    "compositor_configurator_bluetooth_backend_base",
+    "compositor_configurator_settings_surface_message",
+    "compositor_background_two_storage_base",
+    "compositor_pipeline_bundle_load_base",
+    "compositor_pipeline_bundle_builtin_base",
+    "compositor_model_stats_registry_base",
+    "compositor_support_system_persist_mark_base"
+  ]
+}

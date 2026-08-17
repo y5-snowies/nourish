@@ -27,6 +27,9 @@ pub const TEXT_FAINT: Color = rgba(0.42, 0.45, 0.51, 1.0);
 pub const TEXT_SIZE_TITLE: f32 = 20.0;
 pub const TEXT_SIZE_SEARCH: f32 = 16.0;
 pub const TEXT_SIZE_ARROW: f32 = 16.0;
+/// The per-entry carets drawn above an app that declares desktop actions.
+/// Small: they annotate the icon rather than competing with it.
+pub const TEXT_SIZE_ENTRY_ARROW: f32 = 9.0;
 
 // ─── Selection accent ────────────────────────────────────────────────
 

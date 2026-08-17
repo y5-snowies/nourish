@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "zbus",
+    "compositor_support_system_storage_token_base",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

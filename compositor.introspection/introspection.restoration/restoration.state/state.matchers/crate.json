@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_introspection_restoration_state_matchers_chrome",
+    "compositor_introspection_restoration_state_matchers_generic",
+    "compositor_introspection_restoration_state_matchers_jetbrains",
+    "compositor_introspection_restoration_state_matchers_nautilus",
+    "compositor_introspection_restoration_state_matchers_terminal",
+    "compositor_introspection_restoration_state_registry"
+  ]
+}

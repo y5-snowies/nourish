@@ -31,14 +31,17 @@ fn stamp(id: &ObjectId, want: Published) -> u64 {
 ///
 /// Two RECORDED transitions bypass the gate: a surface with no [`Published`] record
 /// (a new window) and one whose record is idle and which is visible again. A window
-/// drifting into view must reach its real scale on the frame it appears.
+/// drifting into view must reach its real scale on the frame it appears. Returns the
+/// surfaces a new VISIBLE scale reached — the windows about to re-lay themselves out,
+/// which is what the caller re-states its decided size to.
 pub fn emit_best_per_surface(
     fractional: &mut fractional_base::Fractional,
     sent: &mut HashMap<ObjectId, Published>,
     per_surface: &[(f64, WlSurface)],
     idle: &[WlSurface],
-) {
+) -> Vec<WlSurface> {
     let cfg = fractional.cfg.clone();
+    let mut emitted: Vec<WlSurface> = Vec::new();
     let desired = per_surface
         .iter()
         .map(|(zoom, surface)| (surface, Published::visible(snap(&cfg, zoom + cfg.auto_increment))))
@@ -61,6 +64,7 @@ pub fn emit_best_per_surface(
         // New window (no record) or un-idling (record says idle, visible now).
         if !want.idle && previous.map_or(true, |p| p.is_idle()) {
             emit_to_surfaces(want.scale, std::iter::once(surface));
+            emitted.push(surface.clone());
             next.insert(id, want);
             continue;
         }
@@ -77,6 +81,7 @@ pub fn emit_best_per_surface(
     if fractional.tick((!batch.is_empty()).then_some(fingerprint)) {
         for (surface, want) in batch {
             emit_to_surfaces(want.scale, std::iter::once(surface));
+            if !want.idle { emitted.push(surface.clone()); }
             next.insert(surface.id(), want);
         }
     }
@@ -86,4 +91,5 @@ pub fn emit_best_per_surface(
         fractional.last_emitted_scale = Some(sharpest);
     }
     *sent = next;
+    emitted
 }

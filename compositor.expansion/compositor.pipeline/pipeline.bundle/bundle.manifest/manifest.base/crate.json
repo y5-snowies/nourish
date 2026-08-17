@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "serde",
+    "serde_json",
+    "compositor_pipeline_bundle_require_base"
+  ]
+}

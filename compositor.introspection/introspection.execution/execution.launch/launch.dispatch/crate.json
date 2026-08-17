@@ -1,0 +1,9 @@
+{
+  "deps": [
+    // calloop via smithay's reexport so the Sender type unifies with the loop.
+    "smithay",
+    "compositor_introspection_execution_launch_execute",
+    "compositor_introspection_execution_launch_types",
+    "compositor_model_debug_instance_record"
+  ]
+}

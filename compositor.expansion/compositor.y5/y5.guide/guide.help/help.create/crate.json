@@ -1,0 +1,13 @@
+{
+  "deps": [
+    "compositor_monitor_compositor_iced_base",
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_draw_layer_base",
+    "compositor_y5_guide_help_row",
+    "compositor_y5_guide_help_view",
+    "compositor_y5_guide_interface_surface",
+    "compositor_y5_guide_state_base",
+    "compositor_y5_surface_draw_handle",
+    "smithay"
+  ]
+}

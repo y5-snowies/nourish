@@ -23,8 +23,12 @@ on whichever of its surfaces the pointer is over.
 ```bash
 cargo build --release
 # Run against any Wayland compositor (point WAYLAND_DISPLAY at the target, e.g. a nested y5):
-./target/release/window-stress-controller
+"$(cargo metadata --no-deps --format-version 1 | sed 's/.*"target_directory":"\([^"]*\)".*/\1/')"/release/window-stress-controller
 ```
+
+> The repo's `.cargo/config.toml` pins ONE `target-dir` for the whole checkout, and it applies
+> here too — the binaries land in `compositor.kernel/kernel.loader/target/release/`, not in a
+> `target/` beside this crate. The `cargo metadata` line above resolves it wherever it is.
 
 The controller finds `window-stress-subject` next to its own executable. Diagnostics from
 both processes print to stderr, tagged `[controller ...]` / `[subject ...]`.
@@ -63,11 +67,100 @@ toggles these; press `RESPAWN` to relaunch the subject with the new set. Equival
 | Fractional scale | `fs-honor`, `fs-ignore`, `fs-scale N`, `fs-noviewport`, `fs-mismatch` |
 | DPI / integer scale | `dpi-honor`, `dpi-ignore`, `dpi-scale N`, `dpi-nondiv`, `dpi-mismatch`, `dpi-zero` |
 | Single-pixel buffer | `sp-fill R G B A`, `sp-sub R G B A`, `sp-noviewport` |
+| Toplevel icon | `icon-name NAME`, `icon-buffer EDGE...`, `icon-both NAME`, `icon-clear` |
 | Lifecycle | `map`, `unmap`, `mapcycle on|off`, `size W H`, `quit` |
+
+### Toplevel icon (`xdg_toplevel_icon_v1`)
+
+The protocol has two independent halves, and a compositor has to handle both plus their
+absence — three variants that look identical from the outside:
+
+| Variant | Command | What the compositor must do |
+| ------- | ------- | --------------------------- |
+| Stock name | `icon-name firefox` | resolve the string through the icon theme |
+| Pixel buffers | `icon-buffer 64` | read pixels out of the client's `wl_shm` pool |
+| Neither | `icon-clear` | fall back to whatever it infers about the app itself |
+
+Two more that catch the interesting mistakes:
+
+- `icon-both firefox` sets a name AND a buffer on one icon object — whichever a consumer
+  prefers, it has to pick deliberately.
+- `icon-buffer 16 32 64 128` offers four sizes at once. Each is drawn in **its own colour**
+  (16 red, 32 amber, 64 green, 128 blue), so the size the compositor chose is readable off
+  whatever it renders — no logging needed.
+
+Every buffer is drawn the same way: a fully transparent margin (alpha survives the trip), a
+solid body, and a **half-alpha quadrant written premultiplied**, as `argb8888` requires. A
+consumer that forgets to un-premultiply renders that quarter visibly darker than the body.
+
+The overlay's `ICON` line reports the current request, whether the manager global was bound at
+all, and the icon sizes the compositor advertised at bind time.
 
 The subject overlay shows **buffer px · viewport destination · xdg configure** side by side,
 plus output/​fractional scale, ack state, decoration mode and child counts, so divergences are
 obvious at a glance.
+
+## Session restore (`xdg_session_management_v1` → placeholders)
+
+Checks that a placeholder rebinds a returning window by its **declared session identity**
+rather than by inferring it from the launch. The `SESSION RESTORE` button group spawns
+**detached** subjects: no controller pipe, no commands, `--detached` so stdin EOF does not
+kill them.
+
+Each subject asks `get_session(launch, NULL)`, calls `restore_toplevel(toplevel, "main")`
+before its first commit, and then looks up a **value keyed by the session id the compositor
+minted**. That value lives in a flat store (`$XDG_STATE_HOME/y5-window-stress-sessions.txt`,
+else `/tmp/…`).
+
+**Every session subject is spawned byte-identical**: argv is exactly `--detached`, with no
+tag, index or per-instance store path, and they all set the same title and app_id. A
+placeholder relaunches by replaying the argv it captured, so anything that distinguished them
+on the command line would be an alternative explanation for a value coming back — one you
+could only rule out by reading the source. With argv identical there is nothing left: the
+session id the compositor mints per placeholder is the only thing that can tell two subjects
+apart, so the tiles must be told apart by the compositor or not at all. The overlay's last
+line is the verdict:
+
+```
+SESSION 1f3a9c02 [RESTORED] VALUE 9C4E77B1
+```
+
+Procedure:
+
+1. `SPAWN 3` — three subjects come up, each `[NEW]` with its own `VALUE`. The `VALUE` is the
+   only thing distinguishing them on screen; note which window is which.
+2. Close each window **in the compositor** → three placeholder tiles appear.
+3. Press **Launch** on a tile. y5 relaunches the subject binary with the captured argv.
+4. The subject must come back showing the **same `VALUE`** and `[RESTORED]` — and pressing a
+   *different* tile must produce a *different* `VALUE`. Three identical processes resolving to
+   three different values is the whole result; one tile restoring correctly proves much less.
+
+`CLEAR STORE` deletes the store file — the control case, after which a spawn must report
+`[NEW]` with a fresh value. `--no-session` disables the protocol entirely (the overlay reads
+`[ABSENT]`), which is how you confirm the restore is coming from the session identity and not
+from the activation-token / pid path.
+
+### Which namespace
+
+The protocol exists under two global names and y5 advertises both. The `NS:` button picks
+which one the next spawn binds (equivalently `--xx` on the subject); the overlay reports it as
+`SESSION[xdg]` / `SESSION[xx]`.
+
+| | |
+| --- | --- |
+| `xdg_session_manager_v1` | current wayland-protocols staging name |
+| `xx_session_manager_v1` | pre-rename name — what GTK 4.22 binds |
+
+They are **not** wire-compatible (`xx_toplevel_session_v1` request 1 is `remove()` where
+`xdg_` has `rename()`; `xx_`'s `restored` carries the `xdg_toplevel`; `xx_session_v1` has no
+`remove_toplevel`), so each is a separate implementation on both sides. Test both — the `xx_`
+one is the path a real GTK client would take, and the subject additionally checks that the
+toplevel handed back in `xx_`'s `restored` is the one it registered.
+
+What makes step 4 work is that the compositor re-mints the *same* id: the placeholder records
+the session identity it captured, and `state.session/session.claim` hands that stored id back
+when the relaunched pid resolves to that placeholder. A placeholder that has never seen a
+session mints its own uuid instead.
 
 ## Reproducing the reported bugs
 

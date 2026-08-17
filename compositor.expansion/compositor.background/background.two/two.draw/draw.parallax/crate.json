@@ -1,0 +1,25 @@
+{
+  "deps": [
+    "compositor_pipeline_world_system_base",
+    "compositor_kernel_vulkan_memory_external_base",
+    "compositor_pipeline_abi_worldset_base",
+    "uuid",
+    "compositor_pipeline_build_seam_base",
+    "compositor_background_two_draw_offload",
+    "compositor_model_debug_instance_record",
+    "compositor_background_two_worker_key",
+    "compositor_model_environment_background_base",
+    "compositor_background_two_draw_motion",
+    "compositor_background_two_worker_base",
+    "compositor_background_two_worker_signal",
+    "compositor_background_two_worker_shared",
+    "compositor_background_two_draw_select",
+    "compositor_background_two_draw_vulkan",
+    "compositor_pipeline_compile_spirv_base",
+    "compositor_pipeline_build_pipeline_base",
+    "compositor_pipeline_bundle_property_base",
+    "compositor_orchestration_draw_dispatch_frame",
+    "smithay",
+    "compositor_pipeline_abi_clock_base"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_support_smithay_dispatch_state_base",
+    "compositor_support_system_storage_slot_base",
+    "compositor_support_system_storage_token_base"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "smithay",
+    "uuid"
+  ]
+}

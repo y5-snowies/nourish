@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_orchestration_draw_dispatch_uniforms",
+    "smithay"
+  ]
+}

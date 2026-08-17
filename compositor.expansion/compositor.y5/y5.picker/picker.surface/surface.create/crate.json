@@ -1,0 +1,12 @@
+{
+  "deps": [
+    "compositor_y5_picker_system_base",
+    "compositor_model_debug_instance_record",
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_draw_layer_base",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_y5_surface_protocol_base",
+    "compositor_y5_picker_surface_view",
+    "smithay"
+  ]
+}

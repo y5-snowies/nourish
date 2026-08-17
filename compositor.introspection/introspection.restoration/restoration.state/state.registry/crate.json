@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_introspection_extraction_window_base",
+    "compositor_introspection_restoration_state_matcher"
+  ]
+}

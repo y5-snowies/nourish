@@ -28,7 +28,11 @@ INSTALL_BIN="${Y5_INSTALL_BIN:-}"
 if [ -z "$INSTALL_BIN" ]; then
     echo ">> building y5-install (for --emit-packages) ..." >&2
     ( cd "$REPO_ROOT/compositor.installer/installer.process" && cargo build -q )
-    INSTALL_BIN="$REPO_ROOT/compositor.installer/installer.process/target/debug/y5-install"
+    # Ask cargo where it put it: `.cargo/config.toml` pins ONE target dir for the whole
+    # repo, so this is NOT `<crate>/target/` any more.
+    _t="$( cd "$REPO_ROOT/compositor.installer/installer.process" && cargo metadata --no-deps --format-version 1 \
+             | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p' )"
+    INSTALL_BIN="$_t/debug/y5-install"
 fi
 [ -x "$INSTALL_BIN" ] || { echo "verify-packages: no installer binary at $INSTALL_BIN" >&2; exit 1; }
 

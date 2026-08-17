@@ -4,6 +4,7 @@ use compositor_introspection_extraction_window_hints_extract::extract::extract_b
 use compositor_introspection_extraction_window_hints_id::handler_id::HandlerId;
 use compositor_introspection_extraction_window_hints_inferred::inferred::InferredHints;
 use compositor_introspection_extraction_window_hints_source::source::{Confidence, SourceMethod};
+use compositor_introspection_extraction_window_hints_values::values::ToplevelIcon;
 use compositor_introspection_extraction_window_meta_types::types::MetaNode;
 
 /// Full hint extraction:
@@ -17,8 +18,9 @@ pub fn extract_all_hints(
     node: &MetaNode,
     detected: (HandlerId, Confidence),
     handler: Option<&dyn AppHandler>,
+    icon: Option<&ToplevelIcon>,
 ) -> InferredHints {
-    let mut hints = extract_base_hints(node);
+    let mut hints = extract_base_hints(node, icon);
 
     let (handler_id, confidence) = detected;
     hints.push::<DetectedHandler>(

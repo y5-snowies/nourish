@@ -1,0 +1,14 @@
+{
+  "deps": [
+    "compositor_support_bevy_core_context_base",
+    "compositor_support_bevy_core_element_base",
+    "compositor_support_bevy_core_fault_base",
+    "compositor_support_bevy_core_handle_base",
+    "compositor_support_bevy_core_instance_base",
+    "compositor_support_bevy_core_scene_base",
+    "compositor_support_bevy_core_space_base",
+    "compositor_support_bevy_core_worker_instance",
+    "compositor_kernel_graphic_bridge_publish_attempt",
+    "smithay"
+  ]
+}

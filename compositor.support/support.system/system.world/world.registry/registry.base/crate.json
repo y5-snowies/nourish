@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "compositor_support_system_storage_slot_base",
+    "compositor_support_system_trait_system_base",
+    "compositor_support_system_world_host_base",
+    "uuid"
+  ]
+}

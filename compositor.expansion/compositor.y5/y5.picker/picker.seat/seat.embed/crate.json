@@ -1,0 +1,16 @@
+{
+  "deps": [
+    "compositor_y5_picker_seat_iced",
+    "smithay",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_picker_system_base",
+    "compositor_y5_picker_state_base",
+    "compositor_y5_picker_seat_pointer",
+    "compositor_y5_picker_pick_base",
+    "compositor_y5_picker_three_constant",
+    "compositor_y5_picker_three_orient",
+    "compositor_y5_camera_transform_translate",
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record"
+  ]
+}

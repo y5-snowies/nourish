@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_model_environment_keybinding_base",
+    "compositor_y5_canvas_input_keyboard",
+    "compositor_y5_guide_help_view"
+  ]
+}

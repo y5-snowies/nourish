@@ -1,0 +1,18 @@
+{
+  "deps": [
+    "compositor_kernel_graphic_bridge_publish_thread",
+    "wgpu",
+    "compositor_kernel_graphic_bridge_publish_wake",
+    "compositor_kernel_graphic_bridge_publish_attempt",
+    "compositor_kernel_graphic_bridge_publish_ring",
+    "compositor_model_debug_instance_record",
+    "compositor_model_environment_interface_base",
+    "compositor_support_bevy_core_context_base",
+    "compositor_support_bevy_core_handle_base",
+    "compositor_support_bevy_core_publish_base",
+    "compositor_support_bevy_core_shared_base",
+    "compositor_support_bevy_core_worker_base",
+    "compositor_support_bevy_core_worker_slot",
+    "smithay"
+  ]
+}

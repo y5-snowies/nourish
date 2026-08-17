@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_support_system_storage_token_base",
+    "compositor_remote_message_state_base",
+    "tokio"
+  ]
+}

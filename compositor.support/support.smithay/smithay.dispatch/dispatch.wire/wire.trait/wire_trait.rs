@@ -31,10 +31,26 @@ pub trait WireTrait {
     /// on the focused monitor instead of always the first one.
     fn active_output(&self) -> Option<smithay::output::Output>;
     fn initialize_surface_data(&mut self, window: Window);
-    fn destroy_surface_data(&mut self, surface: ToplevelSurface);
+    /// `drag_discard`: the toplevel was mid-flight in an `xdg_toplevel_drag_v1`
+    /// when it was destroyed, i.e. some other toplevel adopted the tab and the
+    /// carrier was thrown away. Nothing was closed, so it leaves no placeholder.
+    /// Sampled in the wire layer (which owns the drag registry) at destroy time,
+    /// because the placeholder policy lives above this trait and the drain runs
+    /// later than the answer is valid for.
+    fn destroy_surface_data(&mut self, surface: ToplevelSurface, drag_discard: bool);
     /// Warp the pointer to a world-space point. The handler reads its own
     /// hosted space internally (it owns it now), so no space is passed in.
     fn apply_pointer(&mut self, storage_point: Point<f64, Logical>);
+    /// The inverse of [`apply_pointer`]: pin the cursor's own hardware position into
+    /// the output and return where it lands in the FOCUSED world, so the caller can
+    /// re-state the seat's location there. Re-seats the camera's pan accumulator on
+    /// the same point, exactly as `apply_pointer` does.
+    ///
+    /// Used after a world switch: the seat holds one global world coordinate while
+    /// every world has its own camera, so the location carried across a switch lands
+    /// wherever the incoming camera projects it. The hardware position is the value
+    /// that survives — re-derive the world point from it.
+    fn reanchor_pointer(&mut self) -> Point<f64, Logical>;
     fn place_window(&mut self, window: Window, geometry: Rectangle<i32, Logical>);
     /// A client asked to (un)fullscreen `window`. The actual sizing/placement is
     /// deferred to the Loop-level lifecycle hook, since it needs concrete state
@@ -45,6 +61,10 @@ pub trait WireTrait {
     /// QUEUES the request; a higher-level system drains it and applies the navigator `view`.
     /// `origin` lets the applier treat sources differently (more origins coming).
     fn request_activation(&mut self, window: Window, origin: ActivationOrigin);
+    /// An `xdg_toplevel_drag_v1` just stopped carrying `surface`. Queues the
+    /// placeholder re-sync; like `request_activation` this only RECORDS, because
+    /// the placeholder model lives above this trait.
+    fn settle_toplevel_drag(&mut self, surface: WlSurface);
     fn dmabuf_import(
         &mut self,
         dispatch: &mut Dispatch,

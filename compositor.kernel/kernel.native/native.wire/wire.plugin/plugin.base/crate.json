@@ -1,0 +1,21 @@
+{
+  "deps": [
+    "compositor_model_debug_instance_record",
+    "smithay",
+    // Compositor dependencies (CI ensures availability in workspace)
+    "compositor_kernel_gpu_registry_node_base",
+    "compositor_kernel_native_context_render_base",
+    "compositor_kernel_native_context_topology_base",
+    "compositor_kernel_native_plugin_route_base",
+    "compositor_kernel_udev_loop_event_base",
+    "compositor_kernel_udev_loop_watch_base",
+    "compositor_kernel_graphic_preference_gpu_rank",
+    "compositor_kernel_native_context_display_base",
+    "compositor_kernel_native_context_display_reconcile",
+    "compositor_orchestration_event_output_base",
+    "compositor_orchestration_pump_dark_base",
+    "compositor_y5_graphic_capture_interface",
+    "compositor_orchestration_core_state_base",
+    "compositor_orchestration_driver_lid_base"
+  ]
+}

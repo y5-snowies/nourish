@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "compositor_support_system_channel_router_base",
+    "compositor_support_system_channel_token_base",
+    "compositor_support_system_storage_token_base",
+    "compositor_y5_navigator_lock_state",
+    "compositor_y5_navigator_travel_state"
+  ]
+}

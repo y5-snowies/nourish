@@ -6,10 +6,10 @@ description: Add a new member crate to a Cargo workspace in this repo using the 
 # add-crate
 
 Scaffold a new member crate into a Cargo workspace using `y5-template` (on PATH at
-`~/.cargo/bin/y5-template`; source in `references/y5-template/`). Do NOT hand-create
+`~/.cargo/bin/y5-template`; source in `environment/toolkit/y5-template/`). Do NOT hand-create
 `Cargo.toml`/`lib.rs` by hand — use the tool so naming and the template stay correct.
 
-**ALWAYS run `./link.all.sh` from the repo root after creating a crate** (step 5) —
+**ALWAYS run `compositor.workspace/link.all.sh` from the repo root after creating a crate** (step 5) —
 the crate is not wired into the workspaces until you do.
 
 ## The naming convention (chain-prefix)
@@ -63,18 +63,37 @@ compositor/                  workspace root  (Cargo.toml [workspace] members glo
    workspace `Cargo.toml` member glob already covers it (it does if the glob is
    `compositor.<L0>/*/*`-style — no manual `members` edit needed).
 
-5. **Relink workspaces — REQUIRED, do not skip.** A new crate is not usable across
-   the repo until the workspace path links are regenerated. Run from the repo root:
+   The template's `lib.rs` is already SHELL-conforming (`extern crate` + `pub mod`) —
+   **keep it that way.** Code goes in the generated `<module>.rs` beside it; a `fn`,
+   `struct`, `impl` or `const` written into `lib.rs` fails the lint, and that rule has
+   no allowlist. Re-export from `lib.rs` with `pub use <module>::…` if callers should
+   see an item at the crate root.
+
+5. **Write its `crate.json`.** `Cargo.toml` is a GENERATED artifact — gitignored, and
+   overwritten on every build — so a crate declares its dependencies in `crate.json`
+   beside `lib.rs`. It is JSONC, so a `//` comment above a dependency is kept and
+   re-emitted above that line in the generated manifest:
+   ```jsonc
+   {
+     "deps": [
+       // Developer logging — provides error!/warn!/info!/trace!/abort!.
+       "compositor_model_debug_instance_record",
+       "smithay"
+     ]
+   }
    ```
-   cd /workspace && ./link.all.sh
-   ```
-   `link.all.sh` runs `workspace.link.js` inside each top-level workspace
-   (`compositor`, `compositor.support/support.smithay`, `compositor.background`,
-   `compositor.rpc`, `compositor.loader`, `compositor.introspection`,
-   `compositor.monitor`). That script discovers each workspace's crates (manual
-   Cargo.toml parsing) and rewrites the cross-workspace path dependencies declared
-   via each dir's `link.json`. Skipping it leaves the new crate unlinked and
-   downstream workspaces won't resolve it. Run it once after a batch — not per crate.
+   Names only. A crate never states a version, a feature or a manifest shape — those
+   live in `compositor.workspace/vendor.catalog.json` (external versions/features) and
+   `compositor.workspace/workspace.catalog.json` (per-crate features, `[[bin]]`, build
+   scripts, …).
+
+   Only add what the crate actually uses: an unused dependency FAILS the lint
+   (`deps-unused`), and a dependency that is genuinely needed but never named in the
+   source — e.g. spliced in by `tonic::include_proto!` — goes in `keep` with a reason.
+
+6. **Regenerate.** `environment/build.sh` and `environment/check.sh` do this for you
+   before invoking cargo, so usually there is nothing to run. To refresh the tree for
+   an editor without building: `compositor.workspace/link.all.sh` (which now just generates + lints).
 
 ## Template variables (for reference)
 
@@ -95,4 +114,4 @@ For `compositor/compositor.action/action.window` + `Name = handle`:
 - In Zed, humans use the picker via `alt-n` (default template) / `alt-shift-n`
   (named); that path also pins the L1 of the currently-open file. The CLI `--dir`
   flow above is the equivalent for non-interactive/agent use.
-- Full reference: `references/y5-template/README.md`.
+- Full reference: `environment/toolkit/y5-template/`.

@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "smithay",
+    "compositor_support_smithay_dispatch_state_base",
+    "compositor_support_smithay_state_output_base"
+  ]
+}

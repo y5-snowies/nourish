@@ -1,0 +1,21 @@
+{
+  "deps": [
+    "compositor_pipeline_world_system_base",
+    "compositor_y5_lock_system_base",
+    "compositor_background_three_system_base",
+    "compositor_orchestration_draw_scene_element",
+    "compositor_model_debug_instance_record",
+    "compositor_y5_lock_scene_hook",
+    "compositor_y5_lock_interface_base",
+    "compositor_support_bevy_core_compositor_base",
+    "compositor_background_two_draw_scene",
+    "compositor_orchestration_draw_layer_base",
+    "compositor_monitor_compositor_iced_base",
+    "compositor_background_two_draw_element",
+    "compositor_orchestration_draw_dispatch_frame",
+    "compositor_orchestration_seat_pointer_draw",
+    "compositor_orchestration_core_state_base",
+    "compositor_y5_lock_scene_element",
+    "smithay"
+  ]
+}

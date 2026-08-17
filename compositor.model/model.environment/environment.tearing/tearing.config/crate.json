@@ -1,0 +1,7 @@
+{
+  "deps": [
+    "compositor_model_environment_tearing_select",
+    "compositor_model_environment_tearing_rate",
+    "serde"
+  ]
+}

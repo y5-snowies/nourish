@@ -1,0 +1,23 @@
+{
+  "deps": [
+    "compositor_kernel_graphic_bridge_publish_wake",
+    "compositor_kernel_native_wire_watchdog_idle",
+    "compositor_support_smithay_state_tearing_gate",
+    "compositor_orchestration_driver_resume_base",
+    "compositor_model_debug_instance_record",
+    "smithay",
+    // Compositor dependencies (CI ensures availability in workspace)
+    "compositor_kernel_drm_loop_notifier_base",
+    "compositor_kernel_native_context_render_base",
+    "compositor_kernel_native_render_execute_base",
+    "compositor_kernel_scanout_flip_feedback_base",
+    "compositor_kernel_scanout_timing_vblank_base",
+    "compositor_kernel_graphic_draw_present_callbacks",
+    "compositor_orchestration_core_state_base",
+    "compositor_model_stats_registry_base",
+    "compositor_kernel_native_wire_watchdog_settle",
+    "compositor_kernel_scanout_timing_throttle_base",
+    "compositor_kernel_scanout_timing_predict_base",
+    "compositor_kernel_scanout_flip_estimate_base"
+  ]
+}

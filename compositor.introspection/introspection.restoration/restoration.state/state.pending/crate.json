@@ -1,0 +1,6 @@
+{
+  "deps": [
+    "compositor_introspection_launchplan_plan_base",
+    "uuid"
+  ]
+}

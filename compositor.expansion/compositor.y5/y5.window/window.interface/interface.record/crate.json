@@ -1,0 +1,13 @@
+{
+  "deps": [
+    "compositor_y5_window_interface_data",
+    "compositor_model_debug_instance_record",
+    "smithay",
+    "uuid",
+    "compositor_introspection_extraction_window_base",
+    "compositor_introspection_inference_hint_base",
+    "compositor_support_smithay_state_xdg_activation_dispatch",
+    "compositor_support_smithay_state_session_store",
+    "compositor_introspection_restoration_state_pending"
+  ]
+}

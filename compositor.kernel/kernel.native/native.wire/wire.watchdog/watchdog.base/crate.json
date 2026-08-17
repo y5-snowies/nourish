@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_support_smithay_state_tearing_floor",
+    "compositor_model_debug_instance_record",
+    "compositor_orchestration_core_state_base",
+    "compositor_support_smithay_state_tearing_gate",
+    "compositor_support_smithay_state_tearing_liveness",
+    "smithay"
+  ]
+}

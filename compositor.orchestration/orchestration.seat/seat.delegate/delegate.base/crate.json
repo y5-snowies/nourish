@@ -1,0 +1,10 @@
+{
+  "deps": [
+    "compositor_orchestration_seat_delegate_lock",
+    "compositor_orchestration_seat_delegate_main",
+    "compositor_y5_picker_system_base",
+    "compositor_y5_picker_seat_dispatch",
+    "smithay",
+    "compositor_orchestration_core_state_base"
+  ]
+}

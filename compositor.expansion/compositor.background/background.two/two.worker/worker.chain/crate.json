@@ -1,0 +1,16 @@
+{
+  "deps": [
+    "compositor_pipeline_abi_worldset_base",
+    "compositor_model_debug_instance_record",
+    "compositor_pipeline_execute_warpmap_base",
+    "compositor_pipeline_abi_descriptor_base",
+    "ash",
+    "compositor_pipeline_execute_graph_base",
+    "compositor_kernel_vulkan_pipeline_composite_base",
+    "compositor_background_two_worker_device",
+    "compositor_background_two_worker_target",
+    "compositor_background_two_worker_import",
+    "compositor_background_two_worker_barrier",
+    "compositor_background_two_worker_history"
+  ]
+}

@@ -1,19 +1,27 @@
 //! Per-AttributeKind editor widget builders + a value-summary helper.
 //!
-//! For Text / Path / EnumOf / chrome_profile attributes, the editor is
+//! For Text / Path / chrome_profile attributes, the editor is
 //! either a plain `text_input + chevron button` (when no combo is open)
 //! or a `combo_box` bound to the UI's single shared combo state (when
 //! the user has opened the alternatives picker for this attribute).
 //! Only one combo can be open at a time across the whole UI.
+//!
+//! EnumOf attributes get a `pick_list` instead: their variants are a closed,
+//! statically-known set, so the whole domain can be shown at once. Note the
+//! two dropdowns mean different things — the combo_box lists the ALTERNATIVE
+//! inferred values for an attribute, the pick_list lists the attribute's
+//! legal variants.
 
 use std::any::Any;
 use std::sync::Arc;
 
 use iced_core::{Element, Length, Theme};
 use iced_widget::{
-    button, checkbox, column, combo_box, row, text, text_input,
+    button, checkbox, column, combo_box, pick_list, row, text, text_input,
 };
 use compositor_introspection_extraction_window_base::{AttributeDescriptor, AttributeKind, EnvPair};
+use compositor_introspection_extraction_window_hints_codec::codec;
+use compositor_introspection_extraction_window_hints_codec_register::register;
 use compositor_support_iced_core_engine_base::Renderer;
 
 use crate::message::{EnvField, PlaceholderMessage};
@@ -186,40 +194,49 @@ fn enum_editor<'a>(
     value: &Option<Arc<dyn Any + Send + Sync>>,
     variants: &[&'static str],
 ) -> Element<'a, PlaceholderMessage, Theme, Renderer> {
-    let current = value
-        .as_ref()
-        .and_then(|v| v.downcast_ref::<String>().cloned())
-        .unwrap_or_else(|| variants.first().map(|s| s.to_string()).unwrap_or_default());
-
     let key = descriptor.key;
 
-    // Find current's position in variants; if absent, treat as -1 so
-    // the next click lands on the first variant.
-    let next_index = variants
-        .iter()
-        .position(|v| *v == current)
-        .map(|i| (i + 1) % variants.len())
-        .unwrap_or(0);
-
-    let next_value: String = variants
-        .get(next_index)
-        .map(|s| s.to_string())
+    // Read the variant through the CODEC, not a `String` downcast. An EnumOf
+    // attribute's value is its own type — `terminal.kind` is a `TerminalKind`,
+    // not a `String` — so the downcast failed and fell through to
+    // `variants.first()`, which rendered "Alacritty" for a foot window whose
+    // best-inferred line correctly said Foot.
+    //
+    // The codec is the same registry persistence uses, so a fieldless enum
+    // round-trips to exactly the variant name listed in `variants`.
+    //
+    // No `variants.first()` fallback: an attribute with no value must render
+    // as empty, not silently claim to be the first variant.
+    register::register_standard_codecs();
+    let current = value
+        .as_ref()
+        .and_then(|v| codec::encode(key, v))
+        .and_then(|json| json.as_str().map(str::to_string))
+        .or_else(|| value.as_ref().and_then(|v| v.downcast_ref::<String>().cloned()))
         .unwrap_or_default();
 
-    row![
-        text(current.clone())
-            .size(style::TEXT_SIZE_BODY)
-            .style(|_| iced_widget::text::Style { color: Some(style::TEXT) })
-            .width(Length::Fill),
-        button(text("↻").size(style::TEXT_SIZE_BODY))
-            .padding(style::PAD_SMALL)
-            .on_press(PlaceholderMessage::AttributeTextChanged {
-                descriptor_key: key,
-                value: next_value,
-            }),
-    ]
-    .spacing(8)
-    .into()
+    // The variants are the whole domain of the attribute and are known up
+    // front, so a dropdown shows them all. This replaces a label plus a `↻`
+    // cycle button, which required stepping blindly through the list to
+    // discover what was even available — and, for a nine-variant enum like
+    // terminal kind, up to eight clicks to reach a known target.
+    //
+    // `selected` is matched against the variant list rather than passed as a
+    // free string: a value the enum does not contain must render as the
+    // placeholder, not as a phantom selection.
+    let options: Vec<&'static str> = variants.to_vec();
+    let selected = options.iter().copied().find(|v| *v == current);
+
+    pick_list(selected, options, |v: &&'static str| v.to_string())
+        .placeholder("(unset)")
+        .text_size(style::TEXT_SIZE_BODY)
+        .padding(style::PAD_SMALL)
+        .width(Length::Fill)
+        .on_select(move |v: &'static str| PlaceholderMessage::AttributeTextChanged {
+            descriptor_key: key,
+            value: v.to_string(),
+        })
+        .into()
 }
 
 fn custom_editor<'a>(

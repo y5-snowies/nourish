@@ -47,5 +47,11 @@ pub fn request_from_plan(
     let basename = argv.first().map(String::as_str).unwrap_or("app");
     let unit = format!("y5-app-{}-{}", sanitise_unit_name(basename), short_random());
 
-    Ok(LaunchRequest { argv, env, working_dir, token, unit, correlation })
+    // Host launch; `launch.build.container` fills the container fields in when
+    // the plan targets one.
+    Ok(LaunchRequest {
+        argv, env, working_dir, token, unit, correlation,
+        container: None,
+        start_container: false,
+    })
 }
