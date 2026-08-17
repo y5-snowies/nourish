@@ -58,11 +58,19 @@ REPO_ROOT="${Y5_REPO_ROOT:-}"
 if [ -z "$REPO_ROOT" ]; then
     d="$HERE"
     while [ "$d" != "/" ]; do
-        if compgen -G "$d/compositor*/Cargo.toml" >/dev/null 2>&1; then REPO_ROOT="$d"; break; fi
+        if [ -f "$d/compositor.workspace/workspace.catalog.json" ] \
+            || compgen -G "$d/compositor*/Cargo.toml" >/dev/null 2>&1; then REPO_ROOT="$d"; break; fi
         d="$(dirname "$d")"
     done
 fi
 [ -n "$REPO_ROOT" ] || { echo "build.sh: could not locate repo root (no compositor* dir found)" >&2; exit 1; }
+
+# Manifests are generated artifacts and a fresh clone has none, so generate before
+# the grep below goes looking for one (environment/build.sh does the same).
+if [ -f "$REPO_ROOT/compositor.workspace/workspace.generate.js" ] && command -v node >/dev/null 2>&1; then
+    ( cd "$REPO_ROOT" && node compositor.workspace/workspace.generate.js >/dev/null ) \
+        || { echo "build.sh: workspace.generate failed" >&2; exit 1; }
+fi
 
 EXECUTE_DIR="$(dirname "$(grep -rl --include=Cargo.toml --exclude-dir=target --exclude-dir=node_modules 'name *= *"y5_compositor"' "$REPO_ROOT"/compositor* | head -n1)")"
 [ -n "$EXECUTE_DIR" ] && [ -d "$EXECUTE_DIR" ] || { echo "build.sh: could not find the y5_compositor crate" >&2; exit 1; }

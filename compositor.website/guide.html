@@ -110,6 +110,9 @@
       <pre class="code"><button class="copy" data-copy>Copy</button><code>git clone https://github.com/y5-snowies/nourish
 cd nourish
 
+# Write the Cargo manifests — they are generated, so a fresh clone has none:
+compositor.workspace/link.all.sh
+
 # The compositor needs ~/.config/y5.compositor/settings.json to start.
 # Author it first by running the settings tool straight from source:
 cargo run --release --manifest-path compositor.installer/component/settings-editor/Cargo.toml

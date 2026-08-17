@@ -113,6 +113,9 @@ A thorough guide is available [here](https://nourish.snowies.com/guide.html).
 > carefully.
  
 ```bash
+# Write the Cargo manifests — they are generated, so a fresh clone has none
+compositor.workspace/link.all.sh
+
 # Build & run nested in your current Wayland session
 environment/run-host.sh winit
 

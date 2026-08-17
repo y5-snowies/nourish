@@ -66,28 +66,26 @@ esac
 # --- Locate the repo root --------------------------------------------------
 # Nearest ancestor of this script that contains compositor* workspaces. Works on
 # the host (script in environment/) and in the container (script at the repo root).
+#
+# The marker MUST be a committed file. Every Cargo.toml in the linked tree is a
+# generated artifact (see below), so a fresh clone — every CI checkout — has none:
+# testing for `compositor*/Cargo.toml` first is a chicken-and-egg that fails the
+# build before the generator that would create them ever runs.
+# workspace.catalog.json is the authored source the generator reads, it lives only
+# at the repo root, and it cannot be mistaken for a stray `compositor*`-named file
+# like environment/compositor-env.sh. The Cargo.toml glob stays as a fallback for
+# trees that ship the generated manifests without compositor.workspace/.
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${Y5_REPO_ROOT:-}"
 if [ -z "$REPO_ROOT" ]; then
     d="$SELF_DIR"
     while [ "$d" != "/" ]; do
-        # Match a workspace DIRECTORY (a compositor*/ with a Cargo.toml), not just
-        # any compositor*-named path — otherwise a stray file like
-        # environment/compositor-env.sh falsely resolves the repo root to environment/.
-        if compgen -G "$d/compositor*/Cargo.toml" >/dev/null 2>&1; then REPO_ROOT="$d"; break; fi
+        if [ -f "$d/compositor.workspace/workspace.catalog.json" ] \
+            || compgen -G "$d/compositor*/Cargo.toml" >/dev/null 2>&1; then REPO_ROOT="$d"; break; fi
         d="$(dirname "$d")"
     done
 fi
 [ -n "$REPO_ROOT" ] || { echo "build.sh: could not locate repo root (no compositor* dir found)" >&2; exit 1; }
-
-# --- Workspace conformance gate (layout/naming/size; see CLAUDE.md) ---------
-# Skipped when node is unavailable (e.g. minimal container images) or Y5_SKIP_LINT is set.
-# The distro bundle images set Y5_SKIP_LINT=1: they now carry node (for the Tauri devtool), but
-# the authoritative lint already runs in ci.yml — re-running it here only risks the image's
-# packaged node choking on the script, which must not fail a binary build.
-if [ -z "${Y5_SKIP_LINT:-}" ] && [ -f "$REPO_ROOT/compositor.workspace/workspace.lint.js" ] && command -v node >/dev/null 2>&1; then
-    ( cd "$REPO_ROOT" && node compositor.workspace/workspace.lint.js 2>&1 | tail -n 1 >&2 ) || { echo "build.sh: workspace.lint failed — run 'node compositor.workspace/workspace.lint.js' for details" >&2; exit 1; }
-fi
 
 # --- Generate the Cargo manifests ------------------------------------------
 # Every Cargo.toml in the linked tree is a build artifact, generated from
@@ -97,11 +95,24 @@ fi
 # old "forgot to run link.all.sh" footgun: there is no committed generated block
 # left to go stale.
 #
-# Skipped when node is unavailable, exactly like the lint above: the distro
-# bundle images build from a tree that was generated before the image was built.
+# It also has to run before the LINT below, which reads each root's generated
+# Cargo.toml (member globs, workspace-dependency table) and would abort on a fresh
+# clone that has none.
+#
+# Skipped when node is unavailable: the distro bundle images build from a tree that
+# was generated before the image was built.
 if [ -f "$REPO_ROOT/compositor.workspace/workspace.generate.js" ] && command -v node >/dev/null 2>&1; then
     ( cd "$REPO_ROOT" && node compositor.workspace/workspace.generate.js >/dev/null ) \
         || { echo "build.sh: workspace.generate failed" >&2; exit 1; }
+fi
+
+# --- Workspace conformance gate (layout/naming/size; see CLAUDE.md) ---------
+# Skipped when node is unavailable (e.g. minimal container images) or Y5_SKIP_LINT is set.
+# The distro bundle images set Y5_SKIP_LINT=1: they now carry node (for the Tauri devtool), but
+# the authoritative lint already runs in ci.yml — re-running it here only risks the image's
+# packaged node choking on the script, which must not fail a binary build.
+if [ -z "${Y5_SKIP_LINT:-}" ] && [ -f "$REPO_ROOT/compositor.workspace/workspace.lint.js" ] && command -v node >/dev/null 2>&1; then
+    ( cd "$REPO_ROOT" && node compositor.workspace/workspace.lint.js 2>&1 | tail -n 1 >&2 ) || { echo "build.sh: workspace.lint failed — run 'node compositor.workspace/workspace.lint.js' for details" >&2; exit 1; }
 fi
 
 # --- Locate the entry crate (rename-proof: keyed on the [[bin]] name) -------

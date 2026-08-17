@@ -37,18 +37,31 @@ esac
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Locate the repo root --------------------------------------------------
-# Same test as build.sh: a compositor* DIRECTORY holding a Cargo.toml. Matching a
+# Same test as build.sh, and for the same reason: the marker has to be a COMMITTED
+# file, because every Cargo.toml here is generated and a fresh clone has none. A
 # bare `compositor*` glob would resolve the root to environment/ (there is a
-# compositor-env.sh in it).
+# compositor-env.sh in it), so match workspace.catalog.json — the authored source
+# the generator reads — and keep the Cargo.toml glob only as a fallback.
 REPO_ROOT="${Y5_REPO_ROOT:-}"
 if [ -z "$REPO_ROOT" ]; then
     d="$SELF_DIR"
     while [ "$d" != "/" ]; do
-        if compgen -G "$d/compositor*/Cargo.toml" >/dev/null 2>&1; then REPO_ROOT="$d"; break; fi
+        if [ -f "$d/compositor.workspace/workspace.catalog.json" ] \
+            || compgen -G "$d/compositor*/Cargo.toml" >/dev/null 2>&1; then REPO_ROOT="$d"; break; fi
         d="$(dirname "$d")"
     done
 fi
 [ -n "$REPO_ROOT" ] || { echo "check.sh: could not locate repo root" >&2; exit 1; }
+
+# --- Generate the Cargo manifests ------------------------------------------
+# Ahead of everything that reads a manifest — the target-dir resolution right
+# below greps Cargo.toml for the y5_compositor [[bin]] and then for `[workspace]`,
+# and a fresh clone has no manifests at all: they are generated artifacts (see
+# build.sh).
+if [ -f "$REPO_ROOT/compositor.workspace/workspace.generate.js" ] && command -v node >/dev/null 2>&1; then
+    ( cd "$REPO_ROOT" && node compositor.workspace/workspace.generate.js >/dev/null ) \
+        || { echo "check.sh: workspace.generate failed" >&2; exit 1; }
+fi
 
 # --- The one shared target dir ---------------------------------------------
 # Resolved the way build.sh resolves it: the workspace root above the crate that
@@ -66,15 +79,6 @@ else
     TARGET_DIR="$ws_root/target"
 fi
 export CARGO_TARGET_DIR="$TARGET_DIR"
-
-# --- Generate the Cargo manifests ------------------------------------------
-# Ahead of everything else, including the `--help`-adjacent arg handling below,
-# because root discovery greps for `[workspace]` in Cargo.toml and a fresh clone
-# has no manifests at all — they are generated artifacts (see build.sh).
-if [ -f "$REPO_ROOT/compositor.workspace/workspace.generate.js" ] && command -v node >/dev/null 2>&1; then
-    ( cd "$REPO_ROOT" && node compositor.workspace/workspace.generate.js >/dev/null ) \
-        || { echo "check.sh: workspace.generate failed" >&2; exit 1; }
-fi
 
 # --- Which roots -----------------------------------------------------------
 roots=()
