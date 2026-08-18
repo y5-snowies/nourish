@@ -393,6 +393,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4      # for compositor.installer/bootstrap.sh
+        with:
+          fetch-depth: 0       # full history + tags: the changelog compares against the previous release
+          fetch-tags: true
       - uses: actions/download-artifact@v4
         with:
           name: install-bundle
@@ -481,6 +484,12 @@ jobs:
           \`\`\`"
 
           assets=(release/package.tar.gz "${bundles[@]}" release/SHA256SUMS release/bootstrap.sh)
+
+          # What shipped since the previous STABLE release. Rebase-safe and it collapses runs of
+          # identical subjects — see ci/scripts/release-changelog.sh. `|| true`: a changelog that
+          # cannot be derived must never be the reason a built release fails to publish.
+          changelog="$(ci/scripts/release-changelog.sh --current "v$VERSION" || true)"
+          notes="$notes"$'\n\n'"$changelog"
 
           # The `v<version>` tag pins this commit; created once, then a re-run of the same
           # commit just refreshes the assets — which is also how a short release gets topped

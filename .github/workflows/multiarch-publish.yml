@@ -200,6 +200,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4      # for compositor.installer/bootstrap.sh (the install file)
+        with:
+          fetch-depth: 0       # full history + tags: the changelog compares against the previous release
+          fetch-tags: true
       - uses: actions/download-artifact@v4
         continue-on-error: true   # v4 errors on a pattern that matches nothing
         with:
@@ -261,6 +264,12 @@ jobs:
           sed -e "s|\${Y5_RELEASE_REPO:-y5-snowies/nourish}|\${Y5_RELEASE_REPO:-$GITHUB_REPOSITORY}|" \
               -e "s|\${Y5_RELEASE_TAG:-bundles-rolling}|\${Y5_RELEASE_TAG:-bundles-v$VERSION}|" \
             compositor.installer/bootstrap.sh > pinned/bootstrap.sh
+
+          # What shipped since the previous release, appended to BOTH releases below — the
+          # versioned one and the rolling pointer, which should agree about what it points at.
+          # `--current v$VERSION` excludes release-rc.yml's tag for this same version.
+          changelog="$(ci/scripts/release-changelog.sh --rc --current "v$VERSION" || true)"
+          notes="$notes"$'\n\n'"$changelog"
 
           # 1) Versioned rc release. The bundles-v<rc> tag pins THIS commit; created once, then a
           #    re-run of the same commit just refreshes the assets (--clobber — needs immutable
