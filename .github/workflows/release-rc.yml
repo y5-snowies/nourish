@@ -86,6 +86,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4      # for ci/scripts/release-changelog.sh
+        with:
+          fetch-depth: 0       # full history + tags: the changelog compares against the previous release
+          fetch-tags: true
       - uses: actions/download-artifact@v4
         with:
           name: install-bundle-rc
@@ -102,6 +106,12 @@ jobs:
           \`\`\`
           curl -fsSL https://github.com/$GH_REPO/releases/download/v$VERSION/package.tar.gz | tar -xz && y5-install/install.sh
           \`\`\`"
+
+          # What shipped since the previous release. `--rc` so the base can be the previous rc
+          # rather than the last stable — on the rc channel "since last release" means the last
+          # thing published on THIS channel. See ci/scripts/release-changelog.sh.
+          changelog="$(ci/scripts/release-changelog.sh --rc --current "v$VERSION" || true)"
+          common="$common"$'\n\n'"$changelog"
 
           # Versioned rc release. The `v<rc-version>` tag pins this commit; created once,
           # then re-runs of the same commit refresh the attached assets.
