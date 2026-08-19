@@ -280,6 +280,90 @@ pub fn establish_popup_grab(
     dispatch.schedule_redraw();
 }
 
+// ── Pointer-constraint helpers (moved down from `Seat<I>`) ────────────────────
+// `PointerConstraintRef::deactivate` takes `&mut D` — it calls
+// `PointerConstraintsHandler::remove_constraint`, so the constraint is dropped from
+// the handler's own bookkeeping rather than merely being told to stop. A `Seat<I>`
+// held INSIDE `D` cannot produce that borrow, so these live on `Dispatch`, which
+// owns both halves. The state they read and write is still the seat's
+// (`unlock_restoration_location`).
+impl Dispatch {
+    /// Deactivate any active constraint on `surface`.
+    ///
+    /// The unlock-restoration token is NOT returned: `deactivate` announces every
+    /// deactivation through `PointerConstraintsHandler::remove_constraint`, which is
+    /// where the token is harvested and queued. That is the one announcement point
+    /// now, so a client destroying its own constraint restores on exactly the same
+    /// path as the compositor deactivating one.
+    pub fn deactivate_constraint_for(
+        &mut self,
+        surface: &WlSurface,
+        pointer: &smithay::input::pointer::PointerHandle<Dispatch>,
+    ) {
+        with_pointer_constraint(surface, pointer, |c| {
+            if let Some(c) = c {
+                if c.is_active() {
+                    c.deactivate(self, surface, pointer);
+                }
+            }
+        });
+    }
+
+    /// Take this surface's pending unlock-restoration token — the position the
+    /// pointer must be warped to once it is free — if this surface owns one.
+    pub fn take_restoration_for(
+        &mut self,
+        surface: &WlSurface,
+    ) -> Option<(WlSurface, Point<f64, Logical>)> {
+        let (hint_surface, hint_location) = self.seat.unlock_restoration_location.take()?;
+        if &hint_surface == surface {
+            return Some((hint_surface, hint_location));
+        }
+        self.seat.unlock_restoration_location = Some((hint_surface, hint_location));
+        None
+    }
+
+    /// Focus moved: release the outgoing surface's constraint and arm the incoming
+    /// one, but only while it also holds the KEYBOARD focus — a pointer lock on a
+    /// window the user is not typing into is not something to re-activate silently.
+    pub fn reevaluate_pointer_constraints(
+        &mut self,
+        pointer: &smithay::input::pointer::PointerHandle<Dispatch>,
+        previous: Option<&WlSurface>,
+        updated: Option<&WlSurface>,
+    ) {
+        if let Some(old) = previous {
+            self.deactivate_constraint_for(old, pointer);
+        }
+        if let Some(new_surface) = updated {
+            if self.seat.is_keyboard_focused(new_surface) {
+                with_pointer_constraint(new_surface, pointer, |c| {
+                    if let Some(c) = c {
+                        if !c.is_active() {
+                            c.activate();
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    /// Drop the constraint under the pointer outright and forget any restoration —
+    /// the canvas taking over the pointer, where there is no surface to give it back to.
+    pub fn abandon_active_constraint(
+        &mut self,
+        pointer: &smithay::input::pointer::PointerHandle<Dispatch>,
+    ) {
+        if let Some(surface) = pointer.current_focus() {
+            self.deactivate_constraint_for(&surface, pointer);
+        }
+        // After the deactivate, so the token `remove_constraint` may have just queued
+        // is dropped too: the canvas is not giving the pointer back to a surface.
+        self.pending_restoration.clear();
+        self.seat.unlock_restoration_location = None;
+    }
+}
+
 // ── SeatHandler for Dispatch (REQUIRED here: `Seat<Dispatch>` field) ──────────
 // Inlined from seat.dispatch / seat.focus. `set_data_device_focus` is deferred
 // to wire.base via `clipboard.pending_focus` (it needs DataDeviceHandler).
@@ -302,9 +386,8 @@ impl SeatHandler for Dispatch {
         if let Some(pointer) = seat.get_pointer() {
             // Deactivate on whatever lost keyboard focus.
             if let Some(old_focus) = self.seat.previous_focus.as_ref().cloned() {
-                if let Some(token) = self.seat.deactivate_constraint_for(&old_focus, &pointer) {
-                    self.pending_restoration.push(token);
-                }
+                // Queuing is `remove_constraint`'s job now.
+                self.deactivate_constraint_for(&old_focus, &pointer);
             }
             // Activate-on-focus is DEFERRED to the drain. This callback can re-enter from
             // INSIDE `pointer.motion` (a popup-grab teardown restores keyboard focus while
@@ -759,7 +842,7 @@ mod handler_impls {
     use smithay::wayland::shell::xdg::decoration::XdgDecorationHandler;
     use smithay::wayland::shell::xdg::dialog::{ToplevelDialogHint, XdgDialogHandler};
     use smithay::wayland::shm::{ShmHandler, ShmState};
-    use smithay::wayland::tablet_manager::TabletSeatHandler;
+    use smithay::input::tablet::TabletSeatHandler;
     use smithay::wayland::xdg_activation::{XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData};
     use smithay::wayland::xdg_foreign::{XdgForeignHandler, XdgForeignState};
     use smithay::wayland::xdg_toplevel_icon::XdgToplevelIconHandler;
@@ -818,8 +901,18 @@ mod handler_impls {
             if !self.seat.is_keyboard_focused(surface) { return; }
             with_pointer_constraint(surface, pointer, |c| { if let Some(c) = c { if !c.is_active() { c.activate(); } } });
         }
-        fn remove_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {
-            if let Some(token) = self.seat.deactivate_constraint_for(surface, pointer) {
+        /// The ONE place a constraint going away is announced — a client destroying
+        /// it, or `PointerConstraintRef::deactivate` from our own paths. Harvest the
+        /// unlock-restoration hint here so both routes warp the pointer identically.
+        /// Queued rather than applied: this can run from inside `pointer.motion`,
+        /// where warping would re-enter the pointer's own (non-reentrant) mutex.
+        fn remove_constraint(
+            &mut self,
+            surface: &WlSurface,
+            _pointer: &PointerHandle<Self>,
+            _constraint: Option<&smithay::wayland::pointer_constraints::PointerConstraint>,
+        ) {
+            if let Some(token) = self.take_restoration_for(surface) {
                 self.pending_restoration.push(token);
             }
         }
@@ -833,7 +926,13 @@ mod handler_impls {
     impl DrmSyncobjHandler for Dispatch {
         fn drm_syncobj_state(&mut self) -> Option<&mut DrmSyncobjState> { self.dmabuf.syncobj_state.as_mut() }
     }
-    impl TabletSeatHandler for Dispatch {}
+    /// Upstream's tablet infrastructure now carries a tool-focus target type. y5's
+    /// tablet support is hand-rolled (`wire.tablet`) and routes tool events to the
+    /// focused surface directly, so the plain `WlSurface` — the same focus type the
+    /// seat uses — is the target here.
+    impl TabletSeatHandler for Dispatch {
+        type ToolFocus = WlSurface;
+    }
     impl InputMethodHandler for Dispatch {
         fn new_popup(&mut self, surface: smithay::wayland::input_method::PopupSurface) {
             if let Err(err) = self.popup.state.track_popup(PopupKind::from(surface)) {

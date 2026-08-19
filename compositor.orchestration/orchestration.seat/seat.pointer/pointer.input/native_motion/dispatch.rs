@@ -144,12 +144,13 @@ pub fn dispatch(
     let new_focus = under_hit.map(|(target, _)| target);
 
     if prev_focus.as_ref() != new_focus.as_ref() {
-        if let Some(token) = _loop.state.seat.reevaluate_pointer_constraints(
+        // The unlock-restoration warp is queued by `remove_constraint` (smithay
+        // announces every deactivation there now) and applied by the drain, rather
+        // than inline here — the pointer's mutex is held on this path.
+        _loop.state.reevaluate_pointer_constraints(
             &pointer,
             prev_focus.as_ref(),
             new_focus.as_ref(),
-        ) {
-            _loop.apply_constraint_restoration(token);
-        }
+        );
     }
 }

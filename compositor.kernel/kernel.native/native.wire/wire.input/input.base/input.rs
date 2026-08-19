@@ -9,7 +9,7 @@ use smithay::reexports::input::event::tablet_pad::{
 };
 use smithay::reexports::input::{Device, DeviceCapability};
 use smithay::reexports::calloop::EventLoop;
-use smithay::wayland::tablet_manager::TabletDescriptor;
+use smithay::input::tablet::TabletDescriptor;
 use std::cell::RefCell;
 use std::rc::Rc;
 use compositor_orchestration_core_state_base::state::StatusSession;

@@ -6,7 +6,7 @@ use smithay::backend::input::{
     Event, InputBackend, ProximityState, TabletToolEvent, TabletToolProximityEvent,
 };
 use smithay::utils::SERIAL_COUNTER;
-use smithay::wayland::tablet_manager::TabletDescriptor;
+use smithay::input::tablet::TabletDescriptor;
 use compositor_orchestration_core_state_base::Loop;
 use compositor_support_smithay_dispatch_state_base::state::Dispatch;
 use compositor_support_smithay_dispatch_wire_tablet::tablet::Stroke;

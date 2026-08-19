@@ -107,6 +107,19 @@ The `delegate_*!` macros have been replaced with a single `delegate_dispatch2!` 
 of new `Dipsatch2` and `GlobalDispatch2` traits. These will replace `Dispatch` and `GlobalDispatch` in a future version of
 `wayland_server`.
 
+The `SpaceElement::geometry` impl for `X11Surface` is no longer equivalent to its bbox.  For clients that set
+`_GTK_FRAME_EXTENTS`, the shadow extents are subtracted from the bbox to give the geometry.
+
+`X11Surface::geometry` has been renamed to `X11Surface::last_configure`. `X11Surface::geometry` now returns the bounding
+box minus the surface's frame extents.
+
+`SessionLockHandler::unlock` will no longer be called if the `ext_session_lock_v1` instance that sent the
+`unlock_and_destroy` request is not the same instance as the one that successfully locked the session.
+
+`SessionLockHandler::new_surface` can be called for multiple `SessionLocker` instances that could be in-flight at the same
+time. `LockSurface::ext_session_lock` has been added to allow the compositor to disambiguate, and associate lock surfaces
+with the correct lock instance.
+
 ### Additions
 
 - ExtBackgroundEffect protocol is now available in `smithay::wayland::background_effect` module.
@@ -124,6 +137,10 @@ The Xwayland WM can now handle XDND operations and bridge them over to the new g
 allowing DnD operations between X11 and Wayland clients (both directions).
 
 `X11Surface` now has a new `surface_under`-method, which is also internally used by `SpaceElement::is_in_input_region` and `crate::desktop::Window::surface_under`. Any direct usage of `under_from_surface_tree` on the underlying `wl_surface` of an `X11Surface` should be replaced with this method for XDND to work correctly.
+
+`X11Surface` now parses and exposes the Motif WM hints via `motif_hints()`.
+
+`X11Wm` allows you to remove and clear XSETTINGS settings.
 
 xdg_shell and layer_shell now enforce the client acking a configure before committing a buffer, as required by the protocols.
 
@@ -195,6 +212,41 @@ default implementations, which result in skipping the new functionality. As such
 - `raise_element_above()`: same as above, but moves an already-mapped element.
 - `lower_element()`: lowers an element to the bottom of the stack, respecting its z-index group.
 - `relocate_element()`: moves an element to a new location in the space without changing the stacking order.
+
+`Output` now has `owns_xdg_output()` which allows you to match an XDG output protocol object with an `Output`.
+
+Added `Renderer::invalidate_caches`, which unconditionally drops all renderer-internal caches,
+including entries `Renderer::cleanup_texture_cache` retains while their source buffers are still
+alive.
+
+Added `GpuManager::cleanup_texture_cache` and `GpuManager::invalidate_caches`, which apply the
+corresponding `Renderer` method to every enumerated device. `GpuManager::invalidate_caches`
+additionally drops the buffers cached for copying between a render and a target node, which no
+`Renderer` owns.
+
+### Bugfixes
+
+`SimpleCrtcMapper` (in `smithay-drm-extras`) now releases the CRTC reservation of any connector that
+is no longer connected, including connectors that have disappeared from the resource list entirely
+rather than being reported as disconnected. Previously such connectors (for example DP-MST sink
+connectors when a dock is unplugged, or across suspend/resume) leaked their CRTC reservation
+indefinitely, which could accumulate until a newly connected output could no longer be assigned a
+CRTC.
+
+XWayland now honors WM_HINTS request to map the window in IconicState(minimized). Compositors should
+check X11Surface::is_hidden() at mapping time and minimize the window appropriately.
+
+Space::refresh() now clears stale outputs before emitting any enter events so no wl_surface.enter events
+are emitted with a stale wl_output anymore.
+
+The XWayland WM implementation previously incorrectly prefixed large transfers from X11 windows with
+the four INCR bytes.
+
+`MultiRenderer::cleanup_texture_cache` now also cleans up the devices other than the render and
+target device. Buffers that cannot be imported on the render node directly are imported on their
+source device, so those devices accumulate cached imports that previously were never released.
+Cleanup is now also attempted on every device even if it fails on one of them, with every failure
+logged and the first error returned.
 
 ## 0.7.0
 

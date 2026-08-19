@@ -66,7 +66,7 @@ impl IcedUi for PickerSurface {
             .size(28).padding(0).align_x(Horizontal::Right).width(Length::Fill)
             .style(|_t: &Theme, _s| text_input::Style {
                 background: Background::Color(Color::TRANSPARENT), border: Border::default(),
-                icon: Color::TRANSPARENT, placeholder: Color::from_rgba(1.0, 1.0, 1.0, 0.35),
+                placeholder: Color::from_rgba(1.0, 1.0, 1.0, 0.35),
                 value: Color::WHITE, selection: Color::from_rgba(0.4, 0.6, 1.0, 0.4),
             });
 

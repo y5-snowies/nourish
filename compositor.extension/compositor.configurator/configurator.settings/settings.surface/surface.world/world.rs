@@ -44,7 +44,8 @@ pub fn build<'a>(
     optimized: bool,
     can_optimize: bool,
 ) -> El<'a> {
-    responsive(move |avail| {
+    // iced master infers `responsive`'s closure return less eagerly; name the type.
+    responsive(move |avail| -> El<'a> {
         // Grow with the window, but never past the floor going down.
         let lists = (avail.height - ABOVE_LISTS).max(MIN_LISTS);
         let body = column![

@@ -97,7 +97,16 @@ pub fn import_dmabuf_to_wgpu(
 
     let wgpu_texture = unsafe {
         ctx.device
-            .create_texture_from_hal::<wgpu::hal::api::Vulkan>(hal_texture, &wgpu_desc)
+            // wgpu 30 requires the wrapped resource's driver-side layout. This texture
+            // is a DMA-buf the compositor just exported and never transitioned, so its
+            // layout is genuinely unknown here — `UNINITIALIZED` is the honest answer
+            // and lets wgpu transition it on first use. Naming any concrete state would
+            // be asserting a layout we do not control.
+            .create_texture_from_hal::<wgpu::hal::api::Vulkan>(
+                hal_texture,
+                &wgpu_desc,
+                wgpu::wgt::TextureUses::UNINITIALIZED,
+            )
     };
 
     info!("wgpu import successful: {}x{} texture", size.w, size.h);

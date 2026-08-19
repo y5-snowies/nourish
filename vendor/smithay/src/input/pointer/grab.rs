@@ -233,19 +233,12 @@ impl<D: SeatHandler + 'static> PointerGrab<D> for DefaultGrab {
     fn button(&mut self, data: &mut D, handle: &mut PointerInnerHandle<'_, D>, event: &ButtonEvent) {
         handle.button(data, event);
         if event.state == ButtonState::Pressed {
-            handle.set_grab(
-                self,
-                data,
-                event.serial,
-                Focus::Keep,
-                ClickGrab {
-                    start_data: GrabStartData {
-                        focus: handle.current_focus(),
-                        button: event.button,
-                        location: handle.current_location(),
-                    },
-                },
-            );
+            let grab = data.click_grab(GrabStartData {
+                focus: handle.current_focus(),
+                button: event.button,
+                location: handle.current_location(),
+            });
+            handle.set_grab(self, data, event.serial, Focus::Keep, grab);
         }
     }
 
@@ -343,6 +336,16 @@ impl<D: SeatHandler + 'static> PointerGrab<D> for DefaultGrab {
 /// the grab once all are released.
 pub struct ClickGrab<D: SeatHandler> {
     start_data: GrabStartData<D>,
+    focus: Option<(D::PointerFocus, Point<f64, Logical>)>,
+}
+
+impl<D: SeatHandler> ClickGrab<D> {
+    pub(in crate::input) fn new(start_data: GrabStartData<D>) -> Self {
+        Self {
+            focus: start_data.focus.clone(),
+            start_data,
+        }
+    }
 }
 
 impl<D: SeatHandler + 'static> fmt::Debug for ClickGrab<D> {
@@ -358,10 +361,17 @@ impl<D: SeatHandler + 'static> PointerGrab<D> for ClickGrab<D> {
         &mut self,
         data: &mut D,
         handle: &mut PointerInnerHandle<'_, D>,
-        _focus: Option<(<D as SeatHandler>::PointerFocus, Point<f64, Logical>)>,
+        focus: Option<(<D as SeatHandler>::PointerFocus, Point<f64, Logical>)>,
         event: &MotionEvent,
     ) {
-        handle.motion(data, self.start_data.focus.clone(), event);
+        if let (Some((new_target, new_location)), Some((grab_target, grab_location))) =
+            (&focus, self.focus.as_mut())
+        {
+            if *new_target == *grab_target {
+                *grab_location = *new_location;
+            }
+        }
+        handle.motion(data, self.focus.clone(), event);
     }
 
     fn relative_motion(

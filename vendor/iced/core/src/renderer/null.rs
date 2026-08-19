@@ -25,13 +25,17 @@ impl Renderer for () {
         callback(Ok(unsafe { image::allocate(handle, Size::new(100, 100)) }));
     }
 
-    fn hint(&mut self, _scale_factor: f32) {}
+    fn hint(&mut self, _scale: renderer::Scale) {}
 
-    fn scale_factor(&self) -> Option<f32> {
+    fn scale(&self) -> Option<renderer::Scale> {
         None
     }
 
     fn reset(&mut self, _new_bounds: Rectangle) {}
+
+    fn settings(&self) -> renderer::Settings {
+        renderer::Settings::default()
+    }
 }
 
 impl text::Renderer for () {
@@ -133,10 +137,6 @@ impl text::Paragraph for () {
         text::Shaping::default()
     }
 
-    fn grapheme_position(&self, _line: usize, _index: usize) -> Option<Point> {
-        None
-    }
-
     fn bounds(&self) -> Size {
         Size::ZERO
     }
@@ -169,7 +169,7 @@ impl text::Editor for () {
 
     fn cursor(&self) -> text::editor::Cursor {
         text::editor::Cursor {
-            position: text::editor::Position { line: 0, column: 0 },
+            position: text::Position { line: 0, index: 0 },
             selection: None,
         }
     }
@@ -213,10 +213,13 @@ impl text::Editor for () {
         _new_size: Pixels,
         _new_line_height: text::LineHeight,
         _new_wrapping: text::Wrapping,
+        _new_alignment: text::Alignment,
         _new_hint_factor: Option<f32>,
         _new_highlighter: &mut impl text::Highlighter,
     ) {
     }
+
+    fn overwrite(&mut self, _new_text: &str) {}
 
     fn highlight<H: text::Highlighter>(
         &mut self,
@@ -224,6 +227,18 @@ impl text::Editor for () {
         _highlighter: &mut H,
         _format_highlight: impl Fn(&H::Highlight) -> text::highlighter::Format<Self::Font>,
     ) {
+    }
+
+    fn text_size(&self) -> Pixels {
+        Pixels(0.0)
+    }
+
+    fn line_height(&self) -> text::LineHeight {
+        text::LineHeight::default()
+    }
+
+    fn font(&self) -> Self::Font {
+        Self::Font::default()
     }
 }
 

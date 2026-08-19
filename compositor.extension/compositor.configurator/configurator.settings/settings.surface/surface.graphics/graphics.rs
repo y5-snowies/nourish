@@ -44,7 +44,7 @@ fn num<'a>(
 ) -> El<'a> {
     let (lo, hi) = (*range.start(), *range.end());
     let c_in = *cfg;
-    let entry = text_input("", &format!("{value:.2}"))
+    let entry = text_input("", format!("{value:.2}"))
         .width(Length::Fixed(66.0))
         .on_input(move |s| {
             // Parse + clamp to the allowed range; keep the current value on a

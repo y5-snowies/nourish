@@ -777,7 +777,8 @@ pub fn render<'a>(
     // mechanism.
     const MIN_CONTENT: f32 = 620.0;
     const MAX_CONTENT: f32 = 900.0;
-    let content_area: El<'a> = responsive(move |avail| {
+    // iced master infers `responsive`'s closure return less eagerly; name the type.
+    let content_area: El<'a> = responsive(move |avail| -> El<'a> {
         let body: El<'a> = match tab {
             Tab::Display => vscroll(display::build(displays, touch_devices, active_edid, selected_display, selected_mode, confirming, pending, staged_active, layout, selected_placement, cyclic, selected_inactive)),
             Tab::Audio => vscroll(audio_tab::build(audio)),

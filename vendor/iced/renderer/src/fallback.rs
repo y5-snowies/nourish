@@ -1,4 +1,5 @@
 //! Compose existing renderers and create type-safe fallback strategies.
+use crate::core::backend;
 use crate::core::font;
 use crate::core::image;
 use crate::core::renderer;
@@ -69,12 +70,12 @@ where
         delegate!(self, renderer, renderer.allocate_image(handle, callback));
     }
 
-    fn hint(&mut self, scale_factor: f32) {
-        delegate!(self, renderer, renderer.hint(scale_factor));
+    fn hint(&mut self, scale: renderer::Scale) {
+        delegate!(self, renderer, renderer.hint(scale));
     }
 
-    fn scale_factor(&self) -> Option<f32> {
-        delegate!(self, renderer, renderer.scale_factor())
+    fn scale(&self) -> Option<renderer::Scale> {
+        delegate!(self, renderer, renderer.scale())
     }
 
     fn tick(&mut self) {
@@ -83,6 +84,10 @@ where
 
     fn reset(&mut self, new_bounds: Rectangle) {
         delegate!(self, renderer, renderer.reset(new_bounds));
+    }
+
+    fn settings(&self) -> renderer::Settings {
+        delegate!(self, renderer, renderer.settings())
     }
 }
 
@@ -251,69 +256,43 @@ where
     type Renderer = Renderer<A::Renderer, B::Renderer>;
     type Surface = Surface<A::Surface, B::Surface>;
 
-    async fn with_backend(
-        settings: compositor::Settings,
+    async fn new(
+        settings: backend::Settings,
         display: impl compositor::Display + Clone,
         compatible_window: impl compositor::Window + Clone,
         shell: Shell,
-        backend: Option<&str>,
-    ) -> Result<Self, graphics::Error> {
-        use std::env;
-
-        let backends = backend
-            .map(str::to_owned)
-            .or_else(|| env::var("ICED_BACKEND").ok());
-
-        let mut candidates: Vec<_> = backends
-            .map(|backends| {
-                backends
-                    .split(',')
-                    .filter(|candidate| !candidate.is_empty())
-                    .map(str::to_owned)
-                    .map(Some)
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        if candidates.is_empty() {
-            candidates.push(None);
-        }
-
+    ) -> Result<Self, backend::Error> {
         let mut errors = vec![];
 
-        for backend in candidates.iter().map(Option::as_deref) {
-            match A::with_backend(
-                settings,
-                display.clone(),
-                compatible_window.clone(),
-                shell.clone(),
-                backend,
-            )
-            .await
-            {
-                Ok(compositor) => return Ok(Self::Primary(compositor)),
-                Err(error) => {
-                    errors.push(error);
-                }
-            }
-
-            match B::with_backend(
-                settings,
-                display.clone(),
-                compatible_window.clone(),
-                shell.clone(),
-                backend,
-            )
-            .await
-            {
-                Ok(compositor) => return Ok(Self::Secondary(compositor)),
-                Err(error) => {
-                    errors.push(error);
-                }
+        match A::new(
+            settings.clone(),
+            display.clone(),
+            compatible_window.clone(),
+            shell.clone(),
+        )
+        .await
+        {
+            Ok(compositor) => return Ok(Self::Primary(compositor)),
+            Err(error) => {
+                errors.push(error);
             }
         }
 
-        Err(graphics::Error::List(errors))
+        match B::new(
+            settings,
+            display.clone(),
+            compatible_window.clone(),
+            shell.clone(),
+        )
+        .await
+        {
+            Ok(compositor) => return Ok(Self::Secondary(compositor)),
+            Err(error) => {
+                errors.push(error);
+            }
+        }
+
+        Err(backend::Error::List(errors))
     }
 
     fn create_renderer(&self, settings: renderer::Settings) -> Self::Renderer {
@@ -607,7 +586,7 @@ mod geometry {
             delegate!(self, frame, frame.rotate(angle));
         }
 
-        fn scale(&mut self, scale: impl Into<f32>) {
+        fn scale(&mut self, scale: f32) {
             delegate!(self, frame, frame.scale(scale));
         }
 

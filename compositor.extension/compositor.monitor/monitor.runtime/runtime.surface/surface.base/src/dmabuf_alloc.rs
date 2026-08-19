@@ -113,7 +113,7 @@ pub fn allocate_dmabuf_on(
         let offset = bo.offset(plane as i32);
         let stride = bo.stride_for_plane(plane as i32);
 
-        builder.add_plane(fd, plane as u32, offset, stride);
+        builder.add_plane(fd, offset, stride);
     }
 
     let dmabuf = builder.build().ok_or(AllocError::BuildDmabuf)?;
@@ -198,7 +198,7 @@ fn allocate_with_modifiers(
         let fd = bo.fd_for_plane(plane as i32).map_err(AllocError::ExportFd)?;
         let offset = bo.offset(plane as i32);
         let stride = bo.stride_for_plane(plane as i32);
-        builder.add_plane(fd, plane as u32, offset, stride);
+        builder.add_plane(fd, offset, stride);
     }
     let dmabuf = builder.build().ok_or(AllocError::BuildDmabuf)?;
     publish_stats("gbm-iced", fourcc, modifier, plane_count);

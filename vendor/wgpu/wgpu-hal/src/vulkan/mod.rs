@@ -86,6 +86,7 @@ impl crate::Api for Api {
     type ShaderModule = ShaderModule;
     type RenderPipeline = RenderPipeline;
     type ComputePipeline = ComputePipeline;
+    type RayTracingPipeline = RayTracingPipeline;
 }
 
 crate::impl_dyn_resource!(
@@ -105,6 +106,7 @@ crate::impl_dyn_resource!(
     QuerySet,
     Queue,
     RenderPipeline,
+    RayTracingPipeline,
     Sampler,
     ShaderModule,
     Surface,
@@ -126,6 +128,7 @@ struct DebugUtils {
     callback_data: Box<DebugUtilsMessengerUserData>,
 }
 
+#[derive(Debug)]
 pub struct DebugUtilsCreateInfo {
     severity: vk::DebugUtilsMessageSeverityFlagsEXT,
     message_type: vk::DebugUtilsMessageTypeFlagsEXT,
@@ -180,10 +183,38 @@ pub struct InstanceShared {
     drop_guard: Option<crate::DropGuard>,
 }
 
+impl fmt::Debug for InstanceShared {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            raw: _,
+            extensions,
+            flags,
+            memory_budget_thresholds,
+            debug_utils: _,
+            get_physical_device_properties: _,
+            entry: _,
+            has_nv_optimus,
+            android_sdk_version,
+            instance_api_version,
+            drop_guard: _,
+        } = self;
+        f.debug_struct("InstanceShared")
+            .field("extensions", extensions)
+            .field("flags", flags)
+            .field("memory_budget_thresholds", memory_budget_thresholds)
+            .field("has_nv_optimus", has_nv_optimus)
+            .field("android_sdk_version", android_sdk_version)
+            .field("instance_api_version", instance_api_version)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug)]
 pub struct Instance {
     shared: Arc<InstanceShared>,
 }
 
+#[expect(missing_debug_implementations, reason = "TODO?")]
 pub struct Surface {
     swapchain: RwLock<Option<Box<dyn swapchain::Swapchain>>>,
     inner: Box<dyn swapchain::Surface>,
@@ -267,6 +298,7 @@ impl Borrow<dyn crate::DynTexture> for SurfaceTexture {
     }
 }
 
+#[derive(Debug)]
 pub struct Adapter {
     raw: vk::PhysicalDevice,
     instance: Arc<InstanceShared>,
@@ -292,6 +324,7 @@ struct DeviceExtensionFunctions {
     draw_indirect_count: Option<khr::draw_indirect_count::Device>,
     timeline_semaphore: Option<ExtensionFn<khr::timeline_semaphore::Device>>,
     ray_tracing: Option<RayTracingDeviceExtensionFunctions>,
+    ray_tracing_pipelines: Option<khr::ray_tracing_pipeline::Device>,
     mesh_shading: Option<ext::mesh_shader::Device>,
     #[cfg_attr(not(unix), allow(dead_code))]
     external_memory_fd: Option<khr::external_memory_fd::Device>,
@@ -390,6 +423,11 @@ struct PrivateCapabilities {
     /// these usages do not have as high of an alignment requirement using the buffer as
     ///  a scratch buffer when building acceleration structures.
     scratch_buffer_alignment: u32,
+
+    /// `get_raytracing_pipeline_group_data` requires both a group count and a data size.
+    /// The data size parameter is just this * the group count, so we store this to not
+    /// require an unnecessary parameter.
+    ray_tracing_pipeline_group_data_size: u32,
 }
 
 bitflags::bitflags!(
@@ -513,6 +551,10 @@ impl Drop for DeviceShared {
     }
 }
 
+#[expect(
+    missing_debug_implementations,
+    reason = "needs work to not be disastrously verbose"
+)]
 pub struct Device {
     mem_allocator: Mutex<gpu_allocator::vulkan::Allocator>,
     desc_allocator: Mutex<descriptor::DescriptorAllocator>,
@@ -612,6 +654,22 @@ pub struct Queue {
     relay_semaphores: Mutex<RelaySemaphores>,
     signal_semaphores: Mutex<SemaphoreList>,
     wait_semaphores: Mutex<SemaphoreList>,
+}
+
+impl fmt::Debug for Queue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            raw: _,
+            device: _,
+            family_index,
+            relay_semaphores: _,
+            signal_semaphores: _,
+            wait_semaphores: _,
+        } = self;
+        f.debug_struct("Queue")
+            .field("family_index", family_index)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Queue {
@@ -984,6 +1042,8 @@ struct TempTextureViewKey {
     depth_slice: u32,
 }
 
+// Any state in this struct that may be dirty after an abandoned encoding must
+// be reset for reused encoders in `begin_encoding`.
 pub struct CommandEncoder {
     raw: vk::CommandPool,
     device: Arc<DeviceShared>,
@@ -1110,6 +1170,13 @@ pub struct ComputePipeline {
 impl crate::DynComputePipeline for ComputePipeline {}
 
 #[derive(Debug)]
+pub struct RayTracingPipeline {
+    raw: vk::Pipeline,
+}
+
+impl crate::DynRayTracingPipeline for RayTracingPipeline {}
+
+#[derive(Debug)]
 pub struct PipelineCache {
     raw: vk::PipelineCache,
 }
@@ -1162,14 +1229,29 @@ pub enum Fence {
     /// for each queue submission we might want to wait for, and remember which
     /// [`FenceValue`] each one represents.
     ///
+    /// One should keep the fence pool read while there are any references to the
+    /// fences inside of them. This ensures there are no race conditions when
+    /// resetting the fences
+    ///
     /// [fence]: https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#synchronization-fences
     /// [`FenceValue`]: crate::FenceValue
-    FencePool {
-        last_completed: crate::FenceValue,
-        /// The pending fence values have to be ascending.
-        active: Vec<(crate::FenceValue, vk::Fence)>,
-        free: Vec<vk::Fence>,
-    },
+    FencePool(RwLock<FencePool>),
+}
+
+/// A shared fence type. The arc is expect to have a ref-count of one once a function has finished being called
+///
+/// A fence should have access synchronised as fence resetting might happen at any point. Resetting checks the ref-count
+/// of the fence, so instead of copying the fence, it should have its `Arc` container cloned which shows not to reset
+/// this fence as it is being used.
+pub(super) type SynchronizedFence = Arc<vk::Fence>;
+
+#[derive(Debug)]
+pub struct FencePool {
+    last_completed: crate::FenceValue,
+    /// The pending fence values have to be ascending.
+    active: Vec<(crate::FenceValue, SynchronizedFence)>,
+    // Don't need extra synchronisation around the fences here, if they are used they should be put into active.
+    free: Vec<vk::Fence>,
 }
 
 impl crate::DynFence for Fence {}
@@ -1186,13 +1268,15 @@ impl Fence {
     fn check_active(
         device: &ash::Device,
         mut last_completed: crate::FenceValue,
-        active: &[(crate::FenceValue, vk::Fence)],
+        active: &[(crate::FenceValue, SynchronizedFence)],
     ) -> Result<crate::FenceValue, crate::DeviceError> {
-        for &(value, raw) in active.iter() {
+        for &(value, ref raw) in active.iter() {
             unsafe {
                 if value > last_completed
                     && device
-                        .get_fence_status(raw)
+                        // Don't need to clone as active should be from a read or
+                        // write lock which means this is already synchronised.
+                        .get_fence_status(**raw)
                         .map_err(map_host_device_oom_and_lost_err)?
                 {
                     last_completed = value;
@@ -1221,11 +1305,14 @@ impl Fence {
                         .map_err(map_host_device_oom_and_lost_err)?,
                 })
             },
-            Self::FencePool {
-                last_completed,
-                ref active,
-                free: _,
-            } => Self::check_active(device, last_completed, active),
+            Self::FencePool(ref pool) => {
+                let FencePool {
+                    last_completed,
+                    ref active,
+                    free: _,
+                } = *pool.read();
+                Self::check_active(device, last_completed, active)
+            }
         }
     }
 
@@ -1241,23 +1328,35 @@ impl Fence {
     ///
     /// [`FencePool`]: Fence::FencePool
     /// [`Queue::submit`]: crate::Queue::submit
-    fn maintain(&mut self, device: &ash::Device) -> Result<(), crate::DeviceError> {
+    fn maintain(&self, device: &ash::Device) -> Result<(), crate::DeviceError> {
         match *self {
             Self::TimelineSemaphore(_) => {}
-            Self::FencePool {
-                ref mut last_completed,
-                ref mut active,
-                ref mut free,
-            } => {
-                let latest = Self::check_active(device, *last_completed, active)?;
+            Self::FencePool(ref pool) => {
+                let FencePool {
+                    ref mut last_completed,
+                    ref mut active,
+                    ref mut free,
+                } = *pool.write();
+
                 let base_free = free.len();
-                for &(value, raw) in active.iter() {
-                    if value <= latest {
-                        free.push(raw);
+                let latest = Self::check_active(device, *last_completed, active)?;
+
+                active.retain_mut(|&mut (value, ref mut fence)| {
+                    if value > latest {
+                        true
+                    } else if let Some(fence) = Arc::get_mut(fence) {
+                        // No other references to these, so we have exclusive access. Add them to free and reset them later,
+                        // but drop them from active immediately
+                        free.push(*fence);
+                        false
+                    } else {
+                        // some other function is using it. Although this shouldn't be to long,
+                        // maintain shouldn't block, and it should be cleared up by the next time it happens
+                        true
                     }
-                }
+                });
+
                 if free.len() != base_free {
-                    active.retain(|&(value, _)| value > latest);
                     unsafe { device.reset_fences(&free[base_free..]) }
                         .map_err(map_device_oom_err)?
                 }
@@ -1275,7 +1374,7 @@ impl crate::Queue for Queue {
         &self,
         command_buffers: &[&CommandBuffer],
         surface_textures: &[&SurfaceTexture],
-        (signal_fence, signal_value): (&mut Fence, crate::FenceValue),
+        (signal_fence, signal_value): (&Fence, crate::FenceValue),
     ) -> Result<(), crate::DeviceError> {
         let mut fence_raw = vk::Fence::null();
 
@@ -1343,25 +1442,33 @@ impl crate::Queue for Queue {
 
         // We need to signal our wgpu::Fence if we have one, this adds it to the signal list.
         signal_fence.maintain(&self.device.raw)?;
+        // Keeping the Arc around is probably unneeded - the fence should never be signaled as it was reset,
+        // and newer submits should not happen until this submit is done. Therefore, it should be too high
+        // to be reset.
+        let shared_fence;
         match *signal_fence {
             Fence::TimelineSemaphore(raw) => {
                 signal_semaphores.push_signal(SemaphoreType::Timeline(raw, signal_value));
             }
-            Fence::FencePool {
-                ref mut active,
-                ref mut free,
-                ..
-            } => {
-                fence_raw = match free.pop() {
-                    Some(raw) => raw,
+            Fence::FencePool(ref pool) => {
+                let FencePool {
+                    ref mut active,
+                    ref mut free,
+                    ..
+                } = *pool.write();
+                shared_fence = match free.pop() {
+                    Some(raw) => Arc::new(raw),
                     None => unsafe {
-                        self.device
+                        let fence = self
+                            .device
                             .raw
                             .create_fence(&vk::FenceCreateInfo::default(), None)
-                            .map_err(map_host_device_oom_err)?
+                            .map_err(map_host_device_oom_err)?;
+                        Arc::new(fence)
                     },
                 };
-                active.push((signal_value, fence_raw));
+                fence_raw = *shared_fence;
+                active.push((signal_value, shared_fence.clone()));
             }
         }
 
@@ -1593,6 +1700,7 @@ struct RawTlasInstance {
 }
 
 /// Arguments to the [`CreateDeviceCallback`].
+#[derive(Debug)]
 pub struct CreateDeviceCallbackArgs<'arg, 'pnext, 'this>
 where
     'this: 'pnext,
@@ -1625,6 +1733,7 @@ pub type CreateDeviceCallback<'this> =
     dyn for<'arg, 'pnext> FnOnce(CreateDeviceCallbackArgs<'arg, 'pnext, 'this>) + 'this;
 
 /// Arguments to the [`CreateInstanceCallback`].
+#[expect(missing_debug_implementations, reason = "TODO?")]
 pub struct CreateInstanceCallbackArgs<'arg, 'pnext, 'this>
 where
     'this: 'pnext,

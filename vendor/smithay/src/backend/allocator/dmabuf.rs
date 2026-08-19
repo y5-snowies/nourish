@@ -54,20 +54,14 @@ pub(crate) struct DmabufInternal {
 
 #[derive(Debug)]
 pub(crate) struct Plane {
-    pub fd: OwnedFd,
+    pub fd: Arc<OwnedFd>,
     /// The plane index
+    #[allow(dead_code)]
     pub plane_idx: u32,
     /// Offset from the start of the Fd
     pub offset: u32,
     /// Stride for this plane
     pub stride: u32,
-}
-
-impl From<Plane> for OwnedFd {
-    #[inline]
-    fn from(plane: Plane) -> OwnedFd {
-        plane.fd
-    }
 }
 
 bitflags::bitflags! {
@@ -90,20 +84,6 @@ pub struct Dmabuf(pub(crate) Arc<DmabufInternal>);
 #[derive(Debug, Clone)]
 /// Weak reference to a dmabuf handle
 pub struct WeakDmabuf(pub(crate) Weak<DmabufInternal>);
-
-// A reference to a particular dmabuf plane fd, so it can be used as a calloop source.
-#[derive(Debug)]
-struct PlaneRef {
-    dmabuf: Dmabuf,
-    idx: usize,
-}
-
-impl AsFd for PlaneRef {
-    #[inline]
-    fn as_fd(&self) -> BorrowedFd<'_> {
-        self.dmabuf.0.planes[self.idx].fd.as_fd()
-    }
-}
 
 impl PartialEq for Dmabuf {
     #[inline]
@@ -160,13 +140,13 @@ impl DmabufBuilder {
     ///
     /// *Note*: Each Dmabuf needs at least one plane.
     /// MAX_PLANES notes the maximum amount of planes any format may use with this implementation.
-    pub fn add_plane(&mut self, fd: OwnedFd, idx: u32, offset: u32, stride: u32) -> bool {
+    pub fn add_plane(&mut self, fd: impl Into<Arc<OwnedFd>>, offset: u32, stride: u32) -> bool {
         if self.internal.planes.len() == MAX_PLANES {
             return false;
         }
         self.internal.planes.push(Plane {
-            fd,
-            plane_idx: idx,
+            fd: fd.into(),
+            plane_idx: self.internal.planes.len() as u32,
             offset,
             stride,
         });
@@ -186,12 +166,11 @@ impl DmabufBuilder {
     /// Build a `Dmabuf` out of the provided parameters and planes
     ///
     /// Returns `None` if the builder has no planes attached.
-    pub fn build(mut self) -> Option<Dmabuf> {
+    pub fn build(self) -> Option<Dmabuf> {
         if self.internal.planes.is_empty() {
             return None;
         }
 
-        self.internal.planes.sort_by_key(|plane| plane.plane_idx);
         Some(Dmabuf(Arc::new(self.internal)))
     }
 }
@@ -249,6 +228,13 @@ impl Dmabuf {
     /// Returns if this buffer format has any vendor-specific modifiers set or is implicit/linear
     pub fn has_modifier(&self) -> bool {
         self.0.modifier != Modifier::Invalid && self.0.modifier != Modifier::Linear
+    }
+
+    /// Returns the flags stored on this buffer without interpreting them.
+    ///
+    /// Bits unknown to this Smithay version are retained.
+    pub fn flags(&self) -> DmabufFlags {
+        self.0.flags
     }
 
     /// Returns if the buffer is stored inverted on the y-axis
@@ -550,8 +536,8 @@ impl Blocker for DmabufBlocker {
 
 #[derive(Debug)]
 enum Subsource {
-    Active(Generic<PlaneRef, std::io::Error>),
-    Done(Generic<PlaneRef, std::io::Error>),
+    Active(Generic<Arc<OwnedFd>, std::io::Error>),
+    Done(Generic<Arc<OwnedFd>, std::io::Error>),
     Empty,
 }
 
@@ -624,10 +610,7 @@ impl DmabufSource {
             ) {
                 continue;
             }
-            let fd = PlaneRef {
-                dmabuf: dmabuf.clone(),
-                idx,
-            };
+            let fd = dmabuf.0.planes[idx].fd.clone();
             sources[idx] = Subsource::Active(Generic::new(fd, interest, Mode::OneShot));
         }
         if sources

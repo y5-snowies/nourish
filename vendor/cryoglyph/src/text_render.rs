@@ -92,13 +92,17 @@ impl TextRenderer {
 
                     let cache_key = physical_glyph.cache_key;
 
+                    let mask_generation = atlas.mask_atlas.generation;
+                    let color_generation = atlas.color_atlas.generation;
+
                     let details = if let Some(details) =
-                        atlas.mask_atlas.glyph_cache.get(&cache_key)
+                        atlas.mask_atlas.glyph_cache.get_mut(&cache_key)
                     {
-                        atlas.mask_atlas.glyphs_in_use.insert(cache_key);
+                        details.last_used = mask_generation;
                         details
-                    } else if let Some(details) = atlas.color_atlas.glyph_cache.get(&cache_key) {
-                        atlas.color_atlas.glyphs_in_use.insert(cache_key);
+                    } else if let Some(details) = atlas.color_atlas.glyph_cache.get_mut(&cache_key)
+                    {
+                        details.last_used = color_generation;
                         details
                     } else {
                         let Some(image) =
@@ -183,7 +187,6 @@ impl TextRenderer {
                             (GpuCacheStatus::SkipRasterization, None, inner)
                         };
 
-                        inner.glyphs_in_use.insert(cache_key);
                         // Insert the glyph into the cache and return the details reference
                         inner.glyph_cache.get_or_insert(cache_key, || GlyphDetails {
                             width: image.placement.width as u16,
@@ -192,6 +195,7 @@ impl TextRenderer {
                             atlas_id,
                             top: image.placement.top as i16,
                             left: image.placement.left as i16,
+                            last_used: inner.generation,
                         })
                     };
 

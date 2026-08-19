@@ -1834,8 +1834,13 @@ impl Composer {
                 early_depth_test: ep.early_depth_test,
                 workgroup_size: ep.workgroup_size,
                 workgroup_size_overrides: ep.workgroup_size_overrides,
-                mesh_info: ep.mesh_info.clone(),
-                task_payload: ep.task_payload,
+                mesh_info: ep
+                    .mesh_info
+                    .as_ref()
+                    .map(|info| derived.remap_mesh_info(info)),
+                task_payload: ep.task_payload.map(|tp| derived.import_global(&tp)),
+                //mesh_info: ep.mesh_info.clone(),
+                //task_payload: ep.task_payload,
                 incoming_ray_payload: ep.incoming_ray_payload,
             });
         }

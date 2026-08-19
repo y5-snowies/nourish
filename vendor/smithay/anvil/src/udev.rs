@@ -149,8 +149,8 @@ impl UdevData {
         if self.debug_flags != flags {
             self.debug_flags = flags;
 
-            for (_, backend) in self.backends.iter_mut() {
-                for (_, surface) in backend.surfaces.iter_mut() {
+            for backend in self.backends.values_mut() {
+                for surface in backend.surfaces.values_mut() {
                     surface.drm_output.set_debug_flags(flags);
                 }
             }
@@ -175,7 +175,9 @@ impl DmabufHandler for AnvilState<UdevData> {
             .and_then(|mut renderer| renderer.import_dmabuf(&dmabuf, None))
             .is_ok()
         {
-            dmabuf.set_node(self.backend_data.primary_gpu);
+            if dmabuf.node().is_none() {
+                dmabuf.set_node(self.backend_data.primary_gpu);
+            }
             let _ = notifier.successful::<AnvilState<UdevData>>();
         } else {
             notifier.failed();
@@ -525,6 +527,9 @@ pub fn run_udev() {
     #[cfg(feature = "xwayland")]
     state.start_xwayland();
 
+    #[cfg(feature = "libei")]
+    crate::libei::listen_eis(&event_loop.handle());
+
     /*
      * And run our loop
      */
@@ -731,7 +736,12 @@ fn get_surface_dmabuf_feedback(
     let render_feedback = if let Some(render_node) = render_node {
         builder
             .clone()
-            .add_preference_tranche(render_node.dev_id(), None, render_formats.clone())
+            .add_preference_tranche(
+                render_node.dev_id(),
+                zwp_linux_dmabuf_feedback_v1::TrancheFlags::Sampling,
+                render_formats.clone(),
+                3u32..=6,
+            )
             .build()
             .unwrap()
     } else {
@@ -741,10 +751,16 @@ fn get_surface_dmabuf_feedback(
     let scanout_feedback = builder
         .add_preference_tranche(
             surface.device_fd().dev_id().unwrap(),
-            Some(zwp_linux_dmabuf_feedback_v1::TrancheFlags::Scanout),
+            zwp_linux_dmabuf_feedback_v1::TrancheFlags::Scanout,
             planes_formats,
+            4u32..=6,
         )
-        .add_preference_tranche(scanout_node.dev_id(), None, render_formats)
+        .add_preference_tranche(
+            scanout_node.dev_id(),
+            zwp_linux_dmabuf_feedback_v1::TrancheFlags::Sampling,
+            render_formats,
+            4u32..=6,
+        )
         .build()
         .unwrap();
 

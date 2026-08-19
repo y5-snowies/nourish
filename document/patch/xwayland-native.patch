@@ -1,0 +1,3413 @@
+Subject: [PATCH] compositor: native XWayland hosting
+
+Run X11 clients on y5's own Xwayland server instead of the xwayland-satellite
+proxy. The compositor spawns the `Xwayland` binary and is that server's X11
+window manager in-process (smithay's `xwayland` feature).
+
+Held out of the vendor-refresh commit so it can be reviewed on its own. Apply
+with `git apply` (or `patch -p1`) on top of the vendor refresh — it is written
+against the UPDATED vendors, not the ones that were in tree when it was written.
+
+WHAT IT CONTAINS
+  - vendor/smithay: adds `X11Surface::set_input_focus`, the X11 half of keyboard
+    focus (SetInputFocus + WM_TAKE_FOCUS, honouring the ICCCM input model).
+    Needed because y5's `SeatHandler::KeyboardFocus` is the plain `WlSurface`, so
+    smithay's `KeyboardTarget for X11Surface` — where a compositor with an enum
+    focus target gets this for free — is never reached. Without it the X server
+    is never told which window has focus and X clients get no keyboard input.
+  - compositor.workspace: enables smithay's `xwayland` feature; two lint
+    allowlist entries the feature's size pushes over the policy.
+  - 5 new crates:
+      state.xwayland/{xwayland.base,xwayland.factory,xwayland.display}
+      state.window/{window.shell,window.kind}
+  - kernel.loader/.../xwayland.rs: spawns the server, starts the X11 WM on a
+    nested calloop loop, publishes DISPLAY on ready.
+  - ~40 call sites converted from `.toplevel()` to the shell-agnostic facade.
+  - installer: drops the xwayland-satellite build/install; CLAUDE.md section.
+
+DESIGN NOTES
+  - `XwmHandler` is implemented on `Dispatch`, not `Loop`: smithay's surface
+    association is a wayland PRE-COMMIT hook typed on the dispatch state, so that
+    shape is forced. It fits the existing rim/outbox split — X11 handlers stay
+    world-free and record onto outboxes `Wire::drain_protocol` applies.
+  - X11 windows are configured at their y5-WORLD location, because an X client
+    places its own override-redirect children against the geometry we hand their
+    parent. `last_configure` (not `geometry`, which has _GTK_FRAME_EXTENTS
+    subtracted) is what round-trips back into `configure`.
+  - Every X11 window's wl_surface belongs to the one Xwayland client, so surface
+    credentials name the X SERVER. The pid comes from `_NET_WM_PID`.
+
+VERIFIED: 30/30 workspace roots compile with this applied; workspace lint clean.
+NOT runtime-tested (needs a Wayland/DRM session).
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 20ff28ae..1059a4a2 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -270,6 +270,44 @@ Two known mislabels to keep in mind: `PointerState::motion` is typed `Logical` b
+ holds **physical** pixels, and `Camera::position_previous` sits beside a `Logical`-typed
+ `transform.position` while holding physical too.
+ 
++## XWayland
++
++X11 clients run on y5's **own** Xwayland server — there is no `xwayland-satellite`
++proxy any more. The compositor spawns the `Xwayland` binary and is that server's X11
++window manager in-process (smithay's `xwayland` feature). Two consequences shape the
++code:
++
++- **`XwmHandler` is implemented on `Dispatch`, not on `Loop`.** That is forced, not
++  chosen: smithay's surface-association hook (`XWaylandShellState::new::<D>`) is a
++  wayland PRE-COMMIT hook, so its `D` is the wayland dispatch state. It fits the
++  existing split anyway — the X11 handlers are world-free and record onto outboxes
++  (`Dispatch::xwayland`) that `Wire::drain_protocol` applies against the Space, exactly
++  like every other protocol handler. The X11 event sources therefore live on a NESTED
++  calloop loop (data = `Dispatch`) that the outer loop polls and pumps; see
++  `compositor.kernel/kernel.loader/…/execute.base/xwayland.rs`.
++- **`smithay::desktop::Window` now has two shapes.** `window.toplevel()` is `None` for
++  an X11 window, so anything above the wire layer goes through the two facade crates
++  rather than branching on its own: **`state.window/window.shell`** for talking to a
++  window (`stage`/`send`/`send_pending`/`moved`/`close`) and **`state.window/window.kind`**
++  for asking what it is (`is_window`/`has_parent`). A `window.toplevel().unwrap()`
++  outside those crates is an abort waiting for the first X11 client; use
++  `WaylandFocus::wl_surface()` to key a window by surface.
++
++Two X11 facts that are easy to get wrong:
++
++- An X11 window is configured **at its y5-world location**, because an X client places
++  its own override-redirect children (menus, tooltips, drag icons) against the geometry
++  we gave their parent. Configure one at the origin and every menu it opens lands that
++  far away. This is why `shell::send` takes a position and `shell::moved` exists at all.
++- Every X11 window's `wl_surface` belongs to the **one** Xwayland client, so surface
++  credentials name the X SERVER, not the app. The pid comes from `_NET_WM_PID`
++  (`X11Surface::pid`) — see `extraction.window/window.meta.wayland::credentials` and the
++  kill paths in `select.overlay`.
++
++Override-redirect surfaces are mapped as `Window`s too (they must be, to be drawn) but
++are given only a uuid and a draw-order slot: never a placeholder, a selection, a group,
++a decoration border or a navigation target. `kind::is_window` is that distinction.
++
+ ## Logging
+ 
+ y5 has its **own** tracing-free structured logging system. **All logging uses the macros from
+diff --git a/ci/README.md b/ci/README.md
+index c01b730a..6fbe56c0 100644
+--- a/ci/README.md
++++ b/ci/README.md
+@@ -30,7 +30,7 @@ coverage, packaging and report-generation are identical on both.
+ | `doc-suggest.sh` | PR/MR-only: `claude -p` reviews the diff, posts doc/README suggestions as a comment (advisory, never commits) |
+ | `gen-report.sh` | compose the markdown promotion "deployment notes" (tests/coverage/lint/drift/doc) |
+ | `open-promotion-pr.sh` | open/update the upstream-integration→upstream PR/MR with the report (never merges) |
+-| `package-installer.sh` | **the CD bundle builder** — delegates to `compositor.installer/prepare.sh` to build the full install bundle (installer + compositor/dev/polkit/mx/xwayland binaries + components) → `dist/package.tar.gz` + `SHA256SUMS`. Served at `/release/latest/fedora44/` (what `get.sh` fetches) and attached to Releases |
++| `package-installer.sh` | **the CD bundle builder** — delegates to `compositor.installer/prepare.sh` to build the full install bundle (installer + compositor/dev/polkit/mx binaries + components) → `dist/package.tar.gz` + `SHA256SUMS`. Served at `/release/latest/fedora44/` (what `get.sh` fetches) and attached to Releases |
+ | `package-release.sh` | manual/raw: build just the udev+winit compositor binaries as a tarball (not used by the automated CD path — `package-installer.sh` is) |
+ 
+ All scripts work locally too: `Y5_REPO_ROOT=$(pwd) ci/scripts/discover-workspaces.sh`.
+diff --git a/ci/scripts/package-installer.sh b/ci/scripts/package-installer.sh
+index ac0ee07d..cf050b55 100755
+--- a/ci/scripts/package-installer.sh
++++ b/ci/scripts/package-installer.sh
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env bash
+ # CD: build the full end-user INSTALL BUNDLE — the compositor (udev + dev binaries),
+-# the developer-tool window, the polkit agent, the MX gesture daemon, the patched
+-# xwayland-satellite, and the interactive `y5-install` — by delegating to
++# the developer-tool window, the polkit agent, the MX gesture daemon and the
++# interactive `y5-install` — by delegating to
+ # compositor.installer/prepare.sh. Leaves the bundle in dist/ for the publish jobs:
+ #   - GitHub/GitLab Pages, served at /release/latest/fedora44/ (what get.sh fetches)
+ #   - GitHub/GitLab Release assets (manual download)
+diff --git a/compositor.expansion/compositor.y5/y5.canvas/canvas.draw/draw.scene/scene.rs b/compositor.expansion/compositor.y5/y5.canvas/canvas.draw/draw.scene/scene.rs
+index 6022dcbc..f46363cd 100644
+--- a/compositor.expansion/compositor.y5/y5.canvas/canvas.draw/draw.scene/scene.rs
++++ b/compositor.expansion/compositor.y5/y5.canvas/canvas.draw/draw.scene/scene.rs
+@@ -1,6 +1,7 @@
+ use smithay::backend::renderer::{ImportAll, ImportMem, Renderer, Texture};
+ use smithay::desktop::Window;
+ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
++use smithay::wayland::seat::WaylandFocus;
+ use smithay::utils::{Physical, Point, Size};
+ use std::collections::{HashMap, HashSet};
+ use uuid::Uuid;
+@@ -47,8 +48,8 @@ fn window_flags(
+     primary: bool,
+ ) -> u32 {
+     let activated = focus
+-        .zip(window.toplevel().map(|t| t.wl_surface().clone()))
+-        .is_some_and(|(f, s)| *f == s);
++        .zip(window.wl_surface())
++        .is_some_and(|(f, s)| f == s.as_ref());
+     d::when(d::ACTIVATED, activated)
+         | d::when(d::TOPMOST, topmost)
+         | d::when(d::FULLSCREEN, window.is_fullscreen())
+diff --git a/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/base.rs b/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/base.rs
+index 03cce46a..acf4ef88 100644
+--- a/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/base.rs
++++ b/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/base.rs
+@@ -6,6 +6,7 @@ use compositor_support_system_trait_system_base::base::{BufferCx, System, System
+ use compositor_support_smithay_dispatch_state_base::state::Dispatch;
+ use compositor_y5_canvas_input_state::state::{ActiveOption, ActiveTransformCandidate, CanvasGrab, TargetOption};
+ use compositor_y5_canvas_state_base::state::CanvasState;
++use compositor_support_smithay_state_window_shell::shell;
+ use compositor_y5_camera_transform_translate::slot;
+ use compositor_y5_surface_system_base::base::announce_iced_button;
+ use smithay::backend::input::ButtonState;
+@@ -135,7 +136,7 @@ impl System for CanvasSystem {
+         }
+         cx.write(&CANVAS_BUF, CanvasCmd::PanUpdating(false));
+         for window in finish {
+-            finish_resize(window);
++            finish_resize(cx, window);
+         }
+         // A select-rect interior press released within a small slop of its start is a
+         // TAP (not a move) → toggle the selection of the window under it (or clear on
+@@ -217,14 +218,24 @@ impl System for CanvasSystem {
+ /// renders one crisp final buffer. Loop-free (smithay + `slot` only) so it is
+ /// callable from a Pass-1 system; the rim's window.lifecycle copy was the only
+ /// other caller and is gone with the rim release branch.
+-fn finish_resize(window: Window) {
+-    let Some(toplevel) = window.toplevel() else { return };
++fn finish_resize(cx: &mut SystemCx, window: Window) {
+     let Some(size) = slot::expected_size(&window) else { return };
+-    toplevel.with_pending_state(|state| {
+-        state.states.unset(xdg_toplevel::State::Resizing);
+-        state.size = Some(size);
+-    });
++    if let Some(toplevel) = window.toplevel() {
++        toplevel.with_pending_state(|state| {
++            state.states.unset(xdg_toplevel::State::Resizing);
++            state.size = Some(size);
++        });
++    }
+     let _ = slot::note_resize(&window, size);
+     slot::mark_resize_settling(&window);
+-    toplevel.send_configure();
++    // An X11 configure carries position AND size together, so the final emit needs
++    // the window's live Space location — which the move half of this same grab has
++    // just been writing.
++    let at = cx
++        .platform
++        .as_deref_mut()
++        .and_then(|p| p.downcast_mut::<compositor_orchestration_draw_platform_base::platform::Platform>())
++        .and_then(|p| p.space().element_location(&window))
++        .unwrap_or_default();
++    shell::send(&window, at, size);
+ }
+diff --git a/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/crate.json b/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/crate.json
+index 49223f5f..8484e98c 100644
+--- a/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/crate.json
++++ b/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/crate.json
+@@ -28,6 +28,8 @@
+     "compositor_monitor_compositor_iced_base",
+     "smithay",
+     "uuid",
+-    "compositor_y5_placeholder_surface_base"
++    "compositor_y5_placeholder_surface_base",
++    // Shell-agnostic configure: `Window` is an xdg toplevel OR an X11 surface.
++    "compositor_support_smithay_state_window_shell"
+   ]
+ }
+diff --git a/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/motion.rs b/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/motion.rs
+index 7ed913b2..4afd6523 100644
+--- a/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/motion.rs
++++ b/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/motion.rs
+@@ -35,6 +35,7 @@ use compositor_y5_group_protocol_base::protocol::{GroupBufferMessage, GroupBuffe
+ use compositor_y5_surface_system_base::base::SURFACE;
+ use compositor_y5_surface_protocol_base::protocol::{SurfaceMessage, SurfaceMessageType};
+ use compositor_y5_window_interface_record::window::LoopWindow;
++use compositor_support_smithay_state_window_shell::shell;
+ use compositor_y5_placeholder_surface_base::breakpoint::{MIN_H as PH_MIN_H, MIN_W as PH_MIN_W};
+ use crate::base::{CanvasCmd, CANVAS, CANVAS_BUF};
+ use crate::snap;
+@@ -356,21 +357,26 @@ fn reform_force(cx: &mut SystemCx, window: Window, update: Update) {
+ 
+     if let Some(position) = update.position {
+         platform.space().map_element(window.clone(), position, false);
++        // Only an X11 window is told where it is; see `shell::moved`. Skipped when
++        // a size follows below, since that configure carries the position too.
++        if update.size.is_none() {
++            shell::moved(&window, position);
++        }
+     }
+ 
+     if let Some(size) = update.size {
+-        let Some(toplevel) = window.toplevel() else { return };
+-        toplevel.with_pending_state(|state| {
+-            state.states.set(xdg_toplevel::State::Resizing);
+-            state.size = Some(size);
+-        });
++        shell::stage(&window, size, true);
+         // The compositor's new decided size (render/input fit authority).
+         slot::set_expected_size(&window, size);
+         // Interactive drag: throttle the configure (one client commit per motion
+         // stutters) and arm the stretch so the window follows between commits.
+         // The final size + settle happen on release (`finish_resize`).
+         if slot::note_resize(&window, size) {
+-            toplevel.send_configure();
++            // Read back rather than reusing `update.position`: an edge drag that only
++            // resizes leaves the position untouched, and an X11 configure still has to
++            // carry where the window actually is.
++            let at = platform.space().element_location(&window).unwrap_or_default();
++            shell::send(&window, at, size);
+         }
+     }
+ }
+diff --git a/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/press.rs b/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/press.rs
+index 9f9b9818..df398664 100644
+--- a/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/press.rs
++++ b/compositor.expansion/compositor.y5/y5.canvas/canvas.system/system.base/press.rs
+@@ -24,8 +24,10 @@ use compositor_y5_select_state_base::select::SELECT;
+ use compositor_y5_surface_interface_core::hit::surface_under_filtered_cx;
+ use compositor_y5_surface_system_base::base::{announce_iced_button, announce_iced_focus};
+ use compositor_y5_window_interface_record::window::LoopWindow;
++use compositor_support_smithay_state_window_shell::shell;
+ use compositor_monitor_compositor_iced_base::{HandleId, IcedSpace};
+ use smithay::backend::input::{ButtonState, KeyState};
++use smithay::wayland::seat::WaylandFocus;
+ use smithay::desktop::Window;
+ use smithay::input::keyboard::Keycode;
+ use smithay::input::pointer::ButtonEvent;
+@@ -268,9 +270,7 @@ fn finalize_non_hand(cx: &mut SystemCx, button: u32) {
+     {
+         for window in platform.space().elements() {
+             window.set_activated(false);
+-            if let Some(toplevel) = window.toplevel() {
+-                toplevel.send_pending_configure();
+-            }
++            shell::send_pending(window);
+         }
+     }
+ 
+@@ -318,17 +318,16 @@ fn raise_focus_window(cx: &mut SystemCx, window: &Window) {
+         platform.space().raise_element(window, true);
+         for w in platform.space().elements() {
+             w.set_activated(w == window);
+-            if let Some(toplevel) = w.toplevel() {
+-                toplevel.send_pending_configure();
+-            }
++            shell::send_pending(w);
+         }
+     }
+ 
+     // Draw-order authority — the actual visual top-level (buffer phase).
+     cx.write(&CANVAS_BUF, CanvasCmd::RaiseDrawable(uuid));
+ 
+-    // Keyboard focus on the window's toplevel surface.
+-    if let Some(surface) = window.toplevel().map(|t| t.wl_surface().clone()) {
++    // Keyboard focus on the window's surface (an X11 window has one too, once
++    // Xwayland has associated it).
++    if let Some(surface) = window.wl_surface().map(|s| s.into_owned()) {
+         if let Some(dispatch) = cx.seat.as_deref_mut().and_then(|s| s.downcast_mut::<Dispatch>()) {
+             if let Some(keyboard) = dispatch.seat.seat.get_keyboard() {
+                 let serial = SERIAL_COUNTER.next_serial();
+diff --git a/compositor.expansion/compositor.y5/y5.graphic/graphic.tearing/tearing.heuristic/heuristic.rs b/compositor.expansion/compositor.y5/y5.graphic/graphic.tearing/tearing.heuristic/heuristic.rs
+index d9ce3e46..cc652027 100644
+--- a/compositor.expansion/compositor.y5/y5.graphic/graphic.tearing/tearing.heuristic/heuristic.rs
++++ b/compositor.expansion/compositor.y5/y5.graphic/graphic.tearing/tearing.heuristic/heuristic.rs
+@@ -6,10 +6,11 @@
+ //! user saying so, always honoured) and Steam attribution (`steam_app_*`, the
+ //! `SteamAppId`/compat-tool environment, or an executable inside a library).
+ //!
+-//! Mind the asymmetry the X11 proxy creates: xwayland-satellite is one process
+-//! for every X11 title, so such a window's `/proc` data is the SATELLITE's.
+-//! `tearing.tag` dumps the whole ancestor chain at trace level precisely so that
+-//! shape can be checked against a live window rather than assumed.
++//! X11 titles resolve like any other, which is a property of running XWayland
++//! natively rather than behind a proxy: an X11 window's pid is its own
++//! `_NET_WM_PID`, not the surface credentials that would name the single X
++//! server for every X11 title on screen. `tearing.tag` still dumps the ancestor
++//! chain at trace level, so the shape can be checked on a live window.
+ 
+ use compositor_introspection_extraction_window_meta_types::types::{Meta, MetaNode};
+ use std::path::Path;
+diff --git a/compositor.expansion/compositor.y5/y5.lock/lock.interface/interface.base/crate.json b/compositor.expansion/compositor.y5/y5.lock/lock.interface/interface.base/crate.json
+index 3680ce75..592a6288 100644
+--- a/compositor.expansion/compositor.y5/y5.lock/lock.interface/interface.base/crate.json
++++ b/compositor.expansion/compositor.y5/y5.lock/lock.interface/interface.base/crate.json
+@@ -20,6 +20,8 @@
+     "compositor_y5_lock_state_base",
+     "compositor_y5_navigator_interface_base",
+     "smithay",
+-    "compositor_orchestration_core_state_base"
++    "compositor_orchestration_core_state_base",
++    // Shell-agnostic configure: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_shell"
+   ]
+ }
+diff --git a/compositor.expansion/compositor.y5/y5.lock/lock.interface/interface.base/interface.rs b/compositor.expansion/compositor.y5/y5.lock/lock.interface/interface.base/interface.rs
+index 2ff3f8d0..e972e52e 100644
+--- a/compositor.expansion/compositor.y5/y5.lock/lock.interface/interface.base/interface.rs
++++ b/compositor.expansion/compositor.y5/y5.lock/lock.interface/interface.base/interface.rs
+@@ -172,7 +172,7 @@ fn deactivate_scene(_loop: &mut Loop) {
+ 
+     _loop.inner.space_state().state.elements().for_each(|window| {
+         window.set_activated(false);
+-        window.toplevel().unwrap().send_pending_configure();
++        compositor_support_smithay_state_window_shell::shell::send_pending(window);
+     });
+ 
+     // CHECK: Ice Registry should be per scene, as well as space, etc.
+diff --git a/compositor.expansion/compositor.y5/y5.navigator/navigator.interface/interface.base/crate.json b/compositor.expansion/compositor.y5/y5.navigator/navigator.interface/interface.base/crate.json
+index 0ea1ee3f..eae902a8 100644
+--- a/compositor.expansion/compositor.y5/y5.navigator/navigator.interface/interface.base/crate.json
++++ b/compositor.expansion/compositor.y5/y5.navigator/navigator.interface/interface.base/crate.json
+@@ -13,6 +13,10 @@
+     "compositor_y5_navigator_travel_machine",
+     "compositor_support_action_camera_find_base",
+     "compositor_support_action_camera_find_origin",
+-    "compositor_support_action_camera_find_window"
++    "compositor_support_action_camera_find_window",
++    // Shell-agnostic window predicates: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_shell",
++    // Shell-agnostic window predicates: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_kind"
+   ]
+ }
+diff --git a/compositor.expansion/compositor.y5/y5.navigator/navigator.interface/interface.base/interface.rs b/compositor.expansion/compositor.y5/y5.navigator/navigator.interface/interface.base/interface.rs
+index 016f3ba8..8d7d9880 100644
+--- a/compositor.expansion/compositor.y5/y5.navigator/navigator.interface/interface.base/interface.rs
++++ b/compositor.expansion/compositor.y5/y5.navigator/navigator.interface/interface.base/interface.rs
+@@ -1,3 +1,4 @@
++use smithay::wayland::seat::WaylandFocus;
+ use std::time::Instant;
+ 
+ use smithay::{
+@@ -9,6 +10,8 @@ use compositor_support_action_camera_find_origin::distance_sq_to_viewport_center
+ use compositor_support_action_camera_find_window::cmp_f64;
+ use compositor_support_action_camera_fit_aspect::aspect;
+ use compositor_orchestration_core_state_base::Loop;
++use compositor_support_smithay_state_window_shell::shell;
++use compositor_support_smithay_state_window_kind::kind;
+ use compositor_y5_navigator_travel_machine::view::view;
+ use compositor_y5_navigator_travel_state::state::{Target, Travel};
+ use compositor_y5_window_lifecycle_interface::interface::TransformUpdate;
+@@ -285,7 +288,9 @@ pub fn fit_all(state: &mut Loop) {
+     let windows: Vec<Window> = state
+         .inner.space_state().state
+         .elements()
+-        .filter(|w| w.toplevel().is_some())
++        // Windows, not popups. X11 override-redirect surfaces are also mapped
++        // into this Space and are excluded on the same grounds: they are chrome.
++        .filter(|w| kind::is_window(w))
+         .cloned()
+         .collect();
+     if windows.is_empty() {
+@@ -329,7 +334,9 @@ fn most_centered(state: &mut Loop) -> Option<Window> {
+     let windows: Vec<Window> = state
+         .inner.space_state().state
+         .elements()
+-        .filter(|w| w.toplevel().is_some())
++        // Windows, not popups. X11 override-redirect surfaces are also mapped
++        // into this Space and are excluded on the same grounds: they are chrome.
++        .filter(|w| kind::is_window(w))
+         .cloned()
+         .collect();
+     windows
+@@ -351,12 +358,12 @@ fn focused(state: &mut Loop) -> Option<Window> {
+             .get_keyboard()
+             .and_then(|kb| kb.current_focus())
+             .and_then(|focus_surface| {
+-                state.inner.space_state().state.elements().find(|w| {
+-                    w.toplevel()
+-                        .and_then(|t| Some(t.wl_surface()))
+-                        .map(|s| s == &focus_surface)
+-                        .unwrap_or(false)
+-                })
++                state
++                    .inner
++                    .space_state()
++                    .state
++                    .elements()
++                    .find(|w| w.wl_surface().is_some_and(|s| *s == focus_surface))
+             })
+             .map_or(None, |w| Some(w))
+     };
+diff --git a/compositor.expansion/compositor.y5/y5.navigator/navigator.travel/travel.machine/crate.json b/compositor.expansion/compositor.y5/y5.navigator/navigator.travel/travel.machine/crate.json
+index 90085d9b..7ef4ef69 100644
+--- a/compositor.expansion/compositor.y5/y5.navigator/navigator.travel/travel.machine/crate.json
++++ b/compositor.expansion/compositor.y5/y5.navigator/navigator.travel/travel.machine/crate.json
+@@ -6,6 +6,10 @@
+     "compositor_orchestration_core_state_base",
+     "compositor_support_action_camera_find_base",
+     "compositor_support_action_camera_fit_element",
+-    "compositor_y5_window_interface_record"
++    "compositor_y5_window_interface_record",
++    // Shell-agnostic window predicates/configure: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_shell",
++    // Shell-agnostic window predicates: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_kind"
+   ]
+ }
+diff --git a/compositor.expansion/compositor.y5/y5.navigator/navigator.travel/travel.machine/view_directional.rs b/compositor.expansion/compositor.y5/y5.navigator/navigator.travel/travel.machine/view_directional.rs
+index fc8ae8d7..cf0e5440 100644
+--- a/compositor.expansion/compositor.y5/y5.navigator/navigator.travel/travel.machine/view_directional.rs
++++ b/compositor.expansion/compositor.y5/y5.navigator/navigator.travel/travel.machine/view_directional.rs
+@@ -1,4 +1,7 @@
+ use smithay::desktop::Window;
++use smithay::wayland::seat::WaylandFocus;
++use compositor_support_smithay_state_window_shell::shell;
++use compositor_support_smithay_state_window_kind::kind;
+ use smithay::utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Size};
+ use std::collections::HashMap;
+ use compositor_support_action_camera_find_base::find::{
+@@ -102,7 +105,9 @@ pub fn view_directional(state: &mut Loop, direction: Direction, alternative: boo
+         .inner.space_state()
+         .state
+         .elements()
+-        .filter(|w| w.toplevel().is_some()) // toplevels only, no popups
++        // Windows, not chrome: X11 override-redirect surfaces (menus, tooltips)
++        // share this Space and must never be a navigation target.
++        .filter(|w| kind::is_window(w))
+         .collect();
+ 
+     let mut id_map: HashMap<WindowId, smithay::desktop::Window> =
+@@ -162,12 +167,12 @@ pub fn view_directional(state: &mut Loop, direction: Direction, alternative: boo
+         .get_keyboard()
+         .and_then(|kb| kb.current_focus())
+         .and_then(|focus_surface| {
+-            state.inner.space_state().state.elements().find(|w| {
+-                w.toplevel()
+-                    .and_then(|t| Some(t.wl_surface()))
+-                    .map(|s| s == &focus_surface)
+-                    .unwrap_or(false)
+-            })
++            state
++                .inner
++                .space_state()
++                .state
++                .elements()
++                .find(|w| w.wl_surface().is_some_and(|s| *s == focus_surface))
+         })
+         .map_or(None, |w| w.uuid());
+ 
+@@ -226,7 +231,7 @@ pub fn view_directional(state: &mut Loop, direction: Direction, alternative: boo
+             if let Some(target_window) = id_map.get(target_id) {
+                 // Get the surface to focus and set keyboard focus on it.
+                 // Replace `serial` with your event serial source.
+-                if let Some(surface) = target_window.toplevel().and_then(|s| Some(s.wl_surface())) {
++                if let Some(surface) = target_window.wl_surface().map(|s| s.into_owned()) {
+                     let kb = state.state.seat.seat.get_keyboard().unwrap();
+ 
+                     // Window-specific: raise, activate, configure.
+@@ -239,13 +244,11 @@ pub fn view_directional(state: &mut Loop, direction: Direction, alternative: boo
+                     }
+                     for w in state.inner.space_state().state.elements() {
+                         w.set_activated(w == target_window);
+-                        if let Some(toplevel) = w.toplevel() {
+-                            toplevel.send_pending_configure();
+-                        }
++                        shell::send_pending(w);
+                     }
+ 
+                     let serial = SERIAL_COUNTER.next_serial();
+-                    kb.set_focus(&mut state.state, Some(surface.clone()), serial);
++                    kb.set_focus(&mut state.state, Some(surface), serial);
+                 }
+             }
+         }
+diff --git a/compositor.expansion/compositor.y5/y5.overview/overview.draw/draw.plan/crate.json b/compositor.expansion/compositor.y5/y5.overview/overview.draw/draw.plan/crate.json
+index 80bd687e..eac3d501 100644
+--- a/compositor.expansion/compositor.y5/y5.overview/overview.draw/draw.plan/crate.json
++++ b/compositor.expansion/compositor.y5/y5.overview/overview.draw/draw.plan/crate.json
+@@ -6,6 +6,10 @@
+     "compositor_y5_overview_draw_grid",
+     "compositor_y5_window_interface_record",
+     // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+-    "compositor_model_debug_instance_record"
++    "compositor_model_debug_instance_record",
++    // Shell-agnostic window predicates: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_shell",
++    // Shell-agnostic window predicates: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_kind"
+   ]
+ }
+diff --git a/compositor.expansion/compositor.y5/y5.overview/overview.draw/draw.plan/plan.rs b/compositor.expansion/compositor.y5/y5.overview/overview.draw/draw.plan/plan.rs
+index adbc624d..4296bbdb 100644
+--- a/compositor.expansion/compositor.y5/y5.overview/overview.draw/draw.plan/plan.rs
++++ b/compositor.expansion/compositor.y5/y5.overview/overview.draw/draw.plan/plan.rs
+@@ -4,6 +4,8 @@
+ //! Returns the placed `(window, screen-rect)` pairs for the scene to render.
+ 
+ use smithay::desktop::Window;
++use compositor_support_smithay_state_window_shell::shell;
++use compositor_support_smithay_state_window_kind::kind;
+ use smithay::utils::{Logical, Physical, Point, Rectangle, Size};
+ use smithay::wayland::seat::WaylandFocus;
+ use compositor_orchestration_core_state_base::Loop;
+@@ -20,7 +22,10 @@ pub fn plan(state: &mut Loop, size: Size<i32, Physical>) -> Vec<(Window, Rectang
+         .space_state()
+         .state
+         .elements()
+-        .filter(|w| w.wl_surface().is_some() && w.geometry().size.w > 0 && w.geometry().size.h > 0)
++        // `is_window` excludes X11 override-redirect chrome: a menu open when the
++        // overview is invoked is not a window to switch to.
++        .filter(|w| kind::is_window(w) && w.wl_surface().is_some())
++        .filter(|w| w.geometry().size.w > 0 && w.geometry().size.h > 0)
+         .map(|w| {
+             let loc = state.inner.space_state().state.element_location(w).unwrap_or_default();
+             (w.clone(), loc)
+diff --git a/compositor.expansion/compositor.y5/y5.overview/overview.interface/interface.sample/crate.json b/compositor.expansion/compositor.y5/y5.overview/overview.interface/interface.sample/crate.json
+index 15110f4b..0fc09e8b 100644
+--- a/compositor.expansion/compositor.y5/y5.overview/overview.interface/interface.sample/crate.json
++++ b/compositor.expansion/compositor.y5/y5.overview/overview.interface/interface.sample/crate.json
+@@ -4,6 +4,10 @@
+     "compositor_orchestration_core_state_base",
+     "compositor_orchestration_driver_introspection_base",
+     "compositor_y5_window_interface_record",
+-    "uuid"
++    "uuid",
++    // Shell-agnostic window predicates: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_shell",
++    // Shell-agnostic window predicates: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_kind"
+   ]
+ }
+diff --git a/compositor.expansion/compositor.y5/y5.overview/overview.interface/interface.sample/sample.rs b/compositor.expansion/compositor.y5/y5.overview/overview.interface/interface.sample/sample.rs
+index cf9e0f7e..3aaa2040 100644
+--- a/compositor.expansion/compositor.y5/y5.overview/overview.interface/interface.sample/sample.rs
++++ b/compositor.expansion/compositor.y5/y5.overview/overview.interface/interface.sample/sample.rs
+@@ -15,6 +15,8 @@
+ //! `xdg_toplevel_icon_v1` name — which it hands over with the request.
+ 
+ use compositor_introspection_extraction_window_base::{extract_surface_meta, Meta};
++use compositor_support_smithay_state_window_shell::shell;
++use compositor_support_smithay_state_window_kind::kind;
+ use compositor_orchestration_core_state_base::Loop;
+ use compositor_orchestration_driver_introspection_base::base::SAMPLER;
+ use compositor_y5_window_interface_record::window::LoopWindow;
+@@ -29,6 +31,11 @@ pub fn request(state: &mut Loop) {
+         .state
+         .elements()
+         .filter_map(|window| {
++            // Chrome is not an application: an X11 menu has a uuid (it needs a
++            // draw-order slot) but nothing worth a /proc walk on the sampler.
++            if !kind::is_window(window) {
++                return None;
++            }
+             let uuid = window.uuid()?;
+             // Surface-only: no /proc walk on the main thread — that is the whole
+             // point of handing the work to the sampler.
+diff --git a/compositor.expansion/compositor.y5/y5.placeholder/placeholder.interface/interface.base/crate.json b/compositor.expansion/compositor.y5/y5.placeholder/placeholder.interface/interface.base/crate.json
+index 753deabe..9ecfc2f7 100644
+--- a/compositor.expansion/compositor.y5/y5.placeholder/placeholder.interface/interface.base/crate.json
++++ b/compositor.expansion/compositor.y5/y5.placeholder/placeholder.interface/interface.base/crate.json
+@@ -29,6 +29,10 @@
+     "compositor_kernel_execution_driver_executor_base",
+     "compositor_introspection_execution_launch_build_container",
+     "compositor_support_smithay_state_session_claim",
+-    "compositor_support_smithay_state_ephemeral_mark"
++    "compositor_support_smithay_state_ephemeral_mark",
++    // Shell-agnostic window ops: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_shell",
++    // Shell-agnostic window predicates: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_kind"
+   ]
+ }
+diff --git a/compositor.expansion/compositor.y5/y5.placeholder/placeholder.interface/interface.base/interface.rs b/compositor.expansion/compositor.y5/y5.placeholder/placeholder.interface/interface.base/interface.rs
+index d474aa5d..cf838702 100644
+--- a/compositor.expansion/compositor.y5/y5.placeholder/placeholder.interface/interface.base/interface.rs
++++ b/compositor.expansion/compositor.y5/y5.placeholder/placeholder.interface/interface.base/interface.rs
+@@ -2,6 +2,7 @@ use smithay::backend::renderer::gles::GlesRenderer;
+ use smithay::desktop::Window;
+ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+ use smithay::utils::{Logical, Point, Rectangle, Size};
++use smithay::wayland::seat::WaylandFocus;
+ use std::collections::HashMap;
+ 
+ use std::sync::mpsc::Sender;
+@@ -13,6 +14,8 @@ use compositor_introspection_restoration_state_base::{PendingRestoration, Sessio
+ use compositor_introspection_sampler_window_base::sampler::SampleBatch;
+ use compositor_orchestration_core_state_base::state::CoordinateTrait;
+ use compositor_orchestration_core_state_base::{Loop, Transform};
++use compositor_support_smithay_state_window_shell::shell;
++use compositor_support_smithay_state_window_kind::kind;
+ use compositor_y5_surface_protocol_base::protocol::{SurfaceMessage, SurfaceMessageType};
+ use compositor_y5_window_interface_record::window::LoopWindow;
+ use compositor_y5_placeholder_protocol_base::message::PlaceholderAction;
+@@ -58,7 +61,9 @@ const LAUNCH_GRACE: std::time::Duration = std::time::Duration::from_secs(30);
+ const CONTAINER_LAUNCH_GRACE: std::time::Duration = std::time::Duration::from_secs(120);
+ 
+ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) -> bool {
+-    if window.toplevel().is_none() {
++    // X11 override-redirect chrome (menus, tooltips, drag icons) is mapped into
++    // the same Space but is not a window the user owns: it must leave no tile.
++    if !kind::is_window(&window) {
+         return false;
+     }
+ 
+@@ -87,8 +92,8 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
+             data.meta.meta.app_id,
+             data.has::<compositor_introspection_extraction_window_base::attributes::DesktopEntryPath>()
+         );
+-        if no_display && let Some(toplevel) = window.toplevel() {
+-            compositor_support_smithay_state_ephemeral_mark::mark::mark(toplevel.wl_surface());
++        if no_display && let Some(surface) = window.wl_surface() {
++            compositor_support_smithay_state_ephemeral_mark::mark::mark(&surface);
+         }
+         if let Some(uuid) = window.uuid() {
+             if let Some(sampler) = state.inner.kernel.get(&compositor_orchestration_driver_introspection_base::base::SAMPLER) {
+@@ -245,14 +250,12 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
+         }
+ 
+         let restored_size = Size::new(restored_ph.size.0, restored_ph.size.1);
+-        let toplevel = window.toplevel().unwrap_or_else(|| abort!("reform expects toplevels only."));
+-        toplevel.with_pending_state(|state| {
+-            state.states.set(xdg_toplevel::State::Resizing);
+-            state.size = Some(restored_size);
+-        });
++        shell::stage(&window, restored_size, true);
+ 
+-        // Dialog/child toplevels (a set `parent`) size themselves — leave them `Auto`; lock+grace the rest to the restored size (mirrors `_initial_mapped`).
+-        if toplevel.parent().is_some() {
++        // Dialog/child windows (a set xdg `parent` / X11 `WM_TRANSIENT_FOR`) size
++        // themselves — leave them `Auto`; lock+grace the rest to the restored size
++        // (mirrors `_initial_mapped`).
++        if kind::has_parent(&window) {
+             compositor_y5_camera_transform_translate::slot::set_expected_auto(&window);
+         } else {
+             compositor_y5_camera_transform_translate::slot::set_expected_size(&window, restored_size);
+@@ -263,7 +266,11 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
+         // Check order.
+         // Slight 'flicker' possible because it maps it already. This lifecycle event should act as the initial mapping.
+ 
+-        toplevel.send_configure();
++        shell::send(
++            &window,
++            Point::new(restored_ph.position.0, restored_ph.position.1),
++            restored_size,
++        );
+ 
+         // Destory handle
+         // Now- Keeps UUID
+diff --git a/compositor.expansion/compositor.y5/y5.select/select.box/box.base/crate.json b/compositor.expansion/compositor.y5/y5.select/select.box/box.base/crate.json
+index e4598376..da05577c 100644
+--- a/compositor.expansion/compositor.y5/y5.select/select.box/box.base/crate.json
++++ b/compositor.expansion/compositor.y5/y5.select/select.box/box.base/crate.json
+@@ -7,6 +7,10 @@
+     "compositor_y5_surface_interface_base",
+     "compositor_y5_select_interface_base",
+     "compositor_y5_canvas_draw_context",
+-    "compositor_y5_window_interface_record"
++    "compositor_y5_window_interface_record",
++    // Shell-agnostic window predicates: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_shell",
++    // Shell-agnostic window predicates: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_kind"
+   ]
+ }
+diff --git a/compositor.expansion/compositor.y5/y5.select/select.box/box.base/select_box.rs b/compositor.expansion/compositor.y5/y5.select/select.box/box.base/select_box.rs
+index 6c498721..666c208e 100644
+--- a/compositor.expansion/compositor.y5/y5.select/select.box/box.base/select_box.rs
++++ b/compositor.expansion/compositor.y5/y5.select/select.box/box.base/select_box.rs
+@@ -1,4 +1,6 @@
+ use smithay::backend::renderer::element::solid::SolidColorRenderElement;
++use compositor_support_smithay_state_window_shell::shell;
++use compositor_support_smithay_state_window_kind::kind;
+ use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
+ use smithay::backend::renderer::element::{Id, Kind};
+ use smithay::backend::renderer::utils::CommitCounter;
+@@ -297,8 +299,16 @@ where
+ 
+         // Collect first: the loop body mutates the canvas selection slot, which
+         // also lives in `inner.worlds` — so the space borrow must end here.
+-        let windows: Vec<smithay::desktop::Window> =
+-            state.inner.space_state().state.elements().cloned().collect();
++        // Chrome is not selectable: a rubber band dragged across an open X11 menu
++        // must select the windows under it, not the menu.
++        let windows: Vec<smithay::desktop::Window> = state
++            .inner
++            .space_state()
++            .state
++            .elements()
++            .filter(|w| kind::is_window(w))
++            .cloned()
++            .collect();
+         for window in &windows {
+             let window_uuid = window.uuid();
+ 
+diff --git a/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/crate.json b/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/crate.json
+index 33d973e2..adbb7da6 100644
+--- a/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/crate.json
++++ b/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/crate.json
+@@ -2,6 +2,8 @@
+   "deps": [
+     "compositor_support_library_process_child_hygiene",
+     "smithay",
++    // Shell-agnostic close: `Window` is an xdg toplevel OR an X11 surface.
++    "compositor_support_smithay_state_window_shell",
+     "uuid",
+     "compositor_orchestration_core_state_base",
+     "compositor_orchestration_seat_gesture_touch",
+diff --git a/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/interface.rs b/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/interface.rs
+index be40d684..c3acb58c 100644
+--- a/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/interface.rs
++++ b/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/interface.rs
+@@ -377,9 +377,10 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, forward: Selection
+ ///   protocol event — the equivalent of clicking its title-bar X. This targets
+ ///   the *surface*, not the process, so windows that share one client process
+ ///   (Chrome's windows, a terminal's windows) close just the chosen one and the
+-///   app runs its own teardown (save prompts, session save). Windows with no xdg
+-///   toplevel (XWayland) have no such event, so we fall back to a graceful
+-///   SIGTERM on the owning pid there.
++///   app runs its own teardown (save prompts, session save). X11 windows are asked
++///   the X11 way instead (`WM_DELETE_WINDOW`, or an outright window destroy for
++///   the clients that do not offer it) — the pid is only signalled if even that
++///   could not be sent.
+ /// - `Discard` (Shift): the same polite close, but first mark the window's
+ ///   placeholder record so its destroy leaves NO placeholder tile. Windows that
+ ///   were themselves restored from a placeholder (`persistent`) are exempt —
+@@ -418,12 +419,13 @@ fn close_selected(state: &mut Loop, mode: CloseMode) {
+         }
+         // Polite per-surface close: ask the client to dismiss just this window.
+         if matches!(mode, CloseMode::Request | CloseMode::Discard) {
+-            if let Some(toplevel) = window.toplevel() {
+-                toplevel.send_close();
++            if compositor_support_smithay_state_window_shell::shell::close(window) {
+                 continue;
+             }
+-            // No xdg toplevel (XWayland): no close event — fall through to a
+-            // graceful SIGTERM on the owning pid.
++            // Nothing was asked — the X connection failed — so fall through to a
++            // graceful SIGTERM on the owning pid. (An X11 window with no
++            // `WM_DELETE_WINDOW` is not this case: `close` destroys it outright,
++            // and escalating on top of that would take the process with it.)
+         }
+         let Some(pid) = window_pid(window, &display_handle) else {
+             warn!("close: selected window has no client pid; skipping");
+@@ -437,8 +439,16 @@ fn close_selected(state: &mut Loop, mode: CloseMode) {
+     }
+ }
+ 
+-/// The pid of a window's Wayland client, via the toplevel surface credentials.
++/// The pid of the process that owns a window.
++///
++/// For an X11 window the surface credentials are USELESS and dangerous: every
++/// X11 window's wl_surface belongs to the one Xwayland client, so killing that
++/// pid takes down the X server and every other X11 app with it. `_NET_WM_PID`
++/// is the X client's own pid, which is what the kill paths mean.
+ fn window_pid(window: &Window, display_handle: &DisplayHandle) -> Option<i32> {
++    if let Some(x11) = window.x11_surface() {
++        return x11.pid().map(|pid| pid as i32);
++    }
+     let surface = window.wl_surface()?;
+     let client = surface.client()?;
+     client.get_credentials(display_handle).ok().map(|c| c.pid)
+diff --git a/compositor.expansion/compositor.y5/y5.surface/surface.interface/interface.base/hit.rs b/compositor.expansion/compositor.y5/y5.surface/surface.interface/interface.base/hit.rs
+index abb309e9..7b506146 100644
+--- a/compositor.expansion/compositor.y5/y5.surface/surface.interface/interface.base/hit.rs
++++ b/compositor.expansion/compositor.y5/y5.surface/surface.interface/interface.base/hit.rs
+@@ -12,6 +12,7 @@ use smithay::desktop::{Window, layer_map_for_output};
+ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+ use smithay::utils::{Logical, Physical, Point, Rectangle, Size};
+ use smithay::wayland::shell::wlr_layer::Layer;
++use smithay::wayland::seat::WaylandFocus;
+ use compositor_y5_camera_transform_translate::transform::{Context as XformCtx, Transform as Xform};
+ use compositor_orchestration_core_state_base::Loop;
+ use compositor_orchestration_core_state_base::state::CoordinateTrait;
+@@ -195,10 +196,9 @@ where
+             if !callback(bbox_world, window_geom) {
+                 continue;
+             }
+-            let Some(toplevel) = window.toplevel() else {
++            let Some(s) = window.wl_surface().map(|s| s.into_owned()) else {
+                 continue;
+             };
+-            let s = toplevel.wl_surface().clone();
+             let location = _loop
+                 .inner.space_state()
+                 .state
+diff --git a/compositor.expansion/compositor.y5/y5.window/window.decoration/decoration.element/crate.json b/compositor.expansion/compositor.y5/y5.window/window.decoration/decoration.element/crate.json
+index b2fe7e54..f73ac0bc 100644
+--- a/compositor.expansion/compositor.y5/y5.window/window.decoration/decoration.element/crate.json
++++ b/compositor.expansion/compositor.y5/y5.window/window.decoration/decoration.element/crate.json
+@@ -6,6 +6,8 @@
+     "compositor_orchestration_core_state_base",
+     "compositor_y5_canvas_draw_context",
+     "compositor_y5_camera_transform_translate",
+-    "compositor_y5_window_interface_record"
++    "compositor_y5_window_interface_record",
++    // Shell-agnostic window predicates: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_kind"
+   ]
+ }
+diff --git a/compositor.expansion/compositor.y5/y5.window/window.decoration/decoration.element/scene.rs b/compositor.expansion/compositor.y5/y5.window/window.decoration/decoration.element/scene.rs
+index 292f2e1b..e57cb9d0 100644
+--- a/compositor.expansion/compositor.y5/y5.window/window.decoration/decoration.element/scene.rs
++++ b/compositor.expansion/compositor.y5/y5.window/window.decoration/decoration.element/scene.rs
+@@ -26,6 +26,13 @@ where
+     // let header_logical_height = 30.0;
+     let mut elements = Vec::new();
+ 
++    // X11 override-redirect chrome (menus, tooltips, drag icons) is not a window
++    // the user owns: it can never be selected, and the border is drawn OUTSIDE
++    // the slot, so it would bleed over whatever the menu is anchored to.
++    if !compositor_support_smithay_state_window_kind::kind::is_window(window) {
++        return elements;
++    }
++
+     // Choose color based on focus
+     // let is_active = window.toplevel().map(|t| t.current_state().activated).unwrap_or(false);
+     let is_active = state.inner.select().get(window.clone());
+diff --git a/compositor.expansion/compositor.y5/y5.window/window.interface/interface.draw/crate.json b/compositor.expansion/compositor.y5/y5.window/window.interface/interface.draw/crate.json
+index ef3a3bb7..eb07ed26 100644
+--- a/compositor.expansion/compositor.y5/y5.window/window.interface/interface.draw/crate.json
++++ b/compositor.expansion/compositor.y5/y5.window/window.interface/interface.draw/crate.json
+@@ -8,6 +8,10 @@
+     "compositor_model_environment_config_base",
+     "compositor_y5_canvas_draw_context",
+     "compositor_y5_window_interface_record",
+-    "uuid"
++    // Shell-agnostic configure: `Window` is an xdg toplevel OR an X11 surface.
++    "compositor_support_smithay_state_window_shell",
++    "uuid",
++    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
++    "compositor_model_debug_instance_record"
+   ]
+ }
+diff --git a/compositor.expansion/compositor.y5/y5.window/window.interface/interface.draw/fullscreen.rs b/compositor.expansion/compositor.y5/y5.window/window.interface/interface.draw/fullscreen.rs
+index 140fe4d8..85015c16 100644
+--- a/compositor.expansion/compositor.y5/y5.window/window.interface/interface.draw/fullscreen.rs
++++ b/compositor.expansion/compositor.y5/y5.window/window.interface/interface.draw/fullscreen.rs
+@@ -5,6 +5,8 @@ use compositor_y5_camera_transform_translate::slot;
+ use compositor_orchestration_core_state_base::Loop;
+ use compositor_y5_window_interface_record::data::WindowFullscreen;
+ use compositor_y5_window_interface_record::window::LoopWindow;
++use compositor_support_smithay_state_window_shell::shell;
++use smithay::wayland::seat::WaylandFocus;
+ 
+ /// Apply (or clear) fullscreen on a window.
+ ///
+@@ -21,10 +23,6 @@ use compositor_y5_window_interface_record::window::LoopWindow;
+ /// and captures input within its bounds. Pre-fullscreen geometry is stored so
+ /// it can be restored on un-fullscreen.
+ pub fn fullscreen_set(_loop: &mut Loop, window: Window, fullscreen: bool) {
+-    let Some(toplevel) = window.toplevel() else {
+-        return;
+-    };
+-
+     if fullscreen {
+         if window.is_fullscreen() {
+             return;
+@@ -63,11 +61,9 @@ pub fn fullscreen_set(_loop: &mut Loop, window: Window, fullscreen: bool) {
+         // the restore rect (above), so it doesn't feed back off this new slot.
+         slot::set_expected_size(&window, target_size);
+ 
+-        toplevel.with_pending_state(|state| {
+-            state.states.set(xdg_toplevel::State::Fullscreen);
+-            state.size = Some(target_size);
+-        });
+-        toplevel.send_configure();
++        set_fullscreen_state(&window, true);
++        shell::stage(&window, target_size, false);
++        shell::send(&window, target_loc, target_size);
+     } else {
+         let Some(restore) = window.fullscreen() else {
+             return;
+@@ -110,11 +106,9 @@ pub fn fullscreen_set(_loop: &mut Loop, window: Window, fullscreen: bool) {
+ 
+         slot::set_expected_size(&window, size);
+ 
+-        toplevel.with_pending_state(|state| {
+-            state.states.unset(xdg_toplevel::State::Fullscreen);
+-            state.size = Some(size);
+-        });
+-        toplevel.send_configure();
++        set_fullscreen_state(&window, false);
++        shell::stage(&window, size, false);
++        shell::send(&window, loc, size);
+     }
+ 
+     // Geometry changed; refresh the owning group's bounding box overlay.
+@@ -190,10 +184,23 @@ fn focused_window(_loop: &Loop) -> Option<Window> {
+         .inner.space_state()
+         .state
+         .elements()
+-        .find(|w| {
+-            w.toplevel()
+-                .map(|t| t.wl_surface() == &focus)
+-                .unwrap_or(false)
+-        })
++        .find(|w| w.wl_surface().is_some_and(|s| *s == focus))
+         .cloned()
+ }
++
++/// Write the protocol's fullscreen flag. xdg stages it for the configure that
++/// follows; X11 has no configure to ride on — `_NET_WM_STATE_FULLSCREEN` is a
++/// property, set immediately and separately from the geometry.
++fn set_fullscreen_state(window: &Window, fullscreen: bool) {
++    if let Some(x11) = window.x11_surface() {
++        if let Err(err) = x11.set_fullscreen(fullscreen) {
++            warn!("x11 set_fullscreen failed: {err:?}");
++        }
++        return;
++    }
++    let Some(toplevel) = window.toplevel() else { return };
++    toplevel.with_pending_state(|state| match fullscreen {
++        true => state.states.set(xdg_toplevel::State::Fullscreen),
++        false => state.states.unset(xdg_toplevel::State::Fullscreen),
++    });
++}
+diff --git a/compositor.expansion/compositor.y5/y5.window/window.interface/interface.draw/lib.rs b/compositor.expansion/compositor.y5/y5.window/window.interface/interface.draw/lib.rs
+index bc80ea62..7e122c5a 100644
+--- a/compositor.expansion/compositor.y5/y5.window/window.interface/interface.draw/lib.rs
++++ b/compositor.expansion/compositor.y5/y5.window/window.interface/interface.draw/lib.rs
+@@ -1,3 +1,8 @@
++// Developer logging: brings error!/warn!/info!/trace!/abort! into scope for every
++// module in this crate.
++#[macro_use]
++extern crate compositor_model_debug_instance_record;
++
+ pub mod bound;
+ pub mod fullscreen;
+-pub mod visible;
+\ No newline at end of file
++pub mod visible;
+diff --git a/compositor.expansion/compositor.y5/y5.window/window.interface/interface.dump/dump.rs b/compositor.expansion/compositor.y5/y5.window/window.interface/interface.dump/dump.rs
+index f58deb75..3aa515c8 100644
+--- a/compositor.expansion/compositor.y5/y5.window/window.interface/interface.dump/dump.rs
++++ b/compositor.expansion/compositor.y5/y5.window/window.interface/interface.dump/dump.rs
+@@ -4,15 +4,18 @@
+ //! the window's process AND every ancestor — far too heavy for a lifecycle path,
+ //! and only ever wanted while looking at one specific window.
+ //!
+-//! The ancestor chain is the point: under xwayland every X11 title shares ONE
+-//! satellite process, so the window's own node describes the satellite, and what
+-//! identifies the real application (a Steam launcher, a Proton wrapper) sits above
+-//! it. Printing the chain is the only way to see that shape on a live window.
++//! The ancestor chain is the point: what identifies the real application (a Steam
++//! launcher, a Proton wrapper) often sits ABOVE the window's own process node.
++//! Printing the chain is the only way to see that shape on a live window. Native
++//! XWayland keeps this honest for X11 windows too — the pid comes from
++//! `_NET_WM_PID`, the app's own, not from the surface credentials that would name
++//! the one X server for every X11 window on screen.
+ 
+ use compositor_introspection_extraction_window_meta_types::types::MetaNode;
+ use compositor_orchestration_core_state_base::Loop;
+ use compositor_y5_window_interface_record::window::LoopWindow;
+ use smithay::desktop::Window;
++use smithay::wayland::seat::WaylandFocus;
+ use smithay::wayland::compositor::with_states;
+ use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
+ use std::collections::HashSet;
+@@ -33,12 +36,16 @@ fn line(depth: usize, node: &MetaNode) {
+ fn focused(state: &Loop) -> Option<Window> {
+     let surface = state.state.seat.seat.get_keyboard()?.current_focus()?;
+     state.inner.space_state().state.elements()
+-        .find(|w| w.toplevel().map(|t| t.wl_surface() == &surface).unwrap_or(false))
++        .find(|w| w.wl_surface().is_some_and(|s| *s == surface))
+         .cloned()
+ }
+ 
+ /// `title`, falling back to `[app_id]`: a blank title is common and names nothing.
+ fn label(window: &Window) -> String {
++    if let Some(x11) = window.x11_surface() {
++        let title = x11.title();
++        return if title.is_empty() { format!("[{}]", x11.class()) } else { title };
++    }
+     let Some(s) = window.toplevel().map(|t| t.wl_surface().clone()) else { return "<no toplevel>".into() };
+     with_states(&s, |st| {
+         let Some(a) = st.data_map.get::<XdgToplevelSurfaceData>().and_then(|a| a.lock().ok()) else {
+diff --git a/compositor.expansion/compositor.y5/y5.window/window.interface/interface.record/window.rs b/compositor.expansion/compositor.y5/y5.window/window.interface/interface.record/window.rs
+index b501e04c..9d8a72f5 100644
+--- a/compositor.expansion/compositor.y5/y5.window/window.interface/interface.record/window.rs
++++ b/compositor.expansion/compositor.y5/y5.window/window.interface/interface.record/window.rs
+@@ -99,6 +99,9 @@ impl LoopWindow for Window {
+     }
+ 
+     fn session(&self) -> Option<SessionKey> {
++        // `xdg_session_management_v1` is a wayland protocol; an X11 window can
++        // never have declared an identity through it, and the surface it may or
++        // may not have was never the one the client named.
+         let surface = self.toplevel()?.wl_surface().clone();
+         compositor_support_smithay_state_session_store::store::identity(&surface)
+             .map(|i| SessionKey { session_id: i.session_id, name: i.name })
+@@ -106,7 +109,9 @@ impl LoopWindow for Window {
+ 
+     fn activation(&self) -> Option<ActivationDetails> {
+         // CHECK: See WindowData re-insertion logic which explains how surface may outlive window and be created with new window.
+-        let surface = self.toplevel().unwrap_or_else(|| abort!("toplevel")).wl_surface();
++        // Likewise xdg-activation: X11 startup notification is a different protocol
++        // (`_NET_STARTUP_ID`), read through the introspection extraction instead.
++        let surface = self.toplevel()?.wl_surface();
+         // It is possible to prefer surface / use it as fallback due to uncertain racing.
+         with_states(&surface, |states| {
+             let data = states.data_map.get::<ActivationDetails>().cloned();
+diff --git a/compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.interface/crate.json b/compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.interface/crate.json
+index a5065fbe..2114c8ef 100644
+--- a/compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.interface/crate.json
++++ b/compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.interface/crate.json
+@@ -18,6 +18,10 @@
+     "compositor_y5_navigator_travel_machine",
+     "compositor_y5_navigator_state_base",
+     "compositor_y5_navigator_travel_state",
+-    "uuid"
++    "uuid",
++    // Shell-agnostic window ops: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_shell",
++    // Shell-agnostic window predicates: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_kind"
+   ]
+ }
+diff --git a/compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.interface/interface.rs b/compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.interface/interface.rs
+index bd74afa1..4197aa11 100644
+--- a/compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.interface/interface.rs
++++ b/compositor.expansion/compositor.y5/y5.window/window.lifecycle/lifecycle.interface/interface.rs
+@@ -14,6 +14,8 @@ use compositor_orchestration_core_state_base::state::CoordinateTrait;
+ use compositor_orchestration_core_state_base::{Loop, Transform};
+ use compositor_y5_window_interface_record::window::LoopWindow;
+ use compositor_y5_window_lifecycle_event::event::WindowLifecycleEvent;
++use compositor_support_smithay_state_window_shell::shell;
++use compositor_support_smithay_state_window_kind::kind;
+ /// Activate `window` on behalf of an external request (e.g. a dock via wlr foreign-toplevel
+ /// `activate`): ease the camera to frame it (navigator `view`), then raise + activate + give
+ /// it keyboard focus. Mirrors the keybinding "view window" path.
+@@ -54,7 +56,7 @@ fn activate_window(_loop: &mut Loop, window: Window) {
+     // (when `all_worlds`), so that stale flag makes the target's re-activation a no-op
+     // diff and sfwbar never sees it become focused.
+     _loop.inner.set_activated_exclusive(Some(&window));
+-    let surface = window.toplevel().map(|t| t.wl_surface().clone());
++    let surface = window.wl_surface().map(|s| s.into_owned());
+     if let Some(keyboard) = _loop.state.seat.seat.get_keyboard() {
+         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+         keyboard.set_focus(&mut _loop.state, surface, serial);
+@@ -212,7 +214,7 @@ fn _initial_mapped(state: &mut Loop, window: Window) {
+         .state
+         .toplevel_drag
+         .carried_with_offset()
+-        .filter(|(surface, _)| window.toplevel().is_some_and(|t| t.wl_surface() == surface))
++        .filter(|(surface, _)| window.wl_surface().is_some_and(|s| s.as_ref() == surface))
+         .and_then(|(_, offset)| {
+             let pointer = state.state.seat.seat.get_pointer()?;
+             let at = pointer.current_location() - offset.to_f64();
+@@ -237,7 +239,11 @@ fn _initial_mapped(state: &mut Loop, window: Window) {
+         return;
+     }
+ 
+-    let geometry = window.geometry();
++    // The slot we lock the window to. For X11 this is its CONFIGURE size, not its
++    // `geometry`: smithay subtracts `_GTK_FRAME_EXTENTS` from the latter, so locking
++    // it would hand a CSD client a configure one shadow smaller than it asked for.
++    let mut geometry = window.geometry();
++    geometry.size = shell::configured_size(&window);
+ 
+     // Center on the ACTIVE monitor's camera (the output under the cursor), NOT
+     // `camera_mut()`. This hook drains the InitialMap queue from inside the
+@@ -260,15 +266,15 @@ fn _initial_mapped(state: &mut Loop, window: Window) {
+         .state
+         .map_element(window.clone(), t.into_storage_point(), false);
+ 
+-    // Dialog/child toplevels (a set `parent`, e.g. nautilus's merge-conflict window) size themselves — leave them `Auto`; lock+grace the rest to the mapped size.
+-    if window.toplevel().and_then(|t| t.parent()).is_some() {
++    // Dialog/child windows (a set xdg `parent` / X11 `WM_TRANSIENT_FOR`, e.g.
++    // nautilus's merge-conflict window) size themselves — leave them `Auto`;
++    // lock+grace the rest to the mapped size.
++    if kind::has_parent(&window) {
+         slot::set_expected_auto(&window);
+     } else {
+         slot::set_expected_size(&window, geometry.size);
+-        if let Some(toplevel) = window.toplevel() {
+-            toplevel.with_pending_state(|s| s.size = Some(geometry.size));
+-            toplevel.send_configure();
+-        }
++        shell::stage(&window, geometry.size, false);
++        shell::send(&window, t.into_storage_point(), geometry.size);
+         compositor_support_smithay_state_compositor_place::arm_size_propagation(&window, geometry.size);
+     }
+ 
+@@ -353,34 +359,43 @@ fn _reform(state: &mut Loop, window: Window, transform_update: TransformUpdate,
+             .inner.space_state_mut()
+             .state
+             .map_element(window.clone(), position, false);
++        // Only an X11 window is told where it is; see `shell::moved`. Skipped when
++        // a size follows below, since that configure carries the position too.
++        if transform_update.size.is_none() {
++            shell::moved(&window, position);
++        }
+     }
+ 
+     if let Some(size) = transform_update.size {
+-        // Does it expect it to be topleve?
+-        //yes
+-        let toplevel = window.toplevel().unwrap_or_else(|| abort!("reform expects toplevels only."));
+-        toplevel.with_pending_state(|state| {
+-            state.states.set(xdg_toplevel::State::Resizing);
+-            state.size = Some(size);
+-        });
++        shell::stage(&window, size, true);
+ 
+         // The compositor's new decided size — the window is enforced at this until the next
+         // reform. This is the authority the render/input fit uses.
+         slot::set_expected_size(&window, size);
+ 
++        // An X11 configure carries position AND size in one event, so the emit below
++        // needs the window's live Space location — which `transform_update.position`
++        // has already been written to, if it carried one.
++        let at = state
++            .inner
++            .space_state()
++            .state
++            .element_location(&window)
++            .unwrap_or_default();
++
+         if force {
+             // Interactive resize drag (`reform_force`, from canvas motion): throttle the configure
+             // — one client commit per pointer motion is what stutters — and arm the stretch so the
+             // window follows the cursor between commits. The final size + settle happen on release
+             // (`finish_resize`). `note_resize` returns whether a configure is due now.
+             if slot::note_resize(&window, size) {
+-                toplevel.send_configure();
++                shell::send(&window, at, size);
+             }
+         } else {
+             // One-off resize (navigator maximize, tiling, etc.): send immediately, no throttle and
+             // no stretch — there's no drag/release to settle it, so arming the stretch would leave
+             // the window stuck stretching and re-sending configures forever.
+-            toplevel.send_configure();
++            shell::send(&window, at, size);
+         }
+     }
+ 
+diff --git a/compositor.installer/component/xwayland-satellite/xwayland-fixes/fix.md b/compositor.installer/component/xwayland-satellite/xwayland-fixes/fix.md
+index 1c738cab..11bbfeef 100644
+--- a/compositor.installer/component/xwayland-satellite/xwayland-fixes/fix.md
++++ b/compositor.installer/component/xwayland-satellite/xwayland-fixes/fix.md
+@@ -1,3 +1,18 @@
++> **NOT BUILT OR INSTALLED ANY MORE.** y5 runs Xwayland itself: the compositor
++> spawns the X server and is its X11 window manager in-process (see
++> `compositor.kernel/kernel.loader/…/xwayland.rs` and
++> `compositor.support/support.smithay/smithay.state/state.xwayland/`). Nothing in
++> `prepare.sh` or the installer builds or ships this fork.
++>
++> Kept for the **investigation notes below**, which outlived the proxy: the Isaac
++> Sim 6.0 present-rotation bug is a client bug, reproducible on a bare X11
++> desktop, and the workaround still applies. The satellite-specific parts
++> (`--popup-fix`, `--force-scale`, `--ignore-fractional-scale`) do not: they were
++> all working around the proxy having to GUESS an `xdg_toplevel`/`xdg_popup` role
++> and having no view of the compositor's scale. Natively there is no guess —
++> `override_redirect` is ground truth from the X server — and the scale is the
++> compositor's own.
++
+ # xwayland-satellite — y5 fixes for Isaac Sim
+ 
+ This fork of `xwayland-satellite` carries hotfixes for running X11 apps (notably
+diff --git a/compositor.installer/installer.process/process.layout/layout.compute/compute.base/lib.rs b/compositor.installer/installer.process/process.layout/layout.compute/compute.base/lib.rs
+index ae9d7bc1..6edf4754 100644
+--- a/compositor.installer/installer.process/process.layout/layout.compute/compute.base/lib.rs
++++ b/compositor.installer/installer.process/process.layout/layout.compute/compute.base/lib.rs
+@@ -24,5 +24,5 @@ pub use compositor_installer_process_layout_compute_stage::{
+     Action, Source, Stage, home, is_root, settings_exists, settings_path,
+ };
+ pub use compositor_installer_process_layout_compute_units::{
+-    devtool_actions, maintenance_actions, mx_actions, polkit_actions, xwayland_actions,
++    devtool_actions, maintenance_actions, mx_actions, polkit_actions,
+ };
+diff --git a/compositor.installer/installer.process/process.layout/layout.compute/compute.units/units.rs b/compositor.installer/installer.process/process.layout/layout.compute/compute.units/units.rs
+index 99c3b926..7c938951 100644
+--- a/compositor.installer/installer.process/process.layout/layout.compute/compute.units/units.rs
++++ b/compositor.installer/installer.process/process.layout/layout.compute/compute.units/units.rs
+@@ -63,14 +63,10 @@ pub fn devtool_actions(stage: &Stage) -> Vec<Action> {
+     ]
+ }
+ 
+-/// Install + enable the patched xwayland-satellite (X11-app compatibility): the binary
+-/// at the path its service expects, plus the user systemd service. Pairs with the
+-/// default-on `xwayland` package group (the `xorg-x11-server-Xwayland` it drives).
+-pub fn xwayland_actions(stage: &Stage) -> Vec<Action> {
+-    vec![
+-        place(PathBuf::from("/usr/bin/xwayland-satellite"), Source::Copy(stage.binary("xwayland-satellite")), 0o755, true),
+-        place(user_systemd_dir().join("xwayland.service"), Source::Copy(stage.template("xwayland/xwayland.service")), 0o644, false),
+-        Action::SystemctlUser(vec!["daemon-reload".into()]),
+-        Action::SystemctlUser(vec!["enable".into(), "xwayland.service".into()]),
+-    ]
+-}
++// X11 support installs NOTHING: the compositor runs Xwayland itself (it execs the
++// `Xwayland` binary and is that server's X11 window manager in-process), so there is
++// no proxy binary and no user service. The one requirement is the X server package,
++// which the default-on `xwayland` package group installs. The uninstaller still
++// removes `/usr/bin/xwayland-satellite` and `xwayland.service` — those exist on any
++// machine installed before this, and leaving a stale satellite running would have it
++// racing the compositor's own server for a display number.
+diff --git a/compositor.installer/installer.process/process.main/main.execute/execute.plan/plan.rs b/compositor.installer/installer.process/process.main/main.execute/execute.plan/plan.rs
+index 94590d09..684f65e1 100644
+--- a/compositor.installer/installer.process/process.main/main.execute/execute.plan/plan.rs
++++ b/compositor.installer/installer.process/process.main/main.execute/execute.plan/plan.rs
+@@ -14,7 +14,6 @@ pub fn build_and_apply(stage: &layout::Stage, presets: &[cfg::Preset], dry_run:
+     let want_pam = prompt::yes_no("pam-lock", "Install the PAM lock policy (/etc/pam.d/y5-lock)", true);
+     let want_mx = prompt::yes_no("mx-daemon", "Install the MX Master gesture daemon", false);
+     let want_polkit = prompt::yes_no("polkit", "Install the polkit authentication agent (systemd service)", true);
+-    let want_xwayland = prompt::yes_no("xwayland", "Install Xwayland support (run X11 apps — patched xwayland-satellite)", true);
+ 
+     let mut plan: Vec<layout::Action> = Vec::new();
+     plan.extend(layout::binary_actions(stage, presets));
+@@ -51,9 +50,6 @@ pub fn build_and_apply(stage: &layout::Stage, presets: &[cfg::Preset], dry_run:
+     if want_polkit {
+         plan.extend(layout::polkit_actions(stage));
+     }
+-    if want_xwayland {
+-        plan.extend(layout::xwayland_actions(stage));
+-    }
+     // Re-scan units once everything is placed.
+     plan.push(layout::Action::SystemctlUser(vec!["daemon-reload".into()]));
+ 
+diff --git a/compositor.installer/prepare.sh b/compositor.installer/prepare.sh
+index 36418acd..9df8b0df 100755
+--- a/compositor.installer/prepare.sh
++++ b/compositor.installer/prepare.sh
+@@ -15,7 +15,7 @@
+ #
+ # Usage: ./prepare.sh [options]
+ #   --debug            build the installer in debug (faster) instead of release
+-#   --skip=a,b,...     skip components: compositor,devtool,settings,installer,polkit,mx,xwayland
++#   --skip=a,b,...     skip components: compositor,devtool,settings,installer,polkit,mx
+ #   --out=DIR          output dir (default: compositor.installer/dist)
+ #   -h, --help         this help
+ #
+@@ -52,7 +52,7 @@ STAGE="$OUT/stage"
+ BIN="$STAGE/binaries"
+ TPL="$STAGE/templates"
+ rm -rf "$STAGE"
+-mkdir -p "$BIN" "$TPL/pam" "$TPL/mx" "$TPL/xwayland"
++mkdir -p "$BIN" "$TPL/pam" "$TPL/mx"
+ 
+ log() { printf '\n>> %s\n' "$1" >&2; }
+ 
+@@ -110,15 +110,11 @@ else
+     install -m644 "$HERE/component/mx-gesture-daemon/mx-gesture-daemon.service" "$TPL/mx/mx-gesture-daemon.service"
+ fi
+ 
+-# 5) Patched xwayland-satellite (X11-app compatibility) + its user service.
+-if skipped xwayland; then
+-    log "skip: xwayland"
+-else
+-    log "building xwayland-satellite"
+-    ( cd "$HERE/component/xwayland-satellite/xwayland-fixes" && cargo build --release )
+-    install -m755 "$(cargo_target "$HERE/component/xwayland-satellite/xwayland-fixes")/release/xwayland-satellite" "$BIN/xwayland-satellite"
+-    install -m644 "$HERE/component/xwayland-satellite/xwayland-fixes/xwayland.service" "$TPL/xwayland/xwayland.service"
+-fi
++# 5) (X11 support has no component to stage.) The compositor runs Xwayland itself —
++#    `XWayland::spawn` execs the `Xwayland` binary from PATH and acts as its X11 window
++#    manager in-process — so there is no satellite to build and no user service to
++#    install. All that is needed is the server package, which the `xwayland` package
++#    group installs (`xorg-x11-server-Xwayland` / `xwayland` / `xorg-xwayland`).
+ 
+ # 5b) Settings tool — installed to /usr/bin/y5.compositor.settings, the only supported
+ #     way to author ~/.config/y5.compositor/settings.json (the session wrappers no longer
+@@ -235,7 +231,6 @@ Contents
+                                      y5.compositor.monitor, + app-launcher entry)
+   binaries/y5-polkit-agent           polkit authentication agent
+   binaries/mx-gesture-daemon         MX Master gesture daemon
+-  binaries/xwayland-satellite        patched Xwayland satellite (X11 app support)
+   templates/                         PAM, udev and config templates
+ 
+ Note: the compositor reads all of its configuration from a single settings file,
+diff --git a/compositor.introspection/introspection.extraction/extraction.window/window.meta.wayland.surface/wayland.rs b/compositor.introspection/introspection.extraction/extraction.window/window.meta.wayland.surface/wayland.rs
+index c9425d88..579b058d 100644
+--- a/compositor.introspection/introspection.extraction/extraction.window/window.meta.wayland.surface/wayland.rs
++++ b/compositor.introspection/introspection.extraction/extraction.window/window.meta.wayland.surface/wayland.rs
+@@ -2,7 +2,12 @@ use smithay::desktop::Window;
+ use smithay::wayland::compositor;
+ use std::sync::Mutex;
+ 
+-/// Read app_id / title / target wl_surface from a window's toplevel role.
++/// Read app_id / title / target wl_surface from a window's shell role.
++///
++/// X11 answers the same two questions through `WM_CLASS` and `WM_NAME`, and a
++/// dock, the launcher matcher and the icon inference all read the identical two
++/// fields — so the X11 `class` lands in `app_id` and `WM_NAME` in `title`, with
++/// no third vocabulary introduced for callers to learn.
+ pub fn read_surface_identity(
+     window: &Window,
+ ) -> (
+@@ -30,8 +35,17 @@ pub fn read_surface_identity(
+         target = Some(wl_surface.clone());
+     }
+ 
+-    // NOTE: XWayland support omitted here; mirror this block with
+-    // window.x11_surface() if/when we support XWayland windows.
++    if let Some(x11) = window.x11_surface() {
++        // `class` rather than `instance`: it is the per-APPLICATION half of
++        // `WM_CLASS` (the second string), which is what an `app_id` means.
++        // Empty strings are normalised away — an unset X property reads as one,
++        // and callers test `is_none`.
++        app_id = Some(x11.class()).filter(|s| !s.is_empty());
++        title = Some(x11.title()).filter(|s| !s.is_empty());
++        // May be `None` until Xwayland associates the surface; every caller
++        // already tolerates that (a window with no surface identity yet).
++        target = x11.wl_surface();
++    }
+ 
+     (app_id, title, target)
+ }
+diff --git a/compositor.introspection/introspection.extraction/extraction.window/window.meta.wayland/wayland.rs b/compositor.introspection/introspection.extraction/extraction.window/window.meta.wayland/wayland.rs
+index ee92cdbc..3be94743 100644
+--- a/compositor.introspection/introspection.extraction/extraction.window/window.meta.wayland/wayland.rs
++++ b/compositor.introspection/introspection.extraction/extraction.window/window.meta.wayland/wayland.rs
+@@ -5,6 +5,33 @@ use compositor_introspection_extraction_window_meta_wayland_surface::wayland::re
+ use smithay::desktop::{Space, Window};
+ use smithay::reexports::wayland_server::{DisplayHandle, Resource};
+ 
++/// The credentials of the process that owns `window`: `(pid, uid, gid)`.
++///
++/// For an X11 window the SURFACE credentials are the wrong answer, and
++/// dangerously so: every X11 window's wl_surface belongs to the one Xwayland
++/// client, so every X11 app would report the X server's pid — one identity for
++/// all of them, which is exactly what collapses per-window process
++/// introspection (the launcher match, the placeholder identity, the tearing
++/// tag). `_NET_WM_PID` is the X client's own pid. uid/gid are not carried by
++/// that property and stay unknown; the `/proc` walk keyed on the pid fills in
++/// everything else the same way it does for a wayland client.
++fn credentials(
++    window: &Window,
++    wl_surface: Option<&smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
++    display_handle: &DisplayHandle,
++) -> (Option<u32>, Option<u32>, Option<u32>) {
++    if let Some(x11) = window.x11_surface() {
++        return (x11.pid(), None, None);
++    }
++    let Some(client) = wl_surface.and_then(|s| s.client()) else {
++        return (None, None, None);
++    };
++    match client.get_credentials(display_handle) {
++        Ok(creds) => (Some(creds.pid as u32), Some(creds.uid as u32), Some(creds.gid as u32)),
++        Err(_) => (None, None, None),
++    }
++}
++
+ /// Pull a `Meta` from a live Wayland window, joining its surface identity
+ /// with the /proc data for its client process. `Some` if at least one data
+ /// source (Wayland or /proc) yielded something.
+@@ -14,20 +41,7 @@ pub fn extract_from_window(
+     display_handle: &DisplayHandle,
+ ) -> Option<Meta> {
+     let (app_id, title, target_wl_surface) = read_surface_identity(window);
+-
+-    let mut pid = None;
+-    let mut uid = None;
+-    let mut gid = None;
+-
+-    if let Some(wl_surface) = &target_wl_surface {
+-        if let Some(client) = wl_surface.client() {
+-            if let Ok(creds) = client.get_credentials(display_handle) {
+-                pid = Some(creds.pid as u32);
+-                uid = Some(creds.uid as u32);
+-                gid = Some(creds.gid as u32);
+-            }
+-        }
+-    }
++    let (pid, uid, gid) = credentials(window, target_wl_surface.as_ref(), display_handle);
+ 
+     let mut meta = if let Some(p) = pid {
+         extract_meta_for_pid(p).unwrap_or_default()
+@@ -59,16 +73,10 @@ pub fn extract_from_window(
+ pub fn extract_surface_meta(window: &Window, display_handle: &DisplayHandle) -> Option<Meta> {
+     let (app_id, title, target_wl_surface) = read_surface_identity(window);
+     let mut meta = Meta { app_id, title, ..Meta::default() };
+-
+-    if let Some(wl_surface) = &target_wl_surface {
+-        if let Some(client) = wl_surface.client() {
+-            if let Ok(creds) = client.get_credentials(display_handle) {
+-                meta.pid = Some(creds.pid as u32);
+-                meta.uid = Some(creds.uid as u32);
+-                meta.gid = Some(creds.gid as u32);
+-            }
+-        }
+-    }
++    let (pid, uid, gid) = credentials(window, target_wl_surface.as_ref(), display_handle);
++    meta.pid = pid;
++    meta.uid = uid;
++    meta.gid = gid;
+ 
+     if meta.app_id.is_none() && meta.title.is_none() && meta.pid.is_none() {
+         return None;
+diff --git a/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.base/executor.rs b/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.base/executor.rs
+index bcc9916f..cd712841 100644
+--- a/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.base/executor.rs
++++ b/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.base/executor.rs
+@@ -22,8 +22,8 @@ pub struct Executor {
+ /// Produces the faithful base env for ONE launch.
+ ///
+ /// A closure rather than a cached `Vec` deliberately. Every value in it is
+-/// y5's own — the socket we created, the desktop name we run under, the
+-/// deliberate blanking of `DISPLAY` — so it must be derived from y5's
++/// y5's own — the socket we created, the desktop name we run under, the X
++/// display of the Xwayland server we started — so it must be derived from y5's
+ /// authoritative state, never read back out of the process or session
+ /// environment. Reading the session back would mean FOLLOWING anything that
+ /// trampled `WAYLAND_DISPLAY` (a stray `systemctl --user import-environment`
+@@ -31,10 +31,10 @@ pub struct Executor {
+ /// which is the same class of bug the replay filter exists to prevent.
+ ///
+ /// Recomputing per launch rather than snapshotting at install costs one
+-/// settings read on a user click. Every input happens to be immutable today,
+-/// but the list is designed to grow — `DISPLAY` becomes real the moment
+-/// XWayland runs under y5 — and a snapshot would go stale then with nothing
+-/// to signal it.
++/// settings read on a user click, and it is what makes `DISPLAY` correct: y5's
++/// own Xwayland picks its display number asynchronously, long after this
++/// closure is built, so a snapshot taken at install would pin the empty value
++/// forever with nothing to signal it.
+ pub type BaseEnv = Box<dyn Fn() -> Vec<(String, String)> + Send + Sync>;
+ 
+ impl Executor {
+diff --git a/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.install/crate.json b/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.install/crate.json
+index f5abf1b7..222b1ea3 100644
+--- a/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.install/crate.json
++++ b/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.install/crate.json
+@@ -10,6 +10,8 @@
+     "compositor_orchestration_core_state_base",
+     "compositor_orchestration_launch_broadcast_base",
+     "compositor_orchestration_environment_type_base",
+-    "compositor_model_debug_instance_record"
++    "compositor_model_debug_instance_record",
++    // The live X display number, published by XWayland's ready event.
++    "compositor_support_smithay_state_xwayland_display"
+   ]
+ }
+diff --git a/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.install/install.rs b/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.install/install.rs
+index 2c9abc77..27acd0b5 100644
+--- a/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.install/install.rs
++++ b/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.install/install.rs
+@@ -79,11 +79,22 @@ fn base_env(state: &Loop) -> BaseEnv {
+         let desktop = compositor_orchestration_environment_type_base::base::Get().DesktopName;
+         vec![
+             ("WAYLAND_DISPLAY".into(), wayland_display.clone()),
+-            // Deliberately EMPTY: keeps apps off the X11 fallback. A real
+-            // display here would make Electron/SDL/Java and some Qt configs
+-            // PREFER X11 over Wayland, so the satellite's `:12` belongs only on
+-            // the launches that are actually X11 apps — not on every child.
+-            ("DISPLAY".into(), String::new()),
++            // The X display, once y5's own XWayland server is up — read live, which
++            // is the whole reason this is a closure: the server picks its display
++            // asynchronously, long after the executor was built.
++            //
++            // Empty until then, and empty forever if XWayland never starts. An empty
++            // `DISPLAY` is what keeps apps off the X11 fallback; a real one makes
++            // some Electron/SDL/Java and Qt configurations PREFER X11 over Wayland.
++            // That cost is accepted now that the X server is ours: an X11-only app
++            // cannot run at all without it, and every other compositor exports it.
++            // Apps that must be forced back onto Wayland can say so in their own
++            // desktop entry (`Exec=env GDK_BACKEND=wayland …`), as they already do
++            // for the toolkit hints y5 deliberately does not set.
++            (
++                "DISPLAY".into(),
++                compositor_support_smithay_state_xwayland_display::display::get().unwrap_or_default(),
++            ),
+             ("XDG_SESSION_TYPE".into(), "wayland".into()),
+             ("XDG_CURRENT_DESKTOP".into(), desktop.clone()),
+             ("XDG_SESSION_DESKTOP".into(), desktop),
+diff --git a/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/activation_env.rs b/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/activation_env.rs
+index c48020c2..ee39c4e9 100644
+--- a/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/activation_env.rs
++++ b/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/activation_env.rs
+@@ -25,9 +25,9 @@ use compositor_support_library_process_child_hygiene::hygiene::command;
+ /// would be updated, and `systemd-run --user` would still see the
+ /// old (GDM-time) env.
+ ///
+-/// An empty value (`KEY=`) clears the variable for spawned apps,
+-/// which is what we want for `DISPLAY` so apps don't fall back to
+-/// XWayland under another compositor.
++/// An empty value (`KEY=`) clears the variable for spawned apps, which is what
++/// we want for `DISPLAY` until y5's own Xwayland is up — otherwise apps would
++/// fall back to XWayland under ANOTHER compositor.
+ pub fn push_session_env(pairs: &[(&str, &str)]) -> io::Result<()> {
+     if pairs.is_empty() {
+         return Ok(());
+@@ -54,8 +54,10 @@ pub fn push_session_env(pairs: &[(&str, &str)]) -> io::Result<()> {
+ /// `std::env::set_var("WAYLAND_DISPLAY", …)`.
+ ///
+ /// - `WAYLAND_DISPLAY` → the socket name your compositor created.
+-/// - `DISPLAY=` (empty) → forces apps off X11 fallback. Set this to
+-///   `":1"` or whatever later if you run XWayland under y5.
++/// - `DISPLAY=` (empty) → forces apps off X11 fallback until there IS an X
++///   server. y5 runs its own Xwayland now, and re-pushes the real `:N` from
++///   that server's ready event (see `xwayland::register`) — asynchronously,
++///   because the display number is not known at session start.
+ /// - `XDG_SESSION_TYPE=wayland` → declares we're a Wayland session;
+ ///   some apps check this directly.
+ /// - `XDG_CURRENT_DESKTOP=y5` → identifies the desktop for apps that
+diff --git a/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/crate.json b/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/crate.json
+index 7dbdb611..c8c5510c 100644
+--- a/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/crate.json
++++ b/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/crate.json
+@@ -42,6 +42,8 @@
+     "compositor_orchestration_draw_state_lifecycle",
+     "compositor_orchestration_core_state_base",
+     "compositor_support_smithay_dispatch_state_base",
++    // Native XWayland: the X display number the ready event publishes to launches.
++    "compositor_support_smithay_state_xwayland_display",
+     "compositor_support_smithay_state_text_input_launch",
+     "compositor_support_smithay_dispatch_wire_trait",
+     "compositor_support_smithay_wayland_connection_record",
+diff --git a/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/main.rs b/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/main.rs
+index 45264455..70da972c 100644
+--- a/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/main.rs
++++ b/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/main.rs
+@@ -2,6 +2,7 @@
+ pub mod activation_env;
+ mod event_loop;
+ mod wayland;
++mod xwayland;
+ pub mod wgpu;
+ 
+ use compositor_model_debug_instance_record::{info, trace, warn};
+@@ -497,6 +498,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+     unsafe { std::env::set_var("WAYLAND_DISPLAY", &wayland_socket_name_for_children) };
+     info!("WAYLAND_DISPLAY set to {:?} for child processes", wayland_socket_name_for_children);
+ 
++    // Native XWayland. AFTER the WAYLAND_DISPLAY export above, because the X server
++    // is a wayland client of ours and smithay hands it the socket it must connect
++    // back on; and after the backend wire, so the first X11 window has an output to
++    // be placed against. The server comes up asynchronously — `DISPLAY` is published
++    // from its ready event, not here.
++    {
++        let dh = state.inner.loader.display_handle.clone();
++        xwayland::register(&dh, &mut event_loop);
++    }
++
+     // After WlrLayerShellState::new and event loop is running:
+     compositor_orchestration_environment_interface_lifecycle::lifecycle::announce_session(
+         wayland_socket_name_default_subprocess_2.to_str().unwrap(),
+diff --git a/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/xwayland.rs b/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/xwayland.rs
+new file mode 100644
+index 00000000..8aa12d49
+--- /dev/null
++++ b/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/xwayland.rs
+@@ -0,0 +1,138 @@
++//! Native XWayland: the X server and the X11 window manager that drives it.
++//!
++//! Two connections, two event sources (see smithay's `xwayland` module). The
++//! Xwayland process is an ordinary WAYLAND client of ours — its surfaces arrive
++//! through the same compositor path as anyone else's — and separately we act as
++//! its X11 window manager over a private socket. The first is what
++//! `XWayland::spawn` gives us here; the second is `X11Wm::start_wm`, which can
++//! only be started once the server signals ready.
++//!
++//! The window manager's sources go on a NESTED calloop loop whose data is
++//! `Dispatch`, not `Loop`. That is forced rather than chosen: smithay's
++//! association hook (`XWaylandShellState::new::<D>`) is a wayland PRE-COMMIT
++//! hook, so its `D` is the wayland dispatch state — which makes
++//! `Dispatch: XwmHandler` the only possible shape, and every `XwmHandler`
++//! callback therefore takes `&mut Dispatch`. Nesting is cheap: calloop's
++//! `EventLoop` is itself pollable, so the outer loop watches its fd and pumps it
++//! with a zero timeout, then drains the outboxes the callbacks filled — exactly
++//! what the wayland source above it does.
++
++use std::os::fd::AsFd;
++use std::process::Stdio;
++use std::time::Duration;
++
++use smithay::reexports::calloop::generic::Generic;
++use smithay::reexports::calloop::{EventLoop, Interest, Mode, PostAction};
++use smithay::reexports::wayland_server::DisplayHandle;
++use smithay::xwayland::{X11Wm, XWayland, XWaylandEvent};
++use compositor_model_debug_instance_record::{info, warn};
++use compositor_orchestration_core_state_base::Loop;
++use compositor_support_smithay_dispatch_state_base::state::Dispatch;
++use compositor_support_smithay_state_xwayland_display::display;
++
++/// Spawn the X server and wire both of its sources into `event_loop`.
++///
++/// Failure is never fatal: a session without an X server is a session where X11
++/// apps do not run, which is strictly better than one that will not start.
++pub fn register(display_handle: &DisplayHandle, event_loop: &mut EventLoop<Loop>) {
++    let mut xwm_loop = match EventLoop::<'static, Dispatch>::try_new() {
++        Ok(loop_) => loop_,
++        Err(err) => {
++            warn!("XWayland disabled: could not create the X11 event loop: {err:?}");
++            return;
++        }
++    };
++    let xwm_handle = xwm_loop.handle();
++
++    // Pump the nested loop whenever it has something to deliver. `Mode::Level` so a
++    // dispatch that leaves work behind is re-entered rather than dropped, and a zero
++    // timeout so this never blocks the outer loop. The drain afterwards is what turns
++    // the outboxes the `XwmHandler` callbacks filled into world effects — the same
++    // pairing the wayland source above it makes with `dispatch_clients`.
++    let pump = match xwm_loop.as_fd().try_clone_to_owned() {
++        Ok(fd) => fd,
++        Err(err) => {
++            warn!("XWayland disabled: could not duplicate the X11 loop fd: {err:?}");
++            return;
++        }
++    };
++    let inserted = event_loop.handle().insert_source(
++        Generic::new(pump, Interest::READ, Mode::Level),
++        move |_, _, state: &mut Loop| {
++            if let Err(err) = xwm_loop.dispatch(Some(Duration::ZERO), &mut state.state) {
++                warn!("X11 event loop dispatch failed: {err:?}");
++            }
++            state.drain_protocol();
++            Ok(PostAction::Continue)
++        },
++    );
++    if let Err(err) = inserted {
++        warn!("XWayland disabled: could not watch the X11 event loop: {err:?}");
++        return;
++    }
++
++    // The per-client scale is deliberately LEFT AT 1: `set_client_scale` is not
++    // called on the Xwayland client, so X11 windows are handed unscaled logical
++    // pixels and y5's camera does the rest. X has no per-window scale to publish
++    // and DPI-unaware X clients resize themselves when a global one changes, which
++    // is exactly the shrink/grow the satellite deployment had to pin down with
++    // `--force-scale 1 --ignore-fractional-scale`. Not calling it is the native
++    // spelling of those two flags, and it is the default rather than an opt-out.
++    //
++    // `open_abstract_socket = true`: containerised and statically-linked X clients
++    // (and anything using the classic `@/tmp/.X11-unix/X0` address) only ever try
++    // the abstract socket, so leaving it closed makes them look like there is no
++    // X server at all.
++    let spawned = XWayland::spawn(
++        display_handle,
++        None,
++        std::iter::empty::<(String, String)>(),
++        // No extra Xwayland arguments. `-enable-ei-portal` and friends are opt-in
++        // features y5 does not use; the defaults smithay passes (`-rootless`,
++        // `-terminate`, the wm/displayfd/listenfd wiring) are the whole contract.
++        std::iter::empty::<String>(),
++        true,
++        Stdio::null(),
++        Stdio::null(),
++        |_| (),
++    );
++    let (xwayland, client) = match spawned {
++        Ok(pair) => pair,
++        Err(err) => {
++            warn!("XWayland disabled: could not spawn the X server: {err:?}");
++            return;
++        }
++    };
++
++    let dh = display_handle.clone();
++    let source = event_loop
++        .handle()
++        .insert_source(xwayland, move |event, _, state: &mut Loop| match event {
++            XWaylandEvent::Ready { x11_socket, display_number } => {
++                match X11Wm::start_wm(xwm_handle.clone(), &dh, x11_socket, client.clone()) {
++                    Ok(wm) => {
++                        state.state.xwayland.xwm = Some(wm);
++                        // Only now is there an X server to point anything at: record the
++                        // display for the launch executor's per-launch environment, and
++                        // push it into the session so D-Bus- and systemd-activated
++                        // services inherit it too.
++                        display::set(display_number);
++                        let value = format!(":{display_number}");
++                        unsafe { std::env::set_var("DISPLAY", &value) };
++                        if let Err(err) = crate::activation_env::push_session_env(&[("DISPLAY", &value)]) {
++                            warn!("could not publish DISPLAY to the session: {err:?}");
++                        }
++                        info!("XWayland ready on :{display_number}");
++                    }
++                    Err(err) => warn!("XWayland X11 window manager failed to start: {err:?}"),
++                }
++            }
++            XWaylandEvent::Error => {
++                display::clear();
++                warn!("XWayland crashed on startup; X11 clients will not run this session");
++            }
++        });
++    if let Err(err) = source {
++        warn!("XWayland disabled: could not watch the X server: {err:?}");
++    }
++}
+diff --git a/compositor.orchestration/orchestration.core/core.state/state.base/crate.json b/compositor.orchestration/orchestration.core/core.state/state.base/crate.json
+index a0e80449..d377aa98 100644
+--- a/compositor.orchestration/orchestration.core/core.state/state.base/crate.json
++++ b/compositor.orchestration/orchestration.core/core.state/state.base/crate.json
+@@ -71,6 +71,10 @@
+     "compositor_support_smithay_state_xdg_activation_dispatch",
+     "compositor_introspection_sampler_window_base",
+     "compositor_y5_launcher_draw_state",
+-    "compositor_support_smithay_state_ephemeral_mark"
++    "compositor_support_smithay_state_ephemeral_mark",
++    // Shell-agnostic window ops: `Window` is an xdg toplevel OR an X11 surface.
++    "compositor_support_smithay_state_window_shell",
++    // Shell-agnostic window predicates: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_kind"
+   ]
+ }
+diff --git a/compositor.orchestration/orchestration.core/core.state/state.base/state.rs b/compositor.orchestration/orchestration.core/core.state/state.base/state.rs
+index f1e1bbdc..3ddd7e11 100644
+--- a/compositor.orchestration/orchestration.core/core.state/state.base/state.rs
++++ b/compositor.orchestration/orchestration.core/core.state/state.base/state.rs
+@@ -665,7 +665,6 @@ impl Orchestrator {
+                 use compositor_y5_window_interface_record::window::LoopWindow;
+                 let Some(uuid) = w.uuid() else { continue };
+                 live.insert(uuid);
+-                let Some(toplevel) = w.toplevel() else { continue };
+                 // A window nothing has ever stamped counts its absence from now, so one
+                 // spawned into a parked world or a collapsed group suspends on the same
+                 // terms as one that scrolled away rather than instantly.
+@@ -680,13 +679,22 @@ impl Orchestrator {
+                 if suspend == self.suspended.contains(&uuid) {
+                     continue;
+                 }
+-                toplevel.with_pending_state(|s| match suspend {
+-                    true => s.states.set(xdg_toplevel::State::Suspended),
+-                    false => s.states.unset(xdg_toplevel::State::Suspended),
+-                });
+-                // Clients below xdg_wm_base v6 never see the state — smithay filters it
+-                // per client version (`into_filtered_states`) — so nothing to gate here.
+-                toplevel.send_pending_configure();
++                if let Some(toplevel) = w.toplevel() {
++                    toplevel.with_pending_state(|s| match suspend {
++                        true => s.states.set(xdg_toplevel::State::Suspended),
++                        false => s.states.unset(xdg_toplevel::State::Suspended),
++                    });
++                    // Clients below xdg_wm_base v6 never see the state — smithay filters it
++                    // per client version (`into_filtered_states`) — so nothing to gate here.
++                    toplevel.send_pending_configure();
++                } else if let Some(x11) = w.x11_surface() {
++                    // `_NET_WM_STATE_HIDDEN` is the X11 spelling of the same statement:
++                    // this window is not being presented, stop painting it. A property,
++                    // not a configure, so there is nothing to send afterwards.
++                    if let Err(err) = x11.set_hidden(suspend) {
++                        warn!("x11 set_hidden failed: {err:?}");
++                    }
++                }
+                 match suspend {
+                     true => self.suspended.insert(uuid),
+                     false => self.suspended.remove(&uuid),
+@@ -720,10 +728,11 @@ impl Orchestrator {
+                 continue;
+             };
+             for w in world.inner.state.elements() {
++                // `Window::set_activated` already writes `_NET_WM_STATE_FOCUSED` for an
++                // X11 window (immediately — there is nothing to send afterwards), so only
++                // the xdg half needs the configure.
+                 w.set_activated(Some(w) == keep);
+-                if let Some(toplevel) = w.toplevel() {
+-                    toplevel.send_pending_configure();
+-                }
++                compositor_support_smithay_state_window_shell::shell::send_pending(w);
+             }
+         }
+     }
+@@ -757,7 +766,7 @@ impl Orchestrator {
+                 .inner
+                 .state
+                 .elements()
+-                .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface))
++                .find(|w| w.wl_surface().is_some_and(|s| s.as_ref() == surface))
+                 .cloned()?;
+             Some((id, found))
+         })
+diff --git a/compositor.orchestration/orchestration.core/core.state/state.base/wire.rs b/compositor.orchestration/orchestration.core/core.state/state.base/wire.rs
+index 3b4d7db6..cb57c812 100644
+--- a/compositor.orchestration/orchestration.core/core.state/state.base/wire.rs
++++ b/compositor.orchestration/orchestration.core/core.state/state.base/wire.rs
+@@ -5,7 +5,9 @@ use smithay::desktop::{Space, Window};
+ use smithay::utils::{Logical, Physical, Point, Rectangle};
+ use smithay::wayland::compositor::with_states;
+ use smithay::wayland::shell::xdg::ToplevelSurface;
++use smithay::xwayland::X11Surface;
+ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
++use smithay::wayland::seat::WaylandFocus;
+ use smithay::utils::IsAlive;
+ use std::ops::DerefMut;
+ use std::sync::{Arc, Mutex};
+@@ -47,7 +49,7 @@ impl WireTrait for Orchestrator {
+             .all_world_spaces()
+             .iter()
+             .flat_map(|s| s.state.elements())
+-            .find(|w| w.toplevel().map(|t| t.wl_surface() == surface).unwrap_or(false))
++            .find(|w| w.wl_surface().is_some_and(|s| s.as_ref() == surface))
+             .cloned();
+         if let Some(window) = focused {
+             if let Some(world) = self.world_of_window(&window) {
+@@ -68,7 +70,7 @@ impl WireTrait for Orchestrator {
+         match restore {
+             Some(window) => {
+                 self.set_activated_exclusive(Some(&window));
+-                window.toplevel().map(|t| t.wl_surface().clone())
++                window.wl_surface().map(|s| s.into_owned())
+             }
+             None => {
+                 self.world_focus_memory.remove(&target);
+@@ -104,9 +106,17 @@ impl WireTrait for Orchestrator {
+             .insert_if_missing_threadsafe(|| WindowData { UUID: uuid });
+ 
+         // Place the uuid into surface as well. required for ondestroy.
+-        let surface = window.toplevel().unwrap_or_else(|| abort!("toplevels only")).wl_surface();
++        //
++        // X11 windows may have no wl_surface yet — Xwayland associates one only once
++        // the client's serial round-trip completes, which can land after the map
++        // request. Nothing is lost: `destroy_x11_data` reads the uuid back off the
++        // window's own user data (stamped above) rather than off the surface.
++        let Some(surface) = window.wl_surface() else {
++            info!("initialize_surface_data (x11, unassociated): {:?}", uuid);
++            return;
++        };
+         info!("initialize_surface_Data: {:?}", uuid);
+-        with_states(surface, |states| {
++        with_states(&surface, |states| {
+             let inserted = states
+                 .data_map
+                 .insert_if_missing_threadsafe(|| Mutex::new(WindowData { UUID: uuid }));
+@@ -173,6 +183,63 @@ impl WireTrait for Orchestrator {
+         });
+     }
+ 
++    fn x11_window(&self, surface: &X11Surface) -> Option<(uuid::Uuid, Window)> {
++        self.worlds.ids().into_iter().find_map(|id| {
++            let found = self
++                .worlds
++                .get(id)
++                .storage()
++                .try_get(&compositor_support_world_host_space_base::base::SPACE)?
++                .inner
++                .state
++                .elements()
++                .find(|w| w.x11_surface() == Some(surface))
++                .cloned()?;
++            Some((id, found))
++        })
++    }
++
++    fn space_of_world_mut(&mut self, world: uuid::Uuid) -> &mut compositor_support_smithay_state_space_base::state::SpaceState {
++        self.space_of_mut(world)
++    }
++
++    fn map_override_redirect(&mut self, window: Window) {
++        use compositor_y5_window_interface_record::window::LoopWindow;
++        let Some(uuid) = window.uuid() else { return };
++        // Top of CONTENT, which is where a menu belongs relative to the window it
++        // was opened from — and the ONLY thing this registration buys it. The
++        // scene walks the draw order and skips anything absent from it, so
++        // without this an X11 menu is mapped, sized and never drawn.
++        self.register_drawable(uuid, compositor_support_world_order_track_base::base::DrawLayer::CONTENT);
++    }
++
++    fn destroy_x11_data(&mut self, window: Window) {
++        use compositor_y5_window_interface_record::window::LoopWindow;
++        let Some(uuid) = window.uuid() else { return };
++        // Override-redirect chrome has no placeholder, no selection and no group
++        // to retire — the draw-order slot above is the one thing it took.
++        if !compositor_support_smithay_state_window_kind::kind::is_window(&window) {
++            self.remove_drawable(uuid);
++            return;
++        }
++        info!("destroy_x11_data: {uuid:?}");
++        // An X11 window carries no activation token (that is an xdg protocol), so
++        // there is nothing to retire alongside it. The Shift-close mark is still
++        // read where it was written — on the wl_surface — when one is still around.
++        let discard_placeholder = window
++            .wl_surface()
++            .map(|surface| {
++                with_states(&surface, |states| {
++                    states.data_map.get::<DiscardPlaceholder>().is_some()
++                        || compositor_support_smithay_state_ephemeral_mark::mark::is_marked(states)
++                })
++            })
++            .unwrap_or(false);
++        self.window_lifecycle_mut()
++            .incoming
++            .push(WindowLifecycleEvent::Destroyed(uuid, None, discard_placeholder));
++    }
++
+     fn place_window(&mut self, window: Window, geometry: Rectangle<i32, Logical>) {
+         // Side effect- because of the dispatcher wiring problem, the place_window returns a location rather than calling map_element.
+         // However this function should be treated as if it called the initial space map_element call.
+diff --git a/compositor.orchestration/orchestration.draw/draw.scene/scene.frame/crate.json b/compositor.orchestration/orchestration.draw/draw.scene/scene.frame/crate.json
+index 22a4b5f9..af56d401 100644
+--- a/compositor.orchestration/orchestration.draw/draw.scene/scene.frame/crate.json
++++ b/compositor.orchestration/orchestration.draw/draw.scene/scene.frame/crate.json
+@@ -49,6 +49,8 @@
+     "compositor_support_bevy_core_compositor_base",
+     "compositor_background_two_draw_element",
+     "compositor_support_system_persist_mark_base",
+-    "compositor_support_system_persist_flush_base"
++    "compositor_support_system_persist_flush_base",
++    // Shell-agnostic configure: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_shell"
+   ]
+ }
+diff --git a/compositor.orchestration/orchestration.draw/draw.scene/scene.frame/scene.rs b/compositor.orchestration/orchestration.draw/draw.scene/scene.frame/scene.rs
+index 3bcc9579..d7e3fb9f 100644
+--- a/compositor.orchestration/orchestration.draw/draw.scene/scene.frame/scene.rs
++++ b/compositor.orchestration/orchestration.draw/draw.scene/scene.frame/scene.rs
+@@ -903,10 +903,16 @@ where
+         })
+         .collect();
+     for (window, size) in resize_due {
+-        if let Some(toplevel) = window.toplevel() {
+-            toplevel.with_pending_state(|s| s.size = Some(size));
+-            toplevel.send_configure();
+-        }
++        // An X11 configure carries position and size in one event, so the throttle's
++        // catch-up emit needs the window's live Space location too.
++        let at = state
++            .inner
++            .space_state()
++            .state
++            .element_location(&window)
++            .unwrap_or_default();
++        compositor_support_smithay_state_window_shell::shell::stage(&window, size, false);
++        compositor_support_smithay_state_window_shell::shell::send(&window, at, size);
+     }
+ 
+     // Return the resulting scene
+diff --git a/compositor.orchestration/orchestration.seat/seat.pointer/pointer.input/crate.json b/compositor.orchestration/orchestration.seat/seat.pointer/pointer.input/crate.json
+index 08a2dee0..0c4acb13 100644
+--- a/compositor.orchestration/orchestration.seat/seat.pointer/pointer.input/crate.json
++++ b/compositor.orchestration/orchestration.seat/seat.pointer/pointer.input/crate.json
+@@ -27,6 +27,8 @@
+     "compositor_support_smithay_dispatch_wire_tablet",
+     "compositor_model_environment_preference_base",
+     "compositor_orchestration_seat_pointer_publish",
+-    "compositor_pipeline_abi_clock_base"
++    "compositor_pipeline_abi_clock_base",
++    // Shell-agnostic configure: `Window` is xdg OR X11.
++    "compositor_support_smithay_state_window_shell"
+   ]
+ }
+diff --git a/compositor.orchestration/orchestration.seat/seat.pointer/pointer.input/native_motion/dispatch.rs b/compositor.orchestration/orchestration.seat/seat.pointer/pointer.input/native_motion/dispatch.rs
+index 3805197f..7c3cd12c 100644
+--- a/compositor.orchestration/orchestration.seat/seat.pointer/pointer.input/native_motion/dispatch.rs
++++ b/compositor.orchestration/orchestration.seat/seat.pointer/pointer.input/native_motion/dispatch.rs
+@@ -1,4 +1,5 @@
+ use smithay::input::pointer::{MotionEvent, PointerHandle, RelativeMotionEvent};
++use smithay::wayland::seat::WaylandFocus;
+ use smithay::utils::{Logical, Physical, Point, Serial};
+ use compositor_y5_camera_transform_translate::translate;
+ use compositor_orchestration_core_state_base::Loop;
+@@ -30,7 +31,7 @@ pub fn dispatch(
+             return false;
+         }
+         if let (Some(carried), Some(window)) = (carried.as_ref(), hit.window()) {
+-            if window.toplevel().is_some_and(|t| t.wl_surface() == carried) {
++            if window.wl_surface().is_some_and(|s| s.as_ref() == carried) {
+                 return false;
+             }
+         }
+diff --git a/compositor.orchestration/orchestration.seat/seat.pointer/pointer.input/native_press/press.rs b/compositor.orchestration/orchestration.seat/seat.pointer/pointer.input/native_press/press.rs
+index 40223986..a51ac067 100644
+--- a/compositor.orchestration/orchestration.seat/seat.pointer/pointer.input/native_press/press.rs
++++ b/compositor.orchestration/orchestration.seat/seat.pointer/pointer.input/native_press/press.rs
+@@ -5,6 +5,8 @@ use smithay::input::pointer::{ButtonEvent, PointerHandle};
+ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+ use smithay::utils::{SERIAL_COUNTER, Serial};
+ use smithay::wayland::shell::wlr_layer::{KeyboardInteractivity, Layer};
++use smithay::wayland::seat::WaylandFocus;
++use compositor_support_smithay_state_window_shell::shell;
+ use compositor_orchestration_core_state_base::Loop;
+ use compositor_support_smithay_dispatch_state_base::state::Dispatch;
+ use compositor_y5_surface_interface_base::hit::SurfaceHit;
+@@ -149,9 +151,7 @@ pub fn apply_focus(
+ 
+             for w in _loop.inner.space_state().state.elements() {
+                 w.set_activated(w == window);
+-                if let Some(toplevel) = w.toplevel() {
+-                    toplevel.send_pending_configure();
+-                }
++                shell::send_pending(w);
+             }
+ 
+             // A fullscreen window must stay above its peers even when another
+@@ -169,7 +169,7 @@ pub fn apply_focus(
+                 }
+             }
+ 
+-            window.toplevel().map(|t| t.wl_surface().clone())
++            window.wl_surface().map(|s| s.into_owned())
+         }
+         SurfaceHit::Layer { surface, .. } => {
+             // Honor the client's keyboard_interactivity on ANY layer — Background/Bottom
+@@ -201,9 +201,7 @@ pub fn apply_focus(
+             }
+             for window in _loop.inner.space_state().state.elements() {
+                 window.set_activated(false);
+-                if let Some(toplevel) = window.toplevel() {
+-                    toplevel.send_pending_configure();
+-                }
++                shell::send_pending(window);
+             }
+             None
+         }
+diff --git a/compositor.support/support.smithay/smithay.dispatch/dispatch.state/state.base/crate.json b/compositor.support/support.smithay/smithay.dispatch/dispatch.state/state.base/crate.json
+index 0f65b7f9..d3a05c7b 100644
+--- a/compositor.support/support.smithay/smithay.dispatch/dispatch.state/state.base/crate.json
++++ b/compositor.support/support.smithay/smithay.dispatch/dispatch.state/state.base/crate.json
+@@ -17,6 +17,10 @@
+     "compositor_support_smithay_state_output_base",
+     "compositor_support_smithay_state_popup_base",
+     "compositor_support_smithay_state_layershell_base",
++    // XWayland: the `xwayland_shell_v1` + `XwmHandler` orphan impls live here for
++    // the same reason the rest do — and because smithay's association commit hook
++    // is typed on the wayland dispatch state, which forces `Dispatch: XwmHandler`.
++    "compositor_support_smithay_state_xwayland_base",
+     // wlr-foreign-toplevel-management: the manager/handle GlobalDispatch+Dispatch
+     // orphan impls live here (crate that defines `Dispatch`); state + emit logic is
+     // in foreign.base.
+diff --git a/compositor.support/support.smithay/smithay.dispatch/dispatch.state/state.base/state.rs b/compositor.support/support.smithay/smithay.dispatch/dispatch.state/state.base/state.rs
+index 2d4bc4b2..9bdcd57a 100644
+--- a/compositor.support/support.smithay/smithay.dispatch/dispatch.state/state.base/state.rs
++++ b/compositor.support/support.smithay/smithay.dispatch/dispatch.state/state.base/state.rs
+@@ -80,6 +80,10 @@ pub struct Dispatch {
+     pub popup: compositor_support_smithay_state_popup_base::state::PopupState,
+     pub layershell: compositor_support_smithay_state_layershell_base::state::Layershell,
+     pub foreign: compositor_support_smithay_state_foreign_base::base::ForeignToplevel,
++    /// XWayland: the `xwayland_shell_v1` global, the X11 window manager and the
++    /// X11-side outboxes. Present whether or not Xwayland ever starts — the
++    /// global has to exist before its first roundtrip (see `xwayland.factory`).
++    pub xwayland: compositor_support_smithay_state_xwayland_base::base::Xwayland,
+     // `space` moved out of Dispatch: the window Space is now owned by the
+     // spatial world (document/ARCHITECTURE.md → "Window tracking"). Smithay
+     // handlers reach it via `WireTrait::host_space[_mut]`.
+@@ -383,6 +387,21 @@ impl SeatHandler for Dispatch {
+         let client = focused
+             .and_then(|s| self.output.display_handle.get_client(s.id()).ok());
+ 
++        // The X11 half of focus. `KeyboardFocus` here is the plain `WlSurface`, so
++        // smithay's `KeyboardTarget for X11Surface` — which does this for a
++        // compositor whose focus target is an enum — is never reached, and without
++        // it the X server is never told which window has the input focus: X clients
++        // would receive no keyboard input at all. Read `previous_focus` BEFORE the
++        // pointer block below overwrites it.
++        if let Some(old) = self.seat.previous_focus.as_ref() {
++            if let Some(x11) = self.xwayland.focus_index.get(old) {
++                x11.set_input_focus(false);
++            }
++        }
++        if let Some(x11) = focused.and_then(|s| self.xwayland.focus_index.get(s)) {
++            x11.set_input_focus(true);
++        }
++
+         if let Some(pointer) = seat.get_pointer() {
+             // Deactivate on whatever lost keyboard focus.
+             if let Some(old_focus) = self.seat.previous_focus.as_ref().cloned() {
+@@ -800,6 +819,230 @@ mod foreign_impls {
+     }
+ }
+ 
++// ── XWayland impls (orphan-required here) ──────────────────────────────────────
++// The X11 window manager runs against `Dispatch`, not against `Loop`: smithay's
++// `xwayland_shell_v1` registers a PRE-COMMIT HOOK typed on the wayland dispatch
++// state (`XWaylandShellState::new::<D>` → `serial_commit_hook::<D>`), and that
++// hook is what associates an X11 window with its wl_surface — so `D` there is
++// necessarily `Dispatch` and `Dispatch: XwmHandler` is forced. That turns out to
++// be the right shape anyway: like every other handler here these run world-free
++// and record onto outboxes the rim drains.
++//
++// The X11 event source therefore lives on a NESTED calloop loop whose data is
++// `Dispatch`; `Wire` owns it and pumps it from the outer loop (see wire.base).
++mod xwm_impls {
++    use smithay::desktop::Window;
++    use smithay::reexports::wayland_server::Resource;
++    use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
++    use smithay::utils::{Logical, Rectangle};
++    use smithay::wayland::selection::SelectionTarget;
++    use smithay::wayland::selection::data_device::request_data_device_client_selection;
++    use smithay::wayland::xwayland_shell::{XWaylandShellHandler, XWaylandShellState};
++    use smithay::xwayland::{X11Surface, X11Wm, XWaylandClientData, XwmHandler};
++    use smithay::xwayland::xwm::{Reorder, ResizeEdge, XwmId};
++    use std::os::fd::OwnedFd;
++    use super::Dispatch;
++
++    /// The `SelectionUserData` (a clipboard capture generation everywhere else)
++    /// that means "this selection is owned by an X11 client". A paste against it
++    /// is routed back over the X connection instead of served from the capture,
++    /// and no real generation can collide with it — `Capture::arm` counts up from
++    /// zero, one per copy.
++    pub const X11_SELECTION: u64 = u64::MAX;
++
++    impl XWaylandShellHandler for Dispatch {
++        fn xwayland_shell_state(&mut self) -> &mut XWaylandShellState {
++            &mut self.xwayland.shell
++        }
++        /// The X11 window found its wl_surface. Indexed for the focus path, which
++        /// has only a `WlSurface` to go on (see `Xwayland::focus_index`), and a
++        /// frame is asked for: this is the moment the window becomes drawable.
++        fn surface_associated(&mut self, _xwm: XwmId, surface: WlSurface, window: X11Surface) {
++            self.xwayland.focus_index.insert(surface, window);
++            self.schedule_redraw();
++        }
++    }
++
++    impl XwmHandler for Dispatch {
++        fn xwm_state(&mut self, _xwm: XwmId) -> &mut X11Wm {
++            self.xwayland
++                .xwm
++                .as_mut()
++                .unwrap_or_else(|| abort!("xwm event dispatched with no window manager"))
++        }
++
++        // Creation is not mapping: an X11 client creates windows it may never
++        // show. y5 learns about one when it asks to be mapped, below.
++        fn new_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
++        fn new_override_redirect_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
++
++        /// A managed X11 window wants to be shown. It joins `new_toplevels` beside
++        /// xdg toplevels rather than getting an outbox of its own, so one drain arm
++        /// maps both kinds and an X11 window picks up the same uuid, placeholder,
++        /// draw-order and introspection treatment as any other window.
++        fn map_window_request(&mut self, _xwm: XwmId, window: X11Surface) {
++            if let Err(err) = window.set_mapped(true) {
++                warn!("x11 map failed: {err:?}");
++                return;
++            }
++            self.new_toplevels.push(Window::new_x11_window(window));
++            self.schedule_redraw();
++        }
++
++        /// Menus, tooltips and drag icons. An override-redirect window has told
++        /// the X server no window manager may touch it, so it is mapped exactly
++        /// where it asked and given none of the y5 window identity.
++        fn mapped_override_redirect_window(&mut self, _xwm: XwmId, window: X11Surface) {
++            self.xwayland.mapped_override.push(Window::new_x11_window(window));
++            self.schedule_redraw();
++        }
++
++        /// Withdrawn. X11 has no "minimize" we honour, so an unmap is a removal —
++        /// and the destroy that usually follows is not guaranteed to arrive, which
++        /// is why both routes queue the same thing.
++        fn unmapped_window(&mut self, _xwm: XwmId, window: X11Surface) {
++            if !window.is_override_redirect() {
++                if let Err(err) = window.set_mapped(false) {
++                    warn!("x11 unmap failed: {err:?}");
++                }
++            }
++            self.xwayland.gone.push(window);
++            self.schedule_redraw();
++        }
++
++        fn destroyed_window(&mut self, _xwm: XwmId, window: X11Surface) {
++            self.xwayland.focus_index.retain(|_, indexed| indexed != &window);
++            self.xwayland.gone.push(window);
++            self.schedule_redraw();
++        }
++
++        /// The client asks for a geometry. Its SIZE is honoured — that is how an
++        /// X11 window states how big it wants to be, and the initial map reads it
++        /// straight back off `Window::geometry` — while its POSITION is refused:
++        /// placement is the compositor's, exactly as for an xdg toplevel, and
++        /// `last_configure` already carries the location we last configured (and,
++        /// unlike `geometry`, still includes the client's frame extents).
++        fn configure_request(
++            &mut self,
++            _xwm: XwmId,
++            window: X11Surface,
++            _x: Option<i32>,
++            _y: Option<i32>,
++            w: Option<u32>,
++            h: Option<u32>,
++            _reorder: Option<Reorder>,
++        ) {
++            let mut geometry = window.last_configure();
++            if let Some(w) = w {
++                geometry.size.w = w as i32;
++            }
++            if let Some(h) = h {
++                geometry.size.h = h as i32;
++            }
++            if let Err(err) = window.configure(geometry) {
++                warn!("x11 configure failed: {err:?}");
++            }
++        }
++
++        /// Where the window actually ended up. Only override-redirect surfaces
++        /// move themselves; the drain filters on that, since for a managed window
++        /// this is just the echo of our own configure.
++        fn configure_notify(
++            &mut self,
++            _xwm: XwmId,
++            window: X11Surface,
++            geometry: Rectangle<i32, Logical>,
++            _above: Option<u32>,
++        ) {
++            self.xwayland.moved.push((window, geometry));
++            self.schedule_redraw();
++        }
++
++        fn fullscreen_request(&mut self, _xwm: XwmId, window: X11Surface) {
++            self.xwayland.fullscreen.push((window, true));
++            self.schedule_redraw();
++        }
++
++        fn unfullscreen_request(&mut self, _xwm: XwmId, window: X11Surface) {
++            self.xwayland.fullscreen.push((window, false));
++            self.schedule_redraw();
++        }
++
++        // Client-driven move/resize grabs are refused for X11 for the same reason
++        // they are for xdg (`XdgShellHandler::move_request`/`resize_request` are
++        // empty): windows are moved and sized on the y5 canvas, by the user.
++        fn resize_request(&mut self, _xwm: XwmId, _window: X11Surface, _button: u32, _edges: ResizeEdge) {}
++        fn move_request(&mut self, _xwm: XwmId, _window: X11Surface, _button: u32) {}
++
++        /// Title, class, icon, hints. Nothing is cached — the introspection
++        /// extraction reads them off the surface on demand — so this only has to
++        /// make sure whatever paints them repaints.
++        fn property_notify(
++            &mut self,
++            _xwm: XwmId,
++            _window: X11Surface,
++            _property: smithay::xwayland::xwm::WmWindowProperty,
++        ) {
++            self.schedule_redraw();
++        }
++
++        // ── Selection bridge ──────────────────────────────────────────────────
++        // X11 and wayland selections are two ownership models over one clipboard.
++        // The rule here: whoever copied last owns it, and the other side is told
++        // there is a new owner so it can ask for the bytes when a paste happens.
++
++        /// An X client asks to read the selection. Granted only while an X11
++        /// window holds keyboard focus — otherwise any X client could poll the
++        /// clipboard of whatever the user is actually working in.
++        fn allow_selection_access(&mut self, _xwm: XwmId, _selection: SelectionTarget) -> bool {
++            let Some(keyboard) = self.seat.seat.get_keyboard() else { return false };
++            let Some(focus) = keyboard.current_focus() else { return false };
++            let Ok(client) = self.output.display_handle.get_client(focus.id()) else { return false };
++            client.get_data::<XWaylandClientData>().is_some()
++        }
++
++        /// An X client is reading a selection a WAYLAND client owns: ask that
++        /// client to write it into the pipe the X server handed us.
++        fn send_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_type: String, fd: OwnedFd) {
++            if selection != SelectionTarget::Clipboard {
++                return;
++            }
++            if let Err(err) = request_data_device_client_selection(&self.seat.seat, mime_type, fd) {
++                warn!("xwayland clipboard read from the wayland owner failed: {err:?}");
++            }
++        }
++
++        /// An X client took the clipboard. The wayland side is pointed at it with
++        /// the [`X11_SELECTION`] marker as its user data, which is what routes a
++        /// later paste back over the X connection.
++        fn new_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_types: Vec<String>) {
++            if selection != SelectionTarget::Clipboard {
++                return;
++            }
++            trace!("clipboard taken by an x11 client flavors={}", mime_types.len());
++            self.xwayland.x11_selection = true;
++            let dh = self.output.display_handle.clone();
++            let seat = self.seat.seat.clone();
++            smithay::wayland::selection::data_device::set_data_device_selection::<Dispatch>(
++                &dh,
++                &seat,
++                mime_types,
++                X11_SELECTION,
++            );
++        }
++
++        fn cleared_selection(&mut self, _xwm: XwmId, selection: SelectionTarget) {
++            if selection != SelectionTarget::Clipboard || !self.xwayland.x11_selection {
++                return;
++            }
++            self.xwayland.x11_selection = false;
++            let dh = self.output.display_handle.clone();
++            let seat = self.seat.seat.clone();
++            smithay::wayland::selection::data_device::clear_data_device_selection::<Dispatch>(&dh, &seat);
++        }
++    }
++}
++
+ // ── Marker impls ───────────────────────────────────────────────────────────────
+ // `DispatchWire` is local to this crate → impl here. `FactoryBounds` is local to
+ // state.bounds (which deps on this crate), so `impl FactoryBounds for Dispatch`
+@@ -1083,6 +1326,17 @@ mod handler_impls {
+             source: Option<SelectionSource>,
+             _seat: Seat<Self>,
+         ) {
++            // A wayland client took the clipboard: tell the X server there is a new
++            // owner, so an X client that pastes asks US for the bytes (arriving back
++            // as `XwmHandler::send_selection`). Done before the `Clipboard`-only
++            // filter below because it is the ownership handover, not the capture.
++            if let Some(xwm) = self.xwayland.xwm.as_mut() {
++                let mimes = source.as_ref().map(|s| s.mime_types());
++                if let Err(err) = xwm.new_selection(ty, mimes) {
++                    warn!("failed to announce the wayland selection to xwayland: {err:?}");
++                }
++            }
++            self.xwayland.x11_selection = false;
+             if ty != SelectionTarget::Clipboard {
+                 return;
+             }
+@@ -1205,6 +1459,16 @@ mod handler_impls {
+             if ty != SelectionTarget::Clipboard {
+                 return;
+             }
++            // The clipboard is owned by an X client: the bytes live in the X server,
++            // not in our capture, so the pipe goes back over the X connection and the
++            // generation check below does not apply.
++            if *user_data == super::xwm_impls::X11_SELECTION {
++                let Some(xwm) = self.xwayland.xwm.as_mut() else { return };
++                if let Err(err) = xwm.send_selection(ty, mime_type, fd) {
++                    warn!("failed to read the x11 clipboard for a wayland client: {err:?}");
++                }
++                return;
++            }
+             // Async: a payload past the pipe buffer would block the compositor if it
+             // were written inline. Dropping `fd` on a mismatch closes the pipe, which
+             // the pasting client reads as an empty transfer.
+@@ -1248,7 +1512,17 @@ mod handler_impls {
+     impl CompositorHandler for Dispatch {
+         fn compositor_state(&mut self) -> &mut CompositorState { &mut self.compositor.state }
+         fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
+-            &client.get_data::<WaylandClientSession>().unwrap().compositor_state
++            if let Some(session) = client.get_data::<WaylandClientSession>() {
++                return &session.compositor_state;
++            }
++            // The Xwayland server is a client of ours like any other, but smithay
++            // inserts it itself with its OWN `ClientData` (that is where the
++            // per-client scale it needs lives), so it never carries the session
++            // record the socket source attaches to everyone else.
++            client
++                .get_data::<smithay::xwayland::XWaylandClientData>()
++                .map(|data| &data.compositor_state)
++                .unwrap_or_else(|| abort!("client has neither a y5 session nor XWayland client data"))
+         }
+         fn new_surface(&mut self, surface: &WlSurface) {
+             install_syncobj_blocker_hook(surface);
+diff --git a/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.base/crate.json b/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.base/crate.json
+index c0f9b81a..90b2a5b9 100644
+--- a/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.base/crate.json
++++ b/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.base/crate.json
+@@ -29,6 +29,11 @@
+     "compositor_support_smithay_state_output_factory",
+     "compositor_support_smithay_state_popup_factory",
+     "compositor_support_smithay_state_layershell_factory",
++    "compositor_support_smithay_state_xwayland_factory",
++    // Shell-agnostic window ops: `Window` is an xdg toplevel OR an X11 surface.
++    "compositor_support_smithay_state_window_shell",
++    // `WindowPlacedMarker` — the X11 initial placement marks itself placed.
++    "compositor_support_smithay_state_compositor_place",
+     "compositor_support_smithay_state_foreign_factory",
+     "compositor_support_smithay_state_foreign_base",
+     "compositor_support_smithay_state_compositor_factory",
+diff --git a/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.base/wire.rs b/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.base/wire.rs
+index fb82d1b9..0c384cf2 100644
+--- a/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.base/wire.rs
++++ b/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.base/wire.rs
+@@ -10,7 +10,7 @@
+ use std::sync::Mutex;
+ use smithay::backend::allocator::dmabuf::Dmabuf;
+ use smithay::backend::drm::DrmDeviceFd;
+-use smithay::desktop::PopupKind;
++use smithay::desktop::{PopupKind, Window};
+ use smithay::input::dnd::{DndGrabHandler, GrabType, Source};
+ use smithay::input::{Seat, SeatHandler, SeatState};
+ use smithay::input::pointer::{MotionEvent, PointerHandle};
+@@ -50,6 +50,8 @@ use smithay::wayland::shell::xdg::{PopupSurface, PositionerState, ToplevelSurfac
+ use smithay::wayland::shell::xdg::decoration::XdgDecorationHandler;
+ use smithay::wayland::shm::{ShmHandler, ShmState};
+ use smithay::wayland::xdg_activation::{XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData};
++use smithay::xwayland::X11Surface;
++use compositor_support_smithay_state_window_shell::shell;
+ use compositor_support_smithay_dispatch_state_base::state::{Dispatch, DispatchWire};
+ use compositor_support_smithay_dispatch_state_bounds::FactoryBounds;
+ use compositor_support_smithay_dispatch_wire_color::color::{ImageDescData, ParamsState};
+@@ -127,6 +129,7 @@ pub fn new_dispatch(
+         output: compositor_support_smithay_state_output_factory::factory::new::<Dispatch>(display_handle),
+         popup: compositor_support_smithay_state_popup_factory::factory::new::<Dispatch>(),
+         layershell: compositor_support_smithay_state_layershell_factory::factory::new::<Dispatch>(display_handle),
++        xwayland: compositor_support_smithay_state_xwayland_factory::factory::new::<Dispatch>(display_handle),
+         foreign: {
+             // `protocol_foreign` preference (preferences.json) startup snapshot: when
+             // disabled, NEITHER foreign-toplevel global is advertised (clients can't bind
+@@ -204,7 +207,7 @@ impl<A: WireTrait + 'static> Wire<A> {
+             .all_world_spaces()
+             .iter()
+             .flat_map(|s| s.state.elements())
+-            .find(|w| w.toplevel().map(|t| *t.wl_surface() == surface).unwrap_or(false))
++            .find(|w| w.wl_surface().is_some_and(|s| *s == surface))
+             .cloned()
+         else {
+             return;
+@@ -212,9 +215,7 @@ impl<A: WireTrait + 'static> Wire<A> {
+ 
+         match request {
+             ForeignRequest::Close => {
+-                if let Some(t) = window.toplevel() {
+-                    t.send_close();
+-                }
++                shell::close(&window);
+             }
+             ForeignRequest::Fullscreen(fs) => {
+                 self.inner.fullscreen_request(window, fs);
+@@ -377,16 +378,134 @@ impl<A: WireTrait + 'static> Wire<A> {
+         self.state.schedule_redraw();
+     }
+ 
++    /// Apply the X11 window manager's outboxes against the hosted Space.
++    ///
++    /// Called from `drain_protocol` right after the managed-window arm, so an
++    /// override-redirect menu that appeared in the same iteration as the window it
++    /// belongs to is mapped behind it rather than ahead of it.
++    fn drain_x11(&mut self) {
++        // Override-redirect surfaces (menus, tooltips, drag icons): mapped exactly
++        // where the X client put them, on top, and given no y5 window identity —
++        // they are transient chrome, not windows the user owns.
++        //
++        // The coordinates are meaningful because `shell::send` configures managed
++        // X11 windows at their y5-world location: the client positions its menu
++        // against the geometry we gave its parent, so the two agree by construction.
++        for window in std::mem::take(&mut self.state.xwayland.mapped_override) {
++            // The X position the client chose — `last_configure`, not `geometry`,
++            // which has the frame extents subtracted out.
++            let location = window
++                .x11_surface()
++                .map(|x11| x11.last_configure().loc)
++                .unwrap_or_else(|| window.geometry().loc);
++            self.inner.initialize_surface_data(window.clone());
++            // Placed by definition — it told the X server where it goes — so mark it
++            // so, or the scene's `placed` gate drops it and the commit-driven initial
++            // placement it never goes through would be waited on forever.
++            window
++                .user_data()
++                .insert_if_missing(|| compositor_support_smithay_state_compositor_place::WindowPlacedMarker);
++            self.inner.host_space_mut().state.map_element(window.clone(), location, true);
++            self.inner.map_override_redirect(window);
++        }
++        // A menu repositioning itself. Filtered to override-redirect: for a managed
++        // window this notification is only the echo of our own configure, and
++        // honouring it would let a client walk itself around the canvas.
++        for (surface, geometry) in std::mem::take(&mut self.state.xwayland.moved) {
++            if !surface.is_override_redirect() {
++                continue;
++            }
++            let Some((world, window)) = self.inner.x11_window(&surface) else { continue };
++            self.inner.space_of_world_mut(world).state.map_element(window, geometry.loc, false);
++        }
++        // `fullscreen_request` queues the lifecycle event; the flag itself is
++        // written by `fullscreen_set` when that event is applied, so it is not
++        // asserted here as well.
++        for (surface, fullscreen) in std::mem::take(&mut self.state.xwayland.fullscreen) {
++            let Some((_, window)) = self.inner.x11_window(&surface) else { continue };
++            self.inner.fullscreen_request(window, fullscreen);
++        }
++        // Unmapped or destroyed. `destroy_x11_data` retires whatever the window
++        // actually took: the full lifecycle for a managed window, only its
++        // draw-order slot for override-redirect chrome.
++        for surface in std::mem::take(&mut self.state.xwayland.gone) {
++            let Some((world, window)) = self.inner.x11_window(&surface) else { continue };
++            self.inner.space_of_world_mut(world).state.unmap_elem(&window);
++            self.inner.destroy_x11_data(window);
++        }
++        self.sync_x11_stacking();
++    }
++
++    /// Mirror the compositor's window order into the X server's stacking order.
++    ///
++    /// It matters beyond `_NET_CLIENT_LIST_STACKING`: an X client places its own
++    /// override-redirect children against the stack it believes it is in, so a
++    /// menu opened from the lower of two X11 windows lands under the upper one
++    /// unless the server agrees with us about which is which. Only X11 windows
++    /// take part — wayland windows are not in the X stack at all, and the
++    /// relative order of the X ones among themselves is the whole question.
++    ///
++    /// Diffed against the last published order first. This runs from a drain that
++    /// fires on every wayland dispatch, and `update_stacking_order_upwards` grabs
++    /// the X server, so answering "nothing moved" without a round trip is what
++    /// makes calling it here affordable at all.
++    fn sync_x11_stacking(&mut self) {
++        if self.state.xwayland.xwm.is_none() {
++            return;
++        }
++        // The HOSTED world only. The X server has one stack, and the windows of a
++        // world nobody is looking at are not on screen to be ordered against —
++        // reordering them would just churn the server on every world switch.
++        //
++        // `Space::elements` is bottom-to-top; `update_stacking_order_upwards`
++        // wants topmost-first.
++        let order: Vec<X11Surface> = self
++            .inner
++            .host_space()
++            .state
++            .elements()
++            .rev()
++            .filter_map(|w| w.x11_surface().cloned())
++            .collect();
++        let ids: Vec<u32> = order.iter().map(|s| s.window_id()).collect();
++        if ids == self.state.xwayland.stacking {
++            return;
++        }
++        self.state.xwayland.stacking = ids;
++        let Some(xwm) = self.state.xwayland.xwm.as_mut() else { return };
++        if let Err(err) = xwm.update_stacking_order_upwards(order.iter()) {
++            warn!("x11 stacking sync failed: {err:?}");
++        }
++    }
++
+     /// Drain ALL protocol outboxes and apply their world effects against the host
+     /// Space (run right after `dispatch_clients`, same iteration, synchronous).
+     /// This is the bridge that lets the wayland handlers stay world-free —
+     /// document/SMITHAY_DECOUPLING.md.
+     pub fn drain_protocol(&mut self) {
+         // New toplevels first: initialize data + map so commits can find them.
++        // X11 windows arrive here too (`XwmHandler::map_window_request`), so this one
++        // arm gives both kinds their uuid, their Space slot and everything keyed off
++        // those.
+         for window in std::mem::take(&mut self.state.new_toplevels) {
+             self.inner.initialize_surface_data(window.clone());
+-            self.inner.host_space_mut().state.map_element(window, (0, 0), false);
++            self.inner.host_space_mut().state.map_element(window.clone(), (0, 0), false);
++            // ...but the commit-driven initial placement below cannot serve an X11
++            // window. An X client sizes itself BEFORE asking to be mapped, and the
++            // wl_surface Xwayland backs it with may have been committing since before
++            // this `Window` existed — so waiting for "the first commit that finds a
++            // window with a non-degenerate geometry" can wait forever. The geometry is
++            // already final here, so place it now and mark it placed.
++            if window.is_x11() {
++                let mut geometry = window.geometry();
++                geometry.size = shell::configured_size(&window);
++                window
++                    .user_data()
++                    .insert_if_missing(|| compositor_support_smithay_state_compositor_place::WindowPlacedMarker);
++                self.inner.place_window(window, geometry);
++            }
+         }
++        self.drain_x11();
+         // Commits: on_commit, initial configure + placement, resize.
+         let committed = std::mem::take(&mut self.state.committed);
+         for surface in &committed {
+@@ -540,7 +659,7 @@ impl<A: WireTrait + 'static> Wire<A> {
+         // Refresh the geometry mirror for synchronous handler reads.
+         let geoms: Vec<(WlSurface, smithay::utils::Rectangle<i32, smithay::utils::Logical>)> =
+             self.inner.host_space().state.elements()
+-                .filter_map(|w| w.toplevel().map(|t| (t.wl_surface().clone(), w.geometry())))
++                .filter_map(|w| w.wl_surface().map(|s| (s.into_owned(), w.geometry())))
+                 .collect();
+         self.state.geometries = geoms.into_iter().collect();
+     }
+diff --git a/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.trait/crate.json b/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.trait/crate.json
+index ec5d95dc..a3b18d4a 100644
+--- a/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.trait/crate.json
++++ b/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.trait/crate.json
+@@ -2,6 +2,7 @@
+   "deps": [
+     "compositor_support_smithay_state_space_base",
+     "smithay",
+-    "compositor_support_smithay_dispatch_state_base"
++    "compositor_support_smithay_dispatch_state_base",
++    "uuid"
+   ]
+ }
+diff --git a/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.trait/wire_trait.rs b/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.trait/wire_trait.rs
+index 606076e3..4d6adac4 100644
+--- a/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.trait/wire_trait.rs
++++ b/compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.trait/wire_trait.rs
+@@ -3,6 +3,7 @@ use smithay::desktop::{Space, Window};
+ use smithay::utils::{Logical, Point, Rectangle};
+ use smithay::wayland::dmabuf::{DmabufGlobal, ImportNotifier};
+ use smithay::wayland::shell::xdg::ToplevelSurface;
++use smithay::xwayland::X11Surface;
+ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+ use compositor_support_smithay_dispatch_state_base::state::Dispatch;
+ use compositor_support_smithay_state_space_base::state::SpaceState;
+@@ -38,6 +39,28 @@ pub trait WireTrait {
+     /// because the placeholder policy lives above this trait and the drain runs
+     /// later than the answer is valid for.
+     fn destroy_surface_data(&mut self, surface: ToplevelSurface, drag_discard: bool);
++    /// The mapped window behind an X11 surface, with the world holding it.
++    ///
++    /// Searched across ALL worlds: an X11 window can unmap or die while the user
++    /// is looking at a different world, and resolving against `host_space` alone
++    /// would silently drop the teardown, leaving it mapped forever in the world
++    /// it actually lives in. Keyed on the X11 surface rather than the wl_surface
++    /// because by the time the X server says a window is gone, the association
++    /// may already be.
++    fn x11_window(&self, surface: &X11Surface) -> Option<(uuid::Uuid, Window)>;
++    /// A NAMED world's window Space, mutably — the counterpart to
++    /// `all_world_spaces` the X11 paths need once [`x11_window`] has told them
++    /// which world their window is in.
++    fn space_of_world_mut(&mut self, world: uuid::Uuid) -> &mut SpaceState;
++    /// An X11 override-redirect surface just mapped — a menu, a tooltip, a drag
++    /// icon. It needs the minimum a window needs to be DRAWN (a slot in the
++    /// draw-order authority, which is what the scene walks) and nothing else:
++    /// no placeholder, no camera framing, no selection, no session identity.
++    fn map_override_redirect(&mut self, window: Window);
++    /// An XWayland window unmapped or was destroyed. Keyed off the WINDOW, not a
++    /// surface: the uuid was stamped on its own user data at map and outlives
++    /// both the X11 window and the wl_surface association.
++    fn destroy_x11_data(&mut self, window: Window);
+     /// Warp the pointer to a world-space point. The handler reads its own
+     /// hosted space internally (it owns it now), so no space is passed in.
+     fn apply_pointer(&mut self, storage_point: Point<f64, Logical>);
+diff --git a/compositor.support/support.smithay/smithay.state/state.compositor/compositor.session/crate.json b/compositor.support/support.smithay/smithay.state/state.compositor/compositor.session/crate.json
+index 12e34d5a..34f0e1d4 100644
+--- a/compositor.support/support.smithay/smithay.state/state.compositor/compositor.session/crate.json
++++ b/compositor.support/support.smithay/smithay.state/state.compositor/compositor.session/crate.json
+@@ -4,6 +4,7 @@
+     "compositor_support_smithay_dispatch_state_base",
+     "compositor_support_smithay_wayland_connection_record",
+     "compositor_support_smithay_state_grab_base",
+-    "compositor_support_smithay_state_compositor_place"
++    "compositor_support_smithay_state_compositor_place",
++    "compositor_support_smithay_state_window_shell"
+   ]
+ }
+diff --git a/compositor.support/support.smithay/smithay.state/state.compositor/compositor.session/session.rs b/compositor.support/support.smithay/smithay.state/state.compositor/compositor.session/session.rs
+index a9a44180..a6d60e5d 100644
+--- a/compositor.support/support.smithay/smithay.state/state.compositor/compositor.session/session.rs
++++ b/compositor.support/support.smithay/smithay.state/state.compositor/compositor.session/session.rs
+@@ -6,32 +6,30 @@ use smithay::wayland::compositor::{get_parent, is_sync_subsurface, with_states};
+ use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
+ use smithay::desktop::{Space, Window};
+ use smithay::utils::{Logical, Rectangle};
++use smithay::wayland::seat::WaylandFocus;
+ use compositor_support_smithay_dispatch_state_base::state::{Dispatch, DispatchWire};
+ use compositor_support_smithay_wayland_connection_record::record::WaylandClientSession;
+ use compositor_support_smithay_state_compositor_place::WindowPlacedMarker;
++use compositor_support_smithay_state_window_shell::shell;
+ 
+-pub fn compositor_state(
+-    dispatch: &mut Dispatch,
+-) -> &mut CompositorState {
++pub fn compositor_state(dispatch: &mut Dispatch) -> &mut CompositorState {
+     &mut dispatch.compositor.state
+ }
+ 
+-pub fn client_compositor_state<'a>(
+-    dispatch: &Dispatch,
+-    client: &'a Client,
+-) -> &'a CompositorClientState {
++pub fn client_compositor_state<'a>(dispatch: &Dispatch, client: &'a Client) -> &'a CompositorClientState {
++    if let Some(session) = client.get_data::<WaylandClientSession>() {
++        return &session.compositor_state;
++    }
++    // Xwayland carries smithay's own `ClientData`, not our session record.
+     &client
+-        .get_data::<WaylandClientSession>()
+-        .unwrap()
++        .get_data::<smithay::xwayland::XWaylandClientData>()
++        .expect("client has neither a y5 session nor XWayland client data")
+         .compositor_state
+ }
+ 
+ /// PROTOCOL-only commit (wayland `D` path): buffer state + popups, then record the surface in the
+ /// commit outbox. World effects run at drain via `apply_commit` (document/SMITHAY_DECOUPLING.md).
+-pub fn commit(
+-    dispatch: &mut Dispatch,
+-    surface: &WlSurface,
+-) {
++pub fn commit(dispatch: &mut Dispatch, surface: &WlSurface) {
+     on_commit_buffer_handler::<Dispatch>(surface);
+     compositor_support_smithay_state_compositor_place::handle_commit(dispatch, surface);
+     dispatch.committed.push(surface.clone());
+@@ -39,10 +37,7 @@ pub fn commit(
+ 
+ /// World side of a commit (run by orchestration against the active Space at drain). Returns the
+ /// window that just became ready for its initial map, if any — the caller performs the map.
+-pub fn apply_commit(
+-    space: &mut Space<Window>,
+-    surface: &WlSurface,
+-) -> Option<(Window, Rectangle<i32, Logical>)> {
++pub fn apply_commit(space: &mut Space<Window>, surface: &WlSurface) -> Option<(Window, Rectangle<i32, Logical>)> {
+     // Root-window on_commit (mirror smithay's recommended commit handling).
+     if !is_sync_subsurface(surface) {
+         let mut root = surface.clone();
+@@ -51,7 +46,7 @@ pub fn apply_commit(
+         }
+         if let Some(window) = space
+             .elements()
+-            .find(|w| w.toplevel().unwrap().wl_surface() == &root)
++            .find(|w| w.wl_surface().is_some_and(|s| *s == root))
+         {
+             window.on_commit();
+         }
+@@ -61,27 +56,25 @@ pub fn apply_commit(
+     let mut to_place = None;
+     if let Some(window) = space
+         .elements()
+-        .find(|w| w.toplevel().unwrap().wl_surface() == surface)
++        .find(|w| w.wl_surface().is_some_and(|s| *s == *surface))
+         .cloned()
+     {
+-        // Startup-grace jiggle back toward the decided size (see `reassert_size_if_diverged`).
++        // Startup-grace jiggle back toward the decided size (`reassert_size_if_diverged`).
+         if let Some(size) = compositor_support_smithay_state_compositor_place::reassert_size_if_diverged(&window) {
+-            let tl = window.toplevel().unwrap();
+-            tl.with_pending_state(|s| s.size = Some(size));
+-            tl.send_configure();
++            let at = space.element_location(&window).unwrap_or_default();
++            shell::stage(&window, size, false);
++            shell::send(&window, at, size);
+         }
+ 
+-        let initial_configure_sent = with_states(surface, |states| {
+-            states
+-                .data_map
+-                .get::<XdgToplevelSurfaceData>()
+-                .unwrap()
+-                .lock()
+-                .unwrap()
+-                .initial_configure_sent
+-        });
+-        if !initial_configure_sent {
+-            window.toplevel().unwrap().send_configure();
++        // xdg-only handshake: a toplevel may not attach a buffer before its initial
++        // configure. An X11 window was sized before it asked to be mapped, and
++        // carries no `XdgToplevelSurfaceData` to ask in the first place.
++        if let Some(toplevel) = window.toplevel() {
++            let sent = with_states(surface, |states| {
++                states.data_map.get::<XdgToplevelSurfaceData>()
++                    .map(|d| d.lock().unwrap().initial_configure_sent).unwrap_or(true)
++            });
++            if !sent { toplevel.send_configure(); }
+         }
+ 
+         let geometry = window.geometry();
+diff --git a/compositor.support/support.smithay/smithay.state/state.foreign/foreign.base/base.rs b/compositor.support/support.smithay/smithay.state/state.foreign/foreign.base/base.rs
+index b29090a6..da1a5a05 100644
+--- a/compositor.support/support.smithay/smithay.state/state.foreign/foreign.base/base.rs
++++ b/compositor.support/support.smithay/smithay.state/state.foreign/foreign.base/base.rs
+@@ -33,6 +33,7 @@ use smithay::reexports::wayland_server::backend::GlobalId;
+ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+ use smithay::reexports::wayland_server::{Dispatch, DisplayHandle, GlobalDispatch, Resource};
+ use smithay::wayland::compositor::with_states;
++use smithay::wayland::seat::WaylandFocus;
+ use smithay::wayland::foreign_toplevel_list::{
+     ForeignToplevelHandle, ForeignToplevelListGlobalData, ForeignToplevelListHandler,
+     ForeignToplevelListState,
+@@ -252,9 +253,8 @@ impl ForeignToplevel {
+             .flat_map(|&space| {
+                 let outputs = outputs_for(space);
+                 space.elements().filter_map(move |window| {
+-                    let toplevel = window.toplevel()?;
+-                    let surface = toplevel.wl_surface().clone();
+-                    let (title, app_id) = title_app_id(&surface);
++                    let surface = window.wl_surface()?.into_owned();
++                    let (title, app_id) = title_app_id(window, &surface);
+                     let states = read_states(window);
+                     Some((surface, title, app_id, states, outputs.clone()))
+                 })
+@@ -434,8 +434,12 @@ fn outputs_for(space: &Space<Window>) -> Vec<Output> {
+     space.outputs().cloned().collect()
+ }
+ 
+-/// Read `title` / `app_id` from a toplevel's xdg role attributes.
+-fn title_app_id(surface: &WlSurface) -> (String, String) {
++/// Read `title` / `app_id`: xdg role attributes, or the X11 `WM_NAME` /
++/// `WM_CLASS` pair a dock expects in exactly the same two slots.
++fn title_app_id(window: &Window, surface: &WlSurface) -> (String, String) {
++    if let Some(x11) = window.x11_surface() {
++        return (x11.title(), x11.class());
++    }
+     with_states(surface, |states| {
+         let attrs = states.data_map.get::<XdgToplevelSurfaceData>();
+         match attrs.and_then(|a| a.lock().ok()) {
+@@ -448,6 +452,14 @@ fn title_app_id(surface: &WlSurface) -> (String, String) {
+ /// Derive the wlr states from what the compositor has set on the toplevel. y5 has
+ /// no minimize concept, so `minimized` stays false.
+ fn read_states(window: &Window) -> ToplevelStates {
++    if let Some(x11) = window.x11_surface() {
++        return ToplevelStates {
++            maximized: x11.is_maximized(),
++            minimized: false,
++            activated: x11.is_activated(),
++            fullscreen: x11.is_fullscreen(),
++        };
++    }
+     window
+         .toplevel()
+         .map(|t| {
+diff --git a/compositor.support/support.smithay/smithay.state/state.grab/grab.resize.commit/commit.rs b/compositor.support/support.smithay/smithay.state/state.grab/grab.resize.commit/commit.rs
+index 30ca431a..2449e666 100644
+--- a/compositor.support/support.smithay/smithay.state/state.grab/grab.resize.commit/commit.rs
++++ b/compositor.support/support.smithay/smithay.state/state.grab/grab.resize.commit/commit.rs
+@@ -3,6 +3,7 @@ use smithay::{
+     reexports::wayland_server::protocol::wl_surface::WlSurface,
+     utils::{Logical, Point},
+ };
++use smithay::wayland::seat::WaylandFocus;
+ 
+ use compositor_support_smithay_state_grab_resize_surface::{ResizeEdge, ResizeSurfaceState};
+ 
+@@ -11,7 +12,7 @@ pub fn handle_commit(space: &mut Space<Window>, surface: &WlSurface) -> Option<(
+     return None;
+     let window = space
+         .elements()
+-        .find(|w| w.toplevel().unwrap().wl_surface() == surface)
++        .find(|w| w.wl_surface().is_some_and(|s| s.as_ref() == surface))
+         .cloned()?;
+ 
+     let mut window_loc = space.element_location(&window)?;
+diff --git a/compositor.support/support.smithay/smithay.state/state.window/window.kind/crate.json b/compositor.support/support.smithay/smithay.state/state.window/window.kind/crate.json
+new file mode 100644
+index 00000000..fba3f7a3
+--- /dev/null
++++ b/compositor.support/support.smithay/smithay.state/state.window/window.kind/crate.json
+@@ -0,0 +1,5 @@
++{
++  "deps": [
++    "smithay"
++  ]
++}
+diff --git a/compositor.support/support.smithay/smithay.state/state.window/window.kind/kind.rs b/compositor.support/support.smithay/smithay.state/state.window/window.kind/kind.rs
+new file mode 100644
+index 00000000..b805e556
+--- /dev/null
++++ b/compositor.support/support.smithay/smithay.state/state.window/window.kind/kind.rs
+@@ -0,0 +1,35 @@
++//! What KIND of thing a `smithay::desktop::Window` is.
++//!
++//! Two questions the compositor asks a window before deciding how to treat it,
++//! and both have an xdg answer and an X11 answer. They live apart from
++//! `window.shell` (which SPEAKS to a window) because these are read on paths
++//! that never configure anything — the navigation targets, the overview grid,
++//! the rubber-band selection, the decoration border.
++
++use smithay::desktop::Window;
++
++/// Is this a window the user owns, rather than transient chrome?
++///
++/// Everything mapped into the Space is a `Window`, but an X11 override-redirect
++/// surface — a menu, a tooltip, a drag icon — is chrome its own client places
++/// and removes. It must never be framed, tiled, selected, grouped or given a
++/// placeholder, so the navigation and layout paths filter on this.
++///
++/// There is no wayland equivalent: an xdg popup is not a `Window` at all (it is
++/// tracked by the `PopupManager` and drawn as part of its parent), which is why
++/// the filters this replaces could get away with `toplevel().is_some()`.
++pub fn is_window(window: &Window) -> bool {
++    !window.x11_surface().is_some_and(|x11| x11.is_override_redirect())
++}
++
++/// Does this window declare itself subordinate to another one — an xdg
++/// `parent`, or an X11 `WM_TRANSIENT_FOR`?
++///
++/// Such windows size themselves, so the initial-map path leaves their expected
++/// size `Auto` instead of locking it to whatever they first mapped at.
++pub fn has_parent(window: &Window) -> bool {
++    if let Some(toplevel) = window.toplevel() {
++        return toplevel.parent().is_some();
++    }
++    window.x11_surface().is_some_and(|x11| x11.is_transient_for().is_some())
++}
+diff --git a/compositor.support/support.smithay/smithay.state/state.window/window.kind/lib.rs b/compositor.support/support.smithay/smithay.state/state.window/window.kind/lib.rs
+new file mode 100644
+index 00000000..8d7daf11
+--- /dev/null
++++ b/compositor.support/support.smithay/smithay.state/state.window/window.kind/lib.rs
+@@ -0,0 +1 @@
++pub mod kind;
+diff --git a/compositor.support/support.smithay/smithay.state/state.window/window.shell/crate.json b/compositor.support/support.smithay/smithay.state/state.window/window.shell/crate.json
+new file mode 100644
+index 00000000..76753aed
+--- /dev/null
++++ b/compositor.support/support.smithay/smithay.state/state.window/window.shell/crate.json
+@@ -0,0 +1,7 @@
++{
++  "deps": [
++    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
++    "compositor_model_debug_instance_record",
++    "smithay"
++  ]
++}
+diff --git a/compositor.support/support.smithay/smithay.state/state.window/window.shell/lib.rs b/compositor.support/support.smithay/smithay.state/state.window/window.shell/lib.rs
+new file mode 100644
+index 00000000..4d73ea38
+--- /dev/null
++++ b/compositor.support/support.smithay/smithay.state/state.window/window.shell/lib.rs
+@@ -0,0 +1,6 @@
++// Developer logging: bring error!/warn!/info!/trace!/abort! into scope for every module in
++// this crate. (Drop this line if the crate genuinely never logs.)
++#[macro_use]
++extern crate compositor_model_debug_instance_record;
++
++pub mod shell;
+diff --git a/compositor.support/support.smithay/smithay.state/state.window/window.shell/shell.rs b/compositor.support/support.smithay/smithay.state/state.window/window.shell/shell.rs
+new file mode 100644
+index 00000000..7475a385
+--- /dev/null
++++ b/compositor.support/support.smithay/smithay.state/state.window/window.shell/shell.rs
+@@ -0,0 +1,110 @@
++//! Shell-agnostic window operations.
++//!
++//! A `smithay::desktop::Window` is either an xdg toplevel or an X11 (XWayland)
++//! surface, and the two answer the same question through different protocols:
++//! an xdg toplevel carries a DOUBLE-BUFFERED pending state that a later
++//! `send_configure` commits, while an X11 window is configured by one immediate
++//! call carrying position AND size together. Everything above the wire layer
++//! only ever wants "tell this window to be this big", so the split lives here
++//! and nowhere else — a `window.toplevel().unwrap()` anywhere above this layer
++//! is an abort waiting for the first X11 client.
++//!
++//! `position` is the window's location in the world Space. Only the X11 half
++//! reads it, and it matters: an X client places its own override-redirect
++//! children (menus, tooltips) against the coordinates we handed their parent, so
++//! those must be the y5-world ones the Space stores — configure at the origin and
++//! every menu the window opens lands that far away.
++//!
++//! Note `last_configure` vs `geometry` throughout: smithay subtracts
++//! `_GTK_FRAME_EXTENTS` from an X11 window's `geometry`, so that is the VISIBLE
++//! rect while `configure` speaks the full X rect including shadow.
++
++use smithay::desktop::Window;
++use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
++use smithay::utils::{Logical, Point, Rectangle, Size};
++
++/// Stage a compositor-decided size without emitting anything.
++///
++/// xdg: written into the pending state, emitted by the next [`send`]. X11:
++/// dropped — there is no pending state, and the size only reaches an X client
++/// together with its position, which [`send`] supplies.
++pub fn stage(window: &Window, size: Size<i32, Logical>, resizing: bool) {
++    let Some(toplevel) = window.toplevel() else { return };
++    toplevel.with_pending_state(|state| {
++        if resizing {
++            state.states.set(xdg_toplevel::State::Resizing);
++        }
++        state.size = Some(size);
++    });
++}
++
++/// Emit the configuration: the size staged above for xdg, `position + size` in
++/// one `ConfigureNotify` for X11.
++pub fn send(window: &Window, position: Point<i32, Logical>, size: Size<i32, Logical>) {
++    if let Some(x11) = window.x11_surface() {
++        if let Err(err) = x11.configure(Rectangle::new(position, size)) {
++            warn!("x11 configure failed: {err:?}");
++        }
++        return;
++    }
++    if let Some(toplevel) = window.toplevel() {
++        toplevel.send_configure();
++    }
++}
++
++/// Emit a configure only if something changed (activation, suspend, decoration
++/// mode). X11 writes those as properties, so this is an xdg-only concern.
++pub fn send_pending(window: &Window) {
++    if let Some(toplevel) = window.toplevel() {
++        toplevel.send_pending_configure();
++    }
++}
++
++/// Ask the client to dismiss just this window — the title-bar X, not the
++/// process.
++///
++/// `false` means nothing was asked and the caller must escalate (kill the pid);
++/// it does NOT mean "no close protocol". An X11 window that does not list
++/// `WM_DELETE_WINDOW` is destroyed outright instead — what every X window
++/// manager does for the title-bar X — so the close still happened.
++pub fn close(window: &Window) -> bool {
++    if let Some(toplevel) = window.toplevel() {
++        toplevel.send_close();
++        return true;
++    }
++    let Some(x11) = window.x11_surface() else { return false };
++    match x11.close() {
++        Ok(()) => true,
++        Err(err) => {
++            warn!("x11 close failed: {err:?}");
++            false
++        }
++    }
++}
++
++/// Tell an X11 window where it now IS, after the compositor moved it.
++///
++/// No-op for xdg, by design and not by omission: a wayland client is never told
++/// its position and does not need to be — its popups are placed by the
++/// compositor from a positioner. An X client places its own override-redirect
++/// children (menus, tooltips) from its own coordinates, so a window dragged
++/// across the canvas without this opens its menus back where it used to be.
++///
++/// Keeps whatever size the window currently has: this is the MOVE half, and the
++/// resize half goes through [`stage`] + [`send`].
++pub fn moved(window: &Window, position: Point<i32, Logical>) {
++    let Some(x11) = window.x11_surface() else { return };
++    let size = x11.last_configure().size;
++    if let Err(err) = x11.configure(Rectangle::new(position, size)) {
++        warn!("x11 move configure failed: {err:?}");
++    }
++}
++
++/// The size to treat as this window's compositor-decided slot at map time.
++/// X11 reports the size it was last CONFIGURED at (see the note above).
++pub fn configured_size(window: &Window) -> Size<i32, Logical> {
++    match window.x11_surface() {
++        Some(x11) => x11.last_configure().size,
++        None => window.geometry().size,
++    }
++}
+diff --git a/compositor.support/support.smithay/smithay.state/state.xdg.shell/xdg.shell.grab/grab.rs b/compositor.support/support.smithay/smithay.state/state.xdg.shell/xdg.shell.grab/grab.rs
+index a5c6216e..101532e4 100644
+--- a/compositor.support/support.smithay/smithay.state/state.xdg.shell/xdg.shell.grab/grab.rs
++++ b/compositor.support/support.smithay/smithay.state/state.xdg.shell/xdg.shell.grab/grab.rs
+@@ -1,4 +1,5 @@
+ use smithay::input::Seat;
++use smithay::wayland::seat::WaylandFocus;
+ use smithay::input::pointer::{Focus, PointerHandle};
+ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+ use smithay::reexports::wayland_server::protocol::wl_seat;
+@@ -22,7 +23,7 @@ pub fn move_request_prepare<WireObject: DispatchWire>(
+         let window = space
+             .state
+             .elements()
+-            .find(|w| w.toplevel().unwrap().wl_surface() == wl_surface)
++            .find(|w| w.wl_surface().is_some_and(|s| s.as_ref() == wl_surface))
+             .unwrap()
+             .clone();
+         let initial_window_location = space.state.element_location(&window).unwrap();
+@@ -54,7 +55,7 @@ pub fn resize_request_prepare<WireObject: DispatchWire>(
+         let window = space
+             .state
+             .elements()
+-            .find(|w| w.toplevel().unwrap().wl_surface() == wl_surface)
++            .find(|w| w.wl_surface().is_some_and(|s| s.as_ref() == wl_surface))
+             .unwrap()
+             .clone();
+         let initial_window_location = space.state.element_location(&window).unwrap();
+diff --git a/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.base/base.rs b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.base/base.rs
+new file mode 100644
+index 00000000..725ec6a0
+--- /dev/null
++++ b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.base/base.rs
+@@ -0,0 +1,64 @@
++//! The XWayland half of the protocol state, held by `Dispatch`.
++//!
++//! Two connections make XWayland work (see smithay's `xwayland` module): the
++//! Xwayland process is an ordinary WAYLAND client of ours whose surfaces arrive
++//! through the normal compositor path, and separately we act as its X11 WINDOW
++//! MANAGER over a private socket. `shell` is the wayland half — the
++//! `xwayland_shell_v1` global Xwayland binds to tell us which wl_surface backs
++//! which X11 window — and `xwm` is the window-manager half.
++//!
++//! The outboxes below exist for the same reason as the ones on `Dispatch`
++//! itself (document/SMITHAY_DECOUPLING.md): `XwmHandler` runs inside the X11
++//! event source with no access to the world, so it records what happened and
++//! `Wire::drain_protocol` applies it against the Space. Managed windows do NOT
++//! get an outbox of their own — they are pushed onto `Dispatch::new_toplevels`
++//! beside xdg toplevels, so one drain arm maps both kinds and an X11 window
++//! picks up the same uuid, placeholder and draw-order treatment as any other.
++
++use std::collections::HashMap;
++
++use smithay::desktop::Window;
++use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
++use smithay::utils::{Logical, Rectangle};
++use smithay::wayland::xwayland_shell::XWaylandShellState;
++use smithay::xwayland::{X11Surface, X11Wm};
++
++pub struct Xwayland {
++    pub shell: XWaylandShellState,
++    /// `None` until the Xwayland server signals ready and the loader starts the
++    /// window manager — every X11 path has to tolerate that window.
++    pub xwm: Option<X11Wm>,
++    /// The X display number (`:1`) children are told about through `DISPLAY`.
++    pub display: Option<u32>,
++    /// Override-redirect surfaces that just mapped: menus, tooltips, drag
++    /// icons. They are placed at the coordinates the X client chose and given
++    /// none of the y5 window identity — no uuid, no placeholder, no tile.
++    pub mapped_override: Vec<Window>,
++    /// Surfaces that unmapped or were destroyed. Both land here: an X11 unmap
++    /// is how a client withdraws a window, and the destroy that may follow is
++    /// not guaranteed to arrive at all.
++    pub gone: Vec<X11Surface>,
++    /// `ConfigureNotify` positions for already-mapped surfaces — an
++    /// override-redirect menu repositioning itself, which nothing else tracks.
++    pub moved: Vec<(X11Surface, Rectangle<i32, Logical>)>,
++    /// (un)fullscreen requests, applied against the world at drain.
++    pub fullscreen: Vec<(X11Surface, bool)>,
++    /// The X11 stacking order last published to the server, as window ids
++    /// topmost-first. The sync that maintains it grabs the X server, and the
++    /// drain it runs from fires on every wayland dispatch — so it has to be able
++    /// to answer "nothing moved" without a round trip, which is what this is.
++    pub stacking: Vec<u32>,
++    /// wl_surface → X11 surface, maintained from the association callback.
++    ///
++    /// y5's seat keyboard focus is a plain `WlSurface`
++    /// (`SeatHandler::KeyboardFocus`), so smithay's `KeyboardTarget for
++    /// X11Surface` — where a compositor with an enum focus target gets the X11
++    /// half of focus for free — is never reached. `focus_changed` has to drive
++    /// `X11Surface::set_input_focus` itself, and this is how it gets from the
++    /// surface it is handed to the X11 window behind it.
++    pub focus_index: HashMap<WlSurface, X11Surface>,
++    /// True while an X11 client owns the clipboard. The wayland selection then
++    /// names X11 as its source, and a paste has to be routed back over the X
++    /// connection instead of served from the persistence capture.
++    pub x11_selection: bool,
++}
+diff --git a/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.base/crate.json b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.base/crate.json
+new file mode 100644
+index 00000000..fba3f7a3
+--- /dev/null
++++ b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.base/crate.json
+@@ -0,0 +1,5 @@
++{
++  "deps": [
++    "smithay"
++  ]
++}
+diff --git a/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.base/lib.rs b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.base/lib.rs
+new file mode 100644
+index 00000000..6cf245d4
+--- /dev/null
++++ b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.base/lib.rs
+@@ -0,0 +1 @@
++pub mod base;
+diff --git a/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.display/crate.json b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.display/crate.json
+new file mode 100644
+index 00000000..364a4a8a
+--- /dev/null
++++ b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.display/crate.json
+@@ -0,0 +1,3 @@
++{
++  "deps": []
++}
+diff --git a/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.display/display.rs b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.display/display.rs
+new file mode 100644
+index 00000000..678e6b9d
+--- /dev/null
++++ b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.display/display.rs
+@@ -0,0 +1,41 @@
++//! The X display number, as a process global.
++//!
++//! `DISPLAY` is the one piece of session environment y5 does not know at
++//! startup: the Xwayland server picks its display asynchronously and reports it
++//! back through `XWaylandEvent::Ready`, well after the launch executor has been
++//! built. The executor's base environment is a CLOSURE re-evaluated per launch
++//! precisely so late-arriving facts like this one can be honoured (see
++//! `executor.base::BaseEnv`), and this is where it reads that fact.
++//!
++//! A global rather than a field on the dispatch state because the readers are
++//! not on the dispatch path: a launch runs off the executor, which has no
++//! `Dispatch` and must not grow one to learn a number that is fixed for the
++//! session.
++
++use std::sync::atomic::{AtomicI32, Ordering};
++
++/// No X server. Negative because a display number is a non-negative integer, so
++/// no valid value can collide with it.
++const NONE: i32 = -1;
++
++static DISPLAY: AtomicI32 = AtomicI32::new(NONE);
++
++/// Record the display the Xwayland server came up on.
++pub fn set(number: u32) {
++    DISPLAY.store(number as i32, Ordering::Release);
++}
++
++/// Forget it — the server died, or never started. Launches fall back to the
++/// empty `DISPLAY` that keeps apps off a nonexistent X server.
++pub fn clear() {
++    DISPLAY.store(NONE, Ordering::Release);
++}
++
++/// The `DISPLAY` value for a child process (`":1"`), or `None` while there is
++/// no X server to point one at.
++pub fn get() -> Option<String> {
++    match DISPLAY.load(Ordering::Acquire) {
++        NONE => None,
++        number => Some(format!(":{number}")),
++    }
++}
+diff --git a/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.display/lib.rs b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.display/lib.rs
+new file mode 100644
+index 00000000..8754563b
+--- /dev/null
++++ b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.display/lib.rs
+@@ -0,0 +1 @@
++pub mod display;
+diff --git a/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.factory/crate.json b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.factory/crate.json
+new file mode 100644
+index 00000000..0941cc6a
+--- /dev/null
++++ b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.factory/crate.json
+@@ -0,0 +1,7 @@
++{
++  "deps": [
++    "smithay",
++    "compositor_support_smithay_dispatch_state_base",
++    "compositor_support_smithay_state_xwayland_base"
++  ]
++}
+diff --git a/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.factory/factory.rs b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.factory/factory.rs
+new file mode 100644
+index 00000000..2b5a0430
+--- /dev/null
++++ b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.factory/factory.rs
+@@ -0,0 +1,36 @@
++use smithay::reexports::wayland_protocols::xwayland::shell::v1::server::{
++    xwayland_shell_v1::XwaylandShellV1, xwayland_surface_v1::XwaylandSurfaceV1,
++};
++use smithay::reexports::wayland_server::{Dispatch, DisplayHandle, GlobalDispatch};
++use smithay::wayland::GlobalData;
++use smithay::wayland::xwayland_shell::{XWaylandShellState, XWaylandSurfaceUserData};
++use compositor_support_smithay_dispatch_state_base::state::DispatchWire;
++use compositor_support_smithay_state_xwayland_base::base::Xwayland;
++
++/// Advertise `xwayland_shell_v1` and seed the empty XWayland state.
++///
++/// The global is created unconditionally, before the Xwayland process exists
++/// and even if it never starts: smithay filters it to clients carrying
++/// `XWaylandClientData`, so no ordinary client can see it, and Xwayland itself
++/// binds it during its very first roundtrip — after which it is too late to
++/// create.
++pub fn new<I: DispatchWire>(display_handle: &DisplayHandle) -> Xwayland
++where
++    I: GlobalDispatch<XwaylandShellV1, GlobalData>
++        + Dispatch<XwaylandShellV1, GlobalData>
++        + Dispatch<XwaylandSurfaceV1, XWaylandSurfaceUserData>
++        + 'static,
++{
++    Xwayland {
++        shell: XWaylandShellState::new::<I>(display_handle),
++        xwm: None,
++        display: None,
++        mapped_override: vec![],
++        gone: vec![],
++        moved: vec![],
++        fullscreen: vec![],
++        stacking: vec![],
++        focus_index: Default::default(),
++        x11_selection: false,
++    }
++}
+diff --git a/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.factory/lib.rs b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.factory/lib.rs
+new file mode 100644
+index 00000000..a106d20e
+--- /dev/null
++++ b/compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.factory/lib.rs
+@@ -0,0 +1 @@
++pub mod factory;
+diff --git a/compositor.workspace/vendor.catalog.json b/compositor.workspace/vendor.catalog.json
+index 85d39caf..f7443883 100644
+--- a/compositor.workspace/vendor.catalog.json
++++ b/compositor.workspace/vendor.catalog.json
+@@ -102,7 +102,8 @@
+           "renderer_pixman",
+           "use_system_lib",
+           "wayland-egl",
+-          "wayland_frontend"
++          "wayland_frontend",
++          "xwayland"
+         ]
+       },
+       "hardware": {
+@@ -123,7 +124,8 @@
+           "renderer_multi",
+           "use_system_lib",
+           "wayland-egl",
+-          "wayland_frontend"
++          "wayland_frontend",
++          "xwayland"
+         ]
+       },
+       "desktop": {
+diff --git a/compositor.workspace/workspace.lint.allow.json b/compositor.workspace/workspace.lint.allow.json
+index 05867c42..893060ae 100644
+--- a/compositor.workspace/workspace.lint.allow.json
++++ b/compositor.workspace/workspace.lint.allow.json
+@@ -741,6 +741,14 @@
+     ],
+     "reason": "31 orphan-rule-bound smithay handler/Dispatch impls must live in the crate defining Wire<S>; helper code already extracted to wire.color/wire.colorsurf/wire.redraw (floor ~397 LOC)"
+   },
++  "compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.trait": {
++    "allow": ["size"],
++    "reason": "One trait. `WireTrait` is the entire crate — the rim's interface to the world, every method carrying the reasoning for why the wire layer cannot answer it itself. Splitting it would split a single trait definition, and dropping the reasoning would leave a list of signatures that reads as arbitrary."
++  },
++  "compositor.support/support.smithay/smithay.state/state.window/window.shell": {
++    "allow": ["size"],
++    "reason": "One facade: how to SAY something to a window whose shell is xdg or X11. Every function is one half of that split, and they all turn on the same distinction — `last_configure` speaks the full X rect, `geometry` has `_GTK_FRAME_EXTENTS` subtracted — which is stated once in the module doc. Splitting them would separate the operations from the invariant that makes each correct."
++  },
+   "compositor.support/support.smithay/smithay.state/state.foreign/foreign.base": {
+     "allow": [
+       "size"
+diff --git a/environment/cross.compile/sysroot.sh b/environment/cross.compile/sysroot.sh
+index c65656d5..80c9d37b 100755
+--- a/environment/cross.compile/sysroot.sh
++++ b/environment/cross.compile/sysroot.sh
+@@ -40,7 +40,7 @@ PKGS=(
+     ffmpeg-free-devel libva-devel
+     # system integration
+     systemd-devel dbus-devel pam-devel pulseaudio-libs-devel
+-    # xwayland-satellite / xcb
++    # xwayland (in-process X11 WM) / xcb
+     libxcb-devel xcb-util-cursor-devel
+ )
+ 
+diff --git a/environment/install-deps.sh b/environment/install-deps.sh
+index dc1793c7..7bfd1c9c 100755
+--- a/environment/install-deps.sh
++++ b/environment/install-deps.sh
+@@ -37,9 +37,11 @@ sudo dnf install -y \
+     webkit2gtk4.1-devel libsoup3-devel gtk3-devel \
+     librsvg2-devel libappindicator-gtk3-devel
+ 
+-# xwayland-satellite (X11/XCB)
++# X11/XCB — smithay's `xwayland` feature builds the in-process X11 window manager
++# against x11rb (pure Rust), but the Xwayland SERVER itself must be installed to run
++# X11 clients, and the cursor lib is what the WM sets the root cursor from.
+ sudo dnf install -y \
+-    libxcb-devel xcb-util-cursor-devel
++    xorg-x11-server-Xwayland libxcb-devel xcb-util-cursor-devel
+ 
+ 
+ # --- Workspace tooling ------------------------------------------------------
+diff --git a/vendor/smithay/src/xwayland/xwm/surface.rs b/vendor/smithay/src/xwayland/xwm/surface.rs
+index 2502e034..6d5a81d6 100644
+--- a/vendor/smithay/src/xwayland/xwm/surface.rs
++++ b/vendor/smithay/src/xwayland/xwm/surface.rs
+@@ -1389,6 +1389,67 @@ impl X11Surface {
+         Ok(())
+     }
+ 
++    /// Take or release the X11 KEYBOARD FOCUS for this window.
++    ///
++    /// This is the X11 half of focusing an XWayland window — `SetInputFocus`
++    /// and `WM_TAKE_FOCUS`, honouring the window's ICCCM input model — and
++    /// nothing else. The wayland half still reaches the client through the
++    /// window's `wl_surface` on the seat, exactly as for any other client.
++    ///
++    /// [`KeyboardTarget`](crate::input::keyboard::KeyboardTarget) does both
++    /// halves at once, which is what a compositor whose
++    /// [`SeatHandler::KeyboardFocus`](crate::input::SeatHandler::KeyboardFocus)
++    /// is an enum with an `X11Surface` variant gets for free. A compositor
++    /// whose focus target is the plain `WlSurface` never reaches that impl, so
++    /// without calling this the X server is never told which window holds the
++    /// input focus and X clients receive no keyboard input at all. Call it from
++    /// wherever keyboard focus is moved, for the window losing focus and the
++    /// window gaining it.
++    ///
++    /// Releasing is DEFERRED (the same debounce `KeyboardTarget::leave` uses):
++    /// focus routinely moves between two X11 windows, and dropping the X focus
++    /// to `None` in between makes clients see a spurious unfocus.
++    pub fn set_input_focus(&self, focused: bool) {
++        let (set_input_focus, send_take_focus) = match self.input_model() {
++            WmInputModel::None => return,
++            WmInputModel::Passive => (true, false),
++            WmInputModel::LocallyActive => (true, true),
++            WmInputModel::GloballyActive => (false, true),
++        };
++
++        if !focused {
++            if let Some(release) = &self.focus_release {
++                release.schedule();
++            }
++            return;
++        }
++
++        if let Some(release) = &self.focus_release {
++            release.cancel();
++        }
++        let Some(conn) = self.conn.upgrade() else { return };
++        if set_input_focus {
++            if let Err(err) = conn.set_input_focus(InputFocus::NONE, self.window, x11rb::CURRENT_TIME) {
++                warn!("Unable to set focus for X11Surface ({:?}): {}", self.window, err);
++            }
++        }
++        if send_take_focus {
++            let event = ClientMessageEvent::new(
++                32,
++                self.window,
++                self.atoms.WM_PROTOCOLS,
++                [self.atoms.WM_TAKE_FOCUS, x11rb::CURRENT_TIME, 0, 0, 0],
++            );
++            if let Err(err) = conn.send_event(false, self.window, EventMask::NO_EVENT, event) {
++                warn!(
++                    "Unable to send take focus event for X11Surface ({:?}): {}",
++                    self.window, err
++                );
++            }
++        }
++        let _ = conn.flush();
++    }
++
+     /// Sets the window as above (always on top) or not.
+     ///
+     /// Allows the client to reflect this state in their UI.

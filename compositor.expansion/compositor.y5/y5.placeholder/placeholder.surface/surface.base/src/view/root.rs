@@ -58,7 +58,8 @@ pub fn root_view(ui: &PlaceholderUi) -> Element<'_, PlaceholderMessage, Theme, R
     // anything the launch plan describes.
     let in_session = ui.has_session_identity;
 
-    let body = responsive(move |size| {
+    // iced master infers `responsive`'s closure return less eagerly; name the type.
+    let body = responsive(move |size| -> Element<'_, PlaceholderMessage, Theme, Renderer> {
         let step = Breakpoint::of(size);
 
         let content: Element<'_, _, _, _> = match ui.mode {

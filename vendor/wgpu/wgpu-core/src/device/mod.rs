@@ -26,9 +26,9 @@ mod life;
 pub mod queue;
 pub mod ray_tracing;
 pub mod resource;
+mod surface_config;
 #[cfg(any(feature = "trace", feature = "replay"))]
 pub mod trace;
-pub(crate) use resource::{FenceReadGuard, FenceWriteGuard};
 pub use {life::WaitIdleError, resource::Device};
 
 pub const SHADER_STAGE_COUNT: usize = hal::MAX_CONCURRENT_SHADER_STAGES;
@@ -64,6 +64,21 @@ pub(crate) struct RenderPassContext {
     pub sample_count: u32,
     pub multiview_mask: Option<NonZeroU32>,
 }
+
+impl Default for RenderPassContext {
+    fn default() -> Self {
+        Self {
+            attachments: AttachmentData {
+                colors: ArrayVec::new(),
+                resolves: ArrayVec::new(),
+                depth_stencil: None,
+            },
+            sample_count: Default::default(),
+            multiview_mask: Default::default(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Error)]
 #[non_exhaustive]
 pub enum RenderPassCompatibilityError {

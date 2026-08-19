@@ -368,12 +368,14 @@ fn get_non_master_fd<P: AsRef<Path>>(path: P) -> Result<OwnedFd, Error> {
     )
     .map_err(Error::UnableToOpenNode)?;
 
-    // check if the fd has master
-    if drm_ffi::get_client(fd.as_fd(), 0)
-        .map(|client| client.auth == 1)
-        .unwrap_or(false)
-    {
-        drm_ffi::auth::release_master(fd.as_fd()).map_err(Error::UnableToDropMaster)?;
+    // Attempt to drop master unconditionally. EINVAL means the fd never had
+    // master to begin with (common on drivers like nvidia-drm that mark all
+    // clients as authenticated regardless of master status). EPERM means
+    // the file descriptor is not authenticated in the first place.
+    match drm_ffi::auth::release_master(fd.as_fd()) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::InvalidInput || e.kind() == io::ErrorKind::PermissionDenied => {}
+        Err(e) => return Err(Error::UnableToDropMaster(e)),
     }
 
     Ok(fd)
@@ -580,16 +582,14 @@ impl DrmLeaseState {
             + 'static,
     {
         let lease_ref = {
-            if let Some(pos) = self
-                .active_leases
-                .iter()
-                .position(|lease| lease.lease_id.get() == id)
             {
+                let pos = self
+                    .active_leases
+                    .iter()
+                    .position(|lease| lease.lease_id.get() == id)?;
                 let lease = self.active_leases.remove(pos);
                 self.resume_internal::<D>(Some(&lease.connectors));
                 lease
-            } else {
-                return None;
             }
         };
         lease_ref.force_close();

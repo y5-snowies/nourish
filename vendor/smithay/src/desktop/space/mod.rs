@@ -510,6 +510,17 @@ impl<E: SpaceElement + PartialEq> Space<E> {
     {
         let outputs = self.outputs.clone();
         for e in &mut self.elements {
+            // Stale outputs FIRST. An output that is no longer mapped has to be left
+            // before any enter is emitted for this element, or a client can observe a
+            // `wl_surface.enter` naming a `wl_output` we have already dropped.
+            e.outputs.retain(|output, _| {
+                if !outputs.iter().any(|o| o == output) {
+                    e.element.output_leave(output);
+                    false
+                } else {
+                    true
+                }
+            });
             for output in &outputs {
                 if let Some(overlap) = overlap_for(e, output) {
                     let old = e.outputs.insert(output.clone(), overlap);
@@ -520,14 +531,6 @@ impl<E: SpaceElement + PartialEq> Space<E> {
                     e.element.output_leave(output);
                 }
             }
-            e.outputs.retain(|output, _| {
-                if !outputs.iter().any(|o| o == output) {
-                    e.element.output_leave(output);
-                    false
-                } else {
-                    true
-                }
-            });
         }
     }
 

@@ -186,8 +186,18 @@ bitflags::bitflags! {
         const STORAGE_BINDING = 1 << 3;
         /// Allows a texture to be an output attachment of a render pass.
         ///
-        /// Consider adding [`TextureUsages::TRANSIENT`] if the contents are not reused.
+        /// Consider adding [`TextureUsages::TRANSIENT_ATTACHMENT`] if the contents are not reused.
         const RENDER_ATTACHMENT = 1 << 4;
+
+        /// Specifies the contents of this texture will not be used in another pass to potentially reduce memory usage and bandwidth.
+        ///
+        /// No-op on platforms on platforms that do not benefit from transient textures.
+        /// Generally mobile and Apple chips care about this.
+        ///
+        /// Incompatible with ALL other usages except [`TextureUsages::RENDER_ATTACHMENT`] and requires it.
+        ///
+        /// Requires [`LoadOp::Clear`] or [`LoadOp::DontCare`] (if it is available) and [`StoreOp::Discard`].
+        const TRANSIENT_ATTACHMENT = 1 << 5;
 
         //
         // ---- Restart Numbering for Native Features ---
@@ -196,15 +206,6 @@ bitflags::bitflags! {
         //
         /// Allows a texture to be used with image atomics. Requires [`Features::TEXTURE_ATOMIC`].
         const STORAGE_ATOMIC = 1 << 16;
-        /// Specifies the contents of this texture will not be used in another pass to potentially reduce memory usage and bandwidth.
-        ///
-        /// No-op on platforms on platforms that do not benefit from transient textures.
-        /// Generally mobile and Apple chips care about this.
-        ///
-        /// Incompatible with ALL other usages except [`TextureUsages::RENDER_ATTACHMENT`] and requires it.
-        ///
-        /// Requires [`StoreOp::Discard`].
-        const TRANSIENT = 1 << 17;
     }
 }
 
@@ -480,7 +481,7 @@ pub struct TextureViewDescriptor<L> {
 impl<L> TextureViewDescriptor<L> {
     /// Takes a closure and maps the label of the texture view descriptor into another.
     #[must_use]
-    pub fn map_label<K>(&self, fun: impl FnOnce(&L) -> K) -> TextureViewDescriptor<K> {
+    pub fn map_label<'a, K>(&'a self, fun: impl FnOnce(&'a L) -> K) -> TextureViewDescriptor<K> {
         TextureViewDescriptor {
             label: fun(&self.label),
             format: self.format,
@@ -530,7 +531,7 @@ pub struct TextureDescriptor<L, V> {
 impl<L, V> TextureDescriptor<L, V> {
     /// Takes a closure and maps the label of the texture descriptor into another.
     #[must_use]
-    pub fn map_label<K>(&self, fun: impl FnOnce(&L) -> K) -> TextureDescriptor<K, V>
+    pub fn map_label<'a, K>(&'a self, fun: impl FnOnce(&'a L) -> K) -> TextureDescriptor<K, V>
     where
         V: Clone,
     {
@@ -548,10 +549,10 @@ impl<L, V> TextureDescriptor<L, V> {
 
     /// Maps the label and view formats of the texture descriptor into another.
     #[must_use]
-    pub fn map_label_and_view_formats<K, M>(
-        &self,
-        l_fun: impl FnOnce(&L) -> K,
-        v_fun: impl FnOnce(&V) -> M,
+    pub fn map_label_and_view_formats<'a, K, M>(
+        &'a self,
+        l_fun: impl FnOnce(&'a L) -> K,
+        v_fun: impl FnOnce(&'a V) -> M,
     ) -> TextureDescriptor<K, M> {
         TextureDescriptor {
             label: l_fun(&self.label),
@@ -703,7 +704,7 @@ impl<L: Default> Default for SamplerDescriptor<L> {
 impl<L> SamplerDescriptor<L> {
     /// Takes a closure and maps the label of the sampler descriptor into another.
     #[must_use]
-    pub fn map_label<K>(&self, fun: impl FnOnce(&L) -> K) -> SamplerDescriptor<K> {
+    pub fn map_label<'a, K>(&'a self, fun: impl FnOnce(&'a L) -> K) -> SamplerDescriptor<K> {
         SamplerDescriptor {
             label: fun(&self.label),
             address_mode_u: self.address_mode_u,

@@ -99,6 +99,10 @@ impl EventFlags {
             Event::Touch(_) => self.contains(Self::TOUCH),
             Event::InputMethod(_) => self.contains(Self::INPUT_METHOD),
             Event::Clipboard(_) => self.contains(Self::CLIPBOARD),
+            // Produced only by a live `shell::Waker`, and y5 passes `Waker::noop()`
+            // (the compositor owns the redraw schedule, not iced) — so this never
+            // arrives. It belongs to no input category either way.
+            Event::Waken => false,
         }
     }
 }

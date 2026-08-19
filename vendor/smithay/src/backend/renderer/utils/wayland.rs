@@ -8,8 +8,8 @@ use crate::{
     utils::{Buffer as BufferCoord, Coordinate, Logical, Physical, Point, Rectangle, Scale, Size, Transform},
     wayland::{
         compositor::{
-            self, BufferAssignment, Damage, RectangleKind, SubsurfaceCachedState, SurfaceAttributes,
-            SurfaceData, TraversalAction, add_destruction_hook, is_sync_subsurface,
+            self, BufferAssignment, Damage, RectangleKind, SUBSURFACE_ROLE, SubsurfaceCachedState,
+            SurfaceAttributes, SurfaceData, TraversalAction, add_destruction_hook, is_sync_subsurface,
             with_surface_tree_downward, with_surface_tree_upward,
         },
         viewporter,
@@ -404,6 +404,8 @@ pub fn on_commit_buffer_handler<D: 'static>(surface: &WlSurface) {
                     {
                         state.reset();
                     }
+                    #[cfg(feature = "renderer_multi")]
+                    crate::backend::renderer::multigpu::clear_surface_textures(data);
                 });
             });
         }
@@ -426,7 +428,7 @@ impl SurfaceView {
                 .to_logical(client_scale)
                 .to_i32_round(),
         );
-        let offset = if states.role == Some("subsurface") {
+        let offset = if states.role == Some(SUBSURFACE_ROLE) {
             states
                 .cached_state
                 .get::<SubsurfaceCachedState>()

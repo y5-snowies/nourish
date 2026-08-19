@@ -36,7 +36,7 @@ use smithay::wayland::input_method::InputMethodHandler;
 use smithay::wayland::pointer_constraints::{PointerConstraintsHandler, with_pointer_constraint};
 use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::selection::data_device::set_data_device_focus;
-use smithay::wayland::tablet_manager::TabletSeatHandler;
+use smithay::input::tablet::TabletSeatHandler;
 use smithay::wayland::xdg_foreign::XdgForeignHandler;
 use smithay::wayland::compositor;
 use smithay::wayland::compositor::{BufferAssignment, CompositorClientState, CompositorHandler, CompositorState, SurfaceAttributes, add_blocker, add_pre_commit_hook};

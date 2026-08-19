@@ -118,6 +118,9 @@ impl SharedEngine {
             Settings {
                 default_font: settings.default_font,
                 default_text_size: settings.default_text_size,
+                // New in iced master; `..Default::default()` so later additions to
+                // this struct don't break the build again.
+                ..Default::default()
             },
         );
 

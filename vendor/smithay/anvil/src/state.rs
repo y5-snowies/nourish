@@ -30,6 +30,7 @@ use smithay::{
         dnd::{DnDGrab, DndGrabHandler, DndTarget, GrabType, Source},
         keyboard::{Keysym, LedState, XkbConfig},
         pointer::{CursorImageStatus, Focus, PointerHandle},
+        tablet::TabletSeatHandler,
     },
     output::Output,
     reexports::{
@@ -63,7 +64,9 @@ use smithay::{
             KeyboardShortcutsInhibitHandler, KeyboardShortcutsInhibitState, KeyboardShortcutsInhibitor,
         },
         output::{OutputHandler, OutputManagerState},
-        pointer_constraints::{PointerConstraintsHandler, PointerConstraintsState, with_pointer_constraint},
+        pointer_constraints::{
+            PointerConstraint, PointerConstraintsHandler, PointerConstraintsState, with_pointer_constraint,
+        },
         pointer_gestures::PointerGesturesState,
         presentation::PresentationState,
         relative_pointer::RelativePointerManagerState,
@@ -87,7 +90,7 @@ use smithay::{
         shm::{ShmHandler, ShmState},
         single_pixel_buffer::SinglePixelBufferState,
         socket::ListeningSocketSource,
-        tablet_manager::{TabletManagerState, TabletSeatHandler},
+        tablet_manager::TabletManagerState,
         text_input::TextInputManagerState,
         viewporter::ViewporterState,
         virtual_keyboard::VirtualKeyboardManagerState,
@@ -324,6 +327,8 @@ impl<BackendData: Backend> SeatHandler for AnvilState<BackendData> {
 }
 
 impl<BackendData: Backend> TabletSeatHandler for AnvilState<BackendData> {
+    type ToolFocus = PointerFocusTarget;
+
     fn tablet_tool_image(&mut self, _tool: &TabletToolDescriptor, image: CursorImageStatus) {
         // TODO: tablet tools should have their own cursors
         self.cursor_status = image;
@@ -377,23 +382,37 @@ impl<BackendData: Backend> PointerConstraintsHandler for AnvilState<BackendData>
         }
     }
 
-    fn remove_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {
-        if with_pointer_constraint(surface, pointer, |constraint| constraint.is_none()) {
-            if let Some((hint_surface, hint_location)) = &self.cursor_position_hint {
-                let origin = self
-                    .space
-                    .elements()
-                    .find_map(|window| {
-                        (window.wl_surface().as_deref() == Some(hint_surface)).then(|| window.geometry())
-                    })
-                    .unwrap_or_default()
-                    .loc
-                    .to_f64();
+    fn remove_constraint(
+        &mut self,
+        _surface: &WlSurface,
+        pointer: &PointerHandle<Self>,
+        _constraint: Option<&PointerConstraint>,
+    ) {
+        let Some((hint_surface, hint_location)) = self.cursor_position_hint.take() else {
+            return;
+        };
 
-                pointer.set_location(origin + *hint_location);
-            }
-            self.cursor_position_hint = None;
+        // If the constraint was broken by the pointer forcibly leaving the surface, then it doesn't
+        // make much sense to warp it.
+        //
+        // Furthermore, when the constraint is removed as part of the pointer leaving the surface,
+        // this call happens with locked pointer data, and calling set_location() will try to lock
+        // it again and deadlock.
+        if pointer.last_enter().is_none() {
+            return;
         }
+
+        let origin = self
+            .space
+            .elements()
+            .find_map(|window| {
+                (window.wl_surface().as_deref() == Some(&hint_surface)).then(|| window.geometry())
+            })
+            .unwrap_or_default()
+            .loc
+            .to_f64();
+
+        pointer.set_location(origin + hint_location);
     }
 
     fn cursor_position_hint(
@@ -784,6 +803,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             &self.display_handle,
             None,
             std::iter::empty::<(String, String)>(),
+            std::iter::empty::<String>(),
             true,
             Stdio::null(),
             Stdio::null(),

@@ -323,7 +323,7 @@ pub(crate) fn motion(cx: &mut SystemCx, x: f64, y: f64, _screen_x: f64, _screen_
             let serial = SERIAL_COUNTER.next_serial();
             let time = now_msec();
             if pointer.current_focus().is_some() {
-                dispatch.seat.abandon_active_constraint(&pointer);
+                dispatch.abandon_active_constraint(&pointer);
             }
             pointer.motion(
                 dispatch,
