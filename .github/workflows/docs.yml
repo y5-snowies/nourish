@@ -169,7 +169,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Keep this list in step with `multiarch-publish.yml` and with bootstrap.sh's KNOWN.
+        # Keep this list in step with `release-rc.yml`'s `bundles` matrix and with bootstrap.sh's KNOWN.
         # Arch is x86_64-only — the official archlinux image has no arm64 build.
         #
         # NO ubuntu-24.04 / debian-12. smithay enables the `input` crate's `libinput_1_26`

@@ -3,7 +3,10 @@ name: CI
 on:
   push:
     branches: [upstream-integration, upstream]
+  # Scoped to the stable branches. Unscoped, this also fired on PRs targeting `candidate`,
+  # which ci-rc.yml now covers — the two would both build the same commit.
   pull_request:
+    branches: [upstream-integration, upstream]
 
 permissions:
   contents: read

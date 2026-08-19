@@ -62,64 +62,85 @@ them.
 
 ## Branch flow
 
+Two **structurally identical** channels. Same image, same scripts, same bundle matrix, same
+release layout — they differ only in the version string, the release tag, and the fact that
+the stable channel also deploys Pages:
+
 ```
-feature → upstream-integration ──(CI green)──▶ auto PR →upstream ──(approve & merge)──▶ upstream
-        │ candidate bundle artifact (ci.yml installer-bundle)                             │
-        │                                                          Publish — one build, two channels:
-        │                                              ├─ Pages: site /, docs /docs, bundle /release/latest/fedora44/
-        │                                              └─ GitHub Release `latest`: package.tar.gz + SHA256SUMS
+feature → upstream-integration ──(CI green)──▶ auto PR → upstream ──(approve & merge)──▶ upstream
+        │ ci.yml: build-udev + installer-bundle                                            │
+        │                                                    Publish (docs.yml) — one build:
+        │                                        ├─ Pages: site /, docs /docs, /release/latest/fedora44/
+        │                                        └─ Release `v<X.Y.Z>` (Latest): every bundle + SHA256SUMS
+
+feature → candidate-integration ──(you merge by hand; no CI, no artifacts)──▶ candidate
+                                                                                 │
+                                                       ci-rc.yml: build-udev + installer-bundle
+                                                       Publish RC (release-rc.yml) — one build:
+                                                       ├─ Release `v<X.Y.Z-rc.N>` (prerelease): every bundle + SHA256SUMS
+                                                       └─ Release `bundles-rolling` (prerelease): same assets, rolling
 ```
 
-- **upstream-integration** (candidate): full CI on every push; the `installer-bundle` job
-  builds the install bundle as a downloadable artifact so the candidate can be tried before
-  merge. On green, the promotion PR to `upstream` is opened/updated with the report.
-- **upstream** (the single release action): protected — approve & merge the promotion request
-  (set branch protection in the UI). A push here runs **Publish**, which builds the install
-  bundle **once** and ships that one artifact to both channels, so they can't drift:
-    - **Pages** (`nourish.snowies.com`): marketing site `/`, docs `/docs`, and the bundle at
-      `/release/latest/fedora44/` (the URL `compositor.installer/get.sh` fetches).
-    - **GitHub Release `latest`**: the same `package.tar.gz` + `SHA256SUMS` as assets, with the
-      `latest` tag moved to the merged commit each time — tag + binaries together, no manual step.
+The one structural difference: the stable channel splits validation (`upstream-integration`)
+from publication (`upstream`) with an automatic promotion PR between them. The rc channel puts
+both on `candidate` and keeps the promotion manual, so cutting an rc is always a deliberate act.
+
+- **upstream-integration** (stable aggregation): full CI on every push (`ci.yml`); the
+  `installer-bundle` job builds the install bundle as a downloadable artifact so the candidate
+  can be tried before merge. On green, the promotion PR to `upstream` is opened/updated with
+  the report.
+- **upstream** (the single stable release action): protected — approve & merge the promotion
+  request (set branch protection in the UI). A push runs **Publish** (`docs.yml`), which builds
+  the Fedora bundle once plus one native bundle per (distro, arch) and ships them to both
+  channels so they can't drift:
+    - **Pages** (`nourish.snowies.com`): marketing site `/`, docs `/docs`, and the Fedora bundle
+      at `/release/latest/fedora44/` (the URL `compositor.installer/get.sh` fetches).
+    - **GitHub Release `v<X.Y.Z>`**, marked *Latest*: `package.tar.gz`, every
+      `package-<distro>-<arch>.tar.gz`, one combined `SHA256SUMS` covering all of them, and a
+      `bootstrap.sh` pinned to the newest stable.
 
 ### RC channel (release candidates)
 
-A parallel pair of branches cuts **release candidates** without touching the stable channel.
-**Promotion is fully manual** (no auto-PR) and **only `candidate` builds anything** — so you
-decide exactly when an rc is built and published:
+The same pipeline with an rc tag. **Promotion is deliberately manual** (no auto-PR) so you
+decide exactly when an rc is cut — that is the one intentional difference in flow:
 
-```
-feature → candidate-integration ──(you merge by hand; no CI, no artifacts)──▶ candidate
-                                                                                  │
-                                                                  Publish RC: prerelease GitHub Release
-                                                                  └─ v<X.Y.Z-rc.N>  prerelease rc download
-```
-
-- **candidate-integration** (rc aggregation): a plain staging branch — **no workflow, no
+- **candidate-integration** (rc aggregation): a plain staging trunk — **no workflow, no
   artifacts**. Stack commits here; when you choose to cut an rc, merge `candidate-integration`
   into `candidate` yourself (open the PR / fast-forward by hand). That merge is the deliberate
   build-and-publish gate.
-- **candidate** (the single rc release action): a push (or `workflow_dispatch`) runs **Publish
-  RC** (`release-rc.yml`), which **just builds** the bundle once (no cargo checks) with an
-  `X.Y.Z-rc.N` version (`ci/scripts/version-rc.sh` — same VERSION-file mechanics as
-  `version.sh`, with the `-rc.N` counter derived from `v…-rc.*` tags) and ships it as one
-  **prerelease** GitHub Release: `v<X.Y.Z-rc.N>`. **No Pages deploy** — Pages is the stable
-  channel's single site — and no rolling pointer (nothing consumes it). The rc release is
-  marked non-latest so it never steals the stable "Latest release" pointer.
+- **candidate** (the single rc release action): a push runs **`ci-rc.yml`** — `ci.yml` pointed at
+  this branch, so the rc gets the same `build-udev` compile of the real product that the stable
+  channel gets, and an rc can never ship something that was never compiled. The same push runs
+  **Publish RC** (`release-rc.yml`) — job for job the same as `docs.yml` minus `site`/`deploy` —
+  with an
+  `X.Y.Z-rc.N` version (`ci/scripts/version-rc.sh`: same VERSION-file mechanics as `version.sh`,
+  plus an `-rc.N` counter derived from `v…-rc.*` tags). It publishes:
+    - **`v<X.Y.Z-rc.N>`**, prerelease and explicitly non-latest so it can never steal the stable
+      "Latest release" pointer: exactly the asset set the stable release carries, including the
+      combined `SHA256SUMS`, with a `bootstrap.sh` pinned to that rc.
+    - **`bundles-rolling`**, prerelease, recreated each push — the rc channel's stand-in for
+      GitHub's `Latest` pointer (which belongs to stable), carrying the same assets with a
+      `bootstrap.sh` that tracks the rolling tag. Opt-in only.
+  **No Pages deploy** — Pages is the stable channel's single site.
 
-Install an rc exactly like a stable release — same command, just the exact rc version's URL.
-**No env vars, and the install script is untouched** (`get.sh` / the bundle's `install.sh` are
-identical for both channels — only the tarball URL differs, so install never diverges):
+Install an rc exactly like a stable release — same installer, same bootstrap, just a tag:
 
 ```
+# auto-detect distro/arch, checksum-verified
+Y5_RELEASE_TAG=v<X.Y.Z-rc.N> bash <(curl -fsSL https://nourish.snowies.com/install)
+# or the newest rc, whatever it is
+Y5_RELEASE_TAG=bundles-rolling bash <(curl -fsSL https://nourish.snowies.com/install)
+# or the Fedora tarball directly
 curl -fsSL https://github.com/<owner>/<repo>/releases/download/v<X.Y.Z-rc.N>/package.tar.gz \
   | tar -xz && y5-install/install.sh
 ```
 
+`bootstrap.sh`'s built-in default is the newest **stable** release, so nothing installs an rc
+by accident — an rc is only ever reached by naming its tag.
+
 > Why not a `--rc` flag in `get.sh`? `get.sh` is a single shared script served only from the
 > stable channel, so a per-channel flag would be dead code unless landed on `upstream` —
-> coupling rc installs to a stable release. A distinct URL keeps the install path channel-
-> agnostic. (If you later want checksum-verified rc installs through the `/install` bootstrap,
-> make `get.sh` channel-aware on `upstream` — one canonical script — not on `candidate`.)
+> coupling rc installs to a stable release. A tag keeps the install path channel-agnostic.
 
 The install bundle is built by `compositor.installer/prepare.sh` (via `package-installer.sh`)
 and contains every shipped binary + component + the interactive `y5-install`; building it in

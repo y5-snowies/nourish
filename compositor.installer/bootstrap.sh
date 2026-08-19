@@ -45,7 +45,7 @@ else
 fi
 
 # The distro dirs the multiarch pipeline builds (must match the `bundles` matrix in
-# .github/workflows/docs.yml and the `build` matrix in .github/workflows/multiarch-publish.yml).
+# .github/workflows/docs.yml and the `bundles` matrix in .github/workflows/release-rc.yml).
 #
 # ubuntu-24.04 and debian-12 are deliberately absent: they ship libinput 1.25.0 / 1.22.x and the
 # compositor needs >= 1.26 for the tablet-pad dial symbols, so it does not link there. Hosts on

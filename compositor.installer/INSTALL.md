@@ -1,10 +1,13 @@
 # Installing y5
 
 The y5 compositor ships as **prebuilt release tarballs**. The Fedora 44 bundle is the
-main one (the one-liner below); per-distro × per-arch bundles for **Debian 12/13,
-Ubuntu 24.04/26.04 and Arch** are published as the `bundles-rolling` GitHub release. Because
+main one (the one-liner below); per-distro × per-arch bundles for **Fedora 43/44,
+Debian 13, Ubuntu 26.04 and Arch** ship alongside it in the same GitHub release. Because
 the binaries are already compiled, installing pulls only the runtime shared libraries —
 no Rust toolchain, no `-devel` headers.
+
+(Ubuntu 24.04 and Debian 12 are not built: they ship libinput 1.25/1.22 and the compositor
+needs ≥ 1.26 for the tablet-pad dial symbols. `bootstrap.sh --list` is the live list.)
 
 The interactive installer is **distro-aware**: it detects your package manager
 (`dnf` / `apt-get` / `pacman`) from `/etc/os-release` and installs that distro's runtime
@@ -30,8 +33,12 @@ the interactive installer. On **NixOS** it instead fetches a glibc bundle and ru
 user, not with `sudo`** — the installer invokes `sudo` itself only for system steps, so your
 config lands in `$HOME/.config` (it refuses to run as root). Safe to re-run.
 
-Pin a specific release with `Y5_RELEASE_TAG` (e.g. `bundles-v1.4.1-rc.2`), force a target
-with `Y5_DISTRO`/`Y5_ARCH`, or list what's available with `bootstrap.sh --list`.
+By default this installs the newest **stable** release. Pin an exact one with
+`Y5_RELEASE_TAG` (e.g. `Y5_RELEASE_TAG=v1.4.1` for a stable release, or `v1.4.1-rc.2` for a
+release candidate), track the newest release *candidate* with
+`Y5_RELEASE_TAG=bundles-rolling`, force a target with `Y5_DISTRO`/`Y5_ARCH`, or list what's
+available with `bootstrap.sh --list`. Release candidates are marked prerelease and are never
+installed unless you ask for one by tag.
 
 ### Fedora only (the classic path)
 
