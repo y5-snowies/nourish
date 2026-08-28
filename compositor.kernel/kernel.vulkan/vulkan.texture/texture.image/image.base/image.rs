@@ -9,7 +9,7 @@ use smithay::backend::renderer::Texture;
 use smithay::utils::{Buffer as BufferCoord, Size};
 use std::sync::Arc;
 
-pub use compositor_kernel_vulkan_texture_image_inner::inner::TextureInner;
+pub use compositor_kernel_vulkan_texture_image_inner::inner::{RetiredTexture, TextureInner};
 
 #[derive(Debug, Clone)]
 pub struct VulkanTexture {

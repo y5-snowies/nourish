@@ -1,12 +1,14 @@
 {
   "deps": [
+    "compositor_y5_notify_present_base",
+    "compositor_orchestration_draw_scene_frame",
+    "compositor_kernel_graphic_format_registrar_base",
+    "compositor_orchestration_smithay_data_base",
     "compositor_pipeline_world_system_base",
     "compositor_y5_picker_command_advance",
     "compositor_model_debug_instance_record",
     "compositor_model_stats_registry_base",
     "compositor_orchestration_core_state_base",
-    "compositor_orchestration_draw_platform_base",
-    "compositor_support_system_world_frame_base",
     "compositor_background_two_storage_base",
     "compositor_background_two_draw_element",
     "compositor_y5_picker_system_base",

@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_kernel_graphic_draw_present_software",
     "compositor_pipeline_world_system_base",
     "compositor_orchestration_driver_capture_base",
     "compositor_kernel_vulkan_renderer_core_base",

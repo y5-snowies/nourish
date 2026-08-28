@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_orchestration_draw_scene_identity",
     "compositor_model_debug_instance_record",
     "compositor_orchestration_core_state_base",
     "compositor_y5_picker_system_base",

@@ -73,13 +73,4 @@ impl SpaceState {
             .and_then(|w| self.state.element_location(w))
             .unwrap_or_default()
     }
-
-    pub fn element_size_for_surface(&self, hint_surface: &WlSurface) -> Size<i32, Logical> {
-        self.state
-            .elements()
-            .find(|w| w.wl_surface().as_deref() == Some(hint_surface))
-            .and_then(|w| self.state.element_geometry(w))
-            .and_then(|s| Some(s.size))
-            .unwrap_or_default()
-    }
 }

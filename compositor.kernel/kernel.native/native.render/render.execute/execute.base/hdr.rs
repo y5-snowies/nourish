@@ -1,8 +1,9 @@
-//! HDR output signalling (M5 stage C): set the connector `Colorspace`
-//! (BT.2020 RGB) + `HDR_OUTPUT_METADATA` (PQ infoframe) via a one-time raw DRM
-//! atomic commit. smithay's `DrmCompositor` owns the per-frame page-flip commit
-//! but exposes no colorspace/HDR API, so we set these *connector* properties
-//! ourselves; they are sticky atomic state and persist across smithay's flips.
+//! Raw-DRM CONNECTOR PROPERTY pass: `Colorspace`, `HDR_OUTPUT_METADATA` and
+//! `max bpc`. smithay's `DrmCompositor` owns the per-frame page-flip commit but
+//! exposes none of these, so we set them ourselves; they are sticky atomic state
+//! that persists across smithay's flips AND across compositors — which is the
+//! whole reason this pass must run for SDR pipes too, not just HDR ones. See
+//! `apply_connector_props` for what each value is set to and why.
 //!
 //! SAFETY: every commit is preceded by a `TEST_ONLY` atomic commit. If the test
 //! fails (malformed blob, unsupported property, wrong enum) we return an error
@@ -116,47 +117,167 @@ fn prop_handle(
     Err(format!("connector lacks property {name}"))
 }
 
-/// Raw value of the `Colorspace` enum entry named `BT2020_RGB`.
-fn bt2020_colorspace_value(
-    drm: &DrmDeviceFd,
-    handle: property::Handle,
-) -> Result<u64, String> {
+/// Raw value of an enum property's entry named `name`.
+fn enum_value(drm: &DrmDeviceFd, handle: property::Handle, name: &str) -> Result<u64, String> {
     let info = drm
         .get_property(handle)
-        .map_err(|e| format!("get_property(Colorspace): {e}"))?;
+        .map_err(|e| format!("get_property: {e}"))?;
     if let property::ValueType::Enum(values) = info.value_type() {
         let (raws, enums) = values.values();
         for (raw, ev) in raws.iter().zip(enums.iter()) {
-            if ev.name().to_str() == Ok("BT2020_RGB") {
+            if ev.name().to_str() == Ok(name) {
                 return Ok(*raw);
             }
         }
-        return Err("Colorspace has no BT2020_RGB entry".into());
+        return Err(format!("enum has no entry {name}"));
     }
-    Err("Colorspace is not an enum property".into())
+    Err("not an enum property".into())
 }
 
-/// Apply BT.2020 + PQ HDR signalling to the connector. Returns Err (and leaves
-/// the output SDR) if the kernel rejects the TEST commit.
-pub fn signal_hdr(
+/// A connector property handle by name, or `None` when the connector lacks it.
+/// Absence is normal (not every connector exposes `Colorspace` or `max bpc`) and
+/// must not fail the whole pass.
+fn opt_prop(drm: &DrmDeviceFd, conn: connector::Handle, name: &str) -> Option<property::Handle> {
+    prop_handle(drm, conn, name).ok()
+}
+
+/// The connector's CURRENT raw value for `handle` — what the previous owner of
+/// this connector left behind. Logged so a stale value is visible as a fact.
+fn current_raw(drm: &DrmDeviceFd, conn: connector::Handle, handle: property::Handle) -> Option<u64> {
+    let set = drm.get_properties(conn).ok()?;
+    let (handles, values) = set.as_props_and_values();
+    handles.iter().zip(values.iter()).find(|(h, _)| **h == handle).map(|(_, v)| *v)
+}
+
+/// Clamp `want` into an unsigned-range property's advertised bounds.
+fn clamp_range(drm: &DrmDeviceFd, handle: property::Handle, want: u64) -> u64 {
+    match drm.get_property(handle).map(|i| i.value_type()) {
+        Ok(property::ValueType::UnsignedRange(lo, hi)) => want.clamp(lo, hi),
+        _ => want,
+    }
+}
+
+/// What the pass actually did, per property, for the log line.
+pub struct PropOutcome {
+    pub colorspace: String,
+    pub metadata: String,
+    pub max_bpc: String,
+}
+
+/// Bring the connector's colorimetry and bit-depth properties in line with what
+/// this pipe is ACTUALLY driving.
+///
+/// These are sticky atomic connector properties: they survive our own page flips,
+/// and they survive US — whatever ran on another VT leaves its values behind for
+/// the next compositor to inherit. The previous version of this code only ever
+/// SET BT.2020 + PQ, and only when HDR was active, so an SDR pipe that inherited
+/// BT.2020 (from an earlier HDR session, from a pipe that fell back to SDR after a
+/// signalling failure, or from another compositor on another VT) went on
+/// displaying sRGB content as BT.2020 — heavily oversaturated and red-shifted,
+/// with no code path anywhere that would ever put it back. So the SDR case is now
+/// written EXPLICITLY rather than left alone.
+///
+/// `max bpc` is READ but deliberately NOT written.
+///
+/// Writing it was tried and REVERTED. It governs the LINK depth, so raising a
+/// connector from 8 to 10 bpc costs ~25% more link bandwidth. On a shared display
+/// engine that is enough to push a SECOND pipe's modeset over the limit: every
+/// tiled/CCS format then fails the atomic test, smithay reacts by forcing implicit
+/// modifiers across the whole device, and the Vulkan renderer cannot create images
+/// for implicit-modifier buffers — so the machine goes fully black rather than
+/// merely losing a bit of colour depth. It is also a STICKY property, so the
+/// damage outlives the process that did it.
+///
+/// If 10-bit link depth is wanted, it has to be negotiated as part of the modeset
+/// (validated against the whole device's bandwidth with every pipe present), not
+/// poked in afterwards one connector at a time.
+///
+/// Missing properties are skipped, not fatal. Every commit is preceded by a
+/// `TEST_ONLY` commit, so a rejected request can never blank the display.
+pub fn apply_connector_props(
     drm: &DrmDeviceFd,
     conn: connector::Handle,
     caps: &HdrInfo,
-) -> Result<(), String> {
-    let colorspace = prop_handle(drm, conn, "Colorspace")?;
-    let hdr_meta = prop_handle(drm, conn, "HDR_OUTPUT_METADATA")?;
-    let bt2020 = bt2020_colorspace_value(drm, colorspace)?;
+    hdr_active: bool,
+    want_bpc: u64,
+) -> Result<PropOutcome, String> {
+    let cs_prop = opt_prop(drm, conn, "Colorspace");
+    let meta_prop = opt_prop(drm, conn, "HDR_OUTPUT_METADATA");
+    let bpc_prop = opt_prop(drm, conn, "max bpc");
 
-    let metadata = build_metadata(caps);
-    let blob = drm
-        .create_property_blob(&metadata)
-        .map_err(|e| format!("create_property_blob: {e}"))?;
-    let blob_raw: u64 = blob.into();
+    let mut outcome = PropOutcome {
+        colorspace: "absent".into(),
+        metadata: "absent".into(),
+        max_bpc: "absent".into(),
+    };
+
+    // Target colorspace: BT.2020 only while HDR is actually driving this pipe,
+    // Default otherwise — the reset half that never existed before.
+    let cs_target = if hdr_active { "BT2020_RGB" } else { "Default" };
+    let cs = match cs_prop {
+        Some(h) => match enum_value(drm, h, cs_target) {
+            Ok(v) => {
+                let was = current_raw(drm, conn, h);
+                outcome.colorspace = format!("{was:?} -> {cs_target}({v})");
+                Some((h, v))
+            }
+            Err(e) => {
+                outcome.colorspace = format!("no {cs_target} entry: {e}");
+                None
+            }
+        },
+        None => None,
+    };
+
+    // HDR metadata blob: the PQ infoframe while HDR is active, explicitly CLEARED
+    // (blob 0) otherwise, so a stale infoframe cannot outlive the HDR session.
+    let mut blob_raw: Option<u64> = None;
+    let meta = match meta_prop {
+        Some(h) => {
+            let was = current_raw(drm, conn, h);
+            if hdr_active {
+                let metadata = build_metadata(caps);
+                let blob = drm
+                    .create_property_blob(&metadata)
+                    .map_err(|e| format!("create_property_blob: {e}"))?;
+                let raw: u64 = blob.into();
+                blob_raw = Some(raw);
+                outcome.metadata = format!("{was:?} -> PQ blob({raw})");
+                Some((h, raw))
+            } else {
+                outcome.metadata = format!("{was:?} -> cleared(0)");
+                Some((h, 0u64))
+            }
+        }
+        None => None,
+    };
+
+    // OBSERVE ONLY — deliberately NOT written. See the note on `want_bpc` above.
+    // Reading it is still worth doing: a stale value left by another compositor is
+    // exactly the kind of thing we want visible in a log.
+    if let Some(h) = bpc_prop {
+        let was = current_raw(drm, conn, h);
+        let would = clamp_range(drm, h, want_bpc);
+        outcome.max_bpc =
+            format!("{was:?} (observed only, NOT written; would have been {would} for depth request {want_bpc})");
+    }
+    let bpc: Option<(property::Handle, u64)> = None;
+
+    if cs.is_none() && meta.is_none() && bpc.is_none() {
+        return Ok(outcome);
+    }
 
     let build = || {
         let mut req = AtomicModeReq::new();
-        req.add_property(conn, colorspace, property::Value::UnsignedRange(bt2020));
-        req.add_property(conn, hdr_meta, property::Value::Blob(blob_raw));
+        if let Some((h, v)) = cs {
+            req.add_property(conn, h, property::Value::UnsignedRange(v));
+        }
+        if let Some((h, v)) = meta {
+            req.add_property(conn, h, property::Value::Blob(v));
+        }
+        if let Some((h, v)) = bpc {
+            req.add_property(conn, h, property::Value::UnsignedRange(v));
+        }
         req
     };
 
@@ -165,14 +286,20 @@ pub fn signal_hdr(
         AtomicCommitFlags::TEST_ONLY | AtomicCommitFlags::ALLOW_MODESET,
         build(),
     ) {
-        let _ = drm.destroy_property_blob(blob_raw);
-        return Err(format!("HDR atomic TEST commit rejected: {e}"));
+        if let Some(b) = blob_raw {
+            let _ = drm.destroy_property_blob(b);
+        }
+        return Err(format!("connector-props TEST commit rejected: {e} [{}|{}|{}]",
+            outcome.colorspace, outcome.metadata, outcome.max_bpc));
     }
     if let Err(e) = drm.atomic_commit(AtomicCommitFlags::ALLOW_MODESET, build()) {
-        let _ = drm.destroy_property_blob(blob_raw);
-        return Err(format!("HDR atomic commit failed: {e}"));
+        if let Some(b) = blob_raw {
+            let _ = drm.destroy_property_blob(b);
+        }
+        return Err(format!("connector-props commit failed: {e} [{}|{}|{}]",
+            outcome.colorspace, outcome.metadata, outcome.max_bpc));
     }
-    // Leak the blob for the session: the connector property references it while
-    // active; we set it once and never replace it.
-    Ok(())
+    // The HDR blob is intentionally leaked for as long as the property references
+    // it; it is replaced (or cleared) by the next pass on this connector.
+    Ok(outcome)
 }

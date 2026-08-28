@@ -69,11 +69,13 @@ fn best_buffer(buffers: &[(WlBuffer, i32)]) -> Option<WlBuffer> {
 /// for the geometry it claims.
 fn decode(buffer: &WlBuffer) -> Option<IconPixels> {
     with_buffer_contents(buffer, |pointer, len, data| {
-        let alpha = match data.format {
-            wl_shm::Format::Argb8888 => true,
-            wl_shm::Format::Xrgb8888 => false,
-            other => {
-                warn!("toplevel icon: unread shm format {other:?}");
+        // Alpha comes from the fourcc table, not a local match: "does this format
+        // carry alpha" is a property of the format and had four copies in this
+        // tree, one of which had already gone stale.
+        let alpha = match smithay::wayland::shm::shm_format_to_fourcc(data.format) {
+            Some(code) => !compositor_kernel_vulkan_format_query_base::query::opaque(code),
+            None => {
+                warn!("toplevel icon: unread shm format {:?}", data.format);
                 return None;
             }
         };

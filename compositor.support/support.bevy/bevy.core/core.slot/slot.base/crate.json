@@ -1,12 +1,12 @@
 {
   "deps": [
+    "compositor_kernel_graphic_format_answer_base",
     "compositor_support_bevy_core_alloc_base",
     "compositor_support_bevy_core_context_base",
     "compositor_support_bevy_core_fault_base",
     "compositor_support_bevy_core_gles_base",
     "compositor_support_bevy_core_import_base",
     "compositor_model_debug_instance_record",
-    "compositor_kernel_graphic_bridge_negotiate_base",
     "smithay",
     "wgpu"
   ]

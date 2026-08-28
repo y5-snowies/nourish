@@ -1,6 +1,6 @@
 use std::sync::{Arc, atomic::Ordering};
 
-use atomic_float::AtomicF64;
+use portable_atomic::AtomicF64;
 use tracing::{trace, warn, warn_span};
 use wayland_protocols::xdg::xdg_output::zv1::server::{
     zxdg_output_manager_v1::{self, ZxdgOutputManagerV1},
@@ -169,23 +169,22 @@ where
                 let output = Output::from_resource(&wl_output).unwrap();
                 let mut inner = output.inner.0.lock().unwrap();
 
-                let xdg_output = XdgOutput::new(&inner);
-
                 if inner.xdg_output.is_none() {
-                    inner.xdg_output = Some(xdg_output.clone());
+                    inner.xdg_output = Some(XdgOutput::new(&inner));
                 }
+                let xdg_output = inner.xdg_output.as_ref().unwrap();
 
                 let client_scale = state.client_compositor_state(client).clone_client_scale();
                 let id = data_init.init(
                     id,
                     XdgOutputUserData {
-                        xdg_output,
+                        xdg_output: xdg_output.clone(),
                         last_client_scale: AtomicF64::new(client_scale.load(Ordering::Acquire)),
                         client_scale,
                     },
                 );
 
-                inner.xdg_output.as_ref().unwrap().add_instance(&id, &wl_output);
+                xdg_output.add_instance(&id, &wl_output);
             }
             zxdg_output_manager_v1::Request::Destroy => {}
             _ => {}

@@ -25,6 +25,9 @@ pub const LAYER_TOP: Layer = Layer(450);
 pub const LAYER_OVERLAY: Layer = Layer(480);
 pub const ICED_SCREEN: Layer = Layer(500);
 pub const POINTER: Layer = Layer(700);
+// Notifications draw above EVERYTHING — the pointer and the picker/lock fades
+// included: a message the user must see is not part of the scene it interrupts.
+pub const NOTIFY: Layer = Layer(800);
 
 /// Transitional draw-node currency: type-erased until the concrete draw-node
 /// model lands (phase 4 of document/ARCHITECTURE.md). The frame driver
@@ -59,6 +62,13 @@ impl FramePlan {
 
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
+    }
+
+    /// Remove and return the first node of type `T`, for a bridge that knows
+    /// one concrete node kind and leaves the rest of the plan to others.
+    pub fn take<T: 'static>(&mut self) -> Option<T> {
+        let at = self.items.iter().position(|(_, node)| node.is::<T>())?;
+        self.items.remove(at).1.downcast::<T>().ok().map(|b| *b)
     }
 
     /// The plan in draw order (back to front).

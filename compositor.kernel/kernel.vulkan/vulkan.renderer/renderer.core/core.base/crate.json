@@ -1,5 +1,10 @@
 {
   "deps": [
+    "compositor_kernel_graphic_format_registrar_base",
+    "compositor_orchestration_smithay_data_base",
+    "compositor_kernel_graphic_format_catalog_base",
+    "compositor_kernel_graphic_format_answer_base",
+    "compositor_kernel_graphic_format_resolve_base",
     "compositor_kernel_graphic_bridge_publish_retire",
     "compositor_pipeline_abi_seam_base",
     "compositor_pipeline_abi_worldset_base",

@@ -1,0 +1,9 @@
+{
+  "deps": [
+    "wgpu",
+    "compositor_kernel_vulkan_format_table_base",
+    "compositor_kernel_vulkan_format_query_base",
+    "smithay",
+    "ash"
+  ]
+}

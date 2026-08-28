@@ -1,6 +1,7 @@
 {
   "deps": [
     "compositor_support_library_process_child_hygiene",
+    "compositor_support_library_process_child_spawn",
     "smithay",
     "uuid",
     "compositor_orchestration_core_state_base",

@@ -2,11 +2,22 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Physical, Size};
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_core_state_base::state::CoordinateTrait;
+use compositor_support_system_world_frame_base::base::FramePlan;
+use compositor_y5_notify_present_base::base::NotifyFrame;
 
-pub fn hooks(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physical>) {
+/// What one output's systems tick produced: the active world's remaining draw
+/// plan (the pass bridges what it knows), and the kernel host's notification
+/// pill for this output, already taken out of it.
+pub struct Ticked {
+    pub plan: FramePlan,
+    pub notify: Option<NotifyFrame>,
+}
+
+/// The main scene's per-frame rim hooks, then the active world's systems tick.
+pub fn hooks(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physical>) -> Ticked {
     compositor_y5_window_lifecycle_interface::interface::hook(state, renderer);
     // Promote any disk-restored placeholders (spawn-target world) into visible
-    // launcher tiles — needs the renderer, so it can't happen at rehydrate time.
+    // placeholders — needs the renderer, so it can't happen at rehydrate time.
     compositor_y5_placeholder_interface_base::interface::promote_restored(state, renderer);
     // Session identities: seed the store from persisted placeholders once, then
     // carry client renames onto every placeholder holding the old key.
@@ -30,48 +41,8 @@ pub fn hooks(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Phys
     // what it displays, which is why it runs every frame rather than only on the
     // open/close edge.
     compositor_y5_guide_shader_create::create::per_frame(state, renderer, size);
-    // Per-frame screen context for systems (KernelData). Background systems read
-    // physical output size from here (SCREEN) — the former background.shared
-    // OUTPUT_SIZE world token is gone.
-    {
-        let scale = state.size_ctx_all().scale;
-        compositor_orchestration_smithay_data_base::data::update_screen(
-            &mut state.inner.kernel,
-            compositor_orchestration_smithay_data_base::data::ScreenContext { size, scale },
-        );
-    }
-    state.inner.pilot_tick += 1;
-    let tick = compositor_support_system_world_frame_base::base::FrameTick {
-        index: state.inner.pilot_tick,
-        delta: std::time::Duration::ZERO,
-    };
     compositor_orchestration_bus_legacy_base::legacy::drain(state, |l| &mut l.inner.bus);
-    {
-        let (worlds, kernel) = (&mut state.inner.worlds, &state.inner.kernel);
-        worlds.active_mut().dispatch(kernel);
-    }
-    {
-        // Lend systems the live renderer + window Space via the Platform hatch.
-        // SAFETY: platform is dropped at the end of this block; the driver does
-        // not touch state.inner.space_state() or the renderer during the update call.
-        let mut platform = unsafe {
-            compositor_orchestration_draw_platform_base::platform::Platform::new(
-                Some(renderer),
-                &mut state.inner.space_state_mut().state,
-            )
-        };
-        let kernel = &state.inner.kernel;
-        // Lend the seat (the wayland `Dispatch`) to the update path DISJOINTLY from
-        // the world (`&mut state.state` is a different field than `state.inner`), so
-        // the navigator system warps the pointer directly via `cx.seat` — no
-        // `pending_pointer_warp` round-trip (document/SMITHAY_DECOUPLING.md "P3").
-        let seat: &mut dyn std::any::Any = &mut state.state;
-        state
-            .inner
-            .worlds
-            .active_mut()
-            .update(kernel, &tick, Some(&mut platform), Some(seat));
-    }
+    let ticked = world_tick(state, renderer, size);
 
     // A two-finger glide pans the camera without routing through the physical
     // cursor accumulator, so the first post-glide pointer motion snaps the cursor
@@ -107,4 +78,74 @@ pub fn hooks(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Phys
     // at each destroy path) rather than a per-frame live-set scan. Until then a
     // destroyed iced surface leaves a stale order entry, which is harmless
     // (element_of / hit_iced_one return None for it).
+    ticked
+}
+
+/// The systems tick for one output's frame: publish this output's screen
+/// context, then dispatch → `update()` → `draw()` the ACTIVE world and, after
+/// it, the KERNEL system host (`WorldManager::kernel`) — the systems that run
+/// whatever world is active — into one plan.
+///
+/// The one tick for the scene and picker passes — each owns a prepare path, and
+/// a world that is on screen must tick whichever pass draws it, or a system that
+/// only exists to be ticked (the notification pill, the parallax animation)
+/// stops the moment the frame plan picks another pass. The LOCK pass deliberately
+/// does NOT tick: the lock screen shows no notifications, and not ticking the
+/// kernel host is what keeps a queued message waiting for the unlock instead of
+/// being consumed unseen.
+pub fn world_tick(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physical>) -> Ticked {
+    // Per-frame screen context for systems (KernelData). Background systems read
+    // physical output size from here (SCREEN) — the former background.shared
+    // OUTPUT_SIZE world token is gone.
+    {
+        let scale = state.size_ctx_all().scale;
+        let output = std::sync::Arc::from(state.inner.current_output_key().as_str());
+        compositor_orchestration_smithay_data_base::data::update_screen(
+            &mut state.inner.kernel,
+            compositor_orchestration_smithay_data_base::data::ScreenContext { size, scale, output },
+        );
+    }
+    state.inner.pilot_tick += 1;
+    let tick = compositor_support_system_world_frame_base::base::FrameTick {
+        index: state.inner.pilot_tick,
+        delta: std::time::Duration::ZERO,
+    };
+    {
+        let (worlds, kernel) = (&mut state.inner.worlds, &state.inner.kernel);
+        worlds.active_mut().dispatch(kernel);
+        worlds.kernel_mut().dispatch(kernel);
+    }
+    let gpu = state.inner.environment.GPU.clone();
+    let mut plan = FramePlan::new();
+    {
+        // Lend systems the live renderer + window Space via the Platform hatch.
+        // SAFETY: platform is dropped at the end of this block; the driver does
+        // not touch state.inner.space_state() or the renderer during the calls.
+        let mut platform = unsafe {
+            compositor_orchestration_draw_platform_base::platform::Platform::new(
+                Some(renderer),
+                &mut state.inner.space_state_mut().state,
+                &gpu,
+            )
+        };
+        let kernel = &state.inner.kernel;
+        // Lend the seat (the wayland `Dispatch`) to the update path DISJOINTLY from
+        // the world (`&mut state.state` is a different field than `state.inner`), so
+        // the navigator system warps the pointer directly via `cx.seat` — no
+        // `pending_pointer_warp` round-trip (document/SMITHAY_DECOUPLING.md "P3").
+        let seat: &mut dyn std::any::Any = &mut state.state;
+        let world = state.inner.worlds.active_mut();
+        world.update(kernel, &tick, Some(&mut platform), Some(seat));
+        world.draw(kernel, &mut plan, Some(&mut platform));
+        let host = state.inner.worlds.kernel_mut();
+        host.update(kernel, &tick, Some(&mut platform), Some(seat));
+        host.draw(kernel, &mut plan, Some(&mut platform));
+    }
+    // The kernel host's node, bridged here for every pass: the slide is
+    // time-driven, so it needs frames even when nothing else changed.
+    let notify = plan.take::<NotifyFrame>();
+    if notify.as_ref().is_some_and(|n| n.animating) {
+        state.schedule_redraw();
+    }
+    Ticked { plan, notify }
 }

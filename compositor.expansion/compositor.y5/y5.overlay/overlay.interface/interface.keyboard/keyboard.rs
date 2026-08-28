@@ -72,6 +72,10 @@ fn bindings() -> Vec<Bind> {
         // to the log. Reads /proc, so it is deliberately on a key rather than on
         // any lifecycle path. `hidden` — live, but not listed in the Keys tab.
         Bind { id: "meta_dump", label: "Dump focused window metadata", default: shortcut!(Super + Alt + Shift + I), hidden: true, action: Box::new(|s| { compositor_y5_window_interface_dump::dump::focused_meta(s); true }) },
+        // Diagnostic: queues a numbered test notification on the kernel host —
+        // an OVERLAY shortcut so it works in the picker too, where the pill must
+        // draw. Each press queues one more; a burst shows the FIFO.
+        Bind { id: "notify_test", label: "Queue a test notification", default: shortcut!(Super + Alt + Shift + N), hidden: true, action: Box::new(|s| { notify_test(s); true }) },
         // (Settings has no global shortcut — reachable only via the overview Settings tab.)
         // Removed (per request): world-switch test shortcuts, Escape/cancel-picker,
         // VT switches, and all sink/media shortcuts — deactivated AND not listed.
@@ -229,6 +233,12 @@ fn tty(state: &mut Loop, num: u32) {
             ses.change_vt(num as i32);
         }
     });
+}
+
+fn notify_test(state: &mut Loop) {
+    static COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+    let n = COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    compositor_y5_notify_state_base::base::announce(state.inner.kernel_channels(), format!("Test notification #{n}"));
 }
 
 fn sleep(state: &mut Loop) {

@@ -30,6 +30,17 @@ pub struct CompositePipelines {
     pub descriptor_layout: vk::DescriptorSetLayout,
     pub layout: vk::PipelineLayout,
     pub textured: vk::Pipeline,
+    /// Same shaders as [`Self::textured`] with blending OFF — for a draw that lies
+    /// inside a surface's declared opaque region.
+    ///
+    /// A client that calls `wl_surface.set_opaque_region` promises those pixels are
+    /// opaque, and the damage tracker takes it at its word: the region is subtracted
+    /// from what gets CLEARED. Blending it anyway makes the two halves disagree —
+    /// nothing repaints the background there, and then the surface is composited
+    /// over it with its own alpha, so an ARGB client that leaves alpha at 0 (chrome
+    /// on the ANGLE/Vulkan path does) shows the stale previous frame instead of its
+    /// content. That is the trail. Honouring the promise here makes the halves agree.
+    pub textured_opaque: vk::Pipeline,
     pub solid: vk::Pipeline,
     pub sampler: vk::Sampler,
     pub color_format: vk::Format,
@@ -141,11 +152,24 @@ pub fn create(
         .color_write_mask(vk::ColorComponentFlags::RGBA);
     let blend = vk::PipelineColorBlendStateCreateInfo::default()
         .attachments(std::slice::from_ref(&blend_attachment));
+    // Opaque variant: replace the colour outright, and leave the attachment's ALPHA
+    // alone. Writing the source alpha too would stamp the client's 0 into the target
+    // and make everything drawn on top of it later this frame blend against a
+    // transparent destination — trading one wrong result for another. Only the RGB
+    // is ours to overwrite here.
+    let opaque_attachment = vk::PipelineColorBlendAttachmentState::default()
+        .blend_enable(false)
+        .color_write_mask(
+            vk::ColorComponentFlags::R | vk::ColorComponentFlags::G | vk::ColorComponentFlags::B,
+        );
+    let opaque_blend = vk::PipelineColorBlendStateCreateInfo::default()
+        .attachments(std::slice::from_ref(&opaque_attachment));
     let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
     let dynamic = vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
 
     let color_formats = [color_format];
-    let build = |stages: &[vk::PipelineShaderStageCreateInfo]| {
+    let build = |stages: &[vk::PipelineShaderStageCreateInfo],
+                 blend_state: &vk::PipelineColorBlendStateCreateInfo| {
         let mut rendering_info = vk::PipelineRenderingCreateInfo::default()
             .color_attachment_formats(&color_formats);
         let info = vk::GraphicsPipelineCreateInfo::default()
@@ -155,7 +179,7 @@ pub fn create(
             .viewport_state(&viewport_state)
             .rasterization_state(&raster)
             .multisample_state(&multisample)
-            .color_blend_state(&blend)
+            .color_blend_state(blend_state)
             .dynamic_state(&dynamic)
             .layout(layout)
             .push_next(&mut rendering_info);
@@ -166,8 +190,9 @@ pub fn create(
         }
     };
 
-    let textured = build(&make_stages(tex_frag))?;
-    let solid = build(&make_stages(solid_frag))?;
+    let textured = build(&make_stages(tex_frag), &blend)?;
+    let textured_opaque = build(&make_stages(tex_frag), &opaque_blend)?;
+    let solid = build(&make_stages(solid_frag), &blend)?;
 
     unsafe {
         dev.destroy_shader_module(vert, None);
@@ -179,6 +204,7 @@ pub fn create(
         descriptor_layout,
         layout,
         textured,
+        textured_opaque,
         solid,
         sampler,
         color_format,
@@ -236,16 +262,21 @@ pub fn begin(
     }
 }
 
+/// `opaque`: the draw lies inside the surface's declared opaque region, so bind the
+/// non-blending variant. See [`CompositePipelines::textured_opaque`] for why that
+/// promise has to be kept once the damage tracker has already acted on it.
 pub fn draw_textured(
     device: &VulkanDevice,
     pipelines: &CompositePipelines,
     cmd: vk::CommandBuffer,
     descriptor_set: vk::DescriptorSet,
     quad: PushQuad,
+    opaque: bool,
 ) {
     unsafe {
         let dev = &device.device;
-        dev.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, pipelines.textured);
+        let pipeline = if opaque { pipelines.textured_opaque } else { pipelines.textured };
+        dev.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, pipeline);
         dev.cmd_bind_descriptor_sets(
             cmd,
             vk::PipelineBindPoint::GRAPHICS,
@@ -343,6 +374,12 @@ pub struct AaComposite {
     set_layout: vk::DescriptorSetLayout,
     layout: vk::PipelineLayout,
     pipeline: vk::Pipeline,
+    /// Same shaders with blending OFF, for a draw inside the surface's declared
+    /// opaque region — the AA counterpart of `CompositePipelines::textured_opaque`.
+    /// World elements (every client window) take THIS path whenever AA/FSR is on,
+    /// so an opaque fix that only covered the plain pipeline left every window
+    /// unfixed the moment anti-aliasing was enabled.
+    pipeline_opaque: vk::Pipeline,
     sampler_bilinear: vk::Sampler,
     /// Anisotropic samplers at a few max-anisotropy levels (each also LINEAR-mip
     /// so it samples the generated mip chain). Empty when the device lacks
@@ -492,6 +529,32 @@ impl AaComposite {
             dev.create_graphics_pipelines(cache, std::slice::from_ref(&info), None)
                 .map_err(|(_, e)| CompositeError::Vk(format!("aa pipeline: {e}")))?[0]
         };
+        // Opaque variant: replace the colour, leave the destination ALPHA alone, so
+        // later draws this frame do not end up blending against a transparent target.
+        let opaque_attachment = vk::PipelineColorBlendAttachmentState::default()
+            .blend_enable(false)
+            .color_write_mask(
+                vk::ColorComponentFlags::R | vk::ColorComponentFlags::G | vk::ColorComponentFlags::B,
+            );
+        let opaque_blend = vk::PipelineColorBlendStateCreateInfo::default()
+            .attachments(std::slice::from_ref(&opaque_attachment));
+        let mut opaque_rendering =
+            vk::PipelineRenderingCreateInfo::default().color_attachment_formats(&color_formats);
+        let opaque_info = vk::GraphicsPipelineCreateInfo::default()
+            .stages(&stages)
+            .vertex_input_state(&vertex_input)
+            .input_assembly_state(&input_assembly)
+            .viewport_state(&viewport_state)
+            .rasterization_state(&raster)
+            .multisample_state(&multisample)
+            .color_blend_state(&opaque_blend)
+            .dynamic_state(&dynamic)
+            .layout(layout)
+            .push_next(&mut opaque_rendering);
+        let pipeline_opaque = unsafe {
+            dev.create_graphics_pipelines(cache, std::slice::from_ref(&opaque_info), None)
+                .map_err(|(_, e)| CompositeError::Vk(format!("aa opaque pipeline: {e}")))?[0]
+        };
         unsafe { dev.destroy_shader_module(module, None) };
 
         const MAX_TEX: u32 = 1024;
@@ -514,6 +577,7 @@ impl AaComposite {
             set_layout,
             layout,
             pipeline,
+            pipeline_opaque,
             sampler_bilinear,
             aniso,
             sampler_trilinear,
@@ -595,16 +659,20 @@ impl AaComposite {
         Ok(set)
     }
 
+    /// `opaque`: this draw is inside the surface's declared opaque region, so bind
+    /// the non-blending variant.
     pub fn draw(
         &self,
         device: &VulkanDevice,
         cmd: vk::CommandBuffer,
         set: vk::DescriptorSet,
         push: AaPush,
+        opaque: bool,
     ) {
         let dev = &device.device;
         unsafe {
-            dev.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
+            let pipeline = if opaque { self.pipeline_opaque } else { self.pipeline };
+            dev.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, pipeline);
             dev.cmd_bind_descriptor_sets(
                 cmd,
                 vk::PipelineBindPoint::GRAPHICS,
@@ -634,6 +702,7 @@ impl AaComposite {
             }
             dev.destroy_sampler(self.sampler_trilinear, None);
             dev.destroy_pipeline(self.pipeline, None);
+            dev.destroy_pipeline(self.pipeline_opaque, None);
             dev.destroy_pipeline_layout(self.layout, None);
             dev.destroy_descriptor_set_layout(self.set_layout, None);
         }

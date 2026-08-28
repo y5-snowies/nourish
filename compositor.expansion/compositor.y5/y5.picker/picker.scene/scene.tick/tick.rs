@@ -1,42 +1,41 @@
 //! Per-frame picker pre-step: advance drag-release momentum, push the
-//! authoritative transform to the scene, and extract the picker's OWN parallax
-//! background (distant/lock-style) to draw behind the sphere.
+//! authoritative transform to the scene, tick the picker world's systems and
+//! extract the picker's OWN parallax background (distant/lock-style) to draw
+//! behind the sphere, plus the notification pill to draw above it.
 
 use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::utils::{Physical, Size};
 use compositor_background_two_draw_element::element::ParallaxBackground;
 use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_orchestration_core_state_base::Loop;
+use compositor_y5_notify_present_base::base::NotifyFrame;
 use compositor_y5_picker_system_base::base::{PICKER_MUT, PICKER_WORLD};
 
-pub fn tick(state: &mut Loop, renderer: &mut GlesRenderer) -> Option<ParallaxBackground> {
+pub fn tick(
+    state: &mut Loop,
+    renderer: &mut GlesRenderer,
+    size: Size<i32, Physical>,
+) -> (Option<ParallaxBackground>, Option<NotifyFrame>) {
     compositor_y5_picker_surface_handle::handle::drain(state);
 
     // Momentum / re-face glide + transform push (shared with the overview's
     // embedded globe, so both advance in wall time).
     compositor_y5_picker_command_advance::advance::advance(state);
+    // Before the tick: `TwoSystem::update` only builds an instance for an EMPTY
+    // slot, and the picker's must be the distant one.
     ensure_distant_parallax(state, renderer);
 
-    // Extract the picker world's parallax node (mirrors the orchestration scene).
-    let mut frame = compositor_support_system_world_frame_base::base::FramePlan::new();
-    let mut platform = unsafe {
-        compositor_orchestration_draw_platform_base::platform::Platform::new(
-            Some(renderer),
-            &mut state.inner.space_state_mut().state,
-        )
-    };
-    let kernel = &state.inner.kernel;
-    state.inner.worlds.active_mut().draw(kernel, &mut frame, Some(&mut platform));
-    drop(platform);
-    let bg = frame
-        .sorted()
-        .into_iter()
-        .find_map(|(_, node)| node.downcast::<ParallaxBackground>().ok().map(|b| *b));
+    // The same systems tick the orchestration scene runs — the picker world is
+    // the active world while it owns the frame, and it is drawn by this pass alone.
+    let compositor_orchestration_draw_scene_frame::hooks::Ticked { mut plan, notify } =
+        compositor_orchestration_draw_scene_frame::hooks::world_tick(state, renderer, size);
+    let bg = plan.take::<ParallaxBackground>();
     if bg.is_some() {
         state.schedule_redraw_post_vblank();
     }
     // See `ParallaxBackground::bind_overlay` — the picker builds its own plan, so
     // nothing else supplies the pane, refresh or frame serial.
-    bg.map(|mut b| {
+    let bg = bg.map(|mut b| {
         let out: std::sync::Arc<str> =
             std::sync::Arc::from(state.inner.current_output_key().as_str());
         if let Some(w) = b.world.filter(|w| state.inner.worlds.contains(*w)) {
@@ -49,13 +48,18 @@ pub fn tick(state: &mut Loop, renderer: &mut GlesRenderer) -> Option<ParallaxBac
             state.inner.next_frame_serial(),
         );
         b
-    })
+    });
+    (bg, notify)
 }
 
-/// Ensure the picker's OWN parallax instance exists (create it DIRECTLY — the
-/// picker's custom render path doesn't drain `TwoSystem`'s buffer, so the normal
-/// `update()→SetInstance` never lands) and give it the subtle "distant" look.
+/// Ensure the picker's OWN parallax instance exists (create it DIRECTLY, ahead of
+/// the world tick — `TwoSystem::update` would otherwise fill the empty slot with
+/// the stock instance) and give it the subtle "distant" look.
 fn ensure_distant_parallax(state: &mut Loop, renderer: &mut GlesRenderer) {
+    // Cloned up front: the instance is built inside a closure that cannot hold a
+    // borrow of `state`, and the handle is one `Arc`.
+    let formats =
+        state.inner.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS).clone();
     let (w, h) = state.size_ctx_all().screen_size_physical;
     if let Some(two) = state
         .inner
@@ -82,7 +86,7 @@ fn ensure_distant_parallax(state: &mut Loop, renderer: &mut GlesRenderer) {
                 // empty slot) never runs for this world. Without this the picker's
                 // full-screen shader rendered inline on the compositor thread
                 // whatever `background_triple_buffer` said.
-                i.attach_worker();
+                i.attach_worker(&formats);
                 i
             });
         // Snap, don't ramp: the picker owns its own entry transition, and the
@@ -91,7 +95,8 @@ fn ensure_distant_parallax(state: &mut Loop, renderer: &mut GlesRenderer) {
         if inst.lock_time.is_none() {
             inst.snap_locked();
         }
-        inst.update(); // advance the parallax animation (the buffer Tick won't run)
+        // The animation advances through `TwoSystem`'s buffer `Tick`, which the
+        // world tick above now delivers for this world too.
         inst.pan = (0.0, 0.0);
         inst.zoom = 0.85;
     }

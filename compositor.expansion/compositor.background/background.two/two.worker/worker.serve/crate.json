@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_kernel_graphic_format_registrar_base",
     "compositor_pipeline_abi_seam_base",
     "compositor_pipeline_build_seam_base",
     "compositor_pipeline_execute_graph_base",

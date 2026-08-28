@@ -878,6 +878,24 @@ impl<'a> DerivedModule<'a> {
         }
     }
 
+    // remap mesh stage info handles into our derived context
+    pub fn remap_mesh_info(&mut self, info: &naga::MeshStageInfo) -> naga::MeshStageInfo {
+        naga::MeshStageInfo {
+            topology: info.topology,
+            max_vertices: info.max_vertices,
+            max_vertices_override: info
+                .max_vertices_override
+                .map(|e| self.import_global_expression(e)),
+            max_primitives: info.max_primitives,
+            max_primitives_override: info
+                .max_primitives_override
+                .map(|e| self.import_global_expression(e)),
+            vertex_output_type: self.import_type(&info.vertex_output_type),
+            primitive_output_type: self.import_type(&info.primitive_output_type),
+            output_variable: self.import_global(&info.output_variable),
+        }
+    }
+
     // import a function defined in the source shader context.
     // func name may be already defined, the returned handle will refer to the new function.
     // the previously defined function will still be valid.

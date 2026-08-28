@@ -24,12 +24,15 @@ pub(crate) static POINTER_MUT: TokenMut<PointerHandle<Dispatch>> = TokenMut::new
 pub static KEYBOARD: Token<KeyboardHandle<Dispatch>> = Token::new();
 pub(crate) static KEYBOARD_MUT: TokenMut<KeyboardHandle<Dispatch>> = TokenMut::new(&KEYBOARD);
 
-/// Per-frame screen context (physical size + scale), refreshed by the frame
-/// driver each frame so systems can build coordinate Contexts without Loop.
-#[derive(Clone, Copy, Debug)]
+/// Per-frame screen context — the OUTPUT this pass draws: its physical size,
+/// scale and key. Refreshed by the frame driver before every output's systems
+/// tick, so a system that keeps something per monitor (a notification pill on
+/// each) keys it by `output` without the trait carrying the output.
+#[derive(Clone, Debug)]
 pub struct ScreenContext {
     pub size: smithay::utils::Size<i32, smithay::utils::Physical>,
     pub scale: f64,
+    pub output: std::sync::Arc<str>,
 }
 
 pub static SCREEN: Token<ScreenContext> = Token::new();

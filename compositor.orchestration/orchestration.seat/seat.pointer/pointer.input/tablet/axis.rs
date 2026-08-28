@@ -13,7 +13,7 @@
 
 use smithay::backend::input::{Event, InputBackend, TabletToolAxisEvent, TabletToolEvent};
 use smithay::utils::SERIAL_COUNTER;
-use smithay::wayland::tablet_manager::TabletDescriptor;
+use smithay::input::tablet::TabletDescriptor;
 use compositor_support_smithay_dispatch_wire_tablet::tablet::Stroke;
 use compositor_orchestration_core_state_base::Loop;
 use crate::tablet::{client, coords, cursor, hand_active, select_active, tip};

@@ -3,7 +3,7 @@
 //!
 //! These were two independent reads of the same attributes, and they drifted
 //! into disagreeing about what "has a container" means. Keeping them apart is
-//! what let a tile show a container badge while the launch built a broken
+//! what let a placeholder show a container badge while the launch built a broken
 //! command; a single query is the fix, not tidier duplicates.
 
 use compositor_introspection_extraction_window_base::attributes::{ContainerId, ContainerName};
@@ -62,7 +62,7 @@ pub fn is_containerised(plan: &LaunchPlan) -> bool {
 /// before falling back to the inferred hint, and clearing a text field in the
 /// placeholder's settings stores an empty-string override rather than
 /// removing one — so the answer is `Some("")`, not `None`. Taken at face
-/// value that kept a tile marked as containerised forever (the override is
+/// value that kept a placeholder marked as containerised forever (the override is
 /// persisted, so it survived restarts), never showed the "name unavailable"
 /// state, and put an empty container name into `podman exec`, breaking the
 /// launch outright.

@@ -116,9 +116,12 @@ impl<U: IcedUi> IcedRuntime<U> {
     /// `size` is in physical pixels. `scale_factor` is 1.0 for the single-output
     /// case (per spec); pass a real value if you wire up multi-output later.
     pub fn new(ui: U, engine: SharedEngine, size_px: (u32, u32), scale_factor: f32) -> Self {
+        // iced now splits scale into the OS window factor and an application
+        // factor. y5's `scale_factor` is the window one; the compositor applies
+        // its own zoom through the camera, not through iced.
         let viewport = Viewport::with_physical_size(
             Size::new(size_px.0.max(1), size_px.1.max(1)),
-            scale_factor,
+            iced_core::renderer::Scale { window: scale_factor, application: 1.0 },
         );
 
         Self {
@@ -255,12 +258,24 @@ impl<U: IcedUi> IcedRuntime<U> {
                 cache,
                 &mut renderer_guard,
             );
+            // iced master's `update` wants a window handle and a waker. y5 has
+            // neither: iced renders into a compositor-owned surface, never an OS
+            // window, and the redraw schedule is the compositor's (`redraw_request`
+            // below is what drives it), so `Headless` + a no-op waker are the
+            // truthful values rather than placeholders.
+            let mut bus = iced_core::shell::Bus::new();
+            for message in messages.drain(..) {
+                let _ = bus.push(message);
+            }
             let (state, _statuses) = ui.update(
+                &iced_core::window::Headless,
+                &iced_core::shell::Waker::noop(),
                 &events,
                 self.cursor,
                 &mut renderer_guard,
-                &mut messages,
+                &mut bus,
             );
+            messages.extend(bus.drain());
             (ui.into_cache(), state)
         };
         self.cache = new_cache;
@@ -364,7 +379,14 @@ impl<U: IcedUi> IcedRuntime<U> {
         // within the texture bounds. Empty events → overlay is laid out but no
         // events are processed (tick already drained the queue); harmless when
         // there is no overlay.
-        let _ = ui.update(&[], self.cursor, &mut renderer_guard, &mut Vec::new());
+        let _ = ui.update(
+            &iced_core::window::Headless,
+            &iced_core::shell::Waker::noop(),
+            &[],
+            self.cursor,
+            &mut renderer_guard,
+            &mut iced_core::shell::Bus::new(),
+        );
 
         ui.draw(
             &mut renderer_guard,
@@ -468,7 +490,7 @@ impl<U: IcedUi> IcedRuntime<U> {
     pub fn resize(&mut self, new_size_px: (u32, u32), scale_factor: f32) {
         self.viewport = Viewport::with_physical_size(
             Size::new(new_size_px.0.max(1), new_size_px.1.max(1)),
-            scale_factor,
+            iced_core::renderer::Scale { window: scale_factor, application: 1.0 },
         );
 
         // Layout depends on size; invalidate.

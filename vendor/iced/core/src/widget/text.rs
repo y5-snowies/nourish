@@ -29,7 +29,7 @@ use crate::text::paragraph::{self, Paragraph};
 use crate::widget::tree::{self, Tree};
 use crate::{Color, Element, Layout, Length, Pixels, Rectangle, Size, Theme, Widget};
 
-pub use text::{Alignment, Ellipsis, LineHeight, Shaping, Wrapping};
+pub use text::{Alignment, Ellipsis, LineHeight, Position, Shaping, Wrapping};
 
 /// A bunch of text.
 ///
@@ -325,7 +325,7 @@ where
             shaping: format.shaping,
             wrapping: format.wrapping,
             ellipsis: format.ellipsis,
-            hint_factor: renderer.scale_factor(),
+            hint_factor: renderer.hint_factor(),
         });
 
         paragraph.min_bounds()

@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_kernel_graphic_format_registrar_base",
     "compositor_background_two_worker_key",
     "compositor_model_environment_background_base",
     "smithay",

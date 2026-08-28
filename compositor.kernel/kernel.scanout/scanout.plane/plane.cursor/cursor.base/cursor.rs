@@ -29,11 +29,14 @@ impl CursorAllocator {
         }
     }
 
-    /// Allocate a cursor-plane buffer (linear ARGB, the universally accepted
-    /// cursor format).
+    /// Allocate a cursor-plane buffer. The format is an assertion rather than a
+    /// negotiation — every KMS driver takes a linear ARGB cursor — but it is
+    /// stated in the format layer with the rest, so no crate outside it names a
+    /// format.
     pub fn allocate(&mut self, size: (u32, u32)) -> Result<DumbBuffer, CursorError> {
+        let (fourcc, mods) = compositor_kernel_graphic_format_answer_base::answer::constant(compositor_kernel_graphic_format_answer_base::answer::Consumer::CursorPlane);
         self.allocator
-            .create_buffer(size.0, size.1, Fourcc::Argb8888, &[Modifier::Linear])
+            .create_buffer(size.0, size.1, fourcc, &mods)
             .map_err(|e| CursorError::Alloc(format!("{e}")))
     }
 }

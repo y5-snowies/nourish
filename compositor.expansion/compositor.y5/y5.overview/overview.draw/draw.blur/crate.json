@@ -1,5 +1,7 @@
 {
   "deps": [
+    "compositor_kernel_graphic_format_registrar_base",
+    "compositor_kernel_graphic_format_answer_base",
     "smithay",
     "compositor_support_bevy_core_alloc_base",
     "compositor_y5_graphic_capture_registry",

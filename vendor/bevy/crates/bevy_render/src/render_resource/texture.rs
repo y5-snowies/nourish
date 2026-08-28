@@ -1,4 +1,4 @@
-use crate::renderer::{RenderDevice, WgpuWrapper};
+use crate::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
     resource::Resource,
@@ -7,8 +7,6 @@ use bevy_ecs::{
 use bevy_image::ImageSamplerDescriptor;
 use bevy_utils::define_atomic_id;
 use core::ops::Deref;
-use std::sync::Arc;
-use wgpu::Queue;
 
 define_atomic_id!(TextureId);
 
@@ -76,9 +74,8 @@ pub struct SurfaceTexture {
 }
 
 impl SurfaceTexture {
-    pub fn present(self, render_queue: Arc<WgpuWrapper<Queue>>) {
-        let inner = self.value.into_inner();
-        render_queue.present(inner);
+    pub fn present(self, render_queue: &RenderQueue) {
+        render_queue.present(self.value.into_inner());
     }
 }
 

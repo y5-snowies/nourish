@@ -151,6 +151,16 @@ pub struct ToplevelSessionData {
     /// a way back to the object the error must be posted on. `None` on the
     /// `xx_` path, which has no rename.
     pub owner: Option<Weak<XdgSessionV1>>,
+    /// The `xdg_toplevel` protocol id this handle's grant is filed under — kept
+    /// as a plain id because the resource may be dead by the time we release.
+    pub toplevel_id: u32,
+    /// `false` for a handle we created WITHOUT a grant: the client asked for a
+    /// name another live toplevel already holds (`name_in_use`). The spec says
+    /// post the error, but that error kills the whole client over a bookkeeping
+    /// slip — Firefox 154 restores pre-154 profiles with duplicated names
+    /// (Bugzilla 2059617). The handle exists so the client's object model stays
+    /// valid; it owns no name, so nothing it does may touch the real holder's.
+    pub granted: bool,
 }
 
 impl ToplevelSessionData {
@@ -202,7 +212,7 @@ pub struct SessionLive {
     /// Applied `rename`s awaiting propagation: (session id, old name, new name).
     ///
     /// A rename re-keys an identity, and the placeholders carrying it — across
-    /// every world — have to follow, or the tile spawned when the window closes
+    /// every world — have to follow, or the placeholder spawned when the window closes
     /// still holds the old name and stops matching the client on its next run.
     /// The placeholder model lives well above this layer, so a rename is only
     /// recorded here and applied by the rim.
@@ -219,12 +229,17 @@ impl SessionLive {
 
     /// Install `claimant` as the manager, displacing (and notifying) any
     /// incumbent from a different client.
-    pub fn install(&mut self, session_id: &str, claimant: SessionResource) {
+    ///
+    /// Returns whether an incumbent was displaced — the caller then drops the
+    /// incumbent's live toplevel grants (`SessionStore::release_session`).
+    pub fn install(&mut self, session_id: &str, claimant: SessionResource) -> bool {
+        let displaced = self.held.get(session_id).is_some();
         if let Some(previous) = self.held.get(session_id) {
             previous.send_replaced();
             info!("session: {session_id} taken over; previous holder sent replaced");
         }
         self.held.insert(session_id.to_string(), claimant);
+        displaced
     }
 
     /// Release on destruction — but ONLY if `holder` is still the registered
@@ -290,7 +305,9 @@ pub fn dispatch_manager<D>(
         // by name, which is the entire point of the protocol.
         Some(existing) => {
             let session = di.init(id, SessionData { session_id: existing.clone() });
-            live.install(&existing, SessionResource::Xdg(session.clone()));
+            if live.install(&existing, SessionResource::Xdg(session.clone())) {
+                store.release_session(&existing);
+            }
             session.restored();
             info!("session: restored session {existing} (reason {reason:?})");
         }
@@ -304,7 +321,9 @@ pub fn dispatch_manager<D>(
                 .unwrap_or_else(|| Uuid::now_v7().to_string());
             store.open(&minted);
             let session = di.init(id, SessionData { session_id: minted.clone() });
-            live.install(&minted, SessionResource::Xdg(session.clone()));
+            if live.install(&minted, SessionResource::Xdg(session.clone())) {
+                store.release_session(&minted);
+            }
             session.created(minted.clone());
             info!("session: minted session {minted} for pid {pid} (reason {reason:?})");
         }
@@ -331,11 +350,15 @@ pub fn dispatch_session<D>(
                 return;
             }
             if let Err(e) = store.grant(session_id, &name, toplevel.id().protocol_id()) {
-                post_grant_error(session, e, &name);
+                if tolerated(e, &name, session_id) {
+                    di.init(id, orphan(session_id, &name, Some(session)));
+                } else {
+                    post_grant_error(session, e, &name);
+                }
                 return;
             }
             let surface = surface_of(&toplevel);
-            stamp(surface.as_ref(), session_id, &name);
+            stamp(surface.as_ref(), session_id, &name, false);
             di.init(id, data(session_id, &name, surface, Some(toplevel), Some(session)));
         }
         xdg_session_v1::Request::RestoreToplevel { id, toplevel, name } => {
@@ -344,11 +367,15 @@ pub fn dispatch_session<D>(
             }
             let known = store.knows(session_id, &name);
             if let Err(e) = store.grant(session_id, &name, toplevel.id().protocol_id()) {
-                post_grant_error(session, e, &name);
+                if tolerated(e, &name, session_id) {
+                    di.init(id, orphan(session_id, &name, Some(session)));
+                } else {
+                    post_grant_error(session, e, &name);
+                }
                 return;
             }
             let surface = surface_of(&toplevel);
-            stamp(surface.as_ref(), session_id, &name);
+            stamp(surface.as_ref(), session_id, &name, true);
             let handle = di.init(id, data(session_id, &name, surface, Some(toplevel), Some(session)));
             if known {
                 handle.restored();
@@ -383,6 +410,10 @@ pub fn dispatch_toplevel_session(
     // that becomes a deadlock after some later refactor, and it buys nothing: the
     // compositor is single-threaded, so nothing can race between the two locks.
     let current = data.name.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if !data.granted {
+        *data.name.lock().unwrap_or_else(|e| e.into_inner()) = name;
+        return None;
+    }
     if let Err(GrantError::NameInUse) = store.rename(&data.session_id, &current, &name) {
         // Posted on the session, not this handle: `name_in_use` lives on the
         // session interface. If the session is already gone the rename simply
@@ -395,7 +426,7 @@ pub fn dispatch_toplevel_session(
         }
         return None;
     }
-    stamp(data.surface().as_ref(), &data.session_id, &name);
+    stamp(data.surface().as_ref(), &data.session_id, &name, false);
     *data.name.lock().unwrap_or_else(|e| e.into_inner()) = name.clone();
     Some((data.session_id.clone(), current, name))
 }
@@ -444,7 +475,9 @@ pub fn dispatch_legacy_manager<D>(
     match resolved {
         Some(existing) => {
             let s = di.init(id, SessionData { session_id: existing.clone() });
-            live.install(&existing, SessionResource::Xx(s.clone()));
+            if live.install(&existing, SessionResource::Xx(s.clone())) {
+                store.release_session(&existing);
+            }
             s.restored();
             info!("session(xx): restored session {existing}");
         }
@@ -454,7 +487,9 @@ pub fn dispatch_legacy_manager<D>(
                 .unwrap_or_else(|| Uuid::now_v7().to_string());
             store.open(&minted);
             let s = di.init(id, SessionData { session_id: minted.clone() });
-            live.install(&minted, SessionResource::Xx(s.clone()));
+            if live.install(&minted, SessionResource::Xx(s.clone())) {
+                store.release_session(&minted);
+            }
             s.created(minted.clone());
             info!("session(xx): minted session {minted} for pid {pid}");
         }
@@ -476,21 +511,29 @@ pub fn dispatch_legacy_session<D>(
     match request {
         xx_session_v1::Request::AddToplevel { id, toplevel, name } => {
             if let Err(e) = store.grant(session_id, &name, toplevel.id().protocol_id()) {
-                post_legacy_grant_error(session, e, &name);
+                if tolerated(e, &name, session_id) {
+                    di.init(id, orphan(session_id, &name, None));
+                } else {
+                    post_legacy_grant_error(session, e, &name);
+                }
                 return;
             }
             let surface = surface_of(&toplevel);
-            stamp(surface.as_ref(), session_id, &name);
+            stamp(surface.as_ref(), session_id, &name, false);
             di.init(id, data(session_id, &name, surface, Some(toplevel), None));
         }
         xx_session_v1::Request::RestoreToplevel { id, toplevel, name } => {
             let known = store.knows(session_id, &name);
             if let Err(e) = store.grant(session_id, &name, toplevel.id().protocol_id()) {
-                post_legacy_grant_error(session, e, &name);
+                if tolerated(e, &name, session_id) {
+                    di.init(id, orphan(session_id, &name, None));
+                } else {
+                    post_legacy_grant_error(session, e, &name);
+                }
                 return;
             }
             let surface = surface_of(&toplevel);
-            stamp(surface.as_ref(), session_id, &name);
+            stamp(surface.as_ref(), session_id, &name, true);
             let handle = di.init(id, data(session_id, &name, surface, Some(toplevel.clone()), None));
             if known {
                 handle.restored(&toplevel);
@@ -511,6 +554,9 @@ pub fn dispatch_legacy_toplevel_session(
     data: &ToplevelSessionData,
     request: xx_toplevel_session_v1::Request,
 ) {
+    if !data.granted {
+        return;
+    }
     if let xx_toplevel_session_v1::Request::Remove = request {
         let name = data.name.lock().unwrap_or_else(|e| e.into_inner()).clone();
         store.forget(&data.session_id, &name);
@@ -534,8 +580,11 @@ pub fn destroyed_session(live: &mut SessionLive, data: &SessionData, holder: Ses
 
 /// A toplevel-session object died: drop its live grant, keep its stored name.
 pub fn destroyed_toplevel_session(store: &mut SessionStore, data: &ToplevelSessionData) {
+    if !data.granted {
+        return;
+    }
     let name = data.name.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    store.release(&data.session_id, &name);
+    store.release(&data.session_id, &name, data.toplevel_id);
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -585,19 +634,50 @@ fn data(
         session_id: session_id.to_string(),
         name: std::sync::Mutex::new(name.to_string()),
         surface: surface.map(|s| s.downgrade()),
+        toplevel_id: toplevel.as_ref().map(|t| t.id().protocol_id()).unwrap_or(0),
         toplevel: toplevel.map(|t| t.downgrade()),
         owner: owner.map(|s| s.downgrade()),
+        granted: true,
     }
 }
 
-fn stamp(surface: Option<&WlSurface>, session_id: &str, name: &str) {
+/// Whether a failed grant is answered with an ownerless handle instead of a
+/// fatal error. Only `name_in_use`: a duplicate NAME is a client bookkeeping
+/// slip we can live with (the toplevel just goes unnamed — the placeholder
+/// path falls back to its token/pid matchers). `already_added` is the same
+/// OBJECT filed twice, which is a client that has lost track of itself.
+fn tolerated(e: GrantError, name: &str, session_id: &str) -> bool {
+    let ok = e == GrantError::NameInUse;
+    if ok {
+        warn!(
+            "session: toplevel name '{name}' already held by a live toplevel in session \
+             {session_id}; handle created without a grant instead of a fatal name_in_use"
+        );
+    }
+    ok
+}
+
+/// A toplevel-session handle that owns no name (see `ToplevelSessionData::granted`).
+fn orphan(session_id: &str, name: &str, owner: Option<&XdgSessionV1>) -> ToplevelSessionData {
+    ToplevelSessionData { granted: false, ..data(session_id, name, None, None, owner) }
+}
+
+/// `restored` distinguishes `restore_toplevel` (the client naming a toplevel we
+/// are expected to know) from `add_toplevel` (a name it is filing for the
+/// future). Only the former survives a later re-stamp — see [`SessionIdentity`].
+fn stamp(surface: Option<&WlSurface>, session_id: &str, name: &str, restored: bool) {
     let Some(surface) = surface else {
         warn!("session: toplevel resource with no shell user data — identity dropped");
         return;
     };
     compositor_support_smithay_state_session_store::store::set_identity(
         surface,
-        SessionIdentity { session_id: session_id.to_string(), name: name.to_string() },
+        SessionIdentity {
+            session_id: session_id.to_string(),
+            name: name.to_string(),
+            restored_from: None,
+        },
+        restored,
     );
 }
 

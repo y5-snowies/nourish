@@ -51,6 +51,10 @@ use crate::core::{self, Element, Event, Length, Pixels, Point, Rectangle, Shell,
 /// The [`VerticalSlider`] range of numeric values is generic and its step size defaults
 /// to 1 unit.
 ///
+/// Note: Under the hood values are converted to/from f64 so only values representable exactly as an f64
+/// are possible to select via the slider. However it is likely that the precision of the slider at these
+/// scales is already less than the precision lost from the f64 representation.
+///
 /// # Example
 /// ```no_run
 /// # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
@@ -84,8 +88,8 @@ where
     Theme: Catalog,
 {
     range: RangeInclusive<T>,
-    step: T,
-    shift_step: Option<T>,
+    step: f64,
+    shift_step: Option<f64>,
     value: T,
     default: Option<T>,
     on_change: Box<dyn Fn(T) -> Message + 'a>,
@@ -98,7 +102,7 @@ where
 
 impl<'a, T, Message, Theme> VerticalSlider<'a, T, Message, Theme>
 where
-    T: Copy + From<u8> + std::cmp::PartialOrd,
+    T: Copy + std::cmp::PartialOrd,
     Message: Clone,
     Theme: Catalog,
 {
@@ -133,7 +137,7 @@ where
             value,
             default: None,
             range,
-            step: T::from(1),
+            step: 1.0,
             shift_step: None,
             on_change: Box::new(on_change),
             on_release: None,
@@ -176,16 +180,16 @@ where
     }
 
     /// Sets the step size of the [`VerticalSlider`].
-    pub fn step(mut self, step: T) -> Self {
-        self.step = step;
+    pub fn step(mut self, step: impl num_traits::AsPrimitive<f64>) -> Self {
+        self.step = step.as_();
         self
     }
 
     /// Sets the optional "shift" step for the [`VerticalSlider`].
     ///
     /// If set, this value is used as the step while the shift key is pressed.
-    pub fn shift_step(mut self, shift_step: impl Into<T>) -> Self {
-        self.shift_step = Some(shift_step.into());
+    pub fn shift_step(mut self, shift_step: impl num_traits::AsPrimitive<f64>) -> Self {
+        self.shift_step = Some(shift_step.as_());
         self
     }
 
@@ -211,7 +215,7 @@ where
 impl<T, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for VerticalSlider<'_, T, Message, Theme>
 where
-    T: Copy + Into<f64> + num_traits::FromPrimitive,
+    T: Copy + num_traits::AsPrimitive<f64> + num_traits::FromPrimitive,
     Message: Clone,
     Theme: Catalog,
     Renderer: core::Renderer,
@@ -266,11 +270,10 @@ where
                     self.shift_step.unwrap_or(self.step)
                 } else {
                     self.step
-                }
-                .into();
+                };
 
-                let start = (*self.range.start()).into();
-                let end = (*self.range.end()).into();
+                let start = (*self.range.start()).as_();
+                let end = (*self.range.end()).as_();
 
                 let percent =
                     1.0 - f64::from(cursor_position.y - bounds.y) / f64::from(bounds.height);
@@ -287,13 +290,12 @@ where
                 self.shift_step.unwrap_or(self.step)
             } else {
                 self.step
-            }
-            .into();
+            };
 
-            let steps = (value.into() / step).round();
+            let steps = (value.as_() / step).round();
             let new_value = step * (steps + 1.0);
 
-            if new_value > (*self.range.end()).into() {
+            if new_value > (*self.range.end()).as_() {
                 return Some(*self.range.end());
             }
 
@@ -305,13 +307,12 @@ where
                 self.shift_step.unwrap_or(self.step)
             } else {
                 self.step
-            }
-            .into();
+            };
 
-            let steps = (value.into() / step).round();
+            let steps = (value.as_() / step).round();
             let new_value = step * (steps - 1.0);
 
-            if new_value < (*self.range.start()).into() {
+            if new_value < (*self.range.start()).as_() {
                 return Some(*self.range.start());
             }
 
@@ -319,7 +320,7 @@ where
         };
 
         let change = |new_value: T| {
-            if (self.value.into() - new_value.into()).abs() > f64::EPSILON {
+            if (self.value.as_() - new_value.as_()).abs() > f64::EPSILON {
                 shell.publish((self.on_change)(new_value));
 
                 self.value = new_value;
@@ -433,11 +434,11 @@ where
             } => (f32::from(width), bounds.width, border_radius),
         };
 
-        let value = self.value.into() as f32;
+        let value = self.value.as_() as f32;
         let (range_start, range_end) = {
             let (start, end) = self.range.clone().into_inner();
 
-            (start.into() as f32, end.into() as f32)
+            (start.as_() as f32, end.as_() as f32)
         };
 
         let offset = if range_start >= range_end {
@@ -528,7 +529,7 @@ where
 impl<'a, T, Message, Theme, Renderer> From<VerticalSlider<'a, T, Message, Theme>>
     for Element<'a, Message, Theme, Renderer>
 where
-    T: Copy + Into<f64> + num_traits::FromPrimitive + 'a,
+    T: Copy + num_traits::AsPrimitive<f64> + num_traits::FromPrimitive + 'a,
     Message: Clone + 'a,
     Theme: Catalog + 'a,
     Renderer: core::Renderer + 'a,

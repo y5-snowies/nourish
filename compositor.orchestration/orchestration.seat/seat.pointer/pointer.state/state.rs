@@ -67,23 +67,33 @@ pub struct EdgeSeed {
     pub active_y: f64,
 }
 
+/// The one cursor theme, shared by every world's `PointerState`.
+///
+/// `PointerState` is per-world, which is right for where a pointer IS and wrong
+/// for what it LOOKS LIKE. smithay takes the cursor element's `Id` from the
+/// `MemoryRenderBuffer` (`element/memory.rs`: `id: buffer.id.clone()`), so a
+/// per-world cache made that id a function of the spawn target: the identical
+/// arrow out of another world's cache reads to the damage tracker as a new
+/// element appearing where the old one vanished, and hands the cursor plane a
+/// different element — with the cursor never changing shape. It also decoded the
+/// whole theme once per world.
+fn shared_theme() -> Arc<CursorThemeCache> {
+    static THEME: std::sync::OnceLock<Arc<CursorThemeCache>> = std::sync::OnceLock::new();
+    THEME
+        .get_or_init(|| {
+            let name = std::env::var("XCURSOR_THEME").unwrap_or_else(|_| "Adwaita".into());
+            let size = std::env::var("XCURSOR_SIZE").ok().and_then(|s| s.parse().ok());
+            Arc::new(CursorThemeCache::new(&name, size.unwrap_or(24)))
+        })
+        .clone()
+}
+
 impl PointerState {
     pub fn new() -> PointerState {
-        let theme_name = std::env::var("XCURSOR_THEME").unwrap_or_else(|_| "Adwaita".into());
-        let size = std::env::var("XCURSOR_SIZE")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(24);
-
-            
-        let theme = Arc::new(CursorThemeCache::new(&theme_name, size));
-
-        let pointer_element = PointerElement::new(theme);
-
-        return PointerState {
+        PointerState {
             motion: Point::new(0.0, 0.0),
-            element: pointer_element,
+            element: PointerElement::new(shared_theme()),
             edge_hold: None,
-        };
+        }
     }
 }

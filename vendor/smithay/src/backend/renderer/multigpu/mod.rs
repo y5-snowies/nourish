@@ -249,6 +249,37 @@ impl<A: GraphicsApi> GpuManager<A> {
         Ok(self.devices.iter_mut())
     }
 
+    /// Clean up the texture caches of every device enumerated by the API.
+    ///
+    /// See [`Renderer::cleanup_texture_cache`]. Cleanup is best-effort: every device is attempted
+    /// even if one of them fails, every failure is logged, and the first error is returned.
+    #[profiling::function]
+    pub fn cleanup_texture_cache(&mut self) -> Result<(), Error<A, A>> {
+        let mut result = Ok(());
+        for device in self.devices_mut().map_err(Error::RenderApiError)? {
+            result = result.and(cleanup_device_texture_cache(device).map_err(Error::Render));
+        }
+        result
+    }
+
+    /// Drop all caches held by this manager and by every device enumerated by the API.
+    ///
+    /// See [`Renderer::invalidate_caches`]. Beyond the per-device caches this also drops the
+    /// buffers cached for copying between a render- and a target-node.
+    ///
+    /// Invalidation is best-effort: every device is attempted even if one of them fails, every
+    /// failure is logged, and the first error is returned.
+    #[profiling::function]
+    pub fn invalidate_caches(&mut self) -> Result<(), Error<A, A>> {
+        self.dmabuf_cache.clear();
+
+        let mut result = Ok(());
+        for device in self.devices_mut().map_err(Error::RenderApiError)? {
+            result = result.and(invalidate_device_caches(device).map_err(Error::Render));
+        }
+        result
+    }
+
     /// Create a [`MultiRenderer`] from a single device.
     ///
     /// This a convenience function to deal with the same types even, if you only need one device.
@@ -732,6 +763,13 @@ pub trait ApiDevice: fmt::Debug {
     /// Returns whether the underlying renderer can in principle do cross-device imports.
     /// (With no guarantee on being able to import a specific buffer.)
     fn can_do_cross_device_imports(&self) -> bool;
+
+    /// Returns whether the [`MultiRenderer`] should attempt exporting buffers from this
+    /// device to other devices. By default this always returns `true`, but can be used
+    /// to implement quirks for buggy hardware.
+    fn should_do_cross_device_exports(&self) -> bool {
+        true
+    }
 }
 
 /// Renderer, that transparently copies rendering results to another gpu,
@@ -780,6 +818,11 @@ impl<'render, 'target, R: GraphicsApi, T: GraphicsApi> MultiRenderer<'render, 't
     /// if it diverges from the render-device.
     pub fn target_as_mut(&mut self) -> Option<&mut <T::Device as ApiDevice>::Renderer> {
         self.target.as_mut().map(|data| data.device.renderer_mut())
+    }
+
+    /// The devices of the render-api, starting with the render-device.
+    fn render_devices(&mut self) -> impl Iterator<Item = &mut R::Device> {
+        std::iter::once(&mut *self.render).chain(self.other_renderers.iter_mut().map(|dev| &mut **dev))
     }
 
     /// Converts this `MultiRenderer` into a `single_renderer` for the provided target device.
@@ -1341,19 +1384,54 @@ where
 
     #[profiling::function]
     fn cleanup_texture_cache(&mut self) -> Result<(), Self::Error> {
-        if let Some(target) = self.target.as_mut() {
-            target
-                .device
-                .renderer_mut()
-                .cleanup_texture_cache()
-                .map_err(Error::Target)?;
+        let mut result = Ok(());
+        for device in self.render_devices() {
+            result = result.and(cleanup_device_texture_cache(device).map_err(Error::Render));
         }
-        self.render
-            .renderer_mut()
-            .cleanup_texture_cache()
-            .map_err(Error::Render)?;
-        Ok(())
+        if let Some(target) = self.target.as_mut() {
+            result = result.and(cleanup_device_texture_cache(&mut *target.device).map_err(Error::Target));
+        }
+        result
     }
+
+    #[profiling::function]
+    fn invalidate_caches(&mut self) -> Result<(), Self::Error> {
+        let mut result = Ok(());
+        for device in self.render_devices() {
+            result = result.and(invalidate_device_caches(device).map_err(Error::Render));
+        }
+        if let Some(target) = self.target.as_mut() {
+            *target.cached_buffer = None;
+            result = result.and(invalidate_device_caches(&mut *target.device).map_err(Error::Target));
+        }
+        result
+    }
+}
+
+/// Invalidate a single device's caches, logging a failure against the node it happened on.
+///
+/// Callers keep only the first error, so the log is what identifies any device failing after it.
+fn invalidate_device_caches<D: ApiDevice>(
+    device: &mut D,
+) -> Result<(), <D::Renderer as RendererSuper>::Error> {
+    let node = *device.node();
+    device
+        .renderer_mut()
+        .invalidate_caches()
+        .inspect_err(|err| warn!("Error invalidating caches of {}: {}", node, err))
+}
+
+/// Clean up a single device's texture cache, logging a failure against the node it happened on.
+///
+/// See [`invalidate_device_caches`] for why the error is logged as well as returned.
+fn cleanup_device_texture_cache<D: ApiDevice>(
+    device: &mut D,
+) -> Result<(), <D::Renderer as RendererSuper>::Error> {
+    let node = *device.node();
+    device
+        .renderer_mut()
+        .cleanup_texture_cache()
+        .inspect_err(|err| warn!("Error cleaning up texture cache of {}: {}", node, err))
 }
 
 fn create_shared_dma_framebuffer<R, T: GraphicsApi>(
@@ -1370,7 +1448,7 @@ where
     <<R::Device as ApiDevice>::Renderer as RendererSuper>::Error: 'static,
     <<T::Device as ApiDevice>::Renderer as RendererSuper>::Error: 'static,
 {
-    if !target.device.can_do_cross_device_imports() {
+    if !target.device.can_do_cross_device_imports() || !src.should_do_cross_device_exports() {
         return Err(Error::ImportFailed);
     }
 
@@ -1673,6 +1751,13 @@ struct MultiTextureInternal {
 //  Type erasure just forces us to do this instead.
 unsafe impl Send for MultiTextureInternal {}
 
+#[cfg(feature = "wayland_frontend")]
+pub(crate) fn clear_surface_textures(states: &crate::wayland::compositor::SurfaceData) {
+    if let Some(texture) = states.data_map.get::<Arc<Mutex<MultiTextureInternal>>>() {
+        texture.lock().unwrap().textures.clear();
+    }
+}
+
 type DamageAnyTextureMappings = Vec<(Rectangle<i32, BufferCoords>, Box<dyn Any + 'static>)>;
 
 #[derive(Debug)]
@@ -1734,6 +1819,29 @@ impl MultiTexture {
         })))
     }
 
+    /// Create a `MultiTexture` from a renderer `A`-specific texture type.
+    ///
+    /// The resulting texture contains only and entry for `A` and can thus
+    /// only be successfully rendered from `MultiFrame`s where `R` equals `A`.
+    ///
+    /// Prefer using `ImportDma` or `ImportMem` for function which handle
+    /// returning and caching textures for the current renderer automatically.
+    pub fn from_native_texture<A: GraphicsApi + 'static>(
+        render_id: &ContextId<<<A::Device as ApiDevice>::Renderer as RendererSuper>::TextureId>,
+        texture: <<A::Device as ApiDevice>::Renderer as RendererSuper>::TextureId,
+    ) -> Option<MultiTexture> {
+        let mut multi = Self::new(
+            texture.size(),
+            Format {
+                code: texture.format()?,
+                modifier: Modifier::Invalid,
+            },
+        );
+        multi.0.lock().unwrap().format = texture.format();
+        multi.insert_texture::<A>(render_id, texture);
+        Some(multi)
+    }
+
     /// Attempt to get a texture of type `T: Renderer::TextureId` given the renderer type `A` for the given `DrmNode`.
     ///
     /// Will return `None` if either:
@@ -1775,6 +1883,22 @@ impl MultiTexture {
                 GpuSingleTexture::Dma { sync, .. } => sync.take(),
                 GpuSingleTexture::Mem { .. } => None,
             })
+    }
+
+    fn reimport<A: GraphicsApi + 'static>(
+        &self,
+        renderer: &mut <A::Device as ApiDevice>::Renderer,
+    ) -> Result<(), <<A::Device as ApiDevice>::Renderer as RendererSuper>::Error>
+    where
+        <A::Device as ApiDevice>::Renderer: ImportDma,
+    {
+        let mut tex = self.0.lock().unwrap();
+        if let Some(GpuSingleTexture::Dma { texture, dmabuf, .. }) =
+            tex.textures.get_mut(&renderer.context_id().erased())
+        {
+            *texture = Box::new(renderer.import_dmabuf(dmabuf, None)?) as Box<_>;
+        }
+        Ok(())
     }
 
     fn insert_texture<A: GraphicsApi + 'static>(
@@ -1960,17 +2084,21 @@ where
     ) -> Result<(), Error<R, T>> {
         let render_id = self.frame.as_mut().unwrap().context_id();
         let sync = texture.needs_synchronization::<R>(&render_id);
+        if let Some(sync) = sync {
+            if let Err(err) = self.frame.as_mut().unwrap().wait(&sync) {
+                trace!(?err, "Failed to import sync point, blocking");
+                let _ = sync.wait();
+            }
+        }
+        texture
+            .reimport::<R>(unsafe { (*self.render).renderer_mut() })
+            .map_err(Error::Render)?;
+
         if let Some(texture) = texture.get::<R>(&render_id) {
             self.damage.extend(damage.iter().copied().map(|mut rect| {
                 rect.loc += dst.loc;
                 rect
             }));
-            if let Some(sync) = sync {
-                if let Err(err) = self.frame.as_mut().unwrap().wait(&sync) {
-                    trace!(?err, "Failed to import sync point, blocking");
-                    let _ = sync.wait(); // ignore interrupt errors
-                }
-            }
             self.frame
                 .as_mut()
                 .unwrap()
@@ -2316,7 +2444,7 @@ where
 {
     if target
         .as_ref()
-        .is_some_and(|target| !target.can_do_cross_device_imports())
+        .is_some_and(|target| !target.can_do_cross_device_imports() || !src.should_do_cross_device_exports())
     {
         return Err(Error::ImportFailed);
     }
@@ -2407,7 +2535,7 @@ where
     if let Some(sync) = existing_sync_point.take() {
         if let Err(err) = src_renderer.wait(&sync) {
             debug!(?err, "Unable to wait for existing sync_point, blocking..");
-            let _ = sync.wait(); // ignore interrupt errors
+            let _ = sync.wait();
         }
     }
     let mut framebuffer = src_renderer.bind(shadow_buffer).map_err(Error::Render)?;
@@ -3052,7 +3180,7 @@ where
         src: Rectangle<i32, Physical>,
         dst: Rectangle<i32, Physical>,
         filter: TextureFilter,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<SyncPoint, Self::Error> {
         self.flush_frame()?;
         if let Some(target) = self.target.as_mut() {
             let MultiFramebufferInternal::Target(to_fb) = &mut to.0 else {
@@ -3063,8 +3191,7 @@ where
                 .renderer_mut()
                 .blit(target.framebuffer, to_fb, src, dst, filter)
                 .map_err(Error::Target)?;
-            target.device.renderer_mut().wait(&sync).map_err(Error::Target)?;
-            Ok(())
+            Ok(sync)
         } else {
             let MultiFramebufferInternal::Render(to_fb) = &mut to.0 else {
                 unreachable!()
@@ -3092,7 +3219,7 @@ where
         src: Rectangle<i32, Physical>,
         dst: Rectangle<i32, Physical>,
         filter: TextureFilter,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<SyncPoint, Self::Error> {
         self.flush_frame()?;
         if let Some(target) = self.target.as_mut() {
             let MultiFramebufferInternal::Target(from_fb) = &from.0 else {
@@ -3103,8 +3230,7 @@ where
                 .renderer_mut()
                 .blit(from_fb, target.framebuffer, src, dst, filter)
                 .map_err(Error::Target)?;
-            target.device.renderer_mut().wait(&sync).map_err(Error::Target)?;
-            Ok(())
+            Ok(sync)
         } else {
             let MultiFramebufferInternal::Render(from_fb) = &from.0 else {
                 unreachable!()
@@ -3428,6 +3554,10 @@ where
 
     fn cleanup_texture_cache(&mut self) -> Result<(), Self::Error> {
         self.guard.as_mut().cleanup_texture_cache().map_err(Error::Render)
+    }
+
+    fn invalidate_caches(&mut self) -> Result<(), Self::Error> {
+        self.guard.as_mut().invalidate_caches().map_err(Error::Render)
     }
 }
 

@@ -36,7 +36,7 @@ use smithay::reexports::wayland_server::{
 use smithay::utils::{Logical, Physical, Point, Serial};
 use smithay::wayland::compositor;
 use smithay::wayland::seat::CURSOR_IMAGE_ROLE;
-use smithay::wayland::tablet_manager::TabletDescriptor;
+use smithay::input::tablet::TabletDescriptor;
 use std::sync::Mutex;
 
 pub use smithay::reexports::wayland_protocols::wp::tablet::zv2::server::zwp_tablet_manager_v2::ZwpTabletManagerV2;

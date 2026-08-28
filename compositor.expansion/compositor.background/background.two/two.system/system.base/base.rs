@@ -86,7 +86,7 @@ impl System for TwoSystem {
                 // Off-thread background (Vulkan only; the GLES path never takes
                 // it). Shared with every other construction site — see
                 // `ParallaxBackground::attach_worker`.
-                instance.attach_worker();
+                instance.attach_worker(cx.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS));
                 cx.write(&TWO_BUF, TwoCmd::SetInstance(instance));
             }
             return;

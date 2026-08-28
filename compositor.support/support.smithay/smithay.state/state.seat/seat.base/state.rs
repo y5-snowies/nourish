@@ -24,6 +24,11 @@ pub struct Seat<Handler: SeatHandler> {
     /// pointer is over a window that sets its own cursor. `None` = clients win.
     pub force_cursor: Option<CursorIcon>,
     pub unlock_restoration_location: Option<(WlSurface, Point<f64, Logical>)>,
+    /// The canvas owns the pointer (hand tool): no pointer lock/confine is
+    /// honoured or activated while set. Driven by `Dispatch::suspend_constraints`
+    /// / `resume_constraints`, which the seat's constraint path keeps in step
+    /// with the hand tool.
+    pub constraints_suspended: bool,
     pub previous_focus: Option<WlSurface>,
     pub libseat: Option<LibSeatSession>,
     /// Physical (libinput) keyboard devices, tracked on DeviceAdded/Removed so
@@ -47,50 +52,11 @@ where
         kb_surface.as_ref() == surface
     }
 
-    pub fn deactivate_constraint_for(
-        &mut self, surface: &WlSurface, pointer: &PointerHandle<I>,
-    ) -> Option<(WlSurface, Point<f64, Logical>)> {
-        with_pointer_constraint(surface, pointer, |c| {
-            if let Some(c) = c { if c.is_active() { c.deactivate(); } }
-        });
-        if let Some((hint_surface, hint_location)) = self.unlock_restoration_location.take() {
-            if &hint_surface == surface {
-                return Some((hint_surface, hint_location));
-            } else {
-                self.unlock_restoration_location = Some((hint_surface, hint_location));
-            }
-        }
-        None
-    }
-
-    pub fn reevaluate_pointer_constraints(
-        &mut self, pointer: &PointerHandle<I>,
-        previous: Option<&WlSurface>, updated: Option<&WlSurface>,
-    ) -> Option<(WlSurface, Point<f64, Logical>)> {
-        let token = if let Some(old) = previous {
-            self.deactivate_constraint_for(old, pointer)
-        } else { None };
-        if let Some(new_surface) = updated {
-            if self.is_keyboard_focused(new_surface) {
-                with_pointer_constraint(new_surface, pointer, |c| {
-                    if let Some(c) = c { if !c.is_active() { c.activate(); } }
-                });
-            }
-        }
-        token
-    }
-
-    pub fn abandon_active_constraint(&mut self, pointer: &PointerHandle<I>) {
-        let prev_focus = pointer.current_focus();
-        if let Some(prev) = prev_focus {
-            if let Some(surface) = prev.wl_surface() {
-                with_pointer_constraint(&surface, pointer, |c| {
-                    if let Some(c) = c { if c.is_active() { c.deactivate(); } }
-                });
-            }
-        }
-        self.unlock_restoration_location = None;
-    }
+    // The three pointer-constraint helpers that used to live here moved onto
+    // `Dispatch` (state.base). Upstream smithay's `PointerConstraintRef::deactivate`
+    // now takes `&mut D` — it calls `PointerConstraintsHandler::remove_constraint` —
+    // and a `Seat<I>` held INSIDE `D` cannot hand out a borrow of its own container.
+    // `unlock_restoration_location` below is still the state they read and write.
 
     pub fn is_pointer_over(&self, pointer: &PointerHandle<I>, surface: &WlSurface) -> bool {
         let Some(pointer) = pointer.current_focus() else { return false; };

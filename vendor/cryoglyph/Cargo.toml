@@ -8,7 +8,7 @@ repository = "https://github.com/iced-rs/cryoglyph"
 license = "MIT OR Apache-2.0 OR Zlib"
 
 [dependencies]
-wgpu = { path = "../wgpu/wgpu", version = "29.0.0", default-features = false, features = ["wgsl"] }
+wgpu = { path = "../wgpu/wgpu", version = "30.0.0", default-features = false, features = ["wgsl"] }
 etagere = "0.2"
 cosmic-text = "0.19"
 lru = { version = "0.16", default-features = false }

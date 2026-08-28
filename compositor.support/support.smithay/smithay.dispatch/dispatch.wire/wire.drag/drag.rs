@@ -230,7 +230,7 @@ impl ToplevelDragState {
     /// Is `surface` being carried by a drag that is running RIGHT NOW?
     ///
     /// Asked when a toplevel is destroyed, to decide whether it leaves a
-    /// placeholder tile behind. Nothing is remembered and nothing is marked —
+    /// placeholder behind. Nothing is remembered and nothing is marked —
     /// the answer is only ever about the current instant, because that is
     /// exactly where the distinction lives:
     ///
@@ -239,7 +239,7 @@ impl ToplevelDragState {
     ///   "delete or unmap the dragged top-level" mid-drag, which is also why a
     ///   re-`attach` afterwards is legal. Destroyed while carried → no
     ///   placeholder; nothing was closed from the user's point of view, and a
-    ///   tile here would mark a window that never really existed.
+    ///   placeholder here would mark a window that never really existed.
     /// - Dropped anywhere else: the window outlives the drag and is a real
     ///   window. Whenever it is closed later the drag is long over, so this
     ///   answers false and it leaves a placeholder like anything else.

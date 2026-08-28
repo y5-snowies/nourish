@@ -3,9 +3,24 @@
 //! advertised mode; otherwise unchanged default policy.
 
 use compositor_kernel_graphic_preference_output_profile::profile::{ModeRequest, OutputProfile};
-use smithay::reexports::drm::control::{connector, Mode as DrmMode, ModeTypeFlags};
+use smithay::reexports::drm::control::{connector, Mode as DrmMode, ModeFlags, ModeTypeFlags};
 
-/// Default policy, byte-for-byte the original ordering.
+/// Whether `m` is interlaced. An interlaced mode must never be chosen over a
+/// progressive one: the scanout planes reject tiled/CCS buffers on an interlaced
+/// CRTC, so every explicit-modifier format fails the atomic test. smithay reacts
+/// to that by falling the WHOLE DEVICE back to implicit modifiers — and the
+/// Vulkan renderer cannot create images for implicit-modifier buffers at all, so
+/// the result is not a degraded pipe but a blank screen on every output.
+/// Observed live: a 1280x1024 panel advertising `1920x1080i` took the whole
+/// compositor dark once it was plugged in as a second monitor.
+pub fn is_interlaced(m: &DrmMode) -> bool {
+    m.flags().contains(ModeFlags::INTERLACE)
+}
+
+/// Default policy: progressive first, then area -> refresh -> PREFERRED.
+///
+/// `!is_interlaced` is the HIGHEST-priority key, ahead of area — an interlaced
+/// mode is only ever selected when the connector advertises nothing else.
 pub fn select_default(info: &connector::Info) -> Option<DrmMode> {
     info.modes()
         .iter()
@@ -14,7 +29,7 @@ pub fn select_default(info: &connector::Info) -> Option<DrmMode> {
             let area = (w as u64) * (h as u64);
             let refresh = m.vrefresh();
             let is_preferred = m.mode_type().contains(ModeTypeFlags::PREFERRED);
-            (area, refresh, is_preferred)
+            (!is_interlaced(m), area, refresh, is_preferred)
         })
         .copied()
 }
@@ -23,10 +38,18 @@ pub fn select_default(info: &connector::Info) -> Option<DrmMode> {
 /// synthesis request is NOT handled here (that is `mode.synthesize`, Law 7).
 pub fn select(info: &connector::Info, profile: Option<&OutputProfile>) -> Option<DrmMode> {
     if let Some(OutputProfile { mode: Some(ModeRequest::Advertised { width, height, refresh_mhz }), .. }) = profile {
-        let hit = info.modes().iter().find(|m| {
+        // A requested WxH@R can be advertised both progressive and interlaced
+        // (1920x1080 vs 1920x1080i). Match the progressive one first — see
+        // `is_interlaced` for why taking the interlaced variant blanks the device.
+        let matches = |m: &&DrmMode| {
             let (w, h) = m.size();
             w == *width && h == *height && m.vrefresh() * 1000 == *refresh_mhz
-        });
+        };
+        let hit = info
+            .modes()
+            .iter()
+            .find(|m| matches(m) && !is_interlaced(m))
+            .or_else(|| info.modes().iter().find(matches));
         if let Some(m) = hit {
             return Some(*m);
         }

@@ -11,6 +11,7 @@
 //! use smithay::input::{Seat, SeatState, SeatHandler, pointer::CursorImageStatus};
 //! use smithay::reexports::wayland_server::{Display, protocol::wl_surface::WlSurface};
 //! # use smithay::wayland::compositor::{CompositorHandler, CompositorState, CompositorClientState};
+//! # use smithay::wayland::pointer_constraints::PointerConstraintsHandler;
 //! # use smithay::reexports::wayland_server::Client;
 //!
 //! # struct State { seat_state: SeatState<Self> };
@@ -42,6 +43,7 @@
 //!         // ...
 //!     }
 //! }
+//! # impl PointerConstraintsHandler for State {}
 //!
 //! smithay::delegate_dispatch2!(State);
 //!
@@ -230,7 +232,9 @@ where
     D: Dispatch<WlTouch, TouchUserData<D>>,
     D: SeatHandler,
     D: CompositorHandler,
+    <D as SeatHandler>::PointerFocus: WaylandFocus,
     <D as SeatHandler>::KeyboardFocus: WaylandFocus,
+    <D as SeatHandler>::TouchFocus: WaylandFocus,
     D: 'static,
 {
     fn request(
@@ -256,7 +260,7 @@ where
                 );
 
                 if let Some(ref ptr_handle) = inner.pointer {
-                    ptr_handle.wl_pointer.new_pointer(pointer);
+                    ptr_handle.wl_pointer.new_pointer::<D>(pointer);
                 } else {
                     // we should send a protocol error... but the protocol does not allow
                     // us, so this pointer will just remain inactive ¯\_(ツ)_/¯

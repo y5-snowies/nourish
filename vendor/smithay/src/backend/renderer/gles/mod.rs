@@ -3,8 +3,8 @@
 // GL calls are all unsafe, so not very helpful in this module.
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use cgmath::{Matrix3, Vector2, prelude::*};
 use core::slice;
+use glam::{Affine2, Mat3, Vec2};
 use std::{
     collections::HashMap,
     ffi::{CStr, CString},
@@ -421,7 +421,7 @@ pub struct GlesRenderer {
 pub struct GlesFrame<'frame, 'buffer> {
     renderer: &'frame mut GlesRenderer,
     target: &'frame mut GlesTarget<'buffer>,
-    current_projection: Matrix3<f32>,
+    current_projection: Mat3,
     transform: Transform,
     size: Size<i32, Physical>,
     tex_program_override: Option<(GlesTexProgram, Vec<Uniform<'static>>)>,
@@ -764,7 +764,14 @@ impl GlesRenderer {
                 self.gl.GenFramebuffers(1, &mut fbo as *mut _);
                 self.gl.BindFramebuffer(ffi::FRAMEBUFFER, fbo);
                 self.gl.FramebufferTexture2D(
-                    ffi::FRAMEBUFFER,
+                    ffi::READ_FRAMEBUFFER,
+                    ffi::COLOR_ATTACHMENT0,
+                    ffi::TEXTURE_2D,
+                    texture.0.texture,
+                    0,
+                );
+                self.gl.FramebufferTexture2D(
+                    ffi::DRAW_FRAMEBUFFER,
                     ffi::COLOR_ATTACHMENT0,
                     ffi::TEXTURE_2D,
                     texture.0.texture,
@@ -957,7 +964,8 @@ impl ImportMemWl for GlesRenderer {
                         ptr.offset(offset as isize) as *const _,
                     );
                 } else {
-                    for region in damage.iter() {
+                    let buffer_rect = Rectangle::from_size(Size::from((width, height)));
+                    for region in damage.iter().filter_map(|r| r.intersection(buffer_rect)) {
                         trace!("Uploading partial shm texture");
                         self.gl.PixelStorei(ffi::UNPACK_SKIP_PIXELS, region.loc.x);
                         self.gl.PixelStorei(ffi::UNPACK_SKIP_ROWS, region.loc.y);
@@ -1265,7 +1273,15 @@ impl ImportDma for GlesRenderer {
                 .create_image_from_dmabuf(buffer)
                 .map_err(GlesError::BindBufferEGLError)?;
 
-            let tex = self.import_egl_image(image, is_external, None)?;
+            let tex = match self.import_egl_image(image, is_external, None) {
+                Ok(tex) => tex,
+                Err(err) => {
+                    unsafe {
+                        ffi_egl::DestroyImageKHR(**self.egl.display().get_display_handle(), image);
+                    }
+                    return Err(err);
+                }
+            };
             let format = fourcc_to_gl_formats(buffer.format().code)
                 .map(|(internal, _, _)| internal)
                 .unwrap_or(ffi::RGBA8);
@@ -1361,13 +1377,13 @@ impl ExportMem for GlesRenderer {
 
         let (_, has_alpha) = target.0.format().ok_or(GlesError::UnknownPixelFormat)?;
         let (_, format, layout) = fourcc_to_gl_formats(fourcc).ok_or(GlesError::UnknownPixelFormat)?;
+        let bpp = gl_bpp(format, layout).ok_or(GlesError::UnsupportedPixelLayout)? / 8;
 
         let mut pbo = 0;
         let err = unsafe {
             self.gl.GetError(); // clear errors
             self.gl.GenBuffers(1, &mut pbo);
             self.gl.BindBuffer(ffi::PIXEL_PACK_BUFFER, pbo);
-            let bpp = gl_bpp(format, layout).ok_or(GlesError::UnsupportedPixelLayout)? / 8;
             let size = (region.size.w * region.size.h * bpp as i32) as isize;
             self.gl
                 .BufferData(ffi::PIXEL_PACK_BUFFER, size, ptr::null(), ffi::STREAM_DRAW);
@@ -1401,8 +1417,14 @@ impl ExportMem for GlesRenderer {
                 mapping: AtomicPtr::new(ptr::null_mut()),
                 destruction_callback_sender: self.gles_cleanup().sender.clone(),
             }),
-            ffi::INVALID_ENUM | ffi::INVALID_OPERATION => Err(GlesError::UnsupportedPixelFormat(fourcc)),
-            _ => Err(GlesError::UnknownPixelFormat),
+            err => {
+                unsafe { self.gl.DeleteBuffers(1, &pbo) };
+                Err(if matches!(err, ffi::INVALID_ENUM | ffi::INVALID_OPERATION) {
+                    GlesError::UnsupportedPixelFormat(fourcc)
+                } else {
+                    GlesError::UnknownPixelFormat
+                })
+            }
         }
     }
 
@@ -1461,8 +1483,14 @@ impl ExportMem for GlesRenderer {
                 mapping: AtomicPtr::new(ptr::null_mut()),
                 destruction_callback_sender: self.gles_cleanup().sender.clone(),
             }),
-            ffi::INVALID_ENUM | ffi::INVALID_OPERATION => Err(GlesError::UnsupportedPixelFormat(fourcc)),
-            _ => Err(GlesError::UnknownPixelFormat),
+            err => {
+                unsafe { self.gl.DeleteBuffers(1, &pbo) };
+                Err(if matches!(err, ffi::INVALID_ENUM | ffi::INVALID_OPERATION) {
+                    GlesError::UnsupportedPixelFormat(fourcc)
+                } else {
+                    GlesError::UnknownPixelFormat
+                })
+            }
         }
     }
 
@@ -1512,6 +1540,20 @@ impl Bind<EGLSurface> for GlesRenderer {
 impl Bind<Dmabuf> for GlesRenderer {
     fn bind<'a>(&mut self, dmabuf: &'a mut Dmabuf) -> Result<GlesTarget<'a>, GlesError> {
         let mut bind = |dmabuf: &'a mut Dmabuf| {
+            let texture = self.import_dmabuf(dmabuf, None)?;
+            if texture.0.is_external {
+                return Err(GlesError::FramebufferBindingError);
+            }
+
+            if let Ok(target) = self
+                .bind_texture(&texture)
+                // SAFETY: The lifetime of the target only depends on the dmabuf,
+                // as the GlesTexture is cloned internally.
+                .map(|tex| unsafe { std::mem::transmute::<GlesTarget<'_>, GlesTarget<'a>>(tex) })
+            {
+                return Ok(target);
+            }
+
             let buf = self
                 .buffers
                 .iter_mut()
@@ -1725,12 +1767,18 @@ impl<'buffer> BlitFrame<GlesTarget<'buffer>> for GlesFrame<'_, '_> {
         src: Rectangle<i32, Physical>,
         dst: Rectangle<i32, Physical>,
         filter: TextureFilter,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<SyncPoint, Self::Error> {
+        unsafe {
+            self.renderer.gl.Disable(ffi::SCISSOR_TEST);
+        }
         let res = self.renderer.blit(self.target, to, src, dst, filter);
+        unsafe {
+            self.renderer.gl.Enable(ffi::SCISSOR_TEST);
+        }
         self.target
             .0
             .make_current(&self.renderer.gl, &self.renderer.egl)?;
-        res.map(|_| ())
+        res
     }
 
     fn blit_from(
@@ -1739,12 +1787,12 @@ impl<'buffer> BlitFrame<GlesTarget<'buffer>> for GlesFrame<'_, '_> {
         src: Rectangle<i32, Physical>,
         dst: Rectangle<i32, Physical>,
         filter: TextureFilter,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<SyncPoint, Self::Error> {
         let res = self.renderer.blit(from, self.target, src, dst, filter);
         self.target
             .0
             .make_current(&self.renderer.gl, &self.renderer.egl)?;
-        res.map(|_| ())
+        res
     }
 }
 
@@ -2222,25 +2270,25 @@ impl Renderer for GlesRenderer {
 
         // replicate https://www.khronos.org/registry/OpenGL-Refpages/gl2.1/xhtml/glOrtho.xml
         // glOrtho(0, width, 0, height, 1, 1);
-        let mut renderer = Matrix3::<f32>::identity();
-        let t = Matrix3::<f32>::identity();
+        let mut renderer = Affine2::IDENTITY;
+        let t = Affine2::IDENTITY;
         let x = 2.0 / (output_size.w as f32);
         let y = 2.0 / (output_size.h as f32);
 
         // Rotation & Reflection
-        renderer[0][0] = x * t[0][0];
-        renderer[1][0] = x * t[0][1];
-        renderer[0][1] = y * -t[1][0];
-        renderer[1][1] = y * -t[1][1];
+        renderer.x_axis.x = x * t.x_axis.x;
+        renderer.y_axis.x = x * t.x_axis.y;
+        renderer.x_axis.y = y * -t.y_axis.x;
+        renderer.y_axis.y = y * -t.y_axis.y;
 
         //Translation
-        renderer[2][0] = -(1.0f32.copysign(renderer[0][0] + renderer[1][0]));
-        renderer[2][1] = -(1.0f32.copysign(renderer[0][1] + renderer[1][1]));
+        renderer.z_axis.x = -(1.0f32.copysign(renderer.x_axis.x + renderer.y_axis.x));
+        renderer.z_axis.y = -(1.0f32.copysign(renderer.x_axis.y + renderer.y_axis.y));
 
         // We account for OpenGLs coordinate system here
-        let flip180 = Matrix3::new(1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0);
+        let flip180 = Affine2::from_cols_array(&[1.0, 0.0, 0.0, -1.0, 0.0, 0.0]);
 
-        let current_projection = flip180 * transform.matrix() * renderer;
+        let current_projection = (flip180 * transform.matrix() * renderer).into();
         let span = span!(parent: &self.span, Level::DEBUG, "renderer_gles2_frame", current_projection = ?current_projection, size = ?output_size, transform = ?transform).entered();
 
         Ok(GlesFrame {
@@ -2299,6 +2347,17 @@ impl Renderer for GlesRenderer {
         unsafe {
             self.egl.make_current()?;
         }
+        self.cleanup();
+        Ok(())
+    }
+
+    #[profiling::function]
+    fn invalidate_caches(&mut self) -> Result<(), Self::Error> {
+        unsafe {
+            self.egl.make_current()?;
+        }
+        self.dmabuf_cache.clear();
+        self.buffers.clear();
         self.cleanup();
         Ok(())
     }
@@ -2559,7 +2618,7 @@ impl GlesFrame<'_, '_> {
             return Ok(());
         }
 
-        let mut mat = Matrix3::<f32>::identity();
+        let mut mat = Mat3::IDENTITY;
         mat = self.current_projection * mat;
 
         // prepare the vertices
@@ -2621,7 +2680,7 @@ impl GlesFrame<'_, '_> {
                 self.renderer.solid_program.uniform_matrix,
                 1,
                 ffi::FALSE,
-                mat.as_ptr(),
+                mat.as_ref().as_ptr(),
             );
 
             gl.EnableVertexAttribArray(self.renderer.solid_program.attrib_vert as u32);
@@ -2702,10 +2761,10 @@ impl GlesFrame<'_, '_> {
         program: Option<&GlesTexProgram>,
         additional_uniforms: &[Uniform<'_>],
     ) -> Result<(), GlesError> {
-        let mut mat = Matrix3::<f32>::identity();
+        let mut mat = Mat3::IDENTITY;
 
         // dest position and scale
-        mat = mat * Matrix3::from_translation(Vector2::new(dest.loc.x as f32, dest.loc.y as f32));
+        mat *= Mat3::from_translation(Vec2::new(dest.loc.x as f32, dest.loc.y as f32));
 
         // src scale, position, transform and y_inverted
         let tex_size = texture.size();
@@ -2717,7 +2776,7 @@ impl GlesFrame<'_, '_> {
 
         let mut tex_mat = build_texture_mat(src, dest, tex_size, transform);
         if texture.0.y_inverted {
-            tex_mat = Matrix3::new(1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0) * tex_mat;
+            tex_mat = Mat3::from_cols_array(&[1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0]) * tex_mat;
         }
 
         let render_texture = |renderer: &mut Self, damage: &[Rectangle<i32, Physical>]| {
@@ -2833,8 +2892,8 @@ impl GlesFrame<'_, '_> {
     pub fn render_texture(
         &mut self,
         tex: &GlesTexture,
-        tex_matrix: Matrix3<f32>,
-        mut matrix: Matrix3<f32>,
+        tex_matrix: Mat3,
+        mut matrix: Mat3,
         instances: Option<impl IntoIterator<Item = ffi::types::GLfloat>>,
         alpha: f32,
         program: Option<&GlesTexProgram>,
@@ -2931,8 +2990,13 @@ impl GlesFrame<'_, '_> {
             gl.UseProgram(program.program);
 
             gl.Uniform1i(program.uniform_tex, 0);
-            gl.UniformMatrix3fv(program.uniform_matrix, 1, ffi::FALSE, matrix.as_ptr());
-            gl.UniformMatrix3fv(program.uniform_tex_matrix, 1, ffi::FALSE, tex_matrix.as_ptr());
+            gl.UniformMatrix3fv(program.uniform_matrix, 1, ffi::FALSE, matrix.as_ref().as_ptr());
+            gl.UniformMatrix3fv(
+                program.uniform_tex_matrix,
+                1,
+                ffi::FALSE,
+                tex_matrix.as_ref().as_ptr(),
+            );
             gl.Uniform1f(program.uniform_alpha, alpha);
 
             if !self.renderer.debug_flags.is_empty() {
@@ -3087,11 +3151,11 @@ impl GlesFrame<'_, '_> {
             return Ok(());
         }
 
-        let mut matrix = Matrix3::<f32>::identity();
+        let mut matrix = Mat3::IDENTITY;
         let tex_matrix = build_texture_mat(src, dest, size, Transform::Normal);
 
         // dest position and scale
-        matrix = matrix * Matrix3::from_translation(Vector2::new(dest.loc.x as f32, dest.loc.y as f32));
+        matrix *= Mat3::from_translation(Vec2::new(dest.loc.x as f32, dest.loc.y as f32));
 
         //apply output transformation
         matrix = self.current_projection * matrix;
@@ -3111,8 +3175,13 @@ impl GlesFrame<'_, '_> {
                 .scope(gpu_span_location!("render_pixel_shader_to"), gl);
             gl.UseProgram(program.program);
 
-            gl.UniformMatrix3fv(program.uniform_matrix, 1, ffi::FALSE, matrix.as_ptr());
-            gl.UniformMatrix3fv(program.uniform_tex_matrix, 1, ffi::FALSE, tex_matrix.as_ptr());
+            gl.UniformMatrix3fv(program.uniform_matrix, 1, ffi::FALSE, matrix.as_ref().as_ptr());
+            gl.UniformMatrix3fv(
+                program.uniform_tex_matrix,
+                1,
+                ffi::FALSE,
+                tex_matrix.as_ref().as_ptr(),
+            );
             gl.Uniform2f(program.uniform_size, size.w as f32, size.h as f32);
             gl.Uniform1f(program.uniform_alpha, alpha);
             let tint = if self.renderer.debug_flags.contains(DebugFlags::TINT) {
@@ -3220,44 +3289,42 @@ fn build_texture_mat(
     dest: Rectangle<i32, Physical>,
     texture: Size<i32, BufferCoord>,
     transform: Transform,
-) -> Matrix3<f32> {
+) -> Mat3 {
     let dst_src_size = transform.transform_size(src.size);
     let scale = dst_src_size.to_f64() / dest.size.to_f64();
 
-    let mut tex_mat = Matrix3::<f32>::identity();
+    let mut tex_mat = Affine2::IDENTITY;
 
     // first bring the damage into src scale
-    tex_mat = Matrix3::from_nonuniform_scale(scale.x as f32, scale.y as f32) * tex_mat;
+    tex_mat = Affine2::from_scale(Vec2::new(scale.x as f32, scale.y as f32)) * tex_mat;
 
     // then compensate for the texture transform
     let transform_mat = transform.matrix();
     let translation = match transform {
-        Transform::Normal => Matrix3::identity(),
-        Transform::_90 => Matrix3::from_translation(Vector2::new(0f32, dst_src_size.w as f32)),
-        Transform::_180 => {
-            Matrix3::from_translation(Vector2::new(dst_src_size.w as f32, dst_src_size.h as f32))
-        }
-        Transform::_270 => Matrix3::from_translation(Vector2::new(dst_src_size.h as f32, 0f32)),
-        Transform::Flipped => Matrix3::from_translation(Vector2::new(dst_src_size.w as f32, 0f32)),
-        Transform::Flipped90 => Matrix3::identity(),
-        Transform::Flipped180 => Matrix3::from_translation(Vector2::new(0f32, dst_src_size.h as f32)),
+        Transform::Normal => Affine2::IDENTITY,
+        Transform::_90 => Affine2::from_translation(Vec2::new(0f32, dst_src_size.w as f32)),
+        Transform::_180 => Affine2::from_translation(Vec2::new(dst_src_size.w as f32, dst_src_size.h as f32)),
+        Transform::_270 => Affine2::from_translation(Vec2::new(dst_src_size.h as f32, 0f32)),
+        Transform::Flipped => Affine2::from_translation(Vec2::new(dst_src_size.w as f32, 0f32)),
+        Transform::Flipped90 => Affine2::IDENTITY,
+        Transform::Flipped180 => Affine2::from_translation(Vec2::new(0f32, dst_src_size.h as f32)),
         Transform::Flipped270 => {
-            Matrix3::from_translation(Vector2::new(dst_src_size.h as f32, dst_src_size.w as f32))
+            Affine2::from_translation(Vec2::new(dst_src_size.h as f32, dst_src_size.w as f32))
         }
     };
     tex_mat = transform_mat * tex_mat;
     tex_mat = translation * tex_mat;
 
     // now we can add the src crop loc, the size already done implicit by the src size
-    tex_mat = Matrix3::from_translation(Vector2::new(src.loc.x as f32, src.loc.y as f32)) * tex_mat;
+    tex_mat = Affine2::from_translation(Vec2::new(src.loc.x as f32, src.loc.y as f32)) * tex_mat;
 
     // at last we have to normalize the values for UV space
-    tex_mat = Matrix3::from_nonuniform_scale(
+    tex_mat = Affine2::from_scale(Vec2::new(
         (1.0f64 / texture.w as f64) as f32,
         (1.0f64 / texture.h as f64) as f32,
-    ) * tex_mat;
+    )) * tex_mat;
 
-    tex_mat
+    tex_mat.into()
 }
 
 /// Guard type wrapping the underlying [`GlesRenderer`] of a [`GlesFrame`].
@@ -3327,7 +3394,7 @@ impl Drop for GlesFrameGuard<'_, '_, '_> {
 mod tests {
     use super::build_texture_mat;
     use crate::utils::{Buffer, Physical, Rectangle, Size, Transform};
-    use cgmath::Vector3;
+    use glam::Vec3;
 
     #[test]
     fn texture_normal_double_size() {
@@ -3338,15 +3405,15 @@ mod tests {
 
         let tex_mat = build_texture_mat(src, dest, texture_size, transform);
 
-        let top_left = Vector3::new(0f32, 0f32, 1f32);
-        let top_right = Vector3::new(dest.size.w as f32, 0f32, 1f32);
-        let bottom_right = Vector3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
-        let bottom_left = Vector3::new(0f32, dest.size.h as f32, 1f32);
+        let top_left = Vec3::new(0f32, 0f32, 1f32);
+        let top_right = Vec3::new(dest.size.w as f32, 0f32, 1f32);
+        let bottom_right = Vec3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
+        let bottom_left = Vec3::new(0f32, dest.size.h as f32, 1f32);
 
-        assert_eq!(tex_mat * top_left, Vector3::new(0f32, 0f32, 1f32));
-        assert_eq!(tex_mat * top_right, Vector3::new(1f32, 0f32, 1f32));
-        assert_eq!(tex_mat * bottom_right, Vector3::new(1f32, 1f32, 1f32));
-        assert_eq!(tex_mat * bottom_left, Vector3::new(0f32, 1f32, 1f32));
+        assert_eq!(tex_mat * top_left, Vec3::new(0f32, 0f32, 1f32));
+        assert_eq!(tex_mat * top_right, Vec3::new(1f32, 0f32, 1f32));
+        assert_eq!(tex_mat * bottom_right, Vec3::new(1f32, 1f32, 1f32));
+        assert_eq!(tex_mat * bottom_left, Vec3::new(0f32, 1f32, 1f32));
     }
 
     #[test]
@@ -3358,26 +3425,20 @@ mod tests {
 
         let tex_mat = build_texture_mat(src, dest, texture_size, transform);
 
-        let top_left = Vector3::new(0f32, 0f32, 1f32);
-        let top_right = Vector3::new(dest.size.w as f32, 0f32, 1f32);
-        let bottom_right = Vector3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
-        let bottom_left = Vector3::new(0f32, dest.size.h as f32, 1f32);
+        let top_left = Vec3::new(0f32, 0f32, 1f32);
+        let top_right = Vec3::new(dest.size.w as f32, 0f32, 1f32);
+        let bottom_right = Vec3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
+        let bottom_left = Vec3::new(0f32, dest.size.h as f32, 1f32);
 
-        assert_eq!(
-            tex_mat * top_left,
-            Vector3::new(0.05047506f32, 0.07492582f32, 1f32)
-        );
-        assert_eq!(
-            tex_mat * top_right,
-            Vector3::new(0.1811164f32, 0.07492582f32, 1f32)
-        );
+        assert_eq!(tex_mat * top_left, Vec3::new(0.05047506f32, 0.07492582f32, 1f32));
+        assert_eq!(tex_mat * top_right, Vec3::new(0.1811164f32, 0.07492582f32, 1f32));
         assert_eq!(
             tex_mat * bottom_right,
-            Vector3::new(0.1811164f32, 0.30341247f32, 1f32)
+            Vec3::new(0.1811164f32, 0.30341247f32, 1f32)
         );
         assert_eq!(
             tex_mat * bottom_left,
-            Vector3::new(0.05047506f32, 0.30341247f32, 1f32)
+            Vec3::new(0.05047506f32, 0.30341247f32, 1f32)
         );
     }
 
@@ -3390,15 +3451,15 @@ mod tests {
 
         let tex_mat = build_texture_mat(src, dest, texture_size, transform);
 
-        let top_left = Vector3::new(0f32, 0f32, 1f32);
-        let top_right = Vector3::new(dest.size.w as f32, 0f32, 1f32);
-        let bottom_right = Vector3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
-        let bottom_left = Vector3::new(0f32, dest.size.h as f32, 1f32);
+        let top_left = Vec3::new(0f32, 0f32, 1f32);
+        let top_right = Vec3::new(dest.size.w as f32, 0f32, 1f32);
+        let bottom_right = Vec3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
+        let bottom_left = Vec3::new(0f32, dest.size.h as f32, 1f32);
 
-        assert_eq!(tex_mat * top_left, Vector3::new(0f32, 0f32, 1f32));
-        assert_eq!(tex_mat * top_right, Vector3::new(1f32, 0f32, 1f32));
-        assert_eq!(tex_mat * bottom_right, Vector3::new(1f32, 1f32, 1f32));
-        assert_eq!(tex_mat * bottom_left, Vector3::new(0f32, 1f32, 1f32));
+        assert_eq!(tex_mat * top_left, Vec3::new(0f32, 0f32, 1f32));
+        assert_eq!(tex_mat * top_right, Vec3::new(1f32, 0f32, 1f32));
+        assert_eq!(tex_mat * bottom_right, Vec3::new(1f32, 1f32, 1f32));
+        assert_eq!(tex_mat * bottom_left, Vec3::new(0f32, 1f32, 1f32));
     }
 
     #[test]
@@ -3410,15 +3471,15 @@ mod tests {
 
         let tex_mat = build_texture_mat(src, dest, texture_size, transform);
 
-        let top_left = Vector3::new(0f32, 0f32, 1f32);
-        let top_right = Vector3::new(dest.size.w as f32, 0f32, 1f32);
-        let bottom_right = Vector3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
-        let bottom_left = Vector3::new(0f32, dest.size.h as f32, 1f32);
+        let top_left = Vec3::new(0f32, 0f32, 1f32);
+        let top_right = Vec3::new(dest.size.w as f32, 0f32, 1f32);
+        let bottom_right = Vec3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
+        let bottom_left = Vec3::new(0f32, dest.size.h as f32, 1f32);
 
-        assert_eq!(tex_mat * top_left, Vector3::new(1f32, 0f32, 1f32));
-        assert_eq!(tex_mat * top_right, Vector3::new(0f32, 0f32, 1f32));
-        assert_eq!(tex_mat * bottom_right, Vector3::new(0f32, 1f32, 1f32));
-        assert_eq!(tex_mat * bottom_left, Vector3::new(1f32, 1f32, 1f32));
+        assert_eq!(tex_mat * top_left, Vec3::new(1f32, 0f32, 1f32));
+        assert_eq!(tex_mat * top_right, Vec3::new(0f32, 0f32, 1f32));
+        assert_eq!(tex_mat * bottom_right, Vec3::new(0f32, 1f32, 1f32));
+        assert_eq!(tex_mat * bottom_left, Vec3::new(1f32, 1f32, 1f32));
     }
 
     #[test]
@@ -3430,15 +3491,15 @@ mod tests {
 
         let tex_mat = build_texture_mat(src, dest, texture_size, transform);
 
-        let top_left = Vector3::new(0f32, 0f32, 1f32);
-        let top_right = Vector3::new(dest.size.w as f32, 0f32, 1f32);
-        let bottom_right = Vector3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
-        let bottom_left = Vector3::new(0f32, dest.size.h as f32, 1f32);
+        let top_left = Vec3::new(0f32, 0f32, 1f32);
+        let top_right = Vec3::new(dest.size.w as f32, 0f32, 1f32);
+        let bottom_right = Vec3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
+        let bottom_left = Vec3::new(0f32, dest.size.h as f32, 1f32);
 
-        assert_eq!(tex_mat * top_left, Vector3::new(0f32, 1f32, 1f32));
-        assert_eq!(tex_mat * top_right, Vector3::new(0f32, 0f32, 1f32));
-        assert_eq!(tex_mat * bottom_right, Vector3::new(1f32, 0f32, 1f32));
-        assert_eq!(tex_mat * bottom_left, Vector3::new(1f32, 1f32, 1f32));
+        assert_eq!(tex_mat * top_left, Vec3::new(0f32, 1f32, 1f32));
+        assert_eq!(tex_mat * top_right, Vec3::new(0f32, 0f32, 1f32));
+        assert_eq!(tex_mat * bottom_right, Vec3::new(1f32, 0f32, 1f32));
+        assert_eq!(tex_mat * bottom_left, Vec3::new(1f32, 1f32, 1f32));
     }
 
     #[test]
@@ -3450,15 +3511,15 @@ mod tests {
 
         let tex_mat = build_texture_mat(src, dest, texture_size, transform);
 
-        let top_left = Vector3::new(0f32, 0f32, 1f32);
-        let top_right = Vector3::new(dest.size.w as f32, 0f32, 1f32);
-        let bottom_right = Vector3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
-        let bottom_left = Vector3::new(0f32, dest.size.h as f32, 1f32);
+        let top_left = Vec3::new(0f32, 0f32, 1f32);
+        let top_right = Vec3::new(dest.size.w as f32, 0f32, 1f32);
+        let bottom_right = Vec3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
+        let bottom_left = Vec3::new(0f32, dest.size.h as f32, 1f32);
 
-        assert_eq!(tex_mat * top_left, Vector3::new(1f32, 1f32, 1f32));
-        assert_eq!(tex_mat * top_right, Vector3::new(0f32, 1f32, 1f32));
-        assert_eq!(tex_mat * bottom_right, Vector3::new(0f32, 0f32, 1f32));
-        assert_eq!(tex_mat * bottom_left, Vector3::new(1f32, 0f32, 1f32));
+        assert_eq!(tex_mat * top_left, Vec3::new(1f32, 1f32, 1f32));
+        assert_eq!(tex_mat * top_right, Vec3::new(0f32, 1f32, 1f32));
+        assert_eq!(tex_mat * bottom_right, Vec3::new(0f32, 0f32, 1f32));
+        assert_eq!(tex_mat * bottom_left, Vec3::new(1f32, 0f32, 1f32));
     }
 
     #[test]
@@ -3470,15 +3531,15 @@ mod tests {
 
         let tex_mat = build_texture_mat(src, dest, texture_size, transform);
 
-        let top_left = Vector3::new(0f32, 0f32, 1f32);
-        let top_right = Vector3::new(dest.size.w as f32, 0f32, 1f32);
-        let bottom_right = Vector3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
-        let bottom_left = Vector3::new(0f32, dest.size.h as f32, 1f32);
+        let top_left = Vec3::new(0f32, 0f32, 1f32);
+        let top_right = Vec3::new(dest.size.w as f32, 0f32, 1f32);
+        let bottom_right = Vec3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
+        let bottom_left = Vec3::new(0f32, dest.size.h as f32, 1f32);
 
-        assert_eq!(tex_mat * top_left, Vector3::new(1f32, 0f32, 1f32));
-        assert_eq!(tex_mat * top_right, Vector3::new(1f32, 1f32, 1f32));
-        assert_eq!(tex_mat * bottom_right, Vector3::new(0f32, 1f32, 1f32));
-        assert_eq!(tex_mat * bottom_left, Vector3::new(0f32, 0f32, 1f32));
+        assert_eq!(tex_mat * top_left, Vec3::new(1f32, 0f32, 1f32));
+        assert_eq!(tex_mat * top_right, Vec3::new(1f32, 1f32, 1f32));
+        assert_eq!(tex_mat * bottom_right, Vec3::new(0f32, 1f32, 1f32));
+        assert_eq!(tex_mat * bottom_left, Vec3::new(0f32, 0f32, 1f32));
     }
 
     #[test]
@@ -3490,15 +3551,15 @@ mod tests {
 
         let tex_mat = build_texture_mat(src, dest, texture_size, transform);
 
-        let top_left = Vector3::new(0f32, 0f32, 1f32);
-        let top_right = Vector3::new(dest.size.w as f32, 0f32, 1f32);
-        let bottom_right = Vector3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
-        let bottom_left = Vector3::new(0f32, dest.size.h as f32, 1f32);
+        let top_left = Vec3::new(0f32, 0f32, 1f32);
+        let top_right = Vec3::new(dest.size.w as f32, 0f32, 1f32);
+        let bottom_right = Vec3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
+        let bottom_left = Vec3::new(0f32, dest.size.h as f32, 1f32);
 
-        assert_eq!(tex_mat * top_left, Vector3::new(0f32, 0f32, 1f32));
-        assert_eq!(tex_mat * top_right, Vector3::new(0f32, 1f32, 1f32));
-        assert_eq!(tex_mat * bottom_right, Vector3::new(1f32, 1f32, 1f32));
-        assert_eq!(tex_mat * bottom_left, Vector3::new(1f32, 0f32, 1f32));
+        assert_eq!(tex_mat * top_left, Vec3::new(0f32, 0f32, 1f32));
+        assert_eq!(tex_mat * top_right, Vec3::new(0f32, 1f32, 1f32));
+        assert_eq!(tex_mat * bottom_right, Vec3::new(1f32, 1f32, 1f32));
+        assert_eq!(tex_mat * bottom_left, Vec3::new(1f32, 0f32, 1f32));
     }
 
     #[test]
@@ -3510,15 +3571,15 @@ mod tests {
 
         let tex_mat = build_texture_mat(src, dest, texture_size, transform);
 
-        let top_left = Vector3::new(0f32, 0f32, 1f32);
-        let top_right = Vector3::new(dest.size.w as f32, 0f32, 1f32);
-        let bottom_right = Vector3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
-        let bottom_left = Vector3::new(0f32, dest.size.h as f32, 1f32);
+        let top_left = Vec3::new(0f32, 0f32, 1f32);
+        let top_right = Vec3::new(dest.size.w as f32, 0f32, 1f32);
+        let bottom_right = Vec3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
+        let bottom_left = Vec3::new(0f32, dest.size.h as f32, 1f32);
 
-        assert_eq!(tex_mat * top_left, Vector3::new(0f32, 1f32, 1f32));
-        assert_eq!(tex_mat * top_right, Vector3::new(1f32, 1f32, 1f32));
-        assert_eq!(tex_mat * bottom_right, Vector3::new(1f32, 0f32, 1f32));
-        assert_eq!(tex_mat * bottom_left, Vector3::new(0f32, 0f32, 1f32));
+        assert_eq!(tex_mat * top_left, Vec3::new(0f32, 1f32, 1f32));
+        assert_eq!(tex_mat * top_right, Vec3::new(1f32, 1f32, 1f32));
+        assert_eq!(tex_mat * bottom_right, Vec3::new(1f32, 0f32, 1f32));
+        assert_eq!(tex_mat * bottom_left, Vec3::new(0f32, 0f32, 1f32));
     }
 
     #[test]
@@ -3530,14 +3591,14 @@ mod tests {
 
         let tex_mat = build_texture_mat(src, dest, texture_size, transform);
 
-        let top_left = Vector3::new(0f32, 0f32, 1f32);
-        let top_right = Vector3::new(dest.size.w as f32, 0f32, 1f32);
-        let bottom_right = Vector3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
-        let bottom_left = Vector3::new(0f32, dest.size.h as f32, 1f32);
+        let top_left = Vec3::new(0f32, 0f32, 1f32);
+        let top_right = Vec3::new(dest.size.w as f32, 0f32, 1f32);
+        let bottom_right = Vec3::new(dest.size.w as f32, dest.size.h as f32, 1f32);
+        let bottom_left = Vec3::new(0f32, dest.size.h as f32, 1f32);
 
-        assert_eq!(tex_mat * top_left, Vector3::new(1f32, 1f32, 1f32));
-        assert_eq!(tex_mat * top_right, Vector3::new(1f32, 0f32, 1f32));
-        assert_eq!(tex_mat * bottom_right, Vector3::new(0f32, 0f32, 1f32));
-        assert_eq!(tex_mat * bottom_left, Vector3::new(0f32, 1f32, 1f32));
+        assert_eq!(tex_mat * top_left, Vec3::new(1f32, 1f32, 1f32));
+        assert_eq!(tex_mat * top_right, Vec3::new(1f32, 0f32, 1f32));
+        assert_eq!(tex_mat * bottom_right, Vec3::new(0f32, 0f32, 1f32));
+        assert_eq!(tex_mat * bottom_left, Vec3::new(0f32, 1f32, 1f32));
     }
 }

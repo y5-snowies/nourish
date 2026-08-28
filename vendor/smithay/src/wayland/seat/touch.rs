@@ -1,26 +1,69 @@
 use std::sync::{Arc, atomic::Ordering};
 
-use atomic_float::AtomicF64;
+use portable_atomic::AtomicF64;
 use wayland_server::{
-    DisplayHandle, Resource,
+    Client, DisplayHandle, Resource,
     backend::ClientId,
     protocol::wl_touch::{self, WlTouch},
 };
 
 use super::SeatHandler;
-use crate::input::touch::TouchTarget;
-use crate::input::{
-    Seat,
-    touch::{MotionEvent, OrientationEvent, ShapeEvent, UpEvent},
-};
 use crate::wayland::Dispatch2;
-use crate::{input::touch::DownEvent, wayland::seat::wl_surface::WlSurface};
-use crate::{input::touch::TouchHandle, utils::Serial};
+use crate::wayland::compositor::CompositorHandler;
+use crate::wayland::seat::wl_surface::WlSurface;
+use crate::{input::touch::TouchHandle, wayland::seat::WaylandFocus};
+use crate::{
+    input::touch::TouchTarget,
+    utils::{Clock, Monotonic},
+};
+use crate::{
+    input::{
+        Seat,
+        touch::{DownEvent, FrameMarker, MotionEvent, OrientationEvent, ShapeEvent, UpEvent},
+    },
+    utils::iter::new_locked_obj_iter_from_vec,
+};
 
-impl<D: SeatHandler> TouchHandle<D> {
+impl<D: SeatHandler> TouchHandle<D>
+where
+    <D as SeatHandler>::TouchFocus: WaylandFocus,
+{
     pub(crate) fn new_touch(&self, touch: WlTouch) {
         let mut guard = self.known_instances.lock().unwrap();
-        guard.push((touch.downgrade(), None));
+        guard.push(touch.downgrade());
+
+        let mut time = None;
+        let data = touch.data::<TouchUserData<D>>().unwrap();
+        let guard = self.inner.lock().unwrap();
+        let mut sent = false;
+        for (slot, state) in &guard.focus {
+            if let Some((focus, location)) = &state.focus {
+                if focus.same_client_as(&touch.id()) {
+                    if let Some(surface) = focus.wl_surface() {
+                        let serial = data.handle.as_ref().unwrap().last_down.lock().unwrap()[slot];
+                        let time = *time.get_or_insert_with(|| Clock::<Monotonic>::new().now().as_millis());
+                        let client_scale = data.client_scale.load(Ordering::Acquire);
+                        let location = (state.location - *location).to_client(client_scale);
+
+                        touch.down(
+                            serial.into(),
+                            time,
+                            &surface,
+                            (*slot).into(),
+                            location.x,
+                            location.y,
+                        );
+                        sent = true;
+
+                        // TODO: send shape, orientation.
+                    }
+                }
+            }
+        }
+
+        if sent {
+            touch.frame();
+        }
     }
 }
 
@@ -33,36 +76,47 @@ impl<D: SeatHandler + 'static> TouchHandle<D> {
         seat.data::<TouchUserData<D>>()?.handle.clone()
     }
 
+    /// Return all raw [`WlTouch`] instances for a particular [`Client`]
+    pub fn client_touch<'a>(&'a self, client: &Client) -> impl Iterator<Item = WlTouch> + 'a {
+        let guard = self.known_instances.lock().unwrap();
+        new_locked_obj_iter_from_vec(guard, client.id())
+    }
+
     /// Whether `surface`'s client has bound any live `wl_touch` for this seat — i.e.
     /// it accepts native multi-touch. When `false` the compositor should emulate the
     /// pointer for touch instead of forwarding `wl_touch` to this surface.
     pub fn client_has_touch(&self, surface: &WlSurface) -> bool {
-        self.known_instances.lock().unwrap().iter().any(|(t, _)| {
-            t.upgrade()
-                .map(|t| t.id().same_client_as(&surface.id()))
-                .unwrap_or(false)
-        })
+        let Some(client) = surface.client() else { return false };
+        self.client_touch(&client).next().is_some()
     }
 }
 
 fn for_each_focused_touch<D: SeatHandler + 'static>(
     seat: &Seat<D>,
     surface: &WlSurface,
-    seq: Serial,
     mut f: impl FnMut(WlTouch),
 ) {
     if let Some(touch) = seat.get_touch() {
         let mut inner = touch.known_instances.lock().unwrap();
-        for (ptr, last_seq) in &mut *inner {
+        for ptr in &mut *inner {
             let Ok(ptr) = ptr.upgrade() else {
                 continue;
             };
 
-            if ptr.id().same_client_as(&surface.id()) && last_seq.map(|last| last < seq).unwrap_or(true) {
-                *last_seq = Some(seq);
+            if ptr.id().same_client_as(&surface.id()) {
                 f(ptr.clone());
             }
         }
+    }
+}
+
+fn set_touch_frame_marker<D: CompositorHandler + 'static>(
+    data: &D,
+    surface: &WlSurface,
+    marker: FrameMarker,
+) {
+    if let Some(client) = surface.client().as_ref() {
+        data.client_compositor_state(client).set_last_touch_frame(marker);
     }
 }
 
@@ -70,11 +124,17 @@ fn for_each_focused_touch<D: SeatHandler + 'static>(
 impl<D> TouchTarget<D> for WlSurface
 where
     D: SeatHandler + 'static,
+    D: CompositorHandler,
 {
-    fn down(&self, seat: &Seat<D>, _data: &mut D, event: &DownEvent, seq: Serial) {
+    fn down(&self, seat: &Seat<D>, _data: &mut D, event: &DownEvent) {
         let serial = event.serial;
         let slot = event.slot;
-        for_each_focused_touch(seat, self, seq, |touch| {
+
+        if let Some(touch) = seat.get_touch() {
+            touch.last_down.lock().unwrap().insert(slot, serial);
+        }
+
+        for_each_focused_touch(seat, self, |touch| {
             let client_scale = touch
                 .data::<TouchUserData<D>>()
                 .unwrap()
@@ -92,17 +152,21 @@ where
         })
     }
 
-    fn up(&self, seat: &Seat<D>, _data: &mut D, event: &UpEvent, seq: Serial) {
+    fn up(&self, seat: &Seat<D>, _data: &mut D, event: &UpEvent) {
         let serial = event.serial;
         let slot = event.slot;
-        for_each_focused_touch(seat, self, seq, |touch| {
+        for_each_focused_touch(seat, self, |touch| {
             touch.up(serial.into(), event.time, slot.into());
-        })
+        });
+
+        if let Some(touch) = seat.get_touch() {
+            touch.last_down.lock().unwrap().remove(&slot);
+        }
     }
 
-    fn motion(&self, seat: &Seat<D>, _data: &mut D, event: &MotionEvent, seq: Serial) {
+    fn motion(&self, seat: &Seat<D>, _data: &mut D, event: &MotionEvent) {
         let slot = event.slot;
-        for_each_focused_touch(seat, self, seq, |touch| {
+        for_each_focused_touch(seat, self, |touch| {
             let client_scale = touch
                 .data::<TouchUserData<D>>()
                 .unwrap()
@@ -113,30 +177,43 @@ where
         })
     }
 
-    fn frame(&self, seat: &Seat<D>, _data: &mut D, seq: Serial) {
-        for_each_focused_touch(seat, self, seq, |touch| {
+    fn frame(&self, seat: &Seat<D>, data: &mut D, marker: FrameMarker) {
+        set_touch_frame_marker(data, self, marker);
+
+        for_each_focused_touch(seat, self, |touch| {
             touch.frame();
         })
     }
 
-    fn cancel(&self, seat: &Seat<D>, _data: &mut D, seq: Serial) {
-        for_each_focused_touch(seat, self, seq, |touch| {
+    fn cancel(&self, seat: &Seat<D>, data: &mut D, marker: FrameMarker) {
+        set_touch_frame_marker(data, self, marker);
+
+        for_each_focused_touch(seat, self, |touch| {
             touch.cancel();
-        })
+        });
+
+        if let Some(touch) = seat.get_touch() {
+            touch.last_down.lock().unwrap().clear();
+        }
     }
 
-    fn shape(&self, seat: &Seat<D>, _data: &mut D, event: &ShapeEvent, seq: Serial) {
+    fn shape(&self, seat: &Seat<D>, _data: &mut D, event: &ShapeEvent) {
         let slot = event.slot;
-        for_each_focused_touch(seat, self, seq, |touch| {
+        for_each_focused_touch(seat, self, |touch| {
             touch.shape(slot.into(), event.major, event.minor);
         })
     }
 
-    fn orientation(&self, seat: &Seat<D>, _data: &mut D, event: &OrientationEvent, seq: Serial) {
+    fn orientation(&self, seat: &Seat<D>, _data: &mut D, event: &OrientationEvent) {
         let slot = event.slot;
-        for_each_focused_touch(seat, self, seq, |touch| {
+        for_each_focused_touch(seat, self, |touch| {
             touch.orientation(slot.into(), event.orientation);
         })
+    }
+
+    fn last_frame(&self, _seat: &Seat<D>, data: &mut D) -> Option<FrameMarker> {
+        self.client()
+            .and_then(|c| data.client_compositor_state(&c).last_touch_frame())
     }
 }
 
@@ -169,7 +246,7 @@ where
                 .known_instances
                 .lock()
                 .unwrap()
-                .retain(|(p, _)| p.id() != touch.id());
+                .retain(|p| p.id() != touch.id());
         }
     }
 }

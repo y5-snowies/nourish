@@ -74,8 +74,15 @@
 //!     }
 //! }
 //!
+//! # use smithay::wayland::compositor::{CompositorHandler, CompositorState, CompositorClientState};
 //! use smithay::input::{Seat, SeatState, SeatHandler, pointer::CursorImageStatus};
+//! # use smithay::wayland::pointer_constraints::PointerConstraintsHandler;
 //!
+//! # impl CompositorHandler for State {
+//! #     fn compositor_state(&mut self) -> &mut CompositorState { unimplemented!() }
+//! #     fn client_compositor_state<'a>(&self, client: &'a wayland_server::Client) -> &'a CompositorClientState { unimplemented!() }
+//! #     fn commit(&mut self, surface: &wayland_server::protocol::wl_surface::WlSurface) {}
+//! # }
 //! type Target = wl_surface::WlSurface;
 //! impl SeatHandler for State {
 //!     type KeyboardFocus = Target;
@@ -93,6 +100,7 @@
 //!         // handle new images for the cursor ...
 //!     }
 //! }
+//! # impl PointerConstraintsHandler for State {}
 //!
 //! smithay::delegate_dispatch2!(State);
 //!
@@ -377,7 +385,7 @@ xdg_role!(
     ToplevelCachedState
 );
 
-/// Data associated with XDG toplevel surface  
+/// Data associated with XDG toplevel surface
 ///
 /// ```no_run
 /// use smithay::wayland::compositor;
@@ -448,7 +456,7 @@ xdg_role!(
     PopupCachedState
 );
 
-/// Data associated with XDG popup surface  
+/// Data associated with XDG popup surface
 ///
 /// ```no_run
 /// use smithay::wayland::compositor;

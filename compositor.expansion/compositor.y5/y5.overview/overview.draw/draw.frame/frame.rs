@@ -3,10 +3,9 @@
 //! everything else (backdrop capture/blur, grid, globe), so the rim stays thin.
 
 use smithay::backend::renderer::element::solid::SolidColorRenderElement;
-use smithay::backend::renderer::element::{Id, Kind};
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::backend::renderer::utils::CommitCounter;
 use smithay::backend::renderer::{ImportAll, ImportDma, ImportMem, Renderer, Texture};
+use compositor_orchestration_draw_scene_identity::identity::SolidBank;
 use smithay::desktop::Window;
 use smithay::utils::{Physical, Point, Rectangle, Size};
 use compositor_orchestration_core_state_base::Loop;
@@ -17,8 +16,15 @@ pub use compositor_y5_overview_draw_world::world::Prepared;
 use compositor_support_system_world_frame_base::base as layer;
 use compositor_y5_overview_state_base::base::Tab;
 
-fn solid(rect: Rectangle<i32, Physical>, color: [f32; 4]) -> SolidColorRenderElement {
-    SolidColorRenderElement::new(Id::new(), rect, CommitCounter::default(), color, Kind::Unspecified)
+thread_local! {
+    /// Slot 0 = the dim laid over a captured backdrop, 1 = the no-snapshot
+    /// fallback, 2 = the snapshot texture itself. The overview is a single
+    /// active-monitor overlay, so one bank covers it.
+    static BACKDROP: SolidBank = SolidBank::default();
+}
+
+fn solid(slot: usize, rect: Rectangle<i32, Physical>, color: [f32; 4]) -> SolidColorRenderElement {
+    BACKDROP.with(|bank| bank.solid(slot, rect, color))
 }
 
 /// The overview overlay is active-monitor-only. `prepare`/`band` run once PER OUTPUT
@@ -74,20 +80,25 @@ where
     let mut have_snapshot = false;
     if let Some(dmabuf) = compositor_y5_overview_draw_backdrop::backdrop::snapshot_dmabuf(state) {
         if let Ok(texture) = renderer.import_dmabuf(&dmabuf, None) {
-            plan.push(layer::CAPTURE_DIM, DrawNode::Solid(solid(full, [0.0, 0.0, 0.0, 0.45])));
+            plan.push(layer::CAPTURE_DIM, DrawNode::Solid(solid(0, full, [0.0, 0.0, 0.0, 0.45])));
+            // `content`, not `solid`: the dmabuf is re-imported every frame and
+            // this cannot compare two textures, so the counter advances
+            // unconditionally — same full damage as before, but a stable id, so
+            // the tracker stops seeing the backdrop vanish and reappear each frame.
+            let (id, commit) = BACKDROP.with(|bank| bank.content(2));
             plan.push(layer::CAPTURE_DIM, DrawNode::Texture(PreImported {
                 texture,
                 location: Point::from((0, 0)),
                 size,
                 world_zoom: 1.0,
-                id: Id::new(),
-                commit: CommitCounter::default(),
+                id,
+                commit,
             }));
             have_snapshot = true;
         }
     }
     if !have_snapshot {
-        plan.push(layer::CAPTURE_DIM, DrawNode::Solid(solid(full, [0.02, 0.02, 0.03, 0.92])));
+        plan.push(layer::CAPTURE_DIM, DrawNode::Solid(solid(1, full, [0.02, 0.02, 0.03, 0.92])));
     }
     Some(match state.inner.overview().tab {
         Tab::Layout => {

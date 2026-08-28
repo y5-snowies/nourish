@@ -65,6 +65,7 @@ const RETIRE: Duration = Duration::from_secs(30);
 type Alloc = ((u32, u32), usize);
 
 pub fn run(
+    formats: compositor_kernel_graphic_format_registrar_base::registrar::Registrar,
     signal: Arc<Signal>,
     registry: Registry,
     readbacks: Readbacks,
@@ -82,7 +83,7 @@ pub fn run(
     // which is created on this thread, deliberately, so no Vulkan object is
     // built on one thread and used from another.
     let cfg = Config {
-        fourcc: compositor_background_two_worker_format::format::select(&device.phd),
+        fourcc: compositor_background_two_worker_format::format::select(&formats, &device.phd),
     };
     if tx.send(Ok(())).is_err() {
         return;

@@ -1,0 +1,12 @@
+{
+  "deps": [
+    "compositor_kernel_graphic_format_catalog_base",
+    "compositor_support_system_storage_token_base",
+    "compositor_support_system_storage_concurrent_base",
+    "compositor_kernel_graphic_format_audit_base",
+    "compositor_model_debug_instance_record",
+    "compositor_model_environment_config_base",
+    "compositor_kernel_graphic_format_role_base",
+    "smithay"
+  ]
+}

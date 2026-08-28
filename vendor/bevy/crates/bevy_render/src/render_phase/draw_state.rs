@@ -9,13 +9,12 @@ use bevy_camera::Viewport;
 use bevy_color::LinearRgba;
 use bevy_utils::default;
 use core::ops::Range;
-use std::num::NonZero;
 use wgpu::{IndexFormat, QuerySet, RenderPass};
 
 #[cfg(feature = "detailed_trace")]
 use bevy_log::trace;
 
-type BufferSliceKey = (BufferId, wgpu::BufferAddress, wgpu::BufferSize);
+type BufferSliceKey = (BufferId, wgpu::BufferAddress, wgpu::BufferAddress);
 
 /// Tracks the state of a [`TrackedRenderPass`].
 ///
@@ -93,7 +92,7 @@ impl DrawState {
         (
             buffer_slice.id(),
             buffer_slice.offset(),
-            NonZero::new(buffer_slice.size()).unwrap(),
+            buffer_slice.size(),
         )
     }
 

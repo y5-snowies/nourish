@@ -6,7 +6,7 @@
 
 pub mod dmabuf_alloc {
     pub use compositor_support_bevy_core_alloc_base::{
-        AllocatedDmabuf, allocate_dmabuf, allocate_dmabuf_negotiated, allocate_dmabuf_on,
+        AllocatedDmabuf, allocate_dmabuf_negotiated,
     };
 }
 pub mod error {
@@ -27,15 +27,15 @@ pub mod wgpu_context {
 }
 pub mod wgpu_import {
     pub use compositor_support_bevy_core_import_base::{
-        TEXTURE_FORMAT, TEXTURE_USAGE, import_dmabuf_to_wgpu,
+        texture_format, TEXTURE_USAGE, import_dmabuf_to_wgpu,
     };
 }
 
 pub use dmabuf_alloc::{
-    AllocatedDmabuf, allocate_dmabuf, allocate_dmabuf_negotiated, allocate_dmabuf_on,
+    AllocatedDmabuf, allocate_dmabuf_negotiated,
 };
 pub use error::{AllocError, GlesImportError, SurfaceError, WgpuContextError, WgpuImportError};
 pub use gles_import::import_dmabuf_to_gles;
 pub use surface::BevySurface;
 pub use wgpu_context::{WgpuVulkanContext, create_wgpu_vulkan_context};
-pub use wgpu_import::{TEXTURE_FORMAT, TEXTURE_USAGE, import_dmabuf_to_wgpu};
+pub use wgpu_import::{texture_format, TEXTURE_USAGE, import_dmabuf_to_wgpu};

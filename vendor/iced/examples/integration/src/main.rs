@@ -9,6 +9,7 @@ use iced_wgpu::{Engine, Renderer, wgpu};
 use iced_winit::conversion;
 use iced_winit::core::mouse;
 use iced_winit::core::renderer;
+use iced_winit::core::shell;
 use iced_winit::core::time::Instant;
 use iced_winit::core::window;
 use iced_winit::core::{Event, Size, Theme};
@@ -63,7 +64,10 @@ pub fn main() -> Result<(), winit::error::EventLoopError> {
                 let physical_size = window.inner_size();
                 let viewport = Viewport::with_physical_size(
                     Size::new(physical_size.width, physical_size.height),
-                    window.scale_factor() as f32,
+                    renderer::Scale {
+                        window: window.scale_factor() as f32,
+                        application: 1.0,
+                    },
                 );
 
                 let backend = wgpu::Backends::from_env().unwrap_or_default();
@@ -196,6 +200,10 @@ pub fn main() -> Result<(), winit::error::EventLoopError> {
                 return;
             };
 
+            // You should wire your own ticker logic if you will use widgets that must
+            // notify the runtime concurrently.
+            let waker = shell::Waker::noop();
+
             match event {
                 WindowEvent::RedrawRequested => {
                     if *resized {
@@ -203,7 +211,10 @@ pub fn main() -> Result<(), winit::error::EventLoopError> {
 
                         *viewport = Viewport::with_physical_size(
                             Size::new(size.width, size.height),
-                            window.scale_factor() as f32,
+                            renderer::Scale {
+                                window: window.scale_factor() as f32,
+                                application: 1.0,
+                            },
                         );
 
                         surface.configure(
@@ -255,12 +266,14 @@ pub fn main() -> Result<(), winit::error::EventLoopError> {
                             );
 
                             let (state, _) = interface.update(
+                                window,
+                                &waker,
                                 &[Event::Window(
                                     window::Event::RedrawRequested(Instant::now()),
                                 )],
                                 *cursor,
                                 renderer,
-                                &mut Vec::new(),
+                                &mut shell::Bus::new(),
                             );
 
                             // Update the mouse cursor
@@ -334,9 +347,9 @@ pub fn main() -> Result<(), winit::error::EventLoopError> {
                     renderer,
                 );
 
-                let mut messages = Vec::new();
+                let mut messages = shell::Bus::new();
 
-                let _ = interface.update(events, *cursor, renderer, &mut messages);
+                let _ = interface.update(window, &waker, events, *cursor, renderer, &mut messages);
 
                 events.clear();
                 *cache = interface.into_cache();

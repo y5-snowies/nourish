@@ -5,7 +5,9 @@ use compositor_model_debug_instance_record::{error, info};
 /// The bevy receiver is handed to ThreeSystem at construction (system-private
 /// machinery); the iced one still lands in surface state until that system
 /// extracts (phase 4).
-pub fn initialize_wgpu_context() -> (
+pub fn initialize_wgpu_context(
+    formats: compositor_kernel_graphic_format_registrar_base::registrar::Registrar,
+) -> (
     mpsc::Receiver<compositor_support_bevy_core_runtime_base::WgpuVulkanContext>,
     mpsc::Receiver<Arc<compositor_monitor_runtime_surface_base::WgpuVulkanContext>>,
 ) {
@@ -15,7 +17,11 @@ pub fn initialize_wgpu_context() -> (
     let (tx_iced_wgpu, rx_iced_wgpu) = mpsc::channel();
 
     std::thread::spawn(move || {
-        let result = compositor_monitor_runtime_surface_base::create_wgpu_vulkan_context();
+        // The handle is MOVED into the thread — this is the whole point of the
+        // registrar being a value rather than a global: the adapters are probed
+        // off-thread and register from there.
+        let iced_formats = formats.clone();
+        let result = compositor_monitor_runtime_surface_base::create_wgpu_vulkan_context(&iced_formats);
         if result.is_err() {
             error!(
                 "(iced) wgpu init thread for iced: failed: {:?}",
@@ -29,7 +35,7 @@ pub fn initialize_wgpu_context() -> (
         // If receiver dropped (main exited), send fails silently — that's fine.
         let _ = tx_iced_wgpu.send(result);
 
-        let result = compositor_support_bevy_core_runtime_base::create_wgpu_vulkan_context();
+        let result = compositor_support_bevy_core_runtime_base::create_wgpu_vulkan_context(&formats);
         match &result {
             Ok(_) => info!("wgpu init thread: success"),
             Err(e) => {

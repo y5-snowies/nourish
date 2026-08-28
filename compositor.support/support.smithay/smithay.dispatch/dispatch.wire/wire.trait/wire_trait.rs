@@ -22,6 +22,11 @@ pub trait WireTrait {
     /// space-host slice (document/ARCHITECTURE.md → "Window tracking").
     fn host_space(&self) -> &SpaceState;
     fn host_space_mut(&mut self) -> &mut SpaceState;
+    /// The Space of the world that OWNS `surface`'s window (root resolved through the
+    /// subsurface tree), or `host_space` when no world maps it yet — a commit belongs
+    /// to the window's world, which is not necessarily the one the user is in.
+    fn owning_space(&self, surface: &WlSurface) -> &SpaceState;
+    fn owning_space_mut(&mut self, surface: &WlSurface) -> &mut SpaceState;
     /// Every SPATIAL world's window Space (skips overlay worlds with no Space). Used by
     /// the foreign-toplevel mirror when `protocol_foreign_all_worlds` is set to advertise
     /// windows from all worlds; otherwise only `host_space` is reconciled.
@@ -31,6 +36,21 @@ pub trait WireTrait {
     /// on the focused monitor instead of always the first one.
     fn active_output(&self) -> Option<smithay::output::Output>;
     fn initialize_surface_data(&mut self, window: Window);
+    /// The size the placeholder bound to this surface's SESSION remembers for it.
+    ///
+    /// Answers before the INITIAL configure, which is the point: a returning window
+    /// is otherwise told `0x0` ("you pick"), lays out at its own default, and is
+    /// corrected only once the placeholder match runs after its first buffer — the visible
+    /// two-step resize on every restore. `restore_toplevel` must precede the first
+    /// commit, so the identity is already on the surface and the answer is knowable.
+    ///
+    /// Searched across every world (a session is bound to a placeholder, whose world
+    /// owns the window). NOT gated on the transient-capture preference: that governs
+    /// whether a placeholder may CLAIM a window it did not launch.
+    fn session_restore_size(
+        &self,
+        surface: &WlSurface,
+    ) -> Option<smithay::utils::Size<i32, Logical>>;
     /// `drag_discard`: the toplevel was mid-flight in an `xdg_toplevel_drag_v1`
     /// when it was destroyed, i.e. some other toplevel adopted the tab and the
     /// carrier was thrown away. Nothing was closed, so it leaves no placeholder.
@@ -41,6 +61,9 @@ pub trait WireTrait {
     /// Warp the pointer to a world-space point. The handler reads its own
     /// hosted space internally (it owns it now), so no space is passed in.
     fn apply_pointer(&mut self, storage_point: Point<f64, Logical>);
+    /// Where a surface-local point of `surface` (root or subsurface) is displayed in the
+    /// world, through the window's fit (world side). `None` when no window owns it.
+    fn surface_point_to_world(&self, surface: &WlSurface, local: Point<f64, Logical>) -> Option<Point<f64, Logical>>;
     /// The inverse of [`apply_pointer`]: pin the cursor's own hardware position into
     /// the output and return where it lands in the FOCUSED world, so the caller can
     /// re-state the seat's location there. Re-seats the camera's pan accumulator on

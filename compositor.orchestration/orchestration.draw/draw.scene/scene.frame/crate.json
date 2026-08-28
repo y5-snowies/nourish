@@ -1,5 +1,7 @@
 {
   "deps": [
+    // The notification pill node the active world's systems tick emits.
+    "compositor_y5_notify_present_base",
     "compositor_pipeline_world_system_base",
     "compositor_model_environment_interface_base",
     "compositor_y5_placeholder_interface_base",

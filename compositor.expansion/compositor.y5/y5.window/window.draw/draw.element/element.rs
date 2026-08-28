@@ -14,7 +14,8 @@ use smithay::utils::{Buffer, Physical, Point, Rectangle, Scale, Size};
 smithay::render_elements! {
     pub Element<R> where R: ImportAll + ImportMem;
     // Native window surface (camera-zoom only) — used for the client-driven (no decided size)
-    // fallback path. Wrapped in `ClampOpaque` so its reported opacity can never span the output.
+    // fallback path. Wrapped in `ClampOpaque`, which declines direct scanout when it spans
+    // the output.
     Window = ClampOpaque<ElementWindowSurface<WaylandSurfaceRenderElement<R>>>,
     // Fitted window / popup surface: the toplevel content rescaled (aspect-fit), relocated
     // (centered in its slot), and cropped (to the slot, or to the output for popups). The
@@ -22,38 +23,43 @@ smithay::render_elements! {
     // result is correct regardless of the scale the active render path queries with (the
     // winit Vulkan path uses 1.0, the GLES damage tracker uses the output scale). Built on
     // smithay's element utils so geometry / src / damage transform correctly. The outermost
-    // `ClampOpaque` clamps the reported opaque region to the central 75% of the screen.
+    // `ClampOpaque` reports opacity untouched and declines direct scanout when output-spanning.
     WindowFit = ClampOpaque<CropRenderElement<RelocateRenderElement<RescaleRenderElement<ElementWindowSurface<WaylandSurfaceRenderElement<R>>>>>>,
     SolidBox = SolidColorRenderElement,
 }
 
-/// Fraction of the screen the reported opaque region is allowed to cover (centered).
-const OPAQUE_CLAMP_FRACTION: f64 = 0.75;
-
-/// Outermost wrapper that **clamps a window's reported opaque region to the central
-/// `OPAQUE_CLAMP_FRACTION` of the screen** (centered on the output). Everything else
-/// (geometry, src, damage, draw, scan-out, transform) is delegated untouched — only the
-/// *opaque* regions are shrunk.
+/// Outermost window wrapper. Reports the client's opaque region **unchanged**, and
+/// **declines direct scanout** for an element that spans the whole output. Everything
+/// else (geometry, src, damage, draw, transform) is delegated untouched.
 ///
-/// Why: when a window's opaque region reaches the output edges *and* its geometry spans the
-/// whole output, smithay's `DrmCompositor` treats it as a fully-opaque output-spanning element
-/// and stops compositing it — culling everything below (incl. the always-animating parallax
-/// background) and direct-scanning its raw client buffer onto the primary plane. For a window
-/// bigger than the monitor that wedges the page-flip and freezes the display. Guaranteeing a
-/// ≥`(1-fraction)/2` margin on every screen edge means the opaque region can never cover the
-/// whole output, so that path never triggers — while occlusion culling still works for the
-/// (large) central region.
+/// Why the scanout refusal: when a window's opaque region reaches the output edges *and*
+/// its geometry spans the whole output, smithay's `DrmCompositor` treats it as a
+/// fully-opaque output-spanning element, stops compositing it — culling everything below,
+/// including the always-animating parallax background — and direct-scans its raw client
+/// buffer onto the primary plane. For a window bigger than the monitor that wedges the
+/// page-flip and freezes the display.
+///
+/// The name is now historical: this used to prevent that by CLAMPING the reported opaque
+/// region to a centred 75% box, so it could never reach the output edges. See
+/// [`Self::underlying_storage`] for why that was the wrong lever.
 pub struct ClampOpaque<E> {
     pub inner: E,
     /// Screen / output size in physical pixels (the space `opaque_regions`/`geometry` report in).
     pub screen: Size<i32, Physical>,
-    /// Whether the drawn world's bundle composites this window itself.
+    /// Whether the drawn world's bundle composites this window ITSELF
+    /// (`worldset::Own::covers`).
+    ///
+    /// NOT occlusion. Nothing here knows or cares whether another window is
+    /// stacked over this one; that question lives in `draw.occlude` and is spelt
+    /// "covered" there. This says the engine is not the one drawing these pixels,
+    /// so it may neither claim their opacity nor let them cull anything —
+    /// `draw.frame::scene` is the other half, and the two must agree.
     ///
     /// Stamped at construction rather than read here: `opaque_regions` is a
     /// smithay trait method with no way to reach a world, and the value is a fact
     /// about the world whose band this window is in — which used to mean a
     /// process-global that any world could have written.
-    pub covered: bool,
+    pub bundle_owned: bool,
 }
 
 impl<E: ElementSmithay> ElementSmithay for ClampOpaque<E> {
@@ -96,30 +102,16 @@ impl<E: ElementSmithay> ElementSmithay for ClampOpaque<E> {
         // A bundle that draws this window itself may put it anywhere, so it no
         // longer covers what is behind it. Claiming opacity here would subtract the
         // background band's damage under the window, and the engine then skips the
-        // window too (`Claim::owns_op`) — leaving a hole exactly where it moved from.
-        if self.covered {
+        // window too (`worldset::Claim::owns`) — leaving a hole exactly where it
+        // moved from.
+        if self.bundle_owned {
             return Default::default();
         }
-        // Central `OPAQUE_CLAMP_FRACTION` of the screen, in absolute output-physical coords.
-        let cw = (self.screen.w as f64 * OPAQUE_CLAMP_FRACTION).round() as i32;
-        let ch = (self.screen.h as f64 * OPAQUE_CLAMP_FRACTION).round() as i32;
-        let clamp = Rectangle::new(
-            Point::from(((self.screen.w - cw) / 2, (self.screen.h - ch) / 2)),
-            Size::from((cw, ch)),
-        );
-        // smithay reports opaque regions *relative to the element* (its geometry origin).
-        // Lift each into absolute output space, clip to the clamp box, then put back.
-        let origin = self.inner.geometry(scale).loc;
-        self.inner
-            .opaque_regions(scale)
-            .into_iter()
-            .filter_map(|mut r| {
-                r.loc += origin;
-                let mut c = r.intersection(clamp)?;
-                c.loc -= origin;
-                Some(c)
-            })
-            .collect()
+        // The client's opaque region, UNTOUCHED. What used to happen here — clipping
+        // it to a centred box so it could never reach the output edges — is now done
+        // where it belongs, by declining direct scanout in `underlying_storage`.
+        // See the type docs.
+        self.inner.opaque_regions(scale)
     }
 
     fn alpha(&self) -> f32 {
@@ -152,7 +144,33 @@ where
         self.inner.draw(frame, src, dst, damage, opaque_regions, cache)
     }
 
+    /// Decline DIRECT SCANOUT for an element that spans the whole output.
+    ///
+    /// This is the freeze guard, stated at the layer it belongs to. `underlying_storage`
+    /// is how an element offers its raw client buffer for promotion onto a KMS plane;
+    /// returning `None` says "composite me" and takes that path off the table. An
+    /// output-spanning window is exactly the case that promotion goes wrong for: the
+    /// buffer can be far larger than the display (zoom far enough into a window and it
+    /// is), the plane cannot present it, and the page-flip wedges — taking the display
+    /// with it, along with everything culled below it.
+    ///
+    /// This replaces the old approach of clipping the OPAQUE REGION to a centred box so
+    /// it could never reach the output edges. That worked only by lying: opacity is a
+    /// fact about pixels, scanout eligibility is a policy about planes, and stating the
+    /// second by falsifying the first meant every window silently reported its border as
+    /// non-opaque. Harmless while the renderer blended everything anyway — and the moment
+    /// the renderer began honouring opacity, it surfaced as a see-through band that slid
+    /// across each window as the camera panned. Saying the policy directly cannot leak
+    /// into rendering that way.
     fn underlying_storage(&self, renderer: &mut R) -> Option<UnderlyingStorage> {
+        let geo = self.inner.geometry(Scale::from(1.0));
+        let spans_output = geo.loc.x <= 0
+            && geo.loc.y <= 0
+            && geo.loc.x + geo.size.w >= self.screen.w
+            && geo.loc.y + geo.size.h >= self.screen.h;
+        if spans_output {
+            return None;
+        }
         self.inner.underlying_storage(renderer)
     }
 
@@ -173,8 +191,8 @@ where
 pub struct ElementWindowSurface<E> {
     pub inner: E,
     pub zoom: f64,
-    /// See [`ClampOpaque::covered`] — the same fact, stamped for the same reason.
-    pub covered: bool,
+    /// See [`ClampOpaque::bundle_owned`] — the same fact, stamped for the same reason.
+    pub bundle_owned: bool,
 }
 
 impl<E: ElementSmithay> ElementSmithay for ElementWindowSurface<E> {
@@ -214,7 +232,7 @@ impl<E: ElementSmithay> ElementSmithay for ElementWindowSurface<E> {
         &self,
         _scale: Scale<f64>,
     ) -> smithay::backend::renderer::utils::OpaqueRegions<i32, Physical> {
-        if self.covered {
+        if self.bundle_owned {
             return Default::default();
         }
         self.inner.opaque_regions(Scale::from(self.zoom))

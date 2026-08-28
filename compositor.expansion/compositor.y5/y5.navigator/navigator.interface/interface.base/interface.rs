@@ -71,7 +71,10 @@ pub fn fit(state: &mut Loop, zoom_1: bool, fit_1: bool) {
 
     let travel = if fit_1 {
         let window = windows.first().unwrap().clone();
-        let window_geometry = state.inner.space_state().state.element_geometry(window);
+        // The SLOT, not `element_geometry`: a client refusing the decided size keeps
+        // its own geometry, and centring on that misses the window as drawn.
+        let window_geometry =
+            compositor_y5_camera_transform_translate::slot::rect(&state.inner.space_state().state, window);
         if window_geometry.is_none() {
             return;
         }
@@ -234,7 +237,8 @@ fn place_window(
     set: compositor_support_action_camera_fit_element::element::CameraPlacementFlags,
 ) {
     use compositor_support_action_camera_fit_element::element::{PlacementResult, compute_placement};
-    let Some(bbox) = state.inner.space_state().state.element_geometry(window).map(|r| r.to_f64())
+    let Some(bbox) = compositor_y5_camera_transform_translate::slot::rect(&state.inner.space_state().state, window)
+        .map(|r| r.to_f64())
     else {
         return;
     };
@@ -335,7 +339,8 @@ fn most_centered(state: &mut Loop) -> Option<Window> {
     windows
         .into_iter()
         .filter_map(|w| {
-            let rect = state.inner.space_state().state.element_geometry(&w)?.to_f64();
+            let rect = compositor_y5_camera_transform_translate::slot::rect(&state.inner.space_state().state, &w)?
+                .to_f64();
             Some((w, distance_sq_to_viewport_center(&rect, &output_rects)))
         })
         .min_by(|a, b| cmp_f64(a.1, b.1))

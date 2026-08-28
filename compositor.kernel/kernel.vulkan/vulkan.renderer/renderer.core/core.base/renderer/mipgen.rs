@@ -280,7 +280,10 @@ impl MipGen {
             color: [1.0, 1.0, 1.0, 1.0],
             params: [1.0, 1.0, 0.0, 0.0],
             params2: [0.0, 0.0, 0.0, 0.0],
-        });
+        }, 
+        // Blit into a private mip image, not the frame: blending is irrelevant
+        // here and the opaque path would be meaningless.
+        false);
         unsafe { device.cmd_end_rendering(cmd) };
 
         // mip0 → TRANSFER_SRC; mips 1.. → TRANSFER_DST.

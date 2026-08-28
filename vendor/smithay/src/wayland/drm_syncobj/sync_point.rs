@@ -113,6 +113,16 @@ pub struct DrmSyncPoint {
 }
 
 impl DrmSyncPoint {
+    /// Borrow the [`DrmTimeline`] this point lives on.
+    pub fn timeline(&self) -> &DrmTimeline {
+        &self.timeline
+    }
+
+    /// Numeric timeline value for this point.
+    pub fn point(&self) -> u64 {
+        self.point
+    }
+
     /// Create an eventfd that will be signaled by the syncpoint
     pub fn eventfd(&self) -> io::Result<Arc<OwnedFd>> {
         let fd = rustix::event::eventfd(
@@ -165,6 +175,65 @@ impl DrmSyncPoint {
 
         let res = device.syncobj_to_fd(syncobj, true);
         let _ = device.destroy_syncobj(syncobj);
+        res
+    }
+
+    /// Import a DRM sync file fd as the materialized fence at this
+    /// timeline point. Symmetric counterpart of
+    /// [`DrmSyncPoint::export_sync_file`].
+    ///
+    /// Internally creates a fresh binary syncobj, imports the sync
+    /// file fence into it via the `IMPORT_SYNC_FILE` ioctl (raw
+    /// because the `drm` crate's public wrapper hardcodes the
+    /// destination handle to `0`, which the kernel rejects with
+    /// `ENOENT` — only the two-step `drmSyncobjCreate` +
+    /// `drmSyncobjImportSyncFile(existing_handle, fd)` pattern is
+    /// supported, mirroring libdrm). Then transfers the temp's
+    /// point 0 into this timeline at `self.point` and destroys the
+    /// temp.
+    ///
+    /// Mirrors `wlr_drm_syncobj_timeline_import_sync_file`. Used by
+    /// compositors that drive Vulkan explicit sync via
+    /// `VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT` and need to
+    /// inject the resulting sync-file fence into the client's
+    /// release point.
+    pub fn import_sync_file(&self, fd: BorrowedFd<'_>) -> io::Result<()> {
+        use rustix::ioctl::{Updater, ioctl, opcode::read_write};
+        use std::os::fd::AsRawFd;
+
+        let ctx = self.timeline.0.dev_ctx.lock().unwrap();
+        let Some(device) = ctx.device.upgrade() else {
+            return Err(io::ErrorKind::InvalidInput.into());
+        };
+
+        let tmp = device.create_syncobj(false)?;
+
+        const DRM_IOCTL_SYNCOBJ_FD_TO_HANDLE: rustix::ioctl::Opcode =
+            read_write::<drm_ffi::drm_syncobj_handle>(drm_ffi::DRM_IOCTL_BASE, 0xC2);
+
+        let mut args = drm_ffi::drm_syncobj_handle {
+            handle: tmp.into(),
+            flags: drm_ffi::DRM_SYNCOBJ_FD_TO_HANDLE_FLAGS_IMPORT_SYNC_FILE,
+            fd: fd.as_raw_fd(),
+            pad: 0,
+            point: 0,
+        };
+        // SAFETY: `device.as_fd()` is a valid DRM device fd;
+        // `drm_ffi::drm_syncobj_handle` is the type expected by the
+        // DRM_IOCTL_SYNCOBJ_FD_TO_HANDLE ioctl.
+        let res = unsafe {
+            ioctl(
+                device.as_fd(),
+                Updater::<DRM_IOCTL_SYNCOBJ_FD_TO_HANDLE, _>::new(&mut args),
+            )
+        };
+        if let Err(err) = res {
+            let _ = device.destroy_syncobj(tmp);
+            return Err(err.into());
+        }
+
+        let res = device.syncobj_timeline_transfer(tmp, ctx.syncobj, 0, self.point);
+        let _ = device.destroy_syncobj(tmp);
         res
     }
 

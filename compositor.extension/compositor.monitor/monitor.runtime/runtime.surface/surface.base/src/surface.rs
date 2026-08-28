@@ -15,7 +15,7 @@ use crate::dmabuf_alloc::{AllocatedDmabuf, allocate_dmabuf_negotiated};
 use crate::error::SurfaceError;
 use crate::gles_import::import_dmabuf_to_gles;
 use crate::wgpu_context::WgpuVulkanContext;
-use crate::wgpu_import::{TEXTURE_FORMAT, import_dmabuf_to_wgpu};
+use crate::wgpu_import::{texture_format, import_dmabuf_to_wgpu};
 
 /// One render target, addressable from both wgpu and GLES.
 ///
@@ -58,7 +58,6 @@ impl std::fmt::Debug for IcedSurface {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IcedSurface")
             .field("size", &self.size)
-            .field("format", &TEXTURE_FORMAT)
             .finish()
     }
 }
@@ -366,13 +365,10 @@ impl Backing {
     ) -> Result<Self, SurfaceError> {
         trace!("IcedSurface backing allocate {}x{}", size.w, size.h);
 
-        // Negotiate an explicit modifier across gles ∩ wgpu (empty ⇒ implicit path).
-        let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
-        let mods = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_modifiers(
-            smithay::backend::renderer::ImportDma::dmabuf_formats(gles),
-            wgpu_ctx.importable.clone(),
-            fourcc,
-        );
+        // What may this consumer use? The layer answers; this crate does not name a
+        // format, query a device, or intersect anything.
+        let (fourcc, mods) =
+            compositor_kernel_graphic_format_answer_base::answer::producer_formats(&wgpu_ctx.formats, compositor_kernel_graphic_format_answer_base::answer::Consumer::IcedInline);
         let allocated =
             allocate_dmabuf_negotiated(render_node, size.w as u32, size.h as u32, fourcc, &mods)?;
         let gles_texture = import_dmabuf_to_gles(gles, &allocated.dmabuf)?;

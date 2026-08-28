@@ -16,6 +16,12 @@ pub const LOCK_WORLD: Uuid = Uuid::from_u128(0x59350000_0000_4000_8000_000000000
 /// windows, and owns the picker's cell registry.
 pub const PICKER_WORLD: Uuid = Uuid::from_u128(0x59350000_0000_4000_8000_000000000003);
 
+/// The KERNEL system host: OVERLAY-class, and not in the world set at all. It
+/// hosts the systems that run every frame whatever world is active (the
+/// notification pill); it is never switched to, never the spawn-target (both
+/// assert on the world index, which it is not in) and persists nothing.
+pub const KERNEL: Uuid = Uuid::from_u128(0x59350000_0000_4000_8000_000000000000);
+
 /// The OVERLAY worlds: they own no window `Space` and no persisted records, so a
 /// table entry filed under one of these ids is not data.
-pub const OVERLAY_WORLDS: [Uuid; 2] = [LOCK_WORLD, PICKER_WORLD];
+pub const OVERLAY_WORLDS: [Uuid; 3] = [LOCK_WORLD, PICKER_WORLD, KERNEL];

@@ -20,7 +20,7 @@ use super::VulkanRenderer;
 impl VulkanRenderer {
     /// Build a renderer on the physical device matched to the scanout node
     /// (`instance.physical::for_node`).
-    pub fn new(phd: PhysicalDevice) -> Result<Self, VulkanError> {
+    pub fn new(formats: compositor_kernel_graphic_format_registrar_base::registrar::Registrar, phd: PhysicalDevice) -> Result<Self, VulkanError> {
         let dev = compositor_kernel_vulkan_device_factory_base::factory::create(&phd)
             .map_err(|e| VulkanError::Vk(format!("device create: {e}")))?;
         // Publish the bindless capability so the shader-pipeline producer can gate
@@ -64,6 +64,7 @@ impl VulkanRenderer {
         stats::set_sync_mode("synchronous (device_wait_idle)");
 
         Ok(Self {
+            formats,
             dev,
             phd,
             queue,
@@ -72,10 +73,11 @@ impl VulkanRenderer {
             pipeline_cache,
             pipelines: HashMap::new(),
             aa_pipelines: HashMap::new(),
-            mipgen: std::cell::RefCell::new(crate::renderer::mipgen::MipGen::default()),
+            mipgen: std::cell::RefCell::new(HashMap::new()),
             aa_was_active: false,
             shader_passes: HashMap::new(),
             after_band: None,
+            band_machinery: None,
             outputs: Default::default(),
             output: std::sync::Arc::from(""),
             retired_cursor:
@@ -102,6 +104,7 @@ impl VulkanRenderer {
             target_cache: HashMap::new(),
             import_cache: HashMap::new(),
             pending_acquires: Vec::new(),
+            retired_textures: Default::default(),
             debug_flags: DebugFlags::empty(),
             downscale: TextureFilter::Linear,
             upscale: TextureFilter::Linear,
@@ -127,20 +130,20 @@ impl VulkanRenderer {
     /// silently built on the wrong GPU turns every import into a cross-device
     /// one, which surfaces as slow or blank output rather than as the
     /// configuration error it is.
-    pub fn for_node(node: DrmNode) -> Result<Self, VulkanError> {
+    pub fn for_node(formats: compositor_kernel_graphic_format_registrar_base::registrar::Registrar, node: DrmNode) -> Result<Self, VulkanError> {
         let instance = compositor_kernel_vulkan_instance_factory_base::factory::create()
             .map_err(|e| VulkanError::Vk(format!("instance: {e:?}")))?;
         let phd = compositor_kernel_vulkan_instance_physical_base::physical::for_node(&instance, node)
             .map_err(VulkanError::Vk)?
             .ok_or(VulkanError::Unimplemented("no vulkan physical device for the selected node"))?;
         info!("vulkan renderer: physical device '{}' for {:?}", phd.name(), node.dev_path());
-        Self::new(phd)
+        Self::new(formats, phd)
     }
 
     /// Build a renderer on the first available vulkan physical device. The
     /// nested (winit) path and the `validate()` self-test only — neither has a
     /// scanout device to match. Never the native path: see [`Self::for_node`].
-    pub fn new_default() -> Result<Self, VulkanError> {
+    pub fn new_default(formats: compositor_kernel_graphic_format_registrar_base::registrar::Registrar) -> Result<Self, VulkanError> {
         let instance = compositor_kernel_vulkan_instance_factory_base::factory::create()
             .map_err(|e| VulkanError::Vk(format!("instance: {e:?}")))?;
         let phd = compositor_kernel_vulkan_instance_physical_base::physical::enumerate(&instance)
@@ -149,13 +152,13 @@ impl VulkanRenderer {
             .next()
             .ok_or(VulkanError::Unimplemented("no vulkan physical device found"))?;
         info!("vulkan renderer: using physical device '{}'", phd.name());
-        Self::new(phd)
+        Self::new(formats, phd)
     }
 
     /// Hardware self-test: build a renderer on the first vulkan device, export a
     /// 256×256 dmabuf, bind it as a target, and render one frame (clear + a
     /// solid quad), then round-trip the dmabuf back through `import_dmabuf`.
-    pub fn validate() -> Result<String, VulkanError> {
+    pub fn validate(formats: compositor_kernel_graphic_format_registrar_base::registrar::Registrar) -> Result<String, VulkanError> {
         let instance = compositor_kernel_vulkan_instance_factory_base::factory::create()
             .map_err(|e| VulkanError::Vk(format!("instance: {e:?}")))?;
         let phd = compositor_kernel_vulkan_instance_physical_base::physical::enumerate(&instance)
@@ -166,10 +169,12 @@ impl VulkanRenderer {
         let phd_name = phd.name().to_string();
         info!("vulkan validate: using physical device '{phd_name}'");
 
-        let mut renderer = Self::new(phd)?;
+        let mut renderer = Self::new(formats, phd)?;
 
         // A 256×256 exportable render target, exported to a dmabuf we then bind.
-        let fourcc = Fourcc::Argb8888;
+        // DEVICE-LOCAL: created and consumed by THIS device, so its own modifier
+        // list below is legal and no cross-API narrowing applies.
+        let fourcc = compositor_kernel_graphic_format_answer_base::answer::constant(compositor_kernel_graphic_format_answer_base::answer::Consumer::VulkanOutputTarget).0;
         let vk_fmt = compositor_kernel_vulkan_format_query_base::query::vk_format(fourcc)
             .ok_or(VulkanError::UnsupportedFormat(fourcc))?;
         let mods: Vec<_> =

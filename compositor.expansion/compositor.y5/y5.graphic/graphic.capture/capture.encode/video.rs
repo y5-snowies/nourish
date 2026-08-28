@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::process::{Child, Stdio};
 
 use compositor_support_library_process_child_hygiene::hygiene::command;
+use compositor_support_library_process_child_spawn::spawn as child_spawn;
 use std::sync::mpsc::{Sender, channel};
 use std::thread::JoinHandle;
 
@@ -61,8 +62,7 @@ impl VideoEncoder {
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-        let mut child = cmd
-            .spawn()
+        let mut child = child_spawn::spawn(&mut cmd)
             .map_err(|e| warn!("ffmpeg spawn failed (video disabled): {e}"))
             .ok()?;
 

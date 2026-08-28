@@ -222,10 +222,10 @@ impl ParallaxBackground {
     /// worker would spawn a thread, a second `VkInstance`/`VkDevice` and a
     /// fullscreen ring PER PANE that nothing can consume — while the element
     /// went on drawing the inline shader anyway.
-    pub fn attach_worker(&mut self) {
+    pub fn attach_worker(&mut self, formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar) {
         if compositor_model_environment_background_base::base::get().engaged() {
             self.offthread = true;
-            self.worker = compositor_background_two_worker_shared::shared::worker();
+            self.worker = compositor_background_two_worker_shared::shared::worker(formats);
         }
     }
 
@@ -409,6 +409,50 @@ impl Element for ParallaxBackground {
     fn alpha(&self) -> f32 { 1.0 }
     fn kind(&self) -> Kind { Kind::Unspecified }
     fn is_framebuffer_effect(&self) -> bool { false }
+}
+
+impl ParallaxBackground {
+    /// The band's multipass MACHINERY for this frame, buildable WITHOUT a
+    /// renderer, a dst rect, or the element having survived smithay's culls.
+    ///
+    /// `draw()` builds the identical pass and hands it to the renderer through
+    /// smithay's element dispatch — which means it only exists in frames where
+    /// smithay chose to draw this element. A window zoomed until it covers the
+    /// output makes every occlusion cull eat the band, and with it went the
+    /// `DrawOp::Pipeline` that carries the bundle's after-content passes: the
+    /// effects silently switched off exactly when the window they process filled
+    /// the screen. `lower()` publishes THIS out-of-band instead
+    /// (`SceneDispatch::set_band_machinery`), and `submit_frame` injects it at the
+    /// band's position whenever no Pipeline op arrived — so the machinery follows
+    /// the BUNDLE, not the element's visibility.
+    ///
+    /// The uniform preamble mirrors `draw()`'s with one deliberate difference:
+    /// `output_size` stands in for the per-draw `dst.size`, because no dst exists
+    /// at publish time. The two agree everywhere the fallback can matter — it is
+    /// consumed only when the band was culled, and a culled band is a full-output
+    /// band under a full-output window.
+    pub fn machinery_pass(
+        &self,
+    ) -> Option<compositor_orchestration_draw_dispatch_frame::NativeShaderPass> {
+        let cp = self.pipeline.as_ref()?;
+        let time = compositor_pipeline_abi_clock_base::base::now();
+        let pan = (
+            if self.invert_pan_x { -self.pan.0 } else { self.pan.0 },
+            if self.invert_pan_y { -self.pan.1 } else { self.pan.1 },
+        );
+        let (_uniforms, vk) = compositor_background_two_draw_motion::uniforms(
+            time,
+            self.motion.lock_amount,
+            pan,
+            self.motion.flow_offset,
+            self.motion.velocity,
+            self.zoom,
+            self.output_size,
+            &self.params,
+            self.srgb,
+        );
+        Some(compositor_pipeline_build_seam_base::base::multipass_pass(cp, &vk, &self.params))
+    }
 }
 
 impl<R: SceneDispatch> RenderElement<R> for ParallaxBackground {

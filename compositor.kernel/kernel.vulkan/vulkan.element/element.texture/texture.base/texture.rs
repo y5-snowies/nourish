@@ -48,12 +48,15 @@ pub fn bind_texture(
     unsafe { device.device.update_descriptor_sets(&[write], &[]) };
 }
 
+/// `opaque`: this draw is inside the surface's declared opaque region, so it may
+/// replace the destination rather than blend over it.
 pub fn draw(
     device: &VulkanDevice,
     pipelines: &CompositePipelines,
     cmd: vk::CommandBuffer,
     descriptor_set: vk::DescriptorSet,
     push: PushQuad,
+    opaque: bool,
 ) {
-    composite::draw_textured(device, pipelines, cmd, descriptor_set, push);
+    composite::draw_textured(device, pipelines, cmd, descriptor_set, push, opaque);
 }

@@ -169,6 +169,14 @@ where
             // first frame lands — in the latter case we draw nothing at all
             // rather than sample a buffer that was never written.
             DrawNode::Background2D(e) => {
+                // Publish the band's multipass machinery OUT-OF-BAND, before any
+                // path below can lose the element: smithay's occlusion culls may
+                // eat the band (a window covering the output does), and the
+                // bundle's after-content passes must not go with it. See
+                // `SceneDispatch::set_band_machinery`.
+                if R::prefers_dmabuf() {
+                    renderer.set_band_machinery(e.machinery_pass());
+                }
                 // `worker_can_render` keeps a multipass bundle off the worker,
                 // which renders a single pass and would silently draw the wrong
                 // background for it. See `ParallaxBackground::worker_can_render`.
@@ -196,6 +204,10 @@ where
             }
             DrawNode::Background2DCropped { elem, crop } => {
                 use smithay::backend::renderer::element::utils::CropRenderElement;
+                // Same out-of-band publish as the uncropped arm above.
+                if R::prefers_dmabuf() {
+                    renderer.set_band_machinery(elem.machinery_pass());
+                }
                 if R::prefers_dmabuf() && elem.offthread && elem.worker_can_render() {
                     let Some((dmabuf, generation)) = elem.worker_frame() else { return vec![] };
                     let Some(pre) = import_pre(

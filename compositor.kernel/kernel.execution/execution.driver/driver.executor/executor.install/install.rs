@@ -40,6 +40,9 @@ pub fn install(state: &mut Loop, handle: &LoopHandle<'static, Loop>) {
     let (tx, rx) = channel::<LaunchOutcome>();
     let worker = matches!(LAUNCH_DISPATCH, LaunchDispatch::OffThread)
         .then(|| LaunchWorker::spawn(tx.clone(), scope));
+    // The reaper's handle onto the same worker: reaping and spawning must not
+    // overlap, and one thread doing both is what guarantees it.
+    let reaper = worker.clone();
     // Register the driver slot (insert — the slot doesn't exist yet; get_mut would
     // panic on an unregistered slot, like the other driver slots in Orchestrator::new).
     state.inner.kernel.insert(&EXECUTOR, Some(Executor::new(worker, tx, base_env, scope)));
@@ -57,7 +60,7 @@ pub fn install(state: &mut Loop, handle: &LoopHandle<'static, Loop>) {
         })
         .unwrap_or_else(|e| abort!("register launch outcome source: {e:?}"));
 
-    install_reaper(handle);
+    install_reaper(handle, reaper);
 }
 
 /// systemd as the init system? Mirrors libsystemd's `sd_booted()`:
@@ -93,7 +96,15 @@ fn base_env(state: &Loop) -> BaseEnv {
 
 /// signalfd(SIGCHLD) wrapped in a Generic source — calloop's `signals` feature
 /// isn't enabled in the smithay reexport. Gated on a reaped backend.
-fn install_reaper(handle: &LoopHandle<'static, Loop>) {
+///
+/// The handler does no reaping itself. `waitpid(-1)` has to be interlocked
+/// against every in-flight spawn (`child.spawn`), and this is the CALLOOP
+/// thread: making it wait on another thread's `exec` would stall input and
+/// rendering behind, say, a binary on a hung mount. So it posts to the launch
+/// worker, which owns both sides of that pair and can afford to wait. Without a
+/// worker (inline dispatch) spawns happen on this thread anyway, so reaping here
+/// cannot race one — a single non-blocking attempt, and the next SIGCHLD retries.
+fn install_reaper(handle: &LoopHandle<'static, Loop>, worker: Option<LaunchWorker>) {
     if matches!(LAUNCH_BACKEND, LaunchBackend::Direct) {
         return;
     }
@@ -111,7 +122,7 @@ fn install_reaper(handle: &LoopHandle<'static, Loop>) {
     // SAFETY: signalfd returned a fresh owned fd.
     let owned = unsafe { OwnedFd::from_raw_fd(sfd) };
     handle
-        .insert_source(Generic::new(owned, Interest::READ, Mode::Level), |_readiness, fd, _state: &mut Loop| {
+        .insert_source(Generic::new(owned, Interest::READ, Mode::Level), move |_readiness, fd, _state: &mut Loop| {
             // Drain queued siginfo (level-triggered) so the fd quiesces.
             let mut buf = [0u8; 128]; // size_of::<signalfd_siginfo>()
             loop {
@@ -120,7 +131,10 @@ fn install_reaper(handle: &LoopHandle<'static, Loop>) {
                     break;
                 }
             }
-            let _ = reap_zombies();
+            match &worker {
+                Some(worker) => worker.reap(),
+                None => drop(reap_zombies()),
+            }
             Ok(PostAction::Continue)
         })
         .unwrap_or_else(|e| abort!("register SIGCHLD reaper: {e:?}"));

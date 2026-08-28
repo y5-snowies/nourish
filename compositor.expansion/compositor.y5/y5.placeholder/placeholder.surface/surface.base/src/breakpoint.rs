@@ -1,9 +1,9 @@
 //! Three-step responsive breakpoints for the placeholder surface.
 //!
-//! A placeholder tile inherits the geometry of the window it replaced and can
+//! A placeholder inherits the geometry of the window it replaced and can
 //! then be dragged to any size. Rather than scaling one layout continuously,
 //! the view picks a discrete step from the *available* size and renders a
-//! layout designed for it. Both axes are consulted — a tile can be wide and
+//! layout designed for it. Both axes are consulted — a placeholder can be wide and
 //! short (or the reverse), and either dimension alone can make the roomy
 //! layout unusable.
 //!
@@ -16,20 +16,20 @@
 //!
 //! [`MIN_W`] / [`MIN_H`] are the floor the Compact row is dimensioned to fit
 //! in. They are the *layout* minimum, not a resize policy: the placeholder
-//! state clamps every geometry write to them, so a tile can never be handed a
+//! state clamps every geometry write to them, so a placeholder can never be handed a
 //! size the UI has no design for.
 
 use iced_core::{Padding, Size};
 
 use crate::style;
 
-/// Narrowest tile the [`Breakpoint::Compact`] row is designed to fit.
+/// Narrowest placeholder the [`Breakpoint::Compact`] row is designed to fit.
 ///
 /// Budget: 6+12 outer padding, 40 icon, 8 gap, ~106 for the two text lines,
 /// 8 gap, 80 for the three 24px circular buttons (3×24 + 2×4 gaps).
 pub const MIN_W: f32 = 260.0;
 
-/// Shortest tile the [`Breakpoint::Compact`] row is designed to fit: 6+6
+/// Shortest placeholder the [`Breakpoint::Compact`] row is designed to fit: 6+6
 /// outer padding around a row as tall as its tallest child (the 40px icon),
 /// with a few pixels of slack.
 pub const MIN_H: f32 = 56.0;
@@ -37,7 +37,7 @@ pub const MIN_H: f32 = 56.0;
 /// Raise a placeholder's stored size to the layout floor.
 ///
 /// This is the HARD rule, and it is deliberately not a resize policy: it
-/// applies to every geometry write regardless of origin — the geometry a tile
+/// applies to every geometry write regardless of origin — the geometry a placeholder
 /// inherits from the window it replaced, a record rehydrated from disk, a
 /// drag — so a placeholder can never be handed a size the UI has no design
 /// for. The interactive resize clamp enforces the same floor at the one place
@@ -60,10 +60,10 @@ pub enum Breakpoint {
 }
 
 impl Breakpoint {
-    /// Below this width or height the tile renders [`Breakpoint::Compact`].
+    /// Below this width or height the placeholder renders [`Breakpoint::Compact`].
     pub const COMPACT_W: f32 = 300.0;
     pub const COMPACT_H: f32 = 230.0;
-    /// Below this width or height the tile renders [`Breakpoint::Medium`].
+    /// Below this width or height the placeholder renders [`Breakpoint::Medium`].
     pub const MEDIUM_W: f32 = 480.0;
     pub const MEDIUM_H: f32 = 400.0;
 

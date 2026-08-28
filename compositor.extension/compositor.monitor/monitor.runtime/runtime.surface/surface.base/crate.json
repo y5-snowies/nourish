@@ -1,7 +1,10 @@
 {
   "deps": [
-    "compositor_kernel_graphic_bridge_negotiate_report",
-    "compositor_kernel_graphic_bridge_negotiate_compositor",
+    "compositor_kernel_graphic_format_role_base",
+    "compositor_kernel_graphic_format_registrar_base",
+    "compositor_kernel_graphic_format_catalog_base",
+    "compositor_kernel_graphic_format_answer_base",
+    "compositor_kernel_graphic_format_audit_base",
     "compositor_model_debug_instance_record",
     "smithay",
     "wgpu",
@@ -11,9 +14,8 @@
     "compositor_model_environment_experimental_base",
     "compositor_model_environment_config_base",
     "compositor_model_stats_registry_gpu",
-    "compositor_kernel_graphic_bridge_negotiate_wgpu",
-    "compositor_kernel_graphic_bridge_negotiate_base",
-    "compositor_kernel_graphic_bridge_negotiate_classify",
+    "compositor_kernel_graphic_format_probe_wgpu",
+    "compositor_kernel_graphic_format_rule_base",
     "compositor_kernel_graphic_bridge_publish_ring",
     "compositor_model_environment_interface_base"
   ]

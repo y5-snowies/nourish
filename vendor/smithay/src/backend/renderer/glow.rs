@@ -283,6 +283,11 @@ impl Renderer for GlowRenderer {
     fn cleanup_texture_cache(&mut self) -> Result<(), Self::Error> {
         self.gl.as_mut().cleanup_texture_cache()
     }
+
+    #[profiling::function]
+    fn invalidate_caches(&mut self) -> Result<(), Self::Error> {
+        self.gl.as_mut().invalidate_caches()
+    }
 }
 
 impl Frame for GlowFrame<'_, '_> {
@@ -597,7 +602,7 @@ impl<'buffer> BlitFrame<GlesTarget<'buffer>> for GlowFrame<'_, 'buffer> {
         src: Rectangle<i32, Physical>,
         dst: Rectangle<i32, Physical>,
         filter: TextureFilter,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<sync::SyncPoint, Self::Error> {
         self.frame.as_mut().unwrap().blit_to(to, src, dst, filter)
     }
 
@@ -607,7 +612,7 @@ impl<'buffer> BlitFrame<GlesTarget<'buffer>> for GlowFrame<'_, 'buffer> {
         src: Rectangle<i32, Physical>,
         dst: Rectangle<i32, Physical>,
         filter: TextureFilter,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<sync::SyncPoint, Self::Error> {
         self.frame.as_mut().unwrap().blit_from(from, src, dst, filter)
     }
 }

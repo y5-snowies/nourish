@@ -440,6 +440,11 @@ pub enum SettingsMessage {
     /// advertisement lists windows from ALL worlds, not just the active one. Persisted;
     /// takes effect on the next start.
     SetProtocolForeignAllWorlds(bool),
+    /// Forwarded (Misc tab): `session_capture` — `"off"`, `"on"` or `"all_worlds"`,
+    /// gating whether a returning window may reclaim its placeholder by the identity its
+    /// client declared, and whether placeholders in other worlds count. Persisted; read
+    /// live on the next window map (no restart).
+    SetSessionCapture(String),
     /// UI-LOCAL (Language tab): open/close the "add a language" layout picker.
     LangPickerOpen(bool),
     /// UI-LOCAL (Language tab): the layout-picker search query.

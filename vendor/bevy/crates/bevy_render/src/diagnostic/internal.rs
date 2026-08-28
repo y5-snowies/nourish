@@ -149,11 +149,11 @@ impl RecordDiagnostics for DiagnosticsRecorder {
     where
         N: Into<Cow<'static, str>>,
     {
-        // assert_eq!(
-        //     buffer.size(),
-        //     BufferSize::new(4).unwrap(),
-        //     "DiagnosticsRecorder::record_f32 buffer slice must be 4 bytes long"
-        // );
+        assert_eq!(
+            buffer.size(),
+            BufferSize::new(4).unwrap().get(),
+            "DiagnosticsRecorder::record_f32 buffer slice must be 4 bytes long"
+        );
         assert!(
             buffer.buffer().usage().contains(BufferUsages::COPY_SRC),
             "DiagnosticsRecorder::record_f32 buffer must have BufferUsages::COPY_SRC"
@@ -167,11 +167,11 @@ impl RecordDiagnostics for DiagnosticsRecorder {
     where
         N: Into<Cow<'static, str>>,
     {
-        // assert_eq!(
-        //     buffer.size(),
-        //     BufferSize::new(4).unwrap(),
-        //     "DiagnosticsRecorder::record_u32 buffer slice must be 4 bytes long"
-        // );
+        assert_eq!(
+            buffer.size(),
+            BufferSize::new(4).unwrap().get(),
+            "DiagnosticsRecorder::record_u32 buffer slice must be 4 bytes long"
+        );
         assert!(
             buffer.buffer().usage().contains(BufferUsages::COPY_SRC),
             "DiagnosticsRecorder::record_u32 buffer must have BufferUsages::COPY_SRC"
@@ -427,7 +427,7 @@ impl FrameData {
             buffer.offset(),
             &dest_buffer,
             0,
-            Some(buffer.size().into()),
+            Some(buffer.size()),
         );
 
         command_encoder.map_buffer_on_submit(&dest_buffer, MapMode::Read, .., |_| {});
@@ -541,10 +541,8 @@ impl FrameData {
                     ),
                     suffix: "",
                     value: if is_f32 {
-                        // 0.0
                         f32::from_le_bytes((*buffer).try_into().unwrap()) as f64
                     } else {
-                        // 0.0
                         u32::from_le_bytes((*buffer).try_into().unwrap()) as f64
                     },
                 });

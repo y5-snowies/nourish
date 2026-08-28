@@ -137,6 +137,36 @@ pub fn make_sure_egl_is_loaded() -> Result<Vec<String>, Error> {
     Ok(extensions)
 }
 
+/// Stop EGL from reporting debug messages, un-registering [`egl_debug_log`].
+///
+/// Call this once, last, on the way out of a process that has used EGL.
+///
+/// The driver tears its own contexts and displays down from a library destructor
+/// that runs AFTER `main` returns — `eglDestroyContext` and `eglTerminate` both
+/// still emit through the debug callback at that point. By then the Rust runtime
+/// has destroyed thread-local storage, and the logging frontend keeps its
+/// dispatcher there, so the callback panics with `AccessError`. The `catch_unwind`
+/// in the callback contains the unwind, but the panic HOOK has already printed,
+/// which is how a clean shutdown ends up looking like a crash.
+///
+/// Defending inside the callback would only hide it, and nothing it could report
+/// that late is ours to act on anyway — so take the callback back instead. After
+/// this returns, EGL has no Rust to call into and the teardown is silent by
+/// construction rather than by rescue.
+///
+/// A no-op when `EGL_KHR_debug` is absent, in which case nothing was ever
+/// registered.
+pub fn unset_debug_log() {
+    if !egl::DebugMessageControlKHR::is_loaded() {
+        return;
+    }
+    // EGL_KHR_debug: a NULL callback stops message generation entirely, so the
+    // attribute list has nothing left to say.
+    unsafe {
+        egl::DebugMessageControlKHR(None, std::ptr::null());
+    }
+}
+
 /// Module containing raw egl function bindings
 #[allow(clippy::all, missing_debug_implementations, unsafe_op_in_unsafe_fn)]
 pub mod egl {

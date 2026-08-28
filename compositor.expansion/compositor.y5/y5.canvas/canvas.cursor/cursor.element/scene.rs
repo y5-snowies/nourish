@@ -1,11 +1,18 @@
 use smithay::backend::renderer::element::solid::SolidColorRenderElement;
-use smithay::backend::renderer::element::{Id, Kind};
-use smithay::backend::renderer::utils::CommitCounter;
 use smithay::backend::renderer::{ImportAll, ImportMem, Texture};
 use smithay::utils::{Physical, Point, Rectangle, Size};
+use compositor_orchestration_draw_scene_identity::identity::SolidBank;
 use compositor_y5_canvas_draw_context::context::Context;
 use compositor_orchestration_core_state_base::{Loop, Transform};
 use compositor_orchestration_core_state_base::state::CoordinateTrait;
+
+thread_local! {
+    /// One canvas cursor exists, so it gets one identity that outlives the frame.
+    /// A fresh `Id::new()` per frame reads to smithay's damage tracker as the old
+    /// box vanishing and a new one appearing — and, on the DRM path, changes the
+    /// element id occupying a hardware plane every frame. See `scene.identity`.
+    static CURSOR: SolidBank = SolidBank::default();
+}
 
 /// The canvas cursor: a translucent box in the world band, drawn on the pane the
 /// physical cursor is over (the caller gates that).
@@ -70,11 +77,11 @@ where
     )
         .into();
 
-    vec![SolidColorRenderElement::new(
-        Id::new(),
-        Rectangle::<i32, Physical>::from(rect),
-        CommitCounter::default(),
-        [137.0 / 255.0, 250.0 / 255.0, 222.0 / 255.0, 0.5],
-        Kind::Unspecified,
-    )]
+    vec![CURSOR.with(|bank| {
+        bank.solid(
+            0,
+            Rectangle::<i32, Physical>::from(rect),
+            [137.0 / 255.0, 250.0 / 255.0, 222.0 / 255.0, 0.5],
+        )
+    })]
 }

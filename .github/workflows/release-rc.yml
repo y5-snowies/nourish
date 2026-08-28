@@ -1,17 +1,32 @@
 name: Publish RC
 
-# Release-candidate sibling of docs.yml (Publish). On merge to `candidate` — the single rc
-# release action — build the install bundle ONCE with an X.Y.Z-rc.N version stamped in, and
-# ship it as a single prerelease GitHub Release:
-#   v<X.Y.Z-rc.N>  auto-numbered (rc counter from tag history) — marked prerelease. Install
-#                  it like a stable release, just from that version's tarball URL:
-#                    curl -fsSL https://github.com/<owner>/<repo>/releases/download/v<X.Y.Z-rc.N>/package.tar.gz \
-#                      | tar -xz && y5-install/install.sh
+# Release-candidate sibling of docs.yml (Publish). Deliberately the SAME pipeline as the
+# stable channel — same image, same scripts, same bundle matrix, same release layout — with
+# only the version string and the release tag differing. A push to `candidate` builds the
+# install bundle ONCE per (distro, arch) and ships them as a single prerelease Release:
 #
-# NOTE: no GitHub Pages deploy here (Pages is docs.yml's stable-channel site) and no rolling
-# "latest-rc" pointer — nothing automated consumes it (bootstrap.sh defaults to bundles-rolling),
-# and that tag was permanently burned by GitHub's immutable-releases window (2026-07-03..06)
-# and can never be recreated. Grab the exact v<rc> URL instead.
+#   GitHub Release `v<X.Y.Z-rc.N>`  (prerelease, never "Latest")
+#     package.tar.gz                    the Fedora bundle
+#     package-<distro>-<arch>.tar.gz    every other combo, from the `bundles` matrix
+#     SHA256SUMS                        covers ALL of the above (bootstrap.sh verifies it)
+#     bootstrap.sh                      pinned to THIS rc tag
+#
+#   GitHub Release `bundles-rolling`  (prerelease, recreated every push)
+#     the same assets, with a bootstrap.sh that tracks `bundles-rolling` itself. This is the
+#     rc channel's stand-in for the stable channel's `--latest` pointer: GitHub's own
+#     "Latest release" pointer belongs to docs.yml's `v<version>` and must never move to an
+#     rc, so the rc needs its own stable "newest" URL. Opt-in only — bootstrap.sh's in-tree
+#     default is the newest STABLE release.
+#
+# What is intentionally NOT mirrored from docs.yml:
+#   - no GitHub Pages deploy. Pages is the stable channel's single site.
+#   - no auto-promotion PR. Merging `candidate-integration` -> `candidate` stays a manual
+#     gate, so you decide exactly when an rc is cut (see ci/README.md).
+#
+# `candidate-integration` is a plain staging trunk with no workflow — the manual merge into
+# `candidate` is the gate. On `candidate` this runs alongside ci-rc.yml (the rc sibling of
+# ci.yml), which shares this workflow's `rc-installer-bundle-` cache prefix, exactly as
+# `upstream` runs docs.yml alongside ci.yml.
 on:
   push:
     branches: [candidate]
@@ -20,15 +35,21 @@ on:
 permissions:
   contents: read
 
+# NO workflow-level concurrency, for the same reason docs.yml has none: a second `candidate`
+# push must not cancel a run that is hours into a 9-leg native bundle matrix. `release`
+# create-or-clobbers its tags rather than assuming they are new.
+
 env:
+  # Mirror ci-rc.yml: keep sccache + cargo dirs in the workspace so actions/cache persists
+  # them across runs, and drop debug symbols from the build.
   SCCACHE_DIR: ${{ github.workspace }}/.sccache
   CARGO_HOME: ${{ github.workspace }}/.cargo-home
   CARGO_PROFILE_DEV_DEBUG: "0"
 
 jobs:
   # Compute the rc version ONCE (committed VERSION base + git-tag history, see
-  # ci/scripts/version-rc.sh) and hand it to the downstream jobs, so the embedded binary
-  # and the v<rc-version> Release can never disagree.
+  # ci/scripts/version-rc.sh) and hand it to every downstream job, so the embedded binary,
+  # every bundle in the matrix and the v<rc-version> Release can never disagree.
   version:
     runs-on: ubuntu-latest
     container: ghcr.io/${{ github.repository_owner }}/y5-ci:fedora44
@@ -45,7 +66,8 @@ jobs:
           echo ">> rc release version: $v"
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
-  # The install bundle (installer + binaries + components), built once here.
+  # The Fedora install bundle (installer + binaries + components), built once here.
+  # Identical to docs.yml's `bundle` job apart from the cache prefix and artifact name.
   bundle:
     needs: version
     runs-on: ubuntu-latest
@@ -61,8 +83,10 @@ jobs:
           echo ">> building compositor as $(cat VERSION)"
       - uses: actions/cache@v4
         with:
-          # Same prefix as ci-rc.yml's installer-bundle job, so the candidate-integration
-          # validation build warms this publish build.
+          # Same prefix as ci-rc.yml's installer-bundle job, which runs on this same
+          # `candidate` push — whichever starts first warms the other. Distinct from the
+          # stable channel's `installer-bundle-` prefix: the two channels stamp different
+          # VERSION values into the same crates.
           path: |
             ${{ env.SCCACHE_DIR }}
             ${{ env.CARGO_HOME }}/registry
@@ -77,47 +101,251 @@ jobs:
             dist/package.tar.gz
             dist/SHA256SUMS
 
-  # Publish the bundle as a single versioned prerelease GitHub Release on every `candidate`
-  # push. Marked prerelease + non-latest so it never steals the stable "Latest release"
-  # pointer that docs.yml's v<version> release owns. No rolling pointer — nothing consumes it.
+  # Per-distro x per-arch native bundles. This matrix and every step below are a mirror of
+  # docs.yml's `bundles` job — see the fuller notes there.
+  bundles:
+    name: bundle ${{ matrix.distro }} · ${{ matrix.arch }}
+    needs: version
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep this list in step with `docs.yml`'s `bundles` matrix and with bootstrap.sh's
+        # KNOWN. Arch is x86_64-only — the official archlinux image has no arm64 build.
+        #
+        # NO ubuntu-24.04 / debian-12 — they ship libinput 1.25.0 / 1.22.x, and the compositor
+        # needs >= 1.26 for the tablet-pad dial symbols (smithay enables the `input` crate's
+        # `libinput_1_26`). `y5_compositor` does not LINK on either. See the matching comment
+        # in docs.yml for what it would take to put them back.
+        include:
+          - { distro: fedora-43,    arch: x86_64,  runner: ubuntu-24.04 }
+          - { distro: fedora-43,    arch: aarch64, runner: ubuntu-24.04-arm }
+          - { distro: fedora-44,    arch: x86_64,  runner: ubuntu-24.04 }
+          - { distro: fedora-44,    arch: aarch64, runner: ubuntu-24.04-arm }
+          - { distro: debian-13,    arch: x86_64,  runner: ubuntu-24.04 }
+          - { distro: debian-13,    arch: aarch64, runner: ubuntu-24.04-arm }
+          - { distro: ubuntu-26.04, arch: x86_64,  runner: ubuntu-24.04 }
+          - { distro: ubuntu-26.04, arch: aarch64, runner: ubuntu-24.04-arm }
+          - { distro: arch,         arch: x86_64,  runner: ubuntu-24.04 }
+    steps:
+      - uses: actions/checkout@v4
+        # A normal (non-worktree) checkout so distributions/prepare_source can `git clone .` it.
+
+      # Podman + an OCI runtime that can actually start a container. Runner images from
+      # 2026-07-26 pair Podman 5.8.4 with Ubuntu's crun 1.14.1, which rejects the OCI spec
+      # version podman 5 emits ("unknown version specified") and kills the FIRST `RUN` of
+      # every Containerfile. runc ships with the runner's Docker install and handles it, so
+      # pin it when present — see the fuller note on the same step in docs.yml.
+      - name: Ensure podman + a working OCI runtime
+        run: |
+          command -v podman >/dev/null || { sudo apt-get update && sudo apt-get install -y podman; }
+          if command -v runc >/dev/null; then
+            mkdir -p ~/.config/containers
+            printf '[engine]\nruntime = "runc"\n' > ~/.config/containers/containers.conf
+            echo ">> pinned podman to runc (crun on this image may be too old for podman 5)"
+          else
+            echo ">> runc not found — leaving podman on its default runtime"
+          fi
+          podman info --format '>> podman {{.Version.Version}} / runtime {{.Host.OCIRuntime.Name}}' || true
+
+      - name: Reclaim disk + swap headroom + stage heavy build dirs on /mnt
+        run: |
+          sudo rm -rf /opt/hostedtoolcache /usr/local/lib/android /usr/share/dotnet \
+                      /usr/local/.ghcup /opt/ghc || true
+          sudo mkdir -p /mnt/y5
+          sudo chown -R "$(id -u):$(id -g)" /mnt/y5
+
+          # Swap headroom for the serial fat-LTO link, which OOMs on the aarch64 runners
+          # without it — see the fuller note on the same step in docs.yml.
+          swap_mb="$(awk '/^SwapTotal:/{print int($2/1024)}' /proc/meminfo)"
+          if [ "${swap_mb:-0}" -lt 8192 ]; then
+            # Outside /mnt/y5 — that path is the cached cargo target dir.
+            sudo fallocate -l 16G /mnt/y5-swap \
+              || sudo dd if=/dev/zero of=/mnt/y5-swap bs=1M count=16384 status=none
+            sudo chmod 600 /mnt/y5-swap
+            sudo mkswap /mnt/y5-swap >/dev/null
+            sudo swapon /mnt/y5-swap
+            echo ">> added 16G swap (had ${swap_mb:-0} MiB)"
+          else
+            echo ">> ${swap_mb} MiB swap already present — leaving it alone"
+          fi
+
+          df -h / /mnt; free -h; swapon --show
+
+      # Per-distro+arch cargo target cache. Keyed per combo — incompatible ABIs must never
+      # share one. Distinct from docs.yml's `release-target-` prefix: the two channels stamp
+      # different VERSION values into the same crates.
+      - uses: actions/cache@v4
+        with:
+          path: /mnt/y5/cache/${{ matrix.distro }}
+          key: rc-release-target-${{ matrix.distro }}-${{ matrix.arch }}-${{ github.sha }}
+          restore-keys: rc-release-target-${{ matrix.distro }}-${{ matrix.arch }}-
+
+      - name: Build full install bundle for ${{ matrix.distro }} (${{ matrix.arch }})
+        env:
+          # VERSION stamps the rc release number in — the same value the Fedora `bundle` job
+          # writes to VERSION, so every artifact of this run agrees. The build MODE is
+          # image.sh's second argument (`bundle`), not an extra build-arg.
+          Y5_EXTRA_BUILD_ARGS: >-
+            --build-arg VERSION=${{ needs.version.outputs.version }}
+        run: environment.container/distributions/image.sh "${{ matrix.distro }}" bundle
+
+      - name: Extract + package the bundle
+        run: |
+          combo="${{ matrix.distro }}-${{ matrix.arch }}"
+          img="y5-distro-${{ matrix.distro }}-bundle"
+          cid="$(podman create "$img")"
+          trap 'podman rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          mkdir -p dist
+          # prepare.sh wrote /out/package.tar.gz inside the image.
+          podman cp "$cid:/out/package.tar.gz" "dist/package-${combo}.tar.gz"
+          ( cd dist && sha256sum "package-${combo}.tar.gz" > "package-${combo}.tar.gz.sha256" )
+          ls -l "dist/package-${combo}.tar.gz"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.distro }}-${{ matrix.arch }}
+          path: |
+            dist/package-${{ matrix.distro }}-${{ matrix.arch }}.tar.gz
+            dist/package-${{ matrix.distro }}-${{ matrix.arch }}.tar.gz.sha256
+          if-no-files-found: error
+
+  # Publish ONE prerelease carrying every bundle this run produced — the same assembly
+  # docs.yml's `release` job performs, with an rc tag instead of a stable one.
   release:
-    needs: [bundle, version]
+    needs: [bundle, bundles, version]
+    # `!cancelled()` rather than `always()` — a cancelled run should not publish. `bundles` is
+    # intentionally absent from the guard: any subset of it (including none) is publishable,
+    # exactly as on the stable channel.
+    if: ${{ !cancelled() && needs.bundle.result == 'success' && needs.version.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4      # for ci/scripts/release-changelog.sh
+      - uses: actions/checkout@v4      # for compositor.installer/bootstrap.sh + the changelog
         with:
           fetch-depth: 0       # full history + tags: the changelog compares against the previous release
           fetch-tags: true
       - uses: actions/download-artifact@v4
         with:
           name: install-bundle-rc
-          path: dist
-      - name: Publish v<rc-version>
+          path: fedora
+      # `pattern:` matters — this workflow also produces `install-bundle-rc`, and a
+      # pattern-less download would flatten it in beside the bundles. `continue-on-error`
+      # because v4 errors when a pattern matches nothing: if every matrix leg failed we still
+      # publish the Fedora-only rc rather than losing the run.
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: bundle-*
+          path: artifacts
+          merge-multiple: true
+      - name: Assemble assets + one combined SHA256SUMS
+        run: |
+          shopt -s nullglob
+          mkdir -p release
+          cp fedora/package.tar.gz release/
+
+          # Whatever the matrix produced. `artifacts/` may be empty or absent entirely.
+          extra=(artifacts/*.tar.gz)
+          if [ "${#extra[@]}" -gt 0 ]; then cp "${extra[@]}" release/; fi
+
+          # ONE SHA256SUMS over exactly the assets being attached — never a fixed list, so it
+          # can never promise a bundle this release does not carry. `bootstrap.sh` fetches
+          # this one file and greps it for `package-<distro>-<arch>.tar.gz`, so it must list
+          # the per-distro bundles as well as the Fedora one. This is the fix for the rc
+          # channel having previously split its checksums across two separate releases.
+          ( cd release && sha256sum package.tar.gz package-*.tar.gz > SHA256SUMS )
+          echo ">> ${#extra[@]} per-distro bundles + the Fedora bundle"; cat release/SHA256SUMS
+      - name: Publish v<rc-version> + refresh bundles-rolling
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.version.outputs.version }}
+          BUNDLES_RESULT: ${{ needs.bundles.result }}
         run: |
-          common="\`package.tar.gz\` is the install bundle — prebuilt compositor + components
-          + the \`y5-install\` installer. This is a RELEASE CANDIDATE. Install it like a stable
-          release, just from the rc URL (no env vars, no install-script change):
+          # `release/package-*.tar.gz` legitimately matches nothing on a short matrix, so every
+          # glob in this step runs under nullglob and goes through an array — an unexpanded
+          # literal would end up in the release notes and, worse, as a filename argument to gh.
+          shopt -s nullglob
+          bundles=(release/package-*.tar.gz)
+
+          # Stamp the published bootstrap so it targets THIS repo, and pin its default tag.
+          #
+          # bootstrap.sh's in-tree default is the newest STABLE release (`TAG="${Y5_RELEASE_TAG:-}"`),
+          # which is correct for the tree and for docs.yml but WRONG for an rc asset: a
+          # bootstrap.sh downloaded from an rc release must install THAT rc, not stable. Both
+          # substitutions are asserted below, because the previous version of this stamping
+          # silently matched nothing after bootstrap.sh's default changed, and shipped an rc
+          # "pinned" installer that quietly fetched stable instead.
+          mkdir -p pinned
+          stamp() {   # stamp <dest> <tag-default>
+            sed -e "s|\${Y5_RELEASE_REPO:-y5-snowies/nourish}|\${Y5_RELEASE_REPO:-$GITHUB_REPOSITORY}|" \
+                -e "s|^TAG=\"\${Y5_RELEASE_TAG:-}\"$|TAG=\"\${Y5_RELEASE_TAG:-$2}\"|" \
+              compositor.installer/bootstrap.sh > "$1"
+            grep -q "Y5_RELEASE_REPO:-$GITHUB_REPOSITORY" "$1" \
+              || { echo "::error::bootstrap.sh repo stamp matched nothing — the default string changed"; exit 1; }
+            grep -q "Y5_RELEASE_TAG:-$2" "$1" \
+              || { echo "::error::bootstrap.sh tag stamp matched nothing — the default string changed"; exit 1; }
+          }
+          stamp pinned/bootstrap.sh  "v$VERSION"
+          stamp release/bootstrap.sh "bundles-rolling"
+
+          # The combos this release actually carries, straight off disk — so the notes can
+          # never claim a bundle that is not attached.
+          shipped=""
+          for b in "${bundles[@]}"; do
+            b="${b##*/package-}"
+            shipped="$shipped  - \`${b%.tar.gz}\`"$'\n'
+          done
+          [ -n "$shipped" ] || shipped="  - _none — this release carries only the Fedora \`package.tar.gz\`_"
+          incomplete=""
+          if [ "$BUNDLES_RESULT" != "success" ]; then
+            incomplete="> ⚠ **Incomplete bundle set.** Some per-distro builds did not finish in
+          this run, so the distros listed below are all this release carries. The one-liner
+          fails cleanly (it verifies against \`SHA256SUMS\` before installing) on anything
+          absent — re-run the workflow to top this release up.
+          "
+          fi
+
+          notes="$incomplete
+          **This is a RELEASE CANDIDATE.** It is marked prerelease and never becomes the
+          \"Latest release\", so nothing installs it by accident.
+
+          \`package.tar.gz\` is the Fedora install bundle — prebuilt compositor +
+          components + the \`y5-install\` installer. Extract it and run \`y5-install/install.sh\`.
+
+          \`package-<distro>-<arch>.tar.gz\` is the same bundle built natively for each
+          supported distribution and CPU architecture. Each is dynamically linked to that
+          distro's own glibc / mesa / Vulkan / ffmpeg / webkit, so they are not portable
+          across distros. \`SHA256SUMS\` covers every asset here — and only the assets here.
+
+          Bundles in this release:
+          $shipped
+
+          The attached \`bootstrap.sh\` picks the right one for you, verifies it against
+          \`SHA256SUMS\`, and runs the installer:
           \`\`\`
-          curl -fsSL https://github.com/$GH_REPO/releases/download/v$VERSION/package.tar.gz | tar -xz && y5-install/install.sh
+          curl -fsSL https://github.com/$GH_REPO/releases/download/v$VERSION/bootstrap.sh | bash
+          # or manually:
+          curl -fsSL https://github.com/$GH_REPO/releases/download/v$VERSION/package.tar.gz \\
+            | tar -xz && y5-install/install.sh
           \`\`\`"
 
-          # What shipped since the previous release. `--rc` so the base can be the previous rc
-          # rather than the last stable — on the rc channel "since last release" means the last
-          # thing published on THIS channel. See ci/scripts/release-changelog.sh.
+          # What shipped since the previous release on THIS channel. `--rc` so the base can be
+          # the previous rc rather than the last stable. `|| true`: a changelog that cannot be
+          # derived must never be the reason a built release fails to publish.
           changelog="$(ci/scripts/release-changelog.sh --rc --current "v$VERSION" || true)"
-          common="$common"$'\n\n'"$changelog"
+          notes="$notes"$'\n\n'"$changelog"
 
-          # Versioned rc release. The `v<rc-version>` tag pins this commit; created once,
-          # then re-runs of the same commit refresh the attached assets.
+          # 1) The versioned rc release. The `v<rc-version>` tag pins this commit; created
+          #    once, then a re-run of the same commit just refreshes the assets — which is
+          #    also how a short release gets topped up once the missing legs are re-run.
+          versioned=(release/package.tar.gz "${bundles[@]}" release/SHA256SUMS pinned/bootstrap.sh)
           if gh release view "v$VERSION" >/dev/null 2>&1; then
             echo ">> release v$VERSION exists — refreshing assets"
-            gh release upload "v$VERSION" dist/package.tar.gz dist/SHA256SUMS --clobber
+            gh release upload "v$VERSION" "${versioned[@]}" --clobber
           else
             gh release create "v$VERSION" \
               --target "$GITHUB_SHA" \
@@ -126,6 +354,23 @@ jobs:
               --latest=false \
               --notes "Nourish v$VERSION (release candidate) — built from \`candidate\` @ ${GITHUB_SHA:0:7}.
 
-          $common" \
-              dist/package.tar.gz dist/SHA256SUMS
+          $notes" \
+              "${versioned[@]}"
           fi
+
+          # 2) Rolling `bundles-rolling` — the rc channel's stand-in for the stable channel's
+          #    `--latest` pointer, recreated so its tag tracks the current commit. Carries the
+          #    same assets as the versioned release (it used to carry only the multiarch half)
+          #    with a bootstrap.sh that tracks this rolling tag rather than a fixed rc.
+          rolling=(release/package.tar.gz "${bundles[@]}" release/SHA256SUMS release/bootstrap.sh)
+          gh release delete bundles-rolling --yes --cleanup-tag 2>/dev/null || true
+          gh release create bundles-rolling \
+            --target "$GITHUB_SHA" \
+            --title "Install bundles (newest release candidate — v$VERSION)" \
+            --prerelease \
+            --latest=false \
+            --notes "Rolling pointer to the newest release candidate (currently **v$VERSION**,
+          \`candidate\` @ \`${GITHUB_SHA:0:7}\`). Opt in with \`Y5_RELEASE_TAG=bundles-rolling\`.
+
+          $notes" \
+            "${rolling[@]}"

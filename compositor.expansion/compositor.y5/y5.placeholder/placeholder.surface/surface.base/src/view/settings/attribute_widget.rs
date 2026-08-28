@@ -103,7 +103,7 @@ fn text_or_combo<'a>(
         .into()
     } else {
         // Plain text_input + (optional) chevron to open the picker.
-        let input = text_input(placeholder, &current)
+        let input = text_input(placeholder, current)
             .on_input(move |v| PlaceholderMessage::AttributeTextChanged {
                 descriptor_key: key,
                 value: v,
@@ -158,7 +158,7 @@ fn string_list_editor<'a>(
 
     for (index, item) in list.iter().enumerate() {
         let row_ = row![
-            text_input("", item)
+            text_input("", item.clone())
                 .on_input(move |v| PlaceholderMessage::AttributeStringListItemChanged {
                     descriptor_key: key,
                     index,
@@ -293,7 +293,7 @@ fn chrome_profile_picker<'a>(
 
     // No discovered profiles → plain text input.
     if avail.is_empty() {
-        return text_input("Default", &current)
+        return text_input("Default", current)
             .on_input(move |v| PlaceholderMessage::AttributeTextChanged {
                 descriptor_key: key,
                 value: v,
@@ -317,7 +317,7 @@ fn chrome_profile_picker<'a>(
         .unwrap_or_default();
 
     row![
-        text_input("Default", &current)
+        text_input("Default", current)
             .on_input(move |v| PlaceholderMessage::AttributeTextChanged {
                 descriptor_key: key,
                 value: v,
@@ -375,7 +375,7 @@ fn env_pair_list_editor<'a>(
 
     for (index, pair) in list.iter().enumerate() {
         let row_ = row![
-            text_input("KEY", &pair.key)
+            text_input("KEY", pair.key.clone())
                 .on_input(move |v| PlaceholderMessage::AttributeEnvPairChanged {
                     descriptor_key: key,
                     index,
@@ -385,7 +385,7 @@ fn env_pair_list_editor<'a>(
                 .padding(style::PAD_SMALL)
                 .size(style::TEXT_SIZE_BODY)
                 .width(Length::FillPortion(1)),
-            text_input("value", &pair.value)
+            text_input("value", pair.value.clone())
                 .on_input(move |v| PlaceholderMessage::AttributeEnvPairChanged {
                     descriptor_key: key,
                     index,

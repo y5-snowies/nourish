@@ -90,7 +90,7 @@ impl System for PlaceholderSystem {
             PlaceholderCmd::SetGeometry(uuid, position, size) => {
                 cx.transact(false, |storage| {
                     let state = storage.get_mut(&PLACEHOLDER_MUT);
-                    // Visible (window-destroyed) tile — `uuid` is the placeholder id.
+                    // Visible (window-destroyed) placeholder — `uuid` is the placeholder id.
                     state.modify_visible(&uuid, |ph| {
                         if let Some((w, h)) = size {
                             ph.size.0 = w;
@@ -103,7 +103,7 @@ impl System for PlaceholderSystem {
                     });
                     // Live (window-backed) map placeholder — `uuid` is the window id.
                     // This is the slot half the rim `_reform` kept in sync via
-                    // `placeholder.interface::set`; without it the tile spawns at the
+                    // `placeholder.interface::set`; without it the placeholder spawns at the
                     // pre-drag geometry when the window later closes. The two uuid
                     // namespaces don't collide, so exactly one of these matches.
                     state.modify_present(&uuid, |ph| {
@@ -205,7 +205,7 @@ impl PlaceholderSystem {
         // The layout floor, applied at the system boundary. The slot half is
         // clamped again by `PlaceholderState`'s mutators, but the REGISTRY half
         // below is computed straight from `ev` — without this, an announcer that
-        // skipped its own clamp could hand the iced surface a size the tile's
+        // skipped its own clamp could hand the iced surface a size the placeholder's
         // responsive layout has no design for.
         let size = ev.size.map(compositor_y5_placeholder_surface_base::breakpoint::clamp_size);
 

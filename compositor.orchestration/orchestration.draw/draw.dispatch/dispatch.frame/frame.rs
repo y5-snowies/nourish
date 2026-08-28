@@ -135,6 +135,22 @@ pub trait SceneDispatch: Renderer {
     /// Default no-op: only the Vulkan path presents a worker band.
     fn set_after_band(&mut self, _band: Option<smithay::backend::allocator::dmabuf::Dmabuf>) {}
 
+    /// Hand the renderer the band's multipass MACHINERY for this frame,
+    /// independent of the band element's fate in smithay's occlusion culls.
+    ///
+    /// The band element's `draw()` is what normally delivers the bundle's
+    /// pipeline op — which made the whole after-content machinery contingent on
+    /// smithay choosing to draw that one element. A window zoomed to cover the
+    /// output occludes the band, every cull eats it, and the bundle's effects
+    /// switch off exactly when the window they process fills the screen. This is
+    /// the out-of-band route: `lower()` publishes the same pass here every frame
+    /// the band node exists, and the renderer injects it at the band's position
+    /// whenever no pipeline op arrived through element dispatch. The machinery
+    /// follows the BUNDLE; smithay's culls go back to deciding pixels only.
+    ///
+    /// Default no-op: GLES ignores multipass bundles entirely.
+    fn set_band_machinery(&mut self, _pass: Option<NativeShaderPass>) {}
+
     /// Hand the renderer the metadata for the element about to be drawn (its
     /// space, and whatever else `ElementMeta` grows). The scene wrapper calls
     /// this before each element's `draw`, letting a renderer restrict effects

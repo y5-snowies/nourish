@@ -23,6 +23,12 @@ pub struct DisplayAssembly {
     pub session_notifier: LibSeatSessionNotifier,
     pub seat_name: String,
     pub primary_gpu: DrmNode,
+    /// Render node != scanout node. Diagnostic context only — `assemble.renderer`
+    /// decides whether to narrow the scanout modifier set by INTERSECTING with what the
+    /// composite can color-attach, which handles the split case on capability rather than
+    /// on topology. This is reported alongside that decision so an empty intersection can
+    /// be read as "different devices share nothing" rather than "the query failed".
+    pub split_device: bool,
     pub device_path: PathBuf,
     /// Taken by `assemble.renderer` — the hosted DrmOutputManager owns the
     /// device, exactly as the original moved it into the manager.
@@ -47,7 +53,7 @@ pub struct DisplayAssembly {
     pub hdr: compositor_kernel_drm_edid_parse_base::parse::HdrInfo,
 }
 
-pub fn assemble() -> DisplayAssembly {
+pub fn assemble(formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar) -> DisplayAssembly {
     info!("Init native backend (assemble.display)");
 
     // 1. Session via libseat.
@@ -201,7 +207,7 @@ pub fn assemble() -> DisplayAssembly {
         .map(|(_, path)| path)
         .expect("Could not find any usable DRM devices! Check seat configuration.");
 
-    compositor_kernel_graphic_bridge_negotiate_report::report::node("scanout + client import (GLES GpuManager, GBM)", &format!("{:?}", primary_gpu.dev_path()));
+    compositor_kernel_graphic_format_audit_base::audit::node("scanout + client import (GLES GpuManager, GBM)", &format!("{:?}", primary_gpu.dev_path()));
 
     // 4. Open through the seat; wrap; DRM + GBM devices.
     let fd = compositor_kernel_seat_interface_open_base::open::open(&mut session, &device_path);
@@ -243,7 +249,7 @@ pub fn assemble() -> DisplayAssembly {
     }
     let _assignment =
         compositor_kernel_scanout_pipe_assign_base::assign::assign(connector.handle(), pipe);
-    log_plane_formats(&drm, pipe);
+    register_plane_formats(formats, &drm, pipe);
 
     // 7. EDID identity (placeholder identity when unreadable — behavior-
     //    preserving). BEFORE the mode, because the mode is resolved from THIS
@@ -308,6 +314,7 @@ pub fn assemble() -> DisplayAssembly {
         session_notifier,
         seat_name,
         primary_gpu,
+        split_device: split,
         device_path,
         drm: Some(drm),
         drm_notifier,
@@ -336,15 +343,38 @@ pub fn assemble() -> DisplayAssembly {
 ///
 /// Logged once at assembly, grouped by fourcc so the output stays readable on drivers that
 /// advertise dozens of modifiers. Purely diagnostic — nothing consumes it yet.
-fn log_plane_formats(drm: &DrmDevice, pipe: crtc::Handle) {
+/// The primary plane's `IN_FORMATS`, logged AND registered as `Role::Plane`.
+///
+/// It used to be logged only — its own doc said "purely diagnostic; nothing
+/// consumes it yet" — which left the one role in the enum that nothing ever
+/// published. That is no longer allowed: `format.answer` refuses to answer while
+/// any role is unregistered, and a role nobody registers would deadlock the
+/// compositor rather than merely go unused. Registering it is also the honest
+/// half of the eventual fix, since a modifier can survive every other term and
+/// still be un-scanoutable. No answer intersects against it yet, so this changes
+/// nothing today beyond making the set visible to the layer that will use it.
+fn register_plane_formats(
+    formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar,
+    drm: &DrmDevice,
+    pipe: crtc::Handle,
+) {
+    use compositor_kernel_graphic_format_role_base::role::Role;
     let Ok(planes) = drm.planes(&pipe) else {
         warn!("could not enumerate planes for {pipe:?} — IN_FORMATS unknown");
+        formats.absent(Role::Plane, "drm (planes unenumerable)");
         return;
     };
     let Some(primary) = planes.primary.first() else {
         warn!("crtc {pipe:?} reports no primary plane");
+        formats.absent(Role::Plane, "drm (crtc has no primary plane)");
         return;
     };
+    formats.register(
+        compositor_kernel_graphic_format_registrar_base::registrar::Device::UNSPECIFIED,
+        Role::Plane,
+        primary.formats.iter().copied().collect(),
+        "drm primary plane (IN_FORMATS)",
+    );
     let mut by_fourcc: std::collections::BTreeMap<String, Vec<String>> = Default::default();
     for f in primary.formats.iter() {
         by_fourcc

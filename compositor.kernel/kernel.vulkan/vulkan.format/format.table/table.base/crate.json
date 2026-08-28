@@ -1,0 +1,8 @@
+{
+  "deps": [
+    "bitflags",
+    "smithay",
+    "compositor_model_debug_instance_record",
+    "ash"
+  ]
+}

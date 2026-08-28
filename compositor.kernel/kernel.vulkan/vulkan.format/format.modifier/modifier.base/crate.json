@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_kernel_vulkan_format_table_base",
     "compositor_model_debug_instance_record",
     "smithay",
     "ash",

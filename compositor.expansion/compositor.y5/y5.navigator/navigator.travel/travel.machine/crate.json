@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_y5_camera_transform_translate",
     "compositor_model_debug_instance_record",
     "compositor_y5_window_interface_draw",
     "smithay",

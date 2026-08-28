@@ -25,14 +25,19 @@ fn read_packed(
     buffer: &WlBuffer,
 ) -> Result<(Vec<u8>, Fourcc, i32, i32), VulkanError> {
     with_buffer_contents(buffer, |ptr, len, data| {
-        let fourcc = match data.format {
-            wl_shm::Format::Argb8888 => Fourcc::Argb8888,
-            wl_shm::Format::Xrgb8888 => Fourcc::Xrgb8888,
-            // Must match `ImportMem::mem_formats()` — those are advertised to
-            // clients over wl_shm, so any format we list there can land here.
-            wl_shm::Format::Abgr8888 => Fourcc::Abgr8888,
-            wl_shm::Format::Xbgr8888 => Fourcc::Xbgr8888,
-            other => return Err(VulkanError::Import(format!("unsupported shm format {other:?}"))),
+        // The advertised list and the accepted list are now THE SAME list, so they
+        // cannot drift: anything the format layer offers over wl_shm lands here and
+        // is accepted, and anything it does not offer is refused.
+        let fourcc = match smithay::wayland::shm::shm_format_to_fourcc(data.format)
+            .filter(|c| compositor_kernel_graphic_format_answer_base::answer::shm().contains(c))
+        {
+            Some(c) => c,
+            None => {
+                return Err(VulkanError::Import(format!(
+                    "unsupported shm format {:?}",
+                    data.format
+                )))
+            }
         };
         let width = data.width.max(0) as usize;
         let height = data.height.max(0) as usize;

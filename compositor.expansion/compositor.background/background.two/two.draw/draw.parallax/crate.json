@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_kernel_graphic_format_registrar_base",
     "compositor_pipeline_world_system_base",
     "compositor_kernel_vulkan_memory_external_base",
     "compositor_pipeline_abi_worldset_base",

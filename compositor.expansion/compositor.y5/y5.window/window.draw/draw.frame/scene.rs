@@ -22,8 +22,8 @@ use smithay::backend::renderer::element::surface::{
 use smithay::backend::renderer::element::utils::{
     CropRenderElement, Relocate, RelocateRenderElement, RescaleRenderElement,
 };
-use smithay::backend::renderer::element::{Id, Kind};
-use smithay::backend::renderer::utils::{CommitCounter, RendererSurfaceStateUserData, SurfaceView};
+use smithay::backend::renderer::element::Kind;
+use smithay::backend::renderer::utils::{RendererSurfaceStateUserData, SurfaceView};
 use smithay::backend::renderer::element::solid::SolidColorRenderElement;
 use smithay::backend::renderer::{ImportAll, ImportMem, Renderer, Texture};
 use smithay::desktop::{PopupKind, PopupManager, Window};
@@ -40,6 +40,14 @@ use compositor_y5_window_draw_element::element::{ClampOpaque, Element, ElementWi
 use compositor_y5_window_draw_occlude::occlude::{Drawn, Occluders};
 use compositor_y5_window_interface_draw::visible::DrawWindow;
 use compositor_y5_window_interface_record::window::LoopWindow;
+use compositor_orchestration_draw_scene_identity::identity::SolidBank;
+
+/// Per-window slot bank for the letterbox bars. A NEWTYPE, not a bare
+/// `SolidBank`: `UserDataMap` is keyed by type, and the decoration crate stores
+/// its own bank on the same window — unwrapped, the two would share slots.
+/// Named `...Bars` because `scene` locally aliases `LetterboxMode as Letterbox`.
+#[derive(Default)]
+struct LetterboxBars(SolidBank);
 
 /// Read a surface's [`SurfaceView`] (src crop / dst size / subsurface offset), if mapped.
 fn view_of(states: &SurfaceData) -> Option<SurfaceView> {
@@ -58,6 +66,7 @@ fn project_point(ctx: XformCtx, x: f64, y: f64) -> Point<i32, Physical> {
     let t: Transform = ((x, y), ctx).into();
     t.into()
 }
+
 /// Project a world rect to physical by its **corners** — each corner rounded once — so an edge at
 /// a fixed world coordinate lands at a fixed screen coordinate. Projecting `loc` then adding a
 /// separately-rounded `size*zoom` makes `round(left) + round(width)` wobble ±1px even when the
@@ -194,6 +203,7 @@ fn surface_opaque(surface: &WlSurface) -> bool {
     })
 }
 
+
 /// Apply the fit transform to a native surface element: force a fixed geometry (so the result
 /// is independent of the scale the render path queries with), rescale about origin, relocate,
 /// crop. The native element must have been created at scale `force_scale`. `rescale` folds in
@@ -202,7 +212,7 @@ fn surface_opaque(surface: &WlSurface) -> bool {
 fn fit_wrap<R>(
     inner: WaylandSurfaceRenderElement<R>,
     force_scale: f64,
-    covered: bool,
+    bundle_owned: bool,
     rescale: Scale<f64>,
     reloc: Point<i32, Physical>,
     crop: Rectangle<i32, Physical>,
@@ -212,11 +222,11 @@ where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Texture + Clone + Send + 'static,
 {
-    let forced = ElementWindowSurface { inner, zoom: force_scale, covered };
+    let forced = ElementWindowSurface { inner, zoom: force_scale, bundle_owned };
     let r = RescaleRenderElement::from_element(forced, Point::from((0, 0)), rescale);
     let l = RelocateRenderElement::from_element(r, reloc, Relocate::Relative);
     let c = CropRenderElement::from_element(l, Scale::from(force_scale), crop)?;
-    Some(Element::WindowFit(ClampOpaque { inner: c, screen, covered }))
+    Some(Element::WindowFit(ClampOpaque { inner: c, screen, bundle_owned }))
 }
 
 pub fn scene<R>(
@@ -227,8 +237,9 @@ pub fn scene<R>(
     context: &compositor_y5_canvas_draw_context::context::Context,
     occluders: &Occluders,
     // Whether the drawn world's bundle composites windows itself — resolved ONCE
-    // per frame by the caller, not per window. See `ClampOpaque::covered`.
-    covered: bool,
+    // per frame by the caller, not per window. See `ClampOpaque::bundle_owned`;
+    // it is NOT the occlusion sense of "covered" used throughout this file.
+    bundle_owned: bool,
 ) -> (Vec<Element<R>>, Drawn)
 where
     R: Renderer + ImportAll + ImportMem,
@@ -343,9 +354,9 @@ where
         );
         out.extend(native.into_iter().map(|inner| {
             Element::Window(ClampOpaque {
-                inner: ElementWindowSurface { inner, zoom: output_scale, covered },
+                inner: ElementWindowSurface { inner, zoom: output_scale, bundle_owned },
                 screen: size,
-                covered,
+                bundle_owned,
             })
         }));
     };
@@ -379,9 +390,9 @@ where
                 );
                 elements.extend(native.into_iter().map(|inner| {
                     Element::Window(ClampOpaque {
-                        inner: ElementWindowSurface { inner, zoom: ctx.scale, covered },
+                        inner: ElementWindowSurface { inner, zoom: ctx.scale, bundle_owned },
                         screen: size,
-                        covered,
+                        bundle_owned,
                     })
                 }));
                 continue;
@@ -463,7 +474,7 @@ where
                 Kind::Unspecified,
             );
             for inner in native {
-                if let Some(e) = fit_wrap(inner, ctx.scale, covered, Scale::from((1.0, 1.0)), anchor, crop_output, size) {
+                if let Some(e) = fit_wrap(inner, ctx.scale, bundle_owned, Scale::from((1.0, 1.0)), anchor, crop_output, size) {
                     elements.push(e);
                 }
             }
@@ -478,7 +489,7 @@ where
             Kind::Unspecified,
         );
         for inner in native {
-            if let Some(e) = fit_wrap(inner, ctx.scale, covered, rescale, reloc, crop_output, size) {
+            if let Some(e) = fit_wrap(inner, ctx.scale, bundle_owned, rescale, reloc, crop_output, size) {
                 elements.push(e);
             }
         }
@@ -497,7 +508,7 @@ where
         Kind::Unspecified,
     );
     for inner in native {
-        if let Some(e) = fit_wrap(inner, ctx.scale, covered, rescale, reloc, crop_slot, size) {
+        if let Some(e) = fit_wrap(inner, ctx.scale, bundle_owned, rescale, reloc, crop_slot, size) {
             elements.push(e);
         }
     }
@@ -552,14 +563,14 @@ where
         // (_, true) => vec![crop_slot],   // the full-slot resize backstop
         _ => crop_slot.subtract_rect(content),
     };
-    for rect in &bars {
-        elements.push(Element::SolidBox(SolidColorRenderElement::new(
-            Id::new(),
-            *rect,
-            CommitCounter::default(),
-            [0.0, 0.0, 0.0, 1.0],
-            Kind::Unspecified,
-        )));
+    // Per-window bank (see `scene.identity`), separate from the decoration crate's
+    // — distinct types in the window's user data, so borders and bars never collide.
+    // `subtract_rect` returns a stable order for a stable fit, so slot `i` keeps
+    // meaning the same bar; a fit change reshuffles at most a few, which costs one
+    // frame of extra damage rather than every frame of it.
+    let letterbox = window.user_data().get_or_insert(LetterboxBars::default);
+    for (slot, rect) in bars.iter().enumerate() {
+        elements.push(Element::SolidBox(letterbox.0.solid(slot, *rect, [0.0, 0.0, 0.0, 1.0])));
     }
 
     // Deposit exactly what is opaque — no slack, because the bars are literally
@@ -568,15 +579,28 @@ where
     // opaque client in a letterbox still hides the whole slot. A translucent one
     // now hides only the bars, which is the truth and was not expressible while
     // this was a single rect.
-    drawn.opaque = bars;
+    // A drawable the BUNDLE composites is not an occluder, whatever its pixels
+    // are. `Own::covers` states both halves — the engine must "neither blit it nor
+    // treat it as covering what is behind it" — and only the first half was
+    // implemented, in `ClampOpaque::opaque_regions`. This is the second.
+    //
+    // Depositing anyway culled the window BEHIND one the bundle had moved: the cull
+    // returns before the scene is built, so that window produced no element, never
+    // reached the world set, and the bundle could not draw it either. It came back
+    // only where some other window happened to damage the same pixels.
+    //
+    // Losing the deposit costs at most a redundant draw (see the module docs); the
+    // bars are still painted, they simply stop culling.
+    drawn.opaque = if bundle_owned { Vec::new() } else { bars };
     // `subsurface_shrinks` fits the whole TREE (`bbox`), so the content rect can
     // reach past the root surface and `surface_opaque` would not be speaking for
     // all of it. Only the bars are claimed under that flag.
-    if !cfg.window_subsurface_shrinks
+    if !bundle_owned
+        && !cfg.window_subsurface_shrinks
         && surface_opaque(&root_surface)
-        && let Some(covered) = content.intersection(crop_slot)
+        && let Some(opaque_content) = content.intersection(crop_slot)
     {
-        drawn.opaque.push(covered);
+        drawn.opaque.push(opaque_content);
     }
 
     (elements, drawn)

@@ -158,12 +158,12 @@ fn _apply_toplevel_drag_moves(state: &mut Loop) {
 /// Sync the placeholder record of a window an `xdg_toplevel_drag_v1` has just
 /// finished carrying.
 ///
-/// A window's live placeholder holds the geometry its tile will spawn at when
+/// A window's live placeholder holds the geometry its placeholder will spawn at when
 /// the window is eventually closed, and it is normally kept in step by the
 /// canvas MOVE system as the window is dragged. A toplevel drag never goes
 /// through that — the grab places the window itself — so without this the
 /// record still holds the position the window was FIRST MAPPED at, and closing
-/// it later drops the tile back there. (Nudging the window by hand afterwards
+/// it later drops the placeholder back there. (Nudging the window by hand afterwards
 /// made it look correct because that nudge is a canvas move.)
 ///
 /// Driven by `WindowLifecycleEvent::DragSettled` rather than a side channel, so

@@ -175,6 +175,86 @@ pub enum RenderScope {
 /// would cost more rate than it saves.
 const CAP_DEFER_FLOOR: std::time::Duration = std::time::Duration::from_micros(1_000);
 
+/// Consecutive `render_frame` failures after which a pipe is PARKED — skipped
+/// entirely rather than retried every frame.
+///
+/// The failure this exists for is not transient. When smithay's bring-up
+/// escalation drops the device to implicit modifiers, the Vulkan renderer cannot
+/// create an image for the scanout buffer at all, so EVERY frame fails on EVERY
+/// pipe. Before this, that produced a black screen plus an unbounded error stream
+/// at frame rate, which buried the one line that actually explained it. 120 frames
+/// is ~2s at 60Hz — long enough that a genuinely transient failure recovers by
+/// itself and is never parked.
+const RENDER_FAILURE_PARK: u32 = 120;
+
+/// Restore the render/submit invariant after a frame that was rendered but will
+/// NOT be queued.
+///
+/// `DrmCompositor` pushes a damage-history entry on every render that produced
+/// damage (`renderer/damage/mod.rs`), but advances swapchain slot ages only in
+/// `queue_frame`/`commit_frame` -> `swapchain.submitted`. The two must stay 1:1.
+/// A render that is never queued leaves every OTHER slot's recorded age one lower
+/// than its true age, so the tracker hands back LESS damage than that buffer
+/// actually needs and stale regions survive — the "screen alternating between the
+/// last two samples" artifact. Zeroing the ages discards the poisoned accounting:
+/// the next render is a full redraw (age 0) and everything is consistent again.
+///
+/// ONLY for genuinely unsubmitted renders. An EMPTY render needs nothing: it
+/// pushes no history and performs no submit, so it is already consistent. A
+/// `queue_frame` whose DRM submit fails is also fine — `submitted()` ran first.
+///
+/// `FrameFlags::FORCE_PRESENT` (pre-emptive rendering) makes a would-be-empty
+/// frame queueable, and needs nothing here either — it changes only
+/// `PreparedFrame::is_empty`, not `plane_state.skip`, and `queue_frame` gates
+/// `swapchain.submitted` on `skip`. So such a frame re-presents the current
+/// framebuffer without pushing history OR advancing ages: still 1:1.
+fn discard_unsubmitted_render(
+    pipe: &compositor_kernel_native_context_render_base::render::OutputPipe,
+) {
+    if let Some(o) = pipe.drm_output.as_ref() {
+        o.with_compositor(|c| c.reset_buffer_ages());
+    }
+}
+
+/// Record one `render_frame` outcome and rate-limit the reporting.
+///
+/// Success clears the streak. Failure logs the FIRST one in full — that is the one
+/// worth reading — then stays silent until the pipe is parked, which is announced
+/// exactly once with what to look at. The counter is cleared by any success and by
+/// a rebuild (`display.reconcile`), so a parked pipe comes back on the next
+/// hotplug/resume reconcile.
+fn note_render_result(
+    pipe: &mut compositor_kernel_native_context_render_base::render::OutputPipe,
+    err: Option<String>,
+) {
+    let Some(e) = err else {
+        if pipe.render_failures > 0 {
+            info!(
+                "render recovered on connector={:?} crtc={:?} after {} consecutive failure(s)",
+                pipe.connector, pipe.crtc, pipe.render_failures
+            );
+        }
+        pipe.render_failures = 0;
+        return;
+    };
+    pipe.render_failures = pipe.render_failures.saturating_add(1);
+    match pipe.render_failures {
+        1 => error!(
+            "native vulkan render_frame failed on connector={:?} crtc={:?}: {e}",
+            pipe.connector, pipe.crtc
+        ),
+        n if n == RENDER_FAILURE_PARK => error!(
+            "connector={:?} crtc={:?} failed {n} consecutive frames — PARKING this pipe; \
+             no further render attempts until a hotplug/resume reconcile rebuilds it. \
+             Last error: {e}. A persistent failure here usually means the scanout buffer \
+             sits on an IMPLICIT modifier, which the Vulkan renderer cannot import — check \
+             for a preceding \"trying implicit modifiers\" escalation during bring-up.",
+            pipe.connector, pipe.crtc
+        ),
+        _ => {}
+    }
+}
+
 /// The world whose background is on screen this frame.
 ///
 /// The same resolution the three prepare paths use when they state their facts:
@@ -242,6 +322,22 @@ pub fn execute(
     let mut frame_flags = compositor_kernel_scanout_plane_direct_base::direct::flags(
         compositor_support_smithay_state_tearing_gate::gate::tearing(),
     );
+    // Pre-emptive rendering: never let a frame be reported empty, so the loop
+    // flips every pass instead of parking — the tail of this function re-arms the
+    // redraw latch only after a non-empty result. Default `Engaged` applies that
+    // only while a section is governing; `Always` applies it unconditionally. See
+    // `Config::preemptive`.
+    //
+    // FORCE_PRESENT and NOT `reset_buffer_ages` / `DRAW_ALL_ELEMENTS`: those two
+    // force a full-screen redraw. Being pre-emptive must not mean doing more work
+    // per frame — only doing it sooner — so damage stays honest and this changes
+    // nothing but whether the prepared frame may be called empty.
+    if compositor_model_environment_tearing_config::config::get()
+        .preemptive
+        .forces(compositor_support_smithay_state_tearing_gate::gate::governed())
+    {
+        frame_flags |= smithay::backend::drm::compositor::FrameFlags::FORCE_PRESENT;
+    }
     // A bundle whose frame is cleared and recomposed whole must be handed the whole
     // element list, or the clear wipes what the damage tracker chose not to redraw.
     if drawn_facts(state).whole_frame {
@@ -341,7 +437,22 @@ pub fn execute(
         // and burn a CPU render+sync — the coupling that dragged a high-refresh
         // output down to a slower neighbour's rate. Its own vblank clears this and
         // re-renders it. (Single output: its vblank clears it each frame → no skip.)
-        if ctx_ref.outputs[output_idx].in_flight {
+        let key = compositor_orchestration_core_state_base::state::output_key(&ctx_ref.outputs[output_idx].output);
+        if state.state.redraw.in_flight(&key) {
+            continue;
+        }
+        // Already rendered for the current epoch: nothing has been requested of
+        // this pipe since. A wake is a STALE signal — the ping only says "a
+        // redraw was asked for since the last drain" — and the vblank path may
+        // have rendered that request already (a commit that landed mid-flight is
+        // rendered by the flip completion, and the ping it also armed then finds
+        // an idle pipe). Without this, that wake re-rendered unchanged content,
+        // and under a governing section `FORCE_PRESENT` flipped it: composites
+        // above the paced client's commit rate, each a tear spent on nothing.
+        // Same for the off-thread workers' pings. The epoch is the ground truth
+        // the vblank path already trusts; every forced render bumps it
+        // (`force_redraw`, `bump_redraw_epoch`), so rescues are unaffected.
+        if !state.state.redraw.needs(&key) {
             continue;
         }
         // Rate cap / pacing gate: with async flips the completion event arrives
@@ -411,22 +522,33 @@ pub fn execute(
                 }
             }
         }
-        ctx_ref.outputs[output_idx].render_start = Some(std::time::Instant::now());
-        // Multi-output: force a FULL redraw of this output this frame by resetting
-        // the swapchain buffer ages (age 0 ⇒ the OutputDamageTracker clears the whole
-        // target and submits ALL elements, instead of the partial/aged-buffer path).
-        // The renderers' partial-damage handling isn't correct once each output is
-        // paced on its OWN vblank: the aged buffer the tracker assumes still holds the
-        // undamaged remainder is stale, so skipped elements vanish — Vulkan clears the
-        // whole attachment (heavy blink), GLES shows milder clearing. A full frame is
-        // always correct and matches the pre-multi-output behaviour (the fullscreen
-        // animating parallax forced near-full damage anyway). Single output keeps the
-        // damage optimisation — its buffer age is valid every frame.
-        if ctx_ref.outputs.len() > 1 {
-            if let Some(o) = ctx_ref.outputs[output_idx].drm_output.as_ref() {
-                o.with_compositor(|c| c.reset_buffer_ages());
-            }
+        // PARKED: this pipe has failed to render RENDER_FAILURE_PARK times running.
+        // Retrying it every frame produced nothing but an unbounded error stream, so
+        // stop drawing it until something rebuilds it (hotplug/resume reconcile
+        // clears the counter). See `note_render_result`.
+        if ctx_ref.outputs[output_idx].render_failures >= RENDER_FAILURE_PARK {
+            continue;
         }
+        // This pipe is being rendered for the CURRENT redraw epoch — stamp it so
+        // neither its own vblank (`process_vblank`) nor a later `execute(All)` (the
+        // epoch skip above) renders it again for the same request. Sampled once at
+        // the top of the frame, so a redraw requested WHILE this renders leaves the
+        // pipe behind and is serviced next time.
+        state.state.redraw.rendering(&key);
+        ctx_ref.outputs[output_idx].render_start = Some(std::time::Instant::now());
+        // NO per-frame age reset here. Per-output damage state is already correct by
+        // construction — one DrmCompositor, one damage tracker and one swapchain per
+        // CRTC, nothing shared — and both renderers preserve the undamaged remainder
+        // (Vulkan composites with LOAD_OP_LOAD + per-element scissors; GLES clears via
+        // a scissored quad fill). Per-CRTC vblank pacing is exactly the case smithay is
+        // designed for.
+        //
+        // The artifact this used to paper over was the render/submit invariant being
+        // broken by the capture pre-render; see `discard_unsubmitted_render`. Resetting
+        // ages every frame also REPLACES any in-flight slot with a fresh one, dropping
+        // its GBM buffer — so it cost a full-resolution dmabuf reallocation and a
+        // Vulkan re-import per output per frame, which is where the multi-monitor
+        // frame-rate collapse came from.
         let size = ctx_ref.outputs[output_idx].mode.size;
         // Tell the rim which physical output this frame draws, so the focus/
         // coordinate accessors (`current_output()`) resolve THIS output's mode
@@ -536,58 +658,57 @@ pub fn execute(
     }
 
 
-    // Picker pass: FULL redraw, same lever as the multi-output case above and for
-    // the same reason — the aged buffer does not hold what the tracker assumes.
+    // Connector property pass: colorimetry + link bit depth, once per pipe, after
+    // smithay's first modeset has bound the connector (gated on a seen vblank so
+    // the prop-only atomic commit references an ACTIVE connector). A TEST commit
+    // validates first, so a rejected request can never blank the display.
     //
-    // The picker's whole scene is three off-thread elements (parallax, sphere,
-    // details panel), and each damages only on the composite where ITS worker
-    // published. Between publishes the pass reports partial damage and the
-    // remainder is whatever the aged buffer holds, which is stale: the artifact
-    // is the screen alternating between the last two samples. It was invisible
-    // before triple buffering only because the inline parallax bumped its own
-    // commit every frame and so forced near-full damage — the same masking the
-    // multi-output note above records. Confirmed by exactly this reset: plugging
-    // in a second monitor (which takes the branch above) makes it go away.
-    //
-    // Costs little HERE specifically, which is why the picker takes the blunt
-    // fix and the scene does not: nothing else is on screen, and a spinning
-    // sphere covers most of the monitor, so "full damage" is close to what an
-    // honest damage set would be anyway.
-    if render_picker {
-        if let Some(o) = ctx_ref.outputs[output_idx].drm_output.as_ref() {
-            o.with_compositor(|c| c.reset_buffer_ages());
-        }
-    }
-
-    // HDR output signalling (M5): apply BT.2020 + PQ to the connector exactly
-    // once, after smithay's first modeset has bound the connector (gated on a
-    // seen vblank so the prop-only atomic commit references an active connector).
-    // A TEST commit validates first; on rejection we fall back to SDR and never
-    // retry — a bad blob cannot blank the display.
-    if ctx_ref.outputs[output_idx].hdr_active && !ctx_ref.outputs[output_idx].hdr_signalled && (*state.inner.kernel.get(&compositor_orchestration_driver_resume_base::base::VBLANK_SEEN)) {
-        match crate::hdr::signal_hdr(&ctx_ref.drm_fd, ctx_ref.outputs[output_idx].connector, &ctx_ref.outputs[output_idx].hdr_caps) {
-            Ok(()) => {
-                ctx_ref.outputs[output_idx].hdr_signalled = true;
-                info!("HDR output signalling applied (connector BT.2020 RGB + PQ metadata)");
+    // NOT gated on `hdr_active` any more. These are sticky properties inherited
+    // from whoever owned the connector last — another VT's compositor, or an
+    // earlier HDR session of our own. An SDR pipe must therefore actively reset
+    // `Colorspace` to Default and clear the HDR metadata; leaving them alone is
+    // what made SDR content render through BT.2020 (heavy red cast).
+    if !ctx_ref.outputs[output_idx].props_applied && (*state.inner.kernel.get(&compositor_orchestration_driver_resume_base::base::VBLANK_SEEN)) {
+        let depth = compositor_model_environment_config_base::base::get().depth;
+        let want_bpc: u64 = if depth == 10 { 10 } else { 8 };
+        let hdr_active = ctx_ref.outputs[output_idx].hdr_active;
+        let conn = ctx_ref.outputs[output_idx].connector;
+        let crtc = ctx_ref.outputs[output_idx].crtc;
+        match crate::hdr::apply_connector_props(
+            &ctx_ref.drm_fd,
+            conn,
+            &ctx_ref.outputs[output_idx].hdr_caps,
+            hdr_active,
+            want_bpc,
+        ) {
+            Ok(o) => {
+                ctx_ref.outputs[output_idx].props_applied = true;
+                info!("connector properties applied (colorimetry + max bpc)");
             }
             Err(e) => {
-                warn!("HDR output signalling failed ({e}); reverting this session to SDR");
-                ctx_ref.outputs[output_idx].hdr_active = false;
-                ctx_ref.outputs[output_idx].hdr_signalled = true; // don't retry every frame
-                let c = &ctx_ref.outputs[output_idx].hdr_caps;
-                compositor_model_stats_registry_base::base::set_hdr_info(
-                    false,
-                    c.hdr_capable(),
-                    "SDR",
-                    c.hdr.max_luminance.unwrap_or(0.0),
-                    c.colorimetry.bt2020_rgb,
-                    "8-bit sRGB",
-                );
+                ctx_ref.outputs[output_idx].props_applied = true; // don't retry every frame
+                if hdr_active {
+                    ctx_ref.outputs[output_idx].hdr_active = false;
+                    let c = &ctx_ref.outputs[output_idx].hdr_caps;
+                    compositor_model_stats_registry_base::base::set_hdr_info(
+                        false,
+                        c.hdr_capable(),
+                        "SDR",
+                        c.hdr.max_luminance.unwrap_or(0.0),
+                        c.colorimetry.bt2020_rgb,
+                        "8-bit sRGB",
+                    );
+                }
             }
         }
     }
 
     let mut last_result_empty = true;
+    // THIS frame's per-element render states, kept only so `collect_feedback` can
+    // report `ZeroCopy` per surface. Cloned out of the `RenderFrameResult` because
+    // that borrows the renderer and is dropped well before `present` runs; the map
+    // is one entry per element, so this is cheap next to the frame it describes.
+    let mut frame_states: Option<smithay::backend::renderer::element::RenderElementStates> = None;
     let mut visible_window: Vec<_> = Vec::new();
 
     // World-selection screen: the picker overlay owns the frame. Render the bevy
@@ -654,6 +775,7 @@ pub fn execute(
                     Ok(result) => {
                         honor_needs_sync(&result);
                         last_result_empty = result.is_empty;
+                        frame_states = Some(result.states.clone());
                     }
                     Err(e) => error!("native vulkan picker render_frame failed: {e:?}"),
                 }
@@ -696,6 +818,7 @@ pub fn execute(
                 .unwrap();
             honor_needs_sync(&picker_result);
             last_result_empty = picker_result.is_empty;
+            frame_states = Some(picker_result.states.clone());
 
             // Post-picker capture tap (GLES): keep an in-flight capture recording
             // the world-picker overlay. Same structure as the scene tap — window/
@@ -839,14 +962,18 @@ pub fn execute(
                 if !targets.is_empty() {
                     let vk = ctx_ref.vulkan.as_mut().expect("vulkan_mode without renderer");
                     vk.set_capture_targets(targets);
-                    if let Err(e) = ctx_ref.outputs[output_idx].drm_output.as_mut().unwrap().render_frame(
+                    match ctx_ref.outputs[output_idx].drm_output.as_mut().unwrap().render_frame(
                         &mut *vk,
                         &scene_outputs,
                         [0.0, 0.0, 0.0, 1.0],
                         frame_flags,
                     ) {
-                        error!("native vulkan capture render_frame failed: {e:?}");
+                        Ok(_) => {}
+                        Err(e) => error!("native vulkan capture render_frame failed: {e:?}"),
                     }
+                    // This pass is for capture only — pass 2 below is what gets
+                    // queued. Rendered-but-unqueued poisons the age accounting.
+                    discard_unsubmitted_render(&ctx_ref.outputs[output_idx]);
                 }
             }
             // Pass 2: scene + lock (front-to-back: lock on top), queued.
@@ -857,7 +984,10 @@ pub fn execute(
             if !combined.is_empty() {
                 let vk = ctx_ref.vulkan.as_mut().expect("vulkan_mode without renderer");
                 vk.set_capture_targets(Vec::new()); // never capture lock content
-                match ctx_ref.outputs[output_idx].drm_output.as_mut().unwrap().render_frame(
+                // `format!` the error into an owned String so no borrow of
+                // `ctx_ref.outputs` escapes the match and the bookkeeping below can
+                // take its own mutable borrow.
+                let render_err = match ctx_ref.outputs[output_idx].drm_output.as_mut().unwrap().render_frame(
                     &mut *vk,
                     &combined,
                     [0.0, 0.0, 0.0, 1.0],
@@ -866,9 +996,12 @@ pub fn execute(
                     Ok(result) => {
                         honor_needs_sync(&result);
                         last_result_empty = result.is_empty;
+                        frame_states = Some(result.states.clone());
+                        None
                     }
-                    Err(e) => error!("native vulkan render_frame failed: {e:?}"),
-                }
+                    Err(e) => Some(format!("{e:?}")),
+                };
+                note_render_result(&mut ctx_ref.outputs[output_idx], render_err);
             }
         } else {
             // Single pass: Running (scene only) or fully-locked (lock only).
@@ -893,7 +1026,7 @@ pub fn execute(
                 {
                     let vk = ctx_ref.vulkan.as_mut().expect("vulkan_mode without renderer");
                     vk.set_capture_targets(targets);
-                    match ctx_ref.outputs[output_idx].drm_output.as_mut().unwrap().render_frame(
+                    let render_err = match ctx_ref.outputs[output_idx].drm_output.as_mut().unwrap().render_frame(
                         &mut *vk,
                         &elements,
                         [0.0, 0.0, 0.0, 1.0],
@@ -902,9 +1035,12 @@ pub fn execute(
                         Ok(result) => {
                             honor_needs_sync(&result);
                             last_result_empty = result.is_empty;
+                            frame_states = Some(result.states.clone());
+                            None
                         }
-                        Err(e) => error!("native vulkan render_frame failed: {e:?}"),
-                    }
+                        Err(e) => Some(format!("{e:?}")),
+                    };
+                    note_render_result(&mut ctx_ref.outputs[output_idx], render_err);
                 }
                 if let Some(job) = render_job {
                     let backdrop =
@@ -1112,6 +1248,9 @@ pub fn execute(
             // ---- Done with scene_result; drop it AND r so we can re-borrow. ----
             drop(scene_result);
             drop(r);
+            // That first render fed the tap/capture only; the second render below is
+            // the one that gets queued. Restore the render/submit invariant.
+            discard_unsubmitted_render(&ctx_ref.outputs[output_idx]);
 
             // ---- Build lock scene: fresh scoped borrow. ----
             let lock_scene = {
@@ -1147,6 +1286,7 @@ pub fn execute(
             honor_needs_sync(&combined_result);
 
             last_result_empty = combined_result.is_empty;
+            frame_states = Some(combined_result.states.clone());
             visible_window = scene_visible;
 
             drop(combined_result);
@@ -1177,6 +1317,7 @@ pub fn execute(
             honor_needs_sync(&lock_result);
 
             last_result_empty = lock_result.is_empty;
+            frame_states = Some(lock_result.states.clone());
 
             drop(lock_result);
             drop(r);
@@ -1190,7 +1331,7 @@ pub fn execute(
     // All RefMut guards on the renderer have been dropped by this point.
     // ---- present THIS output: queue its page-flip (or send empty-frame callbacks).
         if !last_result_empty {
-            if present(ctx_ref, state, visible_window, output_idx) {
+            if present(ctx_ref, state, visible_window, output_idx, frame_states.as_ref()) {
                 any_queued = true;
             }
             state.schedule_redraw();
@@ -1249,6 +1390,7 @@ fn present(
     state: &mut Loop,
     window_visible: Vec<smithay::desktop::Window>,
     output_idx: usize,
+    states: Option<&smithay::backend::renderer::element::RenderElementStates>,
 ) -> bool {
     use compositor_kernel_scanout_flip_queue_base::queue::{queue, QueueOutcome};
 
@@ -1265,15 +1407,27 @@ fn present(
 
         // The tag lives on the SURFACE — both `wp_tearing_control_v1` and the
         // exec heuristic write it there — so it is the single source of truth.
+        // The tag is looked for on the whole surface TREE: Mesa attaches
+        // `wp_tearing_control` to the surface it presents to, which for many
+        // native games is a subsurface under the toplevel, not the toplevel.
         let tagged = |w: &smithay::desktop::Window| {
-            w.wl_surface().is_some_and(|s| {
-                smithay::wayland::compositor::with_states(s.as_ref(), |states| {
-                    states
-                        .data_map
-                        .get::<pacer::PacerSurface>()
-                        .is_some_and(|tag| tag.get())
-                })
-            })
+            use smithay::wayland::compositor::{with_surface_tree_downward, TraversalAction};
+            let mut found = false;
+            if let Some(s) = w.wl_surface() {
+                with_surface_tree_downward(
+                    s.as_ref(),
+                    (),
+                    |_, _, _| TraversalAction::DoChildren(()),
+                    |_, states, _| {
+                        found |= states
+                            .data_map
+                            .get::<pacer::PacerSurface>()
+                            .is_some_and(|tag| tag.get());
+                    },
+                    |_, _, _| true,
+                );
+            }
+            found
         };
         let focus = state.state.seat.seat.get_keyboard().and_then(|kb| kb.current_focus());
         // The overview overlay owns the whole content band, so the windows in
@@ -1387,6 +1541,12 @@ fn present(
         // this output's refresh here — the layer that owns the timer knows
         // nothing about modes.
         compositor_support_smithay_state_tearing_floor::floor::set(cfg.floor_interval(refresh));
+        // Published for the next frame's pre-emptive decision, beside the plane
+        // one below and for the same reason — both are read before a scene exists.
+        gate::set_governed(!matches!(
+            active,
+            compositor_y5_graphic_tearing_resolve::resolve::Active::Default
+        ));
         if gate::set_tearing(active.may_tear(refresh)) {
             info!(
                 "tearing: planes {} for the next frame",
@@ -1403,6 +1563,7 @@ fn present(
     let feedback = compositor_kernel_graphic_draw_present_callbacks::callbacks::collect_feedback(
         &current_output,
         &window_visible,
+        states,
     );
 
     // Per-frame tearing decision. The FrameFlags half (plane assignment on/off)
@@ -1444,12 +1605,17 @@ fn present(
     };
     match outcome {
         QueueOutcome::Queued => {
-            state.mark_render_queued();
-            // Mark this pipe in-flight: the render loop skips it until its own
-            // vblank scans this frame out, decoupling its cadence from the others.
-            ctx_ref.outputs[output_idx].in_flight = true;
+            // In flight: the render loop skips this pipe until its own vblank scans
+            // the frame out, decoupling its cadence from the others' — and the
+            // schedule wakes the loop for a request only while some pipe is idle.
+            state.state.redraw.queued(&compositor_orchestration_core_state_base::state::output_key(&ctx_ref.outputs[output_idx].output));
         }
         QueueOutcome::DeferredToWatchdog => {
+            // Rendered but not submitted: same invariant break as the capture
+            // pre-render, so discard the age accounting rather than let it skew.
+            // (`Failed` below needs nothing — it drops the whole `drm_output`, and
+            // the swapchain goes with it.)
+            discard_unsubmitted_render(&ctx_ref.outputs[output_idx]);
             // No frame callbacks for this frame; the watchdog re-kicks.
             return false;
         }

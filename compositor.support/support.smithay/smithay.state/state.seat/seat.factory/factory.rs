@@ -107,6 +107,7 @@ where
         pointer_gestures_state,
         force_cursor: None,
         unlock_restoration_location: None,
+        constraints_suspended: false,
         previous_focus: None,
         libseat: None,
         keyboards: Vec::new(),

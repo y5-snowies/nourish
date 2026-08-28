@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_orchestration_draw_scene_identity",
     "smithay",
     "compositor_orchestration_core_state_base",
     "compositor_orchestration_draw_dispatch_frame",

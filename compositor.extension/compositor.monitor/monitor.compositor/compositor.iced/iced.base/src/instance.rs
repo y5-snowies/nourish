@@ -364,7 +364,7 @@ pub struct IcedItem {
     /// keeps a fixed, known-good texture size and drops the per-zoom dmabuf
     /// realloc with it. Only the world ANCHOR still moves with the camera.
     ///
-    /// `None` by default: content surfaces (placeholders, group tiles) are
+    /// `None` by default: content surfaces (placeholders, group surfaces) are
     /// supposed to grow with the canvas.
     zoom_lock: Option<f32>,
 }

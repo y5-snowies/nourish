@@ -457,8 +457,9 @@ fn create(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Physica
     let keyboard = state.inner.preference.keyboard.clone();
     let protocol_foreign = state.inner.preference.protocol_foreign.clone();
     let protocol_foreign_all_worlds = state.inner.preference.protocol_foreign_all_worlds;
+    let session_capture = state.inner.preference.session_capture.clone();
     let pen = state.inner.preference.pen.clone();
-    let ui = Settings::new(env, cursor, natural, edge_pan, edge_pan_speed, edge_pan_continuous, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, show_fps, release_hidden, fractional_invisible, background_triple_buffer, interface_triple_buffer, flip, snap, keys, tab, layout, cyclic, ime, keyboard, protocol_foreign, protocol_foreign_all_worlds, pen);
+    let ui = Settings::new(env, cursor, natural, edge_pan, edge_pan_speed, edge_pan_continuous, touch_pan_speed, touch_linear_pan, osk_size, osk_world_position, show_fps, release_hidden, fractional_invisible, background_triple_buffer, interface_triple_buffer, flip, snap, keys, tab, layout, cyclic, ime, keyboard, protocol_foreign, protocol_foreign_all_worlds, session_capture, pen);
     let handle = load(state, renderer, ui, rect, IcedSpace::Screen, Layer::SCENE.bits());
     install_handler(state, handle);
     // Restore the shader-picker category, the same way `tab` is restored above.

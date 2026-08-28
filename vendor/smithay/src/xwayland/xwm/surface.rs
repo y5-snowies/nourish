@@ -1,5 +1,5 @@
 use crate::{
-    backend::input::KeyState,
+    backend::{input::KeyState, renderer::utils::RendererSurfaceStateUserData},
     input::{
         Seat, SeatHandler,
         keyboard::{KeyboardTarget, KeysymHandle, ModifiersState},
@@ -8,13 +8,19 @@ use crate::{
             GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent,
             GestureSwipeUpdateEvent, MotionEvent, PointerTarget, RelativeMotionEvent,
         },
-        touch::TouchTarget,
+        tablet::{TabletSeatHandler, tool::TabletToolTarget},
+        touch::{FrameMarker, TouchTarget},
     },
-    utils::{Client, HookId, IsAlive, Logical, Physical, Rectangle, Serial, Size, user_data::UserDataMap},
+    utils::{
+        Client, FrameExtents, HookId, IsAlive, Logical, Physical, Rectangle, Serial, Size,
+        user_data::UserDataMap,
+    },
     wayland::{
-        compositor::{self, RectangleKind, RegionAttributes, SurfaceAttributes},
+        compositor::{self, CompositorHandler, RectangleKind, RegionAttributes, SurfaceAttributes},
+        pointer_constraints::PointerConstraintsHandler,
         seat::{WaylandFocus, keyboard::enter_internal},
     },
+    xwayland::xwm::MwmHints,
 };
 #[cfg(feature = "desktop")]
 use crate::{
@@ -22,8 +28,8 @@ use crate::{
     utils::Point,
 };
 
-use atomic_float::AtomicF64;
 use encoding_rs::WINDOWS_1252;
+use portable_atomic::AtomicF64;
 use std::{
     borrow::Cow,
     collections::HashSet,
@@ -89,10 +95,6 @@ pub enum PingError {
     Connection(#[from] ConnectionError),
 }
 
-const MWM_HINTS_FLAGS_FIELD: usize = 0;
-const MWM_HINTS_DECORATIONS_FIELD: usize = 2;
-const MWM_HINTS_DECORATIONS: u32 = 1 << 1;
-
 const DEFAULT_SYNC_REQUEST_TIMEOUT: Duration = Duration::from_secs(1);
 // From http://fishsoup.net/misc/wm-spec-synchronization.html
 //   "If the client is continually redrawing, then the last seen value may be out of date when the
@@ -126,7 +128,7 @@ pub(crate) struct SharedSurfaceState {
     pub(super) wl_surface_id: Option<u32>,
     pub(super) wl_surface_serial: Option<u64>,
     pub(super) mapped_onto: Option<X11Window>,
-    pub(super) geometry: Rectangle<i32, Logical>,
+    pub(super) last_configure: Rectangle<i32, Logical>,
     pub(super) override_redirect: bool,
 
     // The associated wl_surface.
@@ -144,10 +146,10 @@ pub(crate) struct SharedSurfaceState {
     next_counter_value: Int64,
     pending_sync_wait_value: Option<Int64>,
 
-    // Geometry to set after we receive an ACK for the in-flight sync request.
-    pending_geometry: Option<Rectangle<i32, Logical>>,
-    // Geometry update deferred while a sync request is in progress.
-    buffered_geometry: Option<Rectangle<i32, Logical>>,
+    // Configure to set after we receive an ACK for the in-flight sync request.
+    pending_configure: Option<Rectangle<i32, Logical>>,
+    // Configure update deferred while a sync request is in progress.
+    buffered_configure: Option<Rectangle<i32, Logical>>,
 
     title: String,
     class: String,
@@ -159,11 +161,12 @@ pub(crate) struct SharedSurfaceState {
     normal_hints: Option<WmSizeHints>,
     transient_for: Option<X11Window>,
     pub(super) net_state: HashSet<Atom>,
-    motif_hints: Vec<u32>,
+    motif_hints: MwmHints,
     window_type: Vec<Atom>,
     pub(crate) opacity: Option<u32>,
     opaque_region: Option<RegionAttributes>,
     opaque_region_dirty: bool,
+    frame_extents: FrameExtents<i32, Physical>,
     pending_enter: Option<(
         Box<dyn std::any::Any + Send + 'static>,
         Vec<Keycode>,
@@ -286,6 +289,7 @@ pub enum WmWindowProperty {
     StartupId,
     Pid,
     Opacity,
+    FrameExtents,
 }
 
 /// https://x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html#input_focus
@@ -347,10 +351,10 @@ impl X11Surface {
                 counter_value: Default::default(),
                 next_counter_value: Default::default(),
                 pending_sync_wait_value: None,
-                pending_geometry: None,
-                buffered_geometry: None,
+                pending_configure: None,
+                buffered_configure: None,
                 mapped_onto: None,
-                geometry,
+                last_configure: geometry,
                 override_redirect,
                 title: String::from(""),
                 class: String::from(""),
@@ -362,11 +366,12 @@ impl X11Surface {
                 normal_hints: None,
                 transient_for: None,
                 net_state: HashSet::new(),
-                motif_hints: vec![0; 5],
+                motif_hints: MwmHints::default(),
                 window_type: Vec::new(),
                 opacity: None,
                 opaque_region: None,
                 opaque_region_dirty: true,
+                frame_extents: Default::default(),
                 pending_enter: None,
                 pending_ping_timestamp: None,
             })),
@@ -400,12 +405,26 @@ impl X11Surface {
         }
 
         if let Some(conn) = self.conn.upgrade() {
-            if let Some(frame) = self.state.lock().unwrap().mapped_onto {
-                if mapped {
+            let state = self.state.lock().unwrap();
+            if let Some(frame) = state.mapped_onto {
+                let wm_state = if mapped {
                     conn.map_window(frame)?;
+                    if state.net_state.contains(&self.atoms._NET_WM_STATE_HIDDEN) {
+                        3u32 /*IconicState*/
+                    } else {
+                        1u32 /*NormalState*/
+                    }
                 } else {
                     conn.unmap_window(frame)?;
-                }
+                    0u32 /*WithdrawnState*/
+                };
+                conn.change_property32(
+                    PropMode::REPLACE,
+                    self.window,
+                    self.atoms.WM_STATE,
+                    self.atoms.WM_STATE,
+                    &[wm_state, 0 /*WINDOW_NONE*/],
+                )?;
                 conn.flush()?;
             }
         }
@@ -443,7 +462,7 @@ impl X11Surface {
                 .as_ref()
                 .map(|s| s.load(Ordering::Acquire))
                 .unwrap_or(1.);
-            let logical_rect = rect.unwrap_or(state.geometry);
+            let logical_rect = rect.unwrap_or(state.last_configure);
             let rect = logical_rect.to_client_precise_round(client_scale);
             let aux = ConfigureWindowAux::default()
                 .x(rect.loc.x)
@@ -483,15 +502,15 @@ impl X11Surface {
             Err(X11SurfaceError::UnsupportedForOverrideRedirect)
         } else {
             let mut state = self.state.lock().unwrap();
-            let rect = rect.or(state.pending_geometry);
+            let rect = rect.or(state.pending_configure);
 
             if state.pending_sync_wait_value.is_some() {
                 self.finish_pending_sync(&mut state);
             }
-            state.buffered_geometry = None;
+            state.buffered_configure = None;
 
             let new_geometry = self.send_configure(&mut state, rect)?;
-            state.geometry = new_geometry;
+            state.last_configure = new_geometry;
 
             Ok(())
         }
@@ -507,7 +526,7 @@ impl X11Surface {
     /// (with a new sync request) after the in-progress sync is finished and the client has
     /// committed a new buffer.
     ///
-    /// Until the client ACKs the sync request, the surface's geometry remains frozen at the
+    /// Until the client ACKs the sync request, the surface's last configure remains frozen at the
     /// previous value.  When the ACK is received,
     /// [`XwmHandler::sync_request_acked`](super::XwmHandler::sync_request_acked) is called.
     ///
@@ -516,7 +535,7 @@ impl X11Surface {
     /// [`XwmHandler::sync_request_timeout`](super::XwmHandler::sync_request_timeout) is called.
     ///
     /// If the client does not support the `_NET_WM_SYNC_REQUEST` protocol, or if `rect` has the
-    /// same size as the current geometry and there is no sync in progress, a regular configure
+    /// same size as the current configure and there is no sync in progress, a regular configure
     /// sequence is initiated (as if [`X11Surface::configure`] was called).
     ///
     /// This configure method is most useful during interactive window resizes, as it avoids
@@ -535,7 +554,7 @@ impl X11Surface {
             let rect = rect.into();
             let mut state = self.state.lock().unwrap();
 
-            if rect.size == state.geometry.size && state.pending_geometry.is_none() {
+            if rect.size == state.last_configure.size && state.pending_configure.is_none() {
                 // If the passed size is the same as our stored geometry's size, and there's no
                 // in-flight sync request, we send a normal configure without a sync request.  Some
                 // clients, when they get a configure-notify with the same size as their current
@@ -551,7 +570,7 @@ impl X11Surface {
                         self.configure(rect)
                     }
                     Err(SyncRequestError::RequestPending) => {
-                        state.buffered_geometry = Some(rect);
+                        state.buffered_configure = Some(rect);
                         Ok(())
                     }
                     Ok(_) => match self.send_configure(&mut state, rect) {
@@ -559,9 +578,9 @@ impl X11Surface {
                             self.finish_pending_sync(&mut state);
                             Err(err)
                         }
-                        Ok(pending_geometry) => {
-                            state.pending_geometry = Some(pending_geometry);
-                            state.buffered_geometry = None;
+                        Ok(pending_configure) => {
+                            state.pending_configure = Some(pending_configure);
+                            state.buffered_configure = None;
                             Ok(())
                         }
                     },
@@ -725,7 +744,7 @@ impl X11Surface {
     /// Handles a sync alarm for the sync counter for this surface.
     ///
     /// If `new_value` is a valid ACK for the currently in-flight sync request, the pending
-    /// geometry is applied.
+    /// configure is applied.
     ///
     /// The caller is responsible for notifying the compositor that the sync was ACKed, and of the
     /// new in-flight request, if any.
@@ -829,12 +848,12 @@ impl X11Surface {
 
     /// Finishes an in-flight sync request.
     ///
-    /// Promotes the pending geometry to the active geometry, unregisters the sync timeout, and
+    /// Promotes the pending configure to the active configure, unregisters the sync timeout, and
     /// tells the XWayland server to start committing buffers again.
     fn finish_pending_sync(&self, state: &mut SharedSurfaceState) {
         state.pending_sync_wait_value = None;
-        if let Some(pending_geometry) = state.pending_geometry.take() {
-            state.geometry = pending_geometry;
+        if let Some(pending_configure) = state.pending_configure.take() {
+            state.last_configure = pending_configure;
         }
         self.destroy_sync_timeout(state);
         self.set_allow_commits(state, true);
@@ -959,23 +978,25 @@ impl X11Surface {
             let surface = self.clone();
 
             compositor::add_pre_commit_hook::<D, _>(wl_surface, move |_, _, _| {
-                let (buffered_geometry, timeout) = {
+                let (buffered_configure, timeout) = {
                     let mut state = surface.state.lock().unwrap();
-                    let buffered_geometry = if state.pending_sync_wait_value.is_none()
-                        && state.buffered_geometry.is_some_and(|geom| geom != state.geometry)
+                    let buffered_configure = if state.pending_sync_wait_value.is_none()
+                        && state
+                            .buffered_configure
+                            .is_some_and(|geom| geom != state.last_configure)
                     {
                         // We only send a new configure if:
                         //   1) there is no sync currently in progress, and
-                        //   2) if the buffered geometry is not the current geometry.
-                        state.buffered_geometry.take()
+                        //   2) if the buffered configure is not the current configure.
+                        state.buffered_configure.take()
                     } else {
                         None
                     };
-                    (buffered_geometry, state.last_set_sync_timeout)
+                    (buffered_configure, state.last_set_sync_timeout)
                 };
 
-                if let Some(buffered_geometry) = buffered_geometry {
-                    if let Err(err) = surface.configure_with_sync(buffered_geometry, Some(timeout)) {
+                if let Some(buffered_configure) = buffered_configure {
+                    if let Err(err) = surface.configure_with_sync(buffered_configure, Some(timeout)) {
                         tracing::info!(
                             "Failed to send buffered surface configure/sync for window 0x{:08x}: {err}",
                             surface.window
@@ -987,35 +1008,67 @@ impl X11Surface {
         state.deferred_sync_hook_id = Some(hook_id);
     }
 
-    /// Returns the current geometry of the underlying X11 window
-    pub fn geometry(&self) -> Rectangle<i32, Logical> {
-        self.state.lock().unwrap().geometry
+    /// Returns the last configure set on the underlying X11 window
+    pub fn last_configure(&self) -> Rectangle<i32, Logical> {
+        self.state.lock().unwrap().last_configure
     }
 
-    /// Returns the pending geometry, if any
+    /// Returns the pending configure, if any
     ///
-    /// The pending geometry has already been sent to the X server and client as a part of
+    /// The pending configure has already been sent to the X server and client as a part of
     /// [`configure_with_sync`](X11Surface::configure_with_sync), but the client has not yet
     /// acknowledged the corresponding sync request.
     ///
-    /// The pending geometry is promoted to [`geometry`](X11Surface::geometry) after the sync
-    /// request has been acknowledged.
-    pub fn pending_geometry(&self) -> Option<Rectangle<i32, Logical>> {
-        self.state.lock().unwrap().pending_geometry
+    /// The pending configure is promoted to [`last_configure`](X11Surface::last_configure) after
+    /// the sync request has been acknowledged.
+    pub fn pending_configure(&self) -> Option<Rectangle<i32, Logical>> {
+        self.state.lock().unwrap().pending_configure
     }
 
-    /// Returns the buffered geometry, if any
+    /// Returns the buffered configure, if any
     ///
-    /// The buffered geometry is the most recent rect passed to
+    /// The buffered configure is the most recent rect passed to
     /// [`configure_with_sync`](X11Surface::configure_with_sync).  It has not yet been sent to the
     /// X server or client because an older sync request is still in progress.  Once the client
-    /// acknowledges the in-progress sync request and commits a buffer, the buffered geometry will
+    /// acknowledges the in-progress sync request and commits a buffer, the buffered configure will
     /// be sent to the client as part of a new sync request.
     ///
-    /// The buffered geometry is promoted to [`pending_geometry`](X11Surface::pending_geometry)
+    /// The buffered configure is promoted to [`pending_configure`](X11Surface::pending_configure)
     /// once it has been sent to the client.
-    pub fn buffered_geometry(&self) -> Option<Rectangle<i32, Logical>> {
-        self.state.lock().unwrap().buffered_geometry
+    pub fn buffered_configure(&self) -> Option<Rectangle<i32, Logical>> {
+        self.state.lock().unwrap().buffered_configure
+    }
+
+    /// Returns the bounding box of this surface
+    ///
+    /// This corresponds to the last committed buffer size from the XWayland server.
+    ///
+    /// If no buffer has been committed, returns [`last_configure`](X11Surface::last_configure).
+    pub fn bbox(&self) -> Rectangle<i32, Logical> {
+        let state = self.state.lock().unwrap();
+
+        let size = state
+            .wl_surface
+            .as_ref()
+            .and_then(|surface| {
+                compositor::with_states(surface, |states| {
+                    states
+                        .data_map
+                        .get::<RendererSurfaceStateUserData>()
+                        .and_then(|s| s.lock().unwrap().surface_size())
+                })
+            })
+            .unwrap_or_else(|| state.last_configure.size);
+        Rectangle::from_size(size)
+    }
+
+    /// Returns the user-visible area of the surface
+    ///
+    /// This corresponds to the surface's bounding box, minus any frame elements like drop shadows.
+    /// Note that not all clients will advertise the sizes of frame elements, even if they are
+    /// present on the window.
+    pub fn geometry(&self) -> Rectangle<i32, Logical> {
+        self.bbox() - self.frame_extents()
     }
 
     /// Returns the current title of the underlying X11 window
@@ -1048,12 +1101,20 @@ impl X11Surface {
         self.state.lock().unwrap().opacity
     }
 
+    /// Returns if the window is a modal dialog.
+    ///
+    /// Corresponds to the `_NET_WM_STATE_MODAL` state of the underlying X11 window.
+    pub fn is_modal(&self) -> bool {
+        let state = self.state.lock().unwrap();
+        state.net_state.contains(&self.atoms._NET_WM_STATE_MODAL)
+    }
+
     /// Returns if the window is considered to be a popup.
     ///
     /// Corresponds to the internal `_NET_WM_STATE_MODAL` state of the underlying X11 window.
+    #[deprecated = "use `X11Surface::is_modal` instead"]
     pub fn is_popup(&self) -> bool {
-        let state = self.state.lock().unwrap();
-        state.net_state.contains(&self.atoms._NET_WM_STATE_MODAL)
+        self.is_modal()
     }
 
     /// Returns if the underlying window is transient to another window.
@@ -1225,10 +1286,17 @@ impl X11Surface {
     /// Returns true if the window is client-side decorated
     pub fn is_decorated(&self) -> bool {
         let state = self.state.lock().unwrap();
-        if (state.motif_hints[MWM_HINTS_FLAGS_FIELD] & MWM_HINTS_DECORATIONS) != 0 {
-            return state.motif_hints[MWM_HINTS_DECORATIONS_FIELD] == 0;
-        }
-        false
+        state
+            .motif_hints
+            .decorations
+            .as_ref()
+            .is_some_and(|decorations| decorations.is_empty())
+    }
+
+    /// Returns the Motif WM hints set on the window.
+    pub fn motif_hints(&self) -> MwmHints {
+        let state = self.state.lock().unwrap();
+        state.motif_hints.clone()
     }
 
     /// Sets the window as maximized or not.
@@ -1276,6 +1344,23 @@ impl X11Surface {
         } else {
             self.change_net_state(&[], &[self.atoms._NET_WM_STATE_HIDDEN])?;
         }
+
+        if let Some(conn) = self.conn.upgrade() {
+            if self.state.lock().unwrap().mapped_onto.is_some() {
+                let wm_state = if suspended {
+                    3u32 /*IconicState*/
+                } else {
+                    1u32 /*NormalState*/
+                };
+                conn.change_property32(
+                    PropMode::REPLACE,
+                    self.window,
+                    self.atoms.WM_STATE,
+                    self.atoms.WM_STATE,
+                    &[wm_state, 0 /*WINDOW_NONE*/],
+                )?;
+            }
+        }
         Ok(())
     }
 
@@ -1287,6 +1372,19 @@ impl X11Surface {
             self.change_net_state(&[self.atoms._NET_WM_STATE_FOCUSED], &[])?;
         } else {
             self.change_net_state(&[], &[self.atoms._NET_WM_STATE_FOCUSED])?;
+        }
+        Ok(())
+    }
+
+    /// Sets the window as a modal dialog or not.
+    ///
+    /// Corresponds to the `_NET_WM_STATE_MODAL` state, also reflected
+    /// by [`X11Surface::is_modal`].
+    pub fn set_modal(&self, modal: bool) -> Result<(), ConnectionError> {
+        if modal {
+            self.change_net_state(&[self.atoms._NET_WM_STATE_MODAL], &[])?;
+        } else {
+            self.change_net_state(&[], &[self.atoms._NET_WM_STATE_MODAL])?;
         }
         Ok(())
     }
@@ -1406,19 +1504,6 @@ impl X11Surface {
                 AtomEnum::ATOM,
                 &new_props,
             )?;
-
-            let wm_state = if state.net_state.contains(&self.atoms._NET_WM_STATE_HIDDEN) {
-                [3u32 /*IconicState*/, 0 /*WINDOW_NONE*/]
-            } else {
-                [1u32 /*NormalState*/, 0 /*WINDOW_NONE*/]
-            };
-            conn.change_property32(
-                PropMode::REPLACE,
-                self.window,
-                self.atoms.WM_STATE,
-                self.atoms.WM_STATE,
-                &wm_state,
-            )?;
         }
 
         Ok(())
@@ -1463,6 +1548,7 @@ impl X11Surface {
             )?;
             state.opaque_region_dirty = false;
         }
+        self.update_toolkit_frame_extents()?;
         Ok(())
     }
 
@@ -1517,6 +1603,10 @@ impl X11Surface {
                 state.opaque_region = None;
                 state.opaque_region_dirty = true;
                 Ok(None)
+            }
+            atom if atom == self.atoms._GTK_FRAME_EXTENTS => {
+                self.update_toolkit_frame_extents()?;
+                Ok(Some(WmWindowProperty::FrameExtents))
             }
 
             _ => Ok(None), // unknown
@@ -1583,12 +1673,10 @@ impl X11Surface {
             return Ok(());
         };
 
-        if hints.len() < 5 {
-            return Ok(());
+        if let Some(hints) = MwmHints::parse(&hints) {
+            let mut state = self.state.lock().unwrap();
+            state.motif_hints = hints;
         }
-
-        let mut state = self.state.lock().unwrap();
-        state.motif_hints = hints;
         Ok(())
     }
 
@@ -1614,6 +1702,55 @@ impl X11Surface {
             state.opacity = Some(opacity);
         }
         Ok(())
+    }
+
+    fn fetch_gtk_frame_extents(&self) -> Result<Option<FrameExtents<i32, Physical>>, ConnectionError> {
+        let conn = self.conn.upgrade().ok_or(ConnectionError::UnknownError)?;
+        conn.get_property(
+            false,
+            self.window,
+            self.atoms._GTK_FRAME_EXTENTS,
+            AtomEnum::CARDINAL,
+            0,
+            4,
+        )?
+        .reply_unchecked()
+        .map(|reply| {
+            reply.and_then(|reply| {
+                reply.value32().and_then(|mut values| {
+                    Some(FrameExtents::new(
+                        (values.next()? as i32).max(0),
+                        (values.next()? as i32).max(0),
+                        (values.next()? as i32).max(0),
+                        (values.next()? as i32).max(0),
+                    ))
+                })
+            })
+        })
+    }
+
+    fn update_toolkit_frame_extents(&self) -> Result<(), ConnectionError> {
+        let frame_extents = self.fetch_gtk_frame_extents()?.unwrap_or_default();
+        self.state.lock().unwrap().frame_extents = frame_extents;
+        Ok(())
+    }
+
+    /// Returns the logical pixel widths of the surface's frame
+    ///
+    /// This is usually the width of the drop shadows at the edges of the surface.
+    pub fn frame_extents(&self) -> FrameExtents<i32, Logical> {
+        let scale = self
+            .client_scale
+            .as_ref()
+            .map(|scale| scale.load(Ordering::Acquire))
+            .unwrap_or(1.);
+        self.state
+            .lock()
+            .unwrap()
+            .frame_extents
+            .to_f64()
+            .to_logical(scale)
+            .to_i32_round()
     }
 
     fn update_protocols(&self) -> Result<(), ConnectionError> {
@@ -2105,7 +2242,7 @@ impl<D: SeatHandler + 'static> KeyboardTarget<D> for X11Surface {
     }
 }
 
-impl<D: SeatHandler + 'static> PointerTarget<D> for X11Surface {
+impl<D: SeatHandler + PointerConstraintsHandler + 'static> PointerTarget<D> for X11Surface {
     fn enter(&self, seat: &Seat<D>, data: &mut D, event: &MotionEvent) {
         if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
             PointerTarget::enter(surface, seat, data, event);
@@ -2197,52 +2334,152 @@ impl<D: SeatHandler + 'static> PointerTarget<D> for X11Surface {
     }
 }
 
-impl<D: SeatHandler + 'static> TouchTarget<D> for X11Surface {
-    fn down(&self, seat: &Seat<D>, data: &mut D, event: &crate::input::touch::DownEvent, seq: Serial) {
+impl<D: SeatHandler + CompositorHandler + 'static> TouchTarget<D> for X11Surface {
+    fn down(&self, seat: &Seat<D>, data: &mut D, event: &crate::input::touch::DownEvent) {
         if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
-            TouchTarget::down(surface, seat, data, event, seq)
+            TouchTarget::down(surface, seat, data, event)
         }
     }
 
-    fn up(&self, seat: &Seat<D>, data: &mut D, event: &crate::input::touch::UpEvent, seq: Serial) {
+    fn up(&self, seat: &Seat<D>, data: &mut D, event: &crate::input::touch::UpEvent) {
         if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
-            TouchTarget::up(surface, seat, data, event, seq)
+            TouchTarget::up(surface, seat, data, event)
         }
     }
 
-    fn motion(&self, seat: &Seat<D>, data: &mut D, event: &crate::input::touch::MotionEvent, seq: Serial) {
+    fn motion(&self, seat: &Seat<D>, data: &mut D, event: &crate::input::touch::MotionEvent) {
         if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
-            TouchTarget::motion(surface, seat, data, event, seq)
+            TouchTarget::motion(surface, seat, data, event)
         }
     }
 
-    fn frame(&self, seat: &Seat<D>, data: &mut D, seq: Serial) {
+    fn frame(&self, seat: &Seat<D>, data: &mut D, marker: FrameMarker) {
         if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
-            TouchTarget::frame(surface, seat, data, seq)
+            TouchTarget::frame(surface, seat, data, marker)
         }
     }
 
-    fn cancel(&self, seat: &Seat<D>, data: &mut D, seq: Serial) {
+    fn cancel(&self, seat: &Seat<D>, data: &mut D, marker: FrameMarker) {
         if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
-            TouchTarget::cancel(surface, seat, data, seq)
+            TouchTarget::cancel(surface, seat, data, marker)
         }
     }
 
-    fn shape(&self, seat: &Seat<D>, data: &mut D, event: &crate::input::touch::ShapeEvent, seq: Serial) {
+    fn shape(&self, seat: &Seat<D>, data: &mut D, event: &crate::input::touch::ShapeEvent) {
         if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
-            TouchTarget::shape(surface, seat, data, event, seq)
+            TouchTarget::shape(surface, seat, data, event)
         }
     }
 
-    fn orientation(
+    fn orientation(&self, seat: &Seat<D>, data: &mut D, event: &crate::input::touch::OrientationEvent) {
+        if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
+            TouchTarget::orientation(surface, seat, data, event)
+        }
+    }
+
+    fn last_frame(&self, seat: &Seat<D>, data: &mut D) -> Option<FrameMarker> {
+        if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
+            TouchTarget::last_frame(surface, seat, data)
+        } else {
+            None
+        }
+    }
+}
+
+impl<D: TabletSeatHandler + CompositorHandler + 'static> TabletToolTarget<D> for X11Surface {
+    fn proximity_in(
         &self,
         seat: &Seat<D>,
         data: &mut D,
-        event: &crate::input::touch::OrientationEvent,
-        seq: Serial,
+        tool_descriptor: &crate::backend::input::TabletToolDescriptor,
+        tablet: &crate::input::tablet::Tablet,
+        serial: Serial,
     ) {
         if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
-            TouchTarget::orientation(surface, seat, data, event, seq)
+            TabletToolTarget::proximity_in(surface, seat, data, tool_descriptor, tablet, serial);
+        }
+    }
+
+    fn proximity_out(
+        &self,
+        seat: &Seat<D>,
+        data: &mut D,
+        tool_descriptor: &crate::backend::input::TabletToolDescriptor,
+    ) {
+        if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
+            TabletToolTarget::proximity_out(surface, seat, data, tool_descriptor);
+        }
+    }
+
+    fn down(
+        &self,
+        seat: &Seat<D>,
+        data: &mut D,
+        tool_descriptor: &crate::backend::input::TabletToolDescriptor,
+        event: &crate::input::tablet::tool::DownEvent,
+    ) {
+        if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
+            TabletToolTarget::down(surface, seat, data, tool_descriptor, event);
+        }
+    }
+
+    fn up(
+        &self,
+        seat: &Seat<D>,
+        data: &mut D,
+        tool_descriptor: &crate::backend::input::TabletToolDescriptor,
+        event: &crate::input::tablet::tool::UpEvent,
+    ) {
+        if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
+            TabletToolTarget::up(surface, seat, data, tool_descriptor, event);
+        }
+    }
+
+    fn motion(
+        &self,
+        seat: &Seat<D>,
+        data: &mut D,
+        tool_descriptor: &crate::backend::input::TabletToolDescriptor,
+        event: &crate::input::tablet::tool::MotionEvent,
+    ) {
+        if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
+            TabletToolTarget::motion(surface, seat, data, tool_descriptor, event);
+        }
+    }
+
+    fn button(
+        &self,
+        seat: &Seat<D>,
+        data: &mut D,
+        tool_descriptor: &crate::backend::input::TabletToolDescriptor,
+        event: &crate::input::tablet::tool::ButtonEvent,
+    ) {
+        if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
+            TabletToolTarget::button(surface, seat, data, tool_descriptor, event);
+        }
+    }
+
+    fn axis(
+        &self,
+        seat: &Seat<D>,
+        data: &mut D,
+        tool_descriptor: &crate::backend::input::TabletToolDescriptor,
+        frame: crate::input::tablet::tool::AxisFrame,
+    ) {
+        if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
+            TabletToolTarget::axis(surface, seat, data, tool_descriptor, frame);
+        }
+    }
+
+    fn frame(
+        &self,
+        seat: &Seat<D>,
+        data: &mut D,
+        tool_descriptor: &crate::backend::input::TabletToolDescriptor,
+        time: u32,
+    ) {
+        if let Some(surface) = self.state.lock().unwrap().wl_surface.as_ref() {
+            TabletToolTarget::frame(surface, seat, data, tool_descriptor, time);
         }
     }
 }

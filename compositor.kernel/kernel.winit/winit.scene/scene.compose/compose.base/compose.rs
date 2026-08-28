@@ -588,10 +588,30 @@ fn compose(
     (damage, visible_window)
 }
 
-/// Frame callbacks + housekeeping via the shared compositor crates, then ask
-/// winit for the next redraw (winit has no hardware page-flip; presentation
-/// is immediate).
+/// Presentation feedback + frame callbacks + housekeeping via the shared compositor
+/// crates, then ask winit for the next redraw (winit has no hardware page-flip;
+/// presentation is immediate).
 fn present(context: &mut WinitRenderContext, state: &mut Loop, visible: Vec<Window>) {
+    // Presentation feedback, which this path used to skip entirely. Frame callbacks
+    // and `wp_presentation` are different protocols: sending only the former left every
+    // feedback request to be destroyed unanswered, and an unanswered feedback reaches
+    // the client as `discarded` — "never shown" — for frames that WERE shown. Collect
+    // and report in one step, since nested presentation completes at submit and there
+    // is no flip event to come back to. See `presented_now`.
+    {
+        // `None`: the nested backend composites into the host's surface and never
+        // promotes a client buffer to a plane, so no surface here is ever
+        // zero-copy. Passing states would be work to derive a constant `false`.
+        let mut feedback = compositor_kernel_graphic_draw_present_callbacks::callbacks::collect_feedback(
+            &context.output,
+            &visible,
+            None,
+        );
+        compositor_kernel_graphic_draw_present_software::software::presented_now(
+            &mut feedback,
+            &context.output,
+        );
+    }
     compositor_kernel_graphic_draw_present_callbacks::callbacks::send_window_frames(
         state,
         &context.output,

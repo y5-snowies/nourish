@@ -15,7 +15,10 @@ pub fn create_output_placeholder(images: &mut Assets<Image>, size: (u32, u32)) -
             label: Some("output_placeholder"),
             size: extent,
             dimension: TextureDimension::D2,
-            format: TextureFormat::Bgra8UnormSrgb,
+            // A stand-in created before any real buffer exists, so it takes the
+            // vocabulary's baseline rather than a device answer — but still from
+            // the format layer, not a constant spelled here.
+            format: compositor_kernel_graphic_format_catalog_base::catalog::wgpu_format(compositor_kernel_graphic_format_catalog_base::catalog::FLOOR),
             mip_level_count: 1,
             sample_count: 1,
             usage: TextureUsages::TEXTURE_BINDING
@@ -41,7 +44,10 @@ pub fn create_input_placeholder(images: &mut Assets<Image>, size: (u32, u32)) ->
             label: Some("input_placeholder"),
             size: extent,
             dimension: TextureDimension::D2,
-            format: TextureFormat::Bgra8UnormSrgb,
+            // A stand-in created before any real buffer exists, so it takes the
+            // vocabulary's baseline rather than a device answer — but still from
+            // the format layer, not a constant spelled here.
+            format: compositor_kernel_graphic_format_catalog_base::catalog::wgpu_format(compositor_kernel_graphic_format_catalog_base::catalog::FLOOR),
             mip_level_count: 1,
             sample_count: 1,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,

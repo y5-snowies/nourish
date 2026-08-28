@@ -21,15 +21,29 @@
 //! * it can EXPORT it — at least one DRM modifier, or `create_exportable` has
 //!   nothing to offer the driver.
 //!
-//! Alpha is required, so the ladder is `Argb2101010` and not the `Xrgb2101010`
-//! the scanout ladder prefers: the pass clears to transparent black and blends
-//! premultiplied-over, and floating panes composite the result.
+//! Alpha is required — the pass clears to transparent black and blends
+//! premultiplied-over, and floating panes composite the result — so every rung
+//! carries it, and the opaque `X*` codes the scanout ladder prefers are not
+//! candidates here.
+//!
+//! # Channel order follows the session, it is not hardcoded
+//!
+//! Both orders are equally renderable on the devices measured (NVIDIA reports
+//! `COLOR_ATTACHMENT` for `A2B10G10R10` *and* `A2R10G10B10`, 6 modifiers each), so
+//! this is not about capability. It is about not diverging from the scanout for no
+//! reason: KMS planes expose 10-bit in ONE order on some hardware (NVIDIA offers
+//! `AB30`/`XB30` and no `AR30`/`XR30`), and where this buffer can be promoted
+//! straight to a plane, only the order the plane exposes can take that path. A
+//! hardcoded order also silently costs the whole feature on a device that renders
+//! only the other one — the failure is a drop to the 8-bit rung, on the surface
+//! where banding shows most.
+//!
+//! So the ladder is: the session's own order first, the other order second, then
+//! the 8-bit floor. See `developer.tool.color/probe-change.MD` for how a hardcoded
+//! order hid a permanently-8-bit session.
 
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::vulkan::PhysicalDevice;
-
-/// Deep first, then the 8-bit floor. Both carry alpha.
-const LADDER: [Fourcc; 2] = [Fourcc::Argb2101010, Fourcc::Argb8888];
 
 /// Can this device render into `fourcc` AND hand it out as a dmabuf?
 fn usable(phd: &PhysicalDevice, fourcc: Fourcc) -> bool {
@@ -41,19 +55,23 @@ fn usable(phd: &PhysicalDevice, fourcc: Fourcc) -> bool {
 }
 
 /// The best format this worker can actually produce for this session.
-pub fn select(phd: &PhysicalDevice) -> Fourcc {
-    let deep = compositor_kernel_graphic_bridge_negotiate_compositor::compositor::scanout_is_deep();
-    for candidate in LADDER {
-        if candidate != Fourcc::Argb8888 && !deep {
-            continue;
-        }
+pub fn select(formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar, phd: &PhysicalDevice) -> Fourcc {
+    use compositor_kernel_graphic_format_catalog_base::catalog;
+    let session = formats.scanout_fourcc();
+    let deep = session.is_some_and(catalog::is_deep);
+
+    // WHICH fourccs are worth trying comes from the format layer; whether THIS
+    // device can render one stays here, where the PhysicalDevice is.
+    for candidate in catalog::background_ladder(session, deep) {
         if usable(phd, candidate) {
-            info!("background worker: rendering {candidate:?} (session deep={deep})");
+            info!(
+                "background worker: rendering {candidate:?} (session deep={deep}, scanout={session:?})"
+            );
             return candidate;
         }
         warn!("background worker: {candidate:?} unusable on this device; trying the next");
     }
     // Nothing in the ladder works. Return the floor anyway so the caller fails at
     // allocation with a concrete Vulkan error rather than on a silent guess.
-    Fourcc::Argb8888
+    compositor_kernel_graphic_format_catalog_base::catalog::FLOOR
 }

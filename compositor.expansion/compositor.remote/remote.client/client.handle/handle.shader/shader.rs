@@ -142,9 +142,11 @@ pub fn list(_request: ListRequest, _state: &mut Loop) -> ListResponse {
 }
 
 pub fn activate(request: ActivateRequest, state: &mut Loop) -> ActivateResponse {
-    let world = state.inner.worlds.active_id();
+    // The SESSION world (spawn target), not `active_id()`: with the picker up the
+    // active world is the picker, whose `BG_TWO` is its own distant parallax.
+    let world = state.inner.worlds.spawn_target();
     let Some(two) =
-        state.inner.worlds.active_mut().storage_mut().try_get_mut(&BG_TWO_MUT)
+        state.inner.worlds.get_mut(world).storage_mut().try_get_mut(&BG_TWO_MUT)
     else {
         return ActivateResponse {
             applied: false,
@@ -166,9 +168,11 @@ pub fn activate(request: ActivateRequest, state: &mut Loop) -> ActivateResponse 
 }
 
 pub fn reload(_request: ReloadRequest, state: &mut Loop) -> ReloadResponse {
-    let world = state.inner.worlds.active_id();
+    // The SESSION world (spawn target), not `active_id()`: with the picker up the
+    // active world is the picker, whose `BG_TWO` is its own distant parallax.
+    let world = state.inner.worlds.spawn_target();
     let Some(two) =
-        state.inner.worlds.active_mut().storage_mut().try_get_mut(&BG_TWO_MUT)
+        state.inner.worlds.get_mut(world).storage_mut().try_get_mut(&BG_TWO_MUT)
     else {
         return ReloadResponse {
             applied: false,

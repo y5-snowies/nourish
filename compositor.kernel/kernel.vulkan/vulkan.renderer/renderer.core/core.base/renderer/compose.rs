@@ -57,8 +57,13 @@ pub(super) struct Composer<'a> {
     pub tick: u64,
     pub use_hdr: bool,
     pub format: vk::Format,
+    /// The pass's full extent. Needed because an "unscissored" draw is not a
+    /// thing at the command-buffer level — the scissor is pipeline-dynamic STATE,
+    /// so a draw without one inherits whatever the previous draw set. See
+    /// [`Self::scissored`].
+    pub extent: (u32, u32),
     /// Whether to scissor each draw to its damage rects. False forces one
-    /// unscissored draw under the pass's full extent.
+    /// full-extent draw.
     pub damaged: bool,
     /// Whether the engine leaves the world band to the bundle this frame.
     pub skip_windows: bool,
@@ -66,12 +71,71 @@ pub(super) struct Composer<'a> {
     pub split_at: usize,
 }
 
+
+/// The parts of `scissors` that lie inside `clip` — the intersection of two rect
+/// lists, used to constrain the opaque pass to the damage actually being redrawn.
+///
+/// Both lists are small (a handful of damage rects against a handful of opaque
+/// rects), so the quadratic walk is cheaper than any structure that would avoid it.
+fn clip_rects(scissors: &[vk::Rect2D], clip: &[vk::Rect2D]) -> Vec<vk::Rect2D> {
+    let mut out = Vec::new();
+    for s in scissors {
+        let (sx0, sy0) = (s.offset.x, s.offset.y);
+        let (sx1, sy1) = (sx0 + s.extent.width as i32, sy0 + s.extent.height as i32);
+        for c in clip {
+            let (cx0, cy0) = (c.offset.x, c.offset.y);
+            let (cx1, cy1) = (cx0 + c.extent.width as i32, cy0 + c.extent.height as i32);
+            let x0 = sx0.max(cx0);
+            let y0 = sy0.max(cy0);
+            let x1 = sx1.min(cx1);
+            let y1 = sy1.min(cy1);
+            if x1 > x0 && y1 > y0 {
+                out.push(vk::Rect2D {
+                    offset: vk::Offset2D { x: x0, y: y0 },
+                    extent: vk::Extent2D { width: (x1 - x0) as u32, height: (y1 - y0) as u32 },
+                });
+            }
+        }
+    }
+    out
+}
+
 impl Composer<'_> {
+    /// Scissor to every rect and draw, ALWAYS — even on a full redraw.
+    ///
+    /// [`Self::scissored`] treats its rects as a damage optimization and drops them
+    /// when the whole frame is being repainted. That is right for damage and wrong
+    /// for a draw whose rects are part of its MEANING, like the opaque pass: there,
+    /// ignoring them would paint the whole quad opaque.
+    fn scissored_strict(&self, cmd: vk::CommandBuffer, scissors: &[vk::Rect2D], draw: &dyn Fn()) {
+        for s in scissors {
+            unsafe {
+                self.dev.device.cmd_set_scissor(cmd, 0, std::slice::from_ref(s));
+            }
+            draw();
+        }
+    }
+
     /// Run each draw once per damage rect under a scissor, instead of once over
     /// the whole target. On a full redraw (or the offscreen path, which forces
-    /// one), a single unscissored draw under `begin`'s full extent.
+    /// one), a single draw under the pass's FULL EXTENT.
+    ///
+    /// That last word is the fix. This used to just call `draw()` with no
+    /// `cmd_set_scissor` at all, on the reasoning that a full redraw wants no
+    /// scissor — but the scissor is dynamic pipeline STATE, not a per-draw
+    /// argument, so "no scissor" means "whatever the last draw left set". And
+    /// something always has: [`Self::scissored_strict`] sets one per rect for the
+    /// opaque pass and never restores it.
+    ///
+    /// So on the offscreen path — which forces `damaged = false`, and which only a
+    /// bundle with an after-content pass turns on — every element after the first
+    /// opaque replacement was drawn clipped to the PREVIOUS element's opaque rect.
+    /// A window placed over another rendered only inside that other window's
+    /// geometry; one over empty background vanished entirely; and it tracked pan
+    /// and zoom, because the inherited rect is another element's screen position.
     fn scissored(&self, cmd: vk::CommandBuffer, scissors: &[vk::Rect2D], draw: &dyn Fn()) {
         if !self.damaged {
+            self.scissor_full(cmd);
             draw();
             return;
         }
@@ -80,6 +144,18 @@ impl Composer<'_> {
                 self.dev.device.cmd_set_scissor(cmd, 0, std::slice::from_ref(s));
             }
             draw();
+        }
+    }
+
+    /// Reset the scissor to the whole pass. The state the pass begins in, restated
+    /// wherever a draw means "all of it" — because nothing else restores it.
+    fn scissor_full(&self, cmd: vk::CommandBuffer) {
+        let full = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: vk::Extent2D { width: self.extent.0, height: self.extent.1 },
+        };
+        unsafe {
+            self.dev.device.cmd_set_scissor(cmd, 0, std::slice::from_ref(&full));
         }
     }
 
@@ -116,7 +192,7 @@ impl Composer<'_> {
             // The pipeline owns this drawable's pixels — the engine collected its
             // rect/src/view into the world set but must not draw it.
             DrawOp::Textured { meta, .. } if skip_win && self.demand.claim.owns(meta) => {}
-            DrawOp::Textured { quad, tex_w, tex_h, scissors, .. } => {
+            DrawOp::Textured { quad, tex_w, tex_h, scissors, opaque, .. } => {
                 let set = self.sets[i].expect("textured op has a set");
                 if self.aa_op[i] {
                     let aa = self.aa.expect("aa pipeline present for aa op");
@@ -133,13 +209,55 @@ impl Composer<'_> {
                             *tex_h as f32,
                         ],
                     };
-                    self.scissored(cmd, scissors, &|| aa.draw(dev, cmd, set, push));
+                    // Every WORLD element — which is every client window — takes this
+                    // path whenever AA/FSR is on, so it needs the same opaque handling
+                    // as the plain pipeline below. Blend the quad, then replace the
+                    // declared-opaque parts.
+                    self.scissored(cmd, scissors, &|| aa.draw(dev, cmd, set, push, false));
+                    let aa_opaque = if self.damaged {
+                        clip_rects(scissors, opaque)
+                    } else {
+                        opaque.clone()
+                    };
+                    if !aa_opaque.is_empty() {
+                        self.scissored_strict(cmd, &aa_opaque, &|| {
+                            aa.draw(dev, cmd, set, push, true)
+                        });
+                    }
                 } else {
                     self.scissored(cmd, scissors, &|| {
                         compositor_kernel_vulkan_element_texture_base::texture::draw(
-                            dev, pipelines, cmd, set, *quad,
+                            dev, pipelines, cmd, set, *quad, false,
                         );
                     });
+                    // Then REPLACE the parts the surface declared opaque. Done as a
+                    // second scissored pass rather than by splitting the first: the
+                    // opaque region is an arbitrary rect list clipped against the
+                    // damage rects, and subtracting one list from the other to get the
+                    // blended remainder is both fiddly and pointless here — redrawing
+                    // the opaque part over itself costs one extra pass over a region
+                    // that is opaque by definition, and cannot be wrong.
+                    //
+                    // This is what makes the damage tracker's decision safe: it has
+                    // already removed these rects from `clear_rects` on the strength of
+                    // the client's promise, so something has to actually paint them.
+                    //
+                    // `scissored_strict`, not `scissored`: the latter ignores its rects
+                    // and draws once unscissored on a full redraw, which here would
+                    // paint the WHOLE window opaque and destroy any genuinely
+                    // translucent part of it.
+                    let opaque_scissors = if self.damaged {
+                        clip_rects(scissors, opaque)
+                    } else {
+                        opaque.clone()
+                    };
+                    if !opaque_scissors.is_empty() {
+                        self.scissored_strict(cmd, &opaque_scissors, &|| {
+                            compositor_kernel_vulkan_element_texture_base::texture::draw(
+                                dev, pipelines, cmd, set, *quad, true,
+                            );
+                        });
+                    }
                 }
             }
         }

@@ -270,7 +270,7 @@ where
             },
             |_| {
                 let size = if renderer::CRISP {
-                    let scale_factor = renderer.scale_factor().unwrap_or(1.0);
+                    let scale_factor = renderer.hint_factor().unwrap_or(1.0);
 
                     (self.size * scale_factor).round() / scale_factor
                 } else {
@@ -416,7 +416,7 @@ where
             );
         }
 
-        let scale_factor = renderer.scale_factor().unwrap_or(1.0);
+        let scale_factor = renderer.hint_factor().unwrap_or(1.0);
         let bounds = toggler_layout.bounds();
 
         let border_radius = style
@@ -439,7 +439,7 @@ where
         let toggle_bounds = {
             // Try to align toggle to the pixel grid
             let bounds = if renderer::CRISP {
-                (bounds * scale_factor).round()
+                (bounds * scale_factor).round() * (1.0 / scale_factor)
             } else {
                 bounds
             };
@@ -456,7 +456,7 @@ where
                 y: bounds.y + padding,
                 width: bounds.height - (2.0 * padding),
                 height: bounds.height - (2.0 * padding),
-            } * (1.0 / scale_factor)
+            }
         };
 
         renderer.fill_quad(

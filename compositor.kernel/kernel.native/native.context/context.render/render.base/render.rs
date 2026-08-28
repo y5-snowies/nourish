@@ -31,7 +31,6 @@ pub struct OutputPipe {
     pub crtc: smithay::reexports::drm::control::crtc::Handle,
     pub mode: Mode,
     pub output: Output,
-    pub damage_tracker: OutputDamageTracker,
     /// The live scanout target. `Option` because a live monitor switch tears the
     /// current output DOWN before building the target (single-output hardware can't
     /// light two at once — the atomic modeset of a second output fails). It is
@@ -44,8 +43,17 @@ pub struct OutputPipe {
     /// Vulkan). When true the executor signals the connector (BT.2020 + PQ) once
     /// and composites in the HDR working space.
     pub hdr_active: bool,
-    /// Whether the one-time DRM HDR output signalling has been applied.
-    pub hdr_signalled: bool,
+    /// Whether this pipe's one-time raw-DRM CONNECTOR PROPERTY pass has run
+    /// (colorimetry + bit depth). Named for HDR historically, but it now gates
+    /// the SDR case too — an SDR pipe must actively reset `Colorspace` to
+    /// Default, because whatever ran on another VT leaves its own value behind.
+    /// Cleared on every pipe build AND on session resume.
+    pub props_applied: bool,
+    /// Consecutive `render_frame` failures on this pipe. Reset by any success and
+    /// by a rebuild. Past `RENDER_FAILURE_PARK` the pipe is skipped entirely
+    /// instead of being retried (and re-logged) every frame — see
+    /// `render.execute::note_render_result`.
+    pub render_failures: u32,
     pub connector: smithay::reexports::drm::control::connector::Handle,
     /// The mode currently driving the pipe. Seeded at wire time and updated on every
     /// successful live mode change (`display.mode`) — the baseline an auto-revert
@@ -65,15 +73,9 @@ pub struct OutputPipe {
     /// global lingers and re-adding the monitor advertises a duplicate. `None` for the
     /// primary anchor (its global is created once at boot and never pruned).
     pub global: Option<smithay::reexports::wayland_server::backend::GlobalId>,
-    /// This pipe has a page-flip in flight (queued, awaiting its own VBlank).
-    /// The render loop SKIPS an in-flight pipe so each output re-renders only on
-    /// its OWN vblank cadence — a 144 Hz output is not dragged down to a 60 Hz
-    /// neighbour's rate by being re-rendered (and CPU-synced) on every vblank of
-    /// either output. Set true on a successful queue (`present`), cleared when
-    /// this pipe's CRTC delivers its vblank (`wire.frame::process_vblank`) and on
-    /// session resume. Single-output behaviour is unchanged (one pipe, its own
-    /// vblank clears it every frame).
-    pub in_flight: bool,
+    // Rendered-epoch and in-flight state live in the per-pipe redraw schedule
+    // (`Dispatch::redraw`, keyed by output key) — the kernel reports queue and
+    // completion there and asks it whether this pipe is due.
     /// Tearing pacing state (`environment.tearing` policy). All of these use
     /// `Instant`, NOT the kernel's vblank timestamp: that is CLOCK_MONOTONIC
     /// (uptime) while the loop's own clock is `start_time.elapsed()`
@@ -92,14 +94,13 @@ pub struct OutputPipe {
     pub render_start: Option<std::time::Instant>,
     /// Deadline of the currently-armed rate-cap wake-up timer, if any.
     ///
-    /// The cap must DEFER a frame, never drop it: the ping handler consumes the
-    /// `needs_redraw` latch before calling the executor, and its lost-wakeup
-    /// guard only re-arms for pipes that are `in_flight`. A capped pipe is idle,
-    /// so a bare skip loses the latch and the loop freezes until unrelated input
-    /// schedules another redraw — the parallax's non-pinging
-    /// `schedule_redraw_post_vblank` cannot restart an idle cycle on its own.
-    /// Holding the deadline (rather than a token) keeps re-arming idempotent
-    /// without any timer bookkeeping: a stale one has simply already fired.
+    /// The cap must DEFER a frame, never drop it: a capped pipe is idle and
+    /// behind the epoch, and nothing else is guaranteed to wake the loop for it
+    /// — a bare skip would freeze until unrelated input scheduled a redraw (the
+    /// parallax's non-waking `schedule_redraw_post_vblank` cannot restart an idle
+    /// cycle on its own). Holding the deadline (rather than a token) keeps
+    /// re-arming idempotent without any timer bookkeeping: a stale one has simply
+    /// already fired.
     pub cap_wake: Option<std::time::Instant>,
     /// Whether the in-flight frame was armed to tear. Read when its completion
     /// event arrives so presentation feedback reports the truthful `Vsync` flag

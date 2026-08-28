@@ -7,7 +7,7 @@ pub struct WindowData {
 }
 
 /// Present in a toplevel `wl_surface`'s data_map when the selection toolbar's
-/// Shift-close asked that this window leave NO placeholder tile on destroy.
+/// Shift-close asked that this window leave NO placeholder on destroy.
 /// Rides the surface (like `WindowData`) instead of the `Placeholder` record so
 /// the record stays pure and the mark can never reach persistence.
 pub struct DiscardPlaceholder;

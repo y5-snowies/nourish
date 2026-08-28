@@ -8,7 +8,7 @@
 //! - Raw OpenGL ES 2
 
 use crate::utils::{Buffer as BufferCoord, Physical, Point, Rectangle, Scale, Size, Transform, ids::id_gen};
-use cgmath::Matrix3;
+use glam::Affine2;
 use std::{
     any::TypeId,
     cmp::Ordering,
@@ -179,16 +179,16 @@ pub enum TextureFilter {
 impl Transform {
     /// A projection matrix to apply this transformation
     #[inline]
-    pub fn matrix(&self) -> Matrix3<f32> {
+    pub fn matrix(&self) -> Affine2 {
         match self {
-            Transform::Normal => Matrix3::new(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
-            Transform::_90 => Matrix3::new(0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0),
-            Transform::_180 => Matrix3::new(-1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0),
-            Transform::_270 => Matrix3::new(0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0),
-            Transform::Flipped => Matrix3::new(-1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
-            Transform::Flipped90 => Matrix3::new(0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0),
-            Transform::Flipped180 => Matrix3::new(1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0),
-            Transform::Flipped270 => Matrix3::new(0.0, -1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0),
+            Transform::Normal => Affine2::IDENTITY,
+            Transform::_90 => Affine2::from_cols_array(&[0.0, -1.0, 1.0, 0.0, 0.0, 0.0]),
+            Transform::_180 => Affine2::from_cols_array(&[-1.0, 0.0, 0.0, -1.0, 0.0, 0.0]),
+            Transform::_270 => Affine2::from_cols_array(&[0.0, 1.0, -1.0, 0.0, 0.0, 0.0]),
+            Transform::Flipped => Affine2::from_cols_array(&[-1.0, 0.0, 0.0, 1.0, 0.0, 0.0]),
+            Transform::Flipped90 => Affine2::from_cols_array(&[0.0, 1.0, 1.0, 0.0, 0.0, 0.0]),
+            Transform::Flipped180 => Affine2::from_cols_array(&[1.0, 0.0, 0.0, -1.0, 0.0, 0.0]),
+            Transform::Flipped270 => Affine2::from_cols_array(&[0.0, -1.0, -1.0, 0.0, 0.0, 0.0]),
         }
     }
 }
@@ -445,6 +445,19 @@ pub trait Renderer: RendererSuper {
     /// system resource usage.
     fn cleanup_texture_cache(&mut self) -> Result<(), Self::Error> {
         Ok(())
+    }
+
+    /// Drop all internal caches, freeing their resources unconditionally
+    ///
+    /// Unlike [`Renderer::cleanup_texture_cache`], this also discards cached imports and bind
+    /// targets whose source buffers are still alive.
+    ///
+    /// Note: Caches held outside the renderer, like per-surface textures in surface user-data,
+    /// are unaffected.
+    ///
+    /// The default implementation falls back to [`Renderer::cleanup_texture_cache`].
+    fn invalidate_caches(&mut self) -> Result<(), Self::Error> {
+        self.cleanup_texture_cache()
     }
 }
 
@@ -843,7 +856,7 @@ where
         src: Rectangle<i32, Physical>,
         dst: Rectangle<i32, Physical>,
         filter: TextureFilter,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<SyncPoint, Self::Error>;
 
     /// Copies the contents of the provided framebuffer to `dst` in the bound framebuffer,
     /// applying `filter` if necessary.
@@ -864,7 +877,7 @@ where
         src: Rectangle<i32, Physical>,
         dst: Rectangle<i32, Physical>,
         filter: TextureFilter,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<SyncPoint, Self::Error>;
 }
 
 #[cfg(feature = "wayland_frontend")]

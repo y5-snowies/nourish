@@ -11,7 +11,7 @@
 //! Two arrangements, chosen by the [`Breakpoint`] the caller measured:
 //! [`Breakpoint::Compact`] is a ROW (icon | two text lines | actions flush
 //! right), the others a centered COLUMN. Both fit their step without
-//! scrolling, so a tile at the layout floor is as usable as a full-size one.
+//! scrolling, so a placeholder at the layout floor is as usable as a full-size one.
 
 use std::path::PathBuf;
 
@@ -45,7 +45,7 @@ pub fn render(
 
     // Read the app_id as an ATTRIBUTE, not off `application_data.meta`. The raw
     // Meta is only populated while the window is alive: a plan rebuilt from a
-    // persisted record carries `Meta::default()`, so a restored tile would show
+    // persisted record carries `Meta::default()`, so a restored placeholder would show
     // no app_id at all. The hint survives persistence and honours user edits.
     let app_id = plan.current::<AppId>();
     let exec = exec_line(plan);
@@ -159,7 +159,7 @@ fn detail_line<'a>(
 }
 
 /// The Edit / Launch / Dismiss row. Order is fixed across breakpoints so the
-/// buttons don't move under the pointer when the tile is resized; only their
+/// buttons don't move under the pointer when the placeholder is resized; only their
 /// labels (words → glyphs) and metrics change.
 fn buttons<'a>(step: Breakpoint) -> Element<'a, PlaceholderMessage, Theme, Renderer> {
     row![

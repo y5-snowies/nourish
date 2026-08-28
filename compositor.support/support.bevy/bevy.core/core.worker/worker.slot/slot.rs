@@ -18,12 +18,7 @@ impl Slot {
         ctx: &WgpuVulkanContext,
         size: Size<i32, Physical>,
     ) -> Result<Self, SurfaceError> {
-        let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
-        let mods =
-            compositor_kernel_graphic_bridge_negotiate_compositor::compositor::worker_modifiers(
-                ctx.importable.clone(),
-                fourcc,
-            );
+        let (fourcc, mods) = compositor_kernel_graphic_format_answer_base::answer::producer_formats(&ctx.formats, compositor_kernel_graphic_format_answer_base::answer::Consumer::BevyWorker);
         let allocated = allocate_dmabuf_negotiated(
             render_node,
             size.w.max(1) as u32,

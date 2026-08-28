@@ -42,10 +42,10 @@ pub mod wgpu_context;
 pub mod wgpu_import;
 pub mod worker;
 
-pub use dmabuf_alloc::{AllocatedDmabuf, allocate_dmabuf, allocate_dmabuf_on};
+pub use dmabuf_alloc::{AllocatedDmabuf, allocate_dmabuf_negotiated};
 pub use error::{AllocError, GlesImportError, SurfaceError, WgpuContextError, WgpuImportError};
 pub use gles_import::import_dmabuf_to_gles;
 pub use surface::IcedSurface;
 pub use wgpu_context::{WgpuVulkanContext, create_wgpu_vulkan_context};
-pub use wgpu_import::{TEXTURE_FORMAT, TEXTURE_USAGE, import_dmabuf_to_wgpu};
+pub use wgpu_import::{texture_format, TEXTURE_USAGE, import_dmabuf_to_wgpu};
 pub use worker::WorkerSlot;

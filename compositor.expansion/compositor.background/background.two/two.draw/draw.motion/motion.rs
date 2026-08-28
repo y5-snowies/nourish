@@ -32,14 +32,29 @@ impl Motion {
             (pan.1 - self.pan_previous.1) / dt,
         );
 
-        // Smooth velocity
-        let s = 0.85;
+        // Smooth + decay, scaled by dt.
+        //
+        // These were per-CALL constants (0.85 smoothing, 0.95 decay), which made
+        // them wrong in two ways. Per FRAME: a 144Hz output damped the flow well
+        // over twice as fast as a 60Hz one. Per OUTPUT: `update()` is invoked once
+        // per output pass, so with two monitors both constants applied twice per
+        // frame and the parallax settled at roughly double the intended rate.
+        //
+        // Raising each to `dt / REF_DT` keeps the tuned behaviour exactly at 60Hz
+        // and makes it frame-rate independent everywhere else. It also makes a
+        // repeat call within one frame a no-op (dt ~ 0 => exponent ~ 0 => factor
+        // ~ 1), so the per-output-pass call is harmless by construction rather
+        // than by the caller remembering not to do it.
+        const REF_DT: f32 = 1.0 / 60.0;
+        let frames = dt / REF_DT;
+        let s = 0.85f32.powf(frames);
         self.velocity.0 = self.velocity.0 * s + raw_velocity.0 * (1.0 - s);
         self.velocity.1 = self.velocity.1 * s + raw_velocity.1 * (1.0 - s);
 
         // Decay so it settles when idle (avoids drift forever)
-        self.velocity.0 *= 0.95;
-        self.velocity.1 *= 0.95;
+        let decay = 0.95f32.powf(frames);
+        self.velocity.0 *= decay;
+        self.velocity.1 *= decay;
 
         // INTEGRATE velocity into flow_offset
         self.flow_offset.0 += self.velocity.0 * dt * 0.0005;

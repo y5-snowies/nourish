@@ -1,0 +1,6 @@
+{
+  "deps": [
+    // `calloop::ping::Ping` — the loop wake the schedule owns.
+    "smithay"
+  ]
+}

@@ -33,7 +33,7 @@ pub struct PlaceholderUi {
     /// `xdg-session-management-v1` identity.
     ///
     /// NOT `session` above, which is the pending-sample plan and unrelated
-    /// despite the name. This is what makes the tile restorable by identity
+    /// despite the name. This is what makes the placeholder restorable by identity
     /// rather than by guesswork, which is worth showing.
     pub(crate) has_session_identity: bool,
     pub(crate) working: LaunchPlan,
@@ -88,7 +88,7 @@ impl PlaceholderUi {
         match self.mode {
             Mode::Settings => &self.working,
             // The confirmation prompt is a modal over the View, so it reads the
-            // same canonical plan the tile behind it does.
+            // same canonical plan the placeholder behind it does.
             Mode::View | Mode::ConfirmContainerStart => &self.canonical,
         }
     }
@@ -163,7 +163,7 @@ impl IcedUi for PlaceholderUi {
                 self.mode = Mode::View;
             }
             PlaceholderMessage::ContainerStartConfirmed => {
-                // Compositor-handled. Drop the prompt here so the tile is back
+                // Compositor-handled. Drop the prompt here so the placeholder is back
                 // to its normal face while the container starts.
                 self.pending_container = None;
                 self.mode = Mode::View;

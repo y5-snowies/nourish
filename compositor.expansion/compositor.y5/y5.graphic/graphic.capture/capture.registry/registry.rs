@@ -406,12 +406,7 @@ impl RegistryInner {
             });
         }
 
-        let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
-        let mods = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_modifiers(
-            smithay::backend::renderer::ImportDma::dmabuf_formats(gles),
-            self.wgpu_ctx.importable.clone(),
-            fourcc,
-        );
+        let (fourcc, mods) = compositor_kernel_graphic_format_answer_base::answer::producer_formats(&self.wgpu_ctx.formats, compositor_kernel_graphic_format_answer_base::answer::Consumer::CaptureEntry);
         let dmabuf =
             allocate_dmabuf_negotiated(render_node, size.w as u32, size.h as u32, fourcc, &mods)?;
         let gles_tex = import_dmabuf_to_gles(gles, &dmabuf.dmabuf)?;
@@ -452,12 +447,7 @@ impl RegistryInner {
         let source = entry.source;
         let refcount = entry.refcount;
 
-        let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
-        let mods = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_modifiers(
-            smithay::backend::renderer::ImportDma::dmabuf_formats(gles),
-            self.wgpu_ctx.importable.clone(),
-            fourcc,
-        );
+        let (fourcc, mods) = compositor_kernel_graphic_format_answer_base::answer::producer_formats(&self.wgpu_ctx.formats, compositor_kernel_graphic_format_answer_base::answer::Consumer::CaptureEntry);
         let dmabuf = allocate_dmabuf_negotiated(
             render_node,
             new_size.w as u32,

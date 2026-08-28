@@ -72,6 +72,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // KNOWN-INVALID SPIR-V, stated at boot so it is never rediscovered from a silent
+    // validation log. naga interns SPIR-V types by handle alone and decorates struct
+    // members unconditionally, so one `OpTypeStruct` is shared between a push-constant
+    // block and a function-local and carries `Offset`/`ArrayStride`/`MatrixStride` where
+    // SPIR-V allows none. Every shader we emit through naga is affected — ours, iced's
+    // and bevy's.
+    //
+    // Harmless in practice: those storage classes have no defined layout, nothing reads
+    // the decoration, and the laid-out uses of the same type keep theirs, so addressing
+    // is unaffected. upstream wgpu suppresses the same VUID in its own debug callback
+    // (gfx-rs/wgpu#7696). We filter it in `environment/vk_layer_settings.txt` because at
+    // `duplicate_message_limit = 0` it buries sync validation.
+    //
+    // The reason this is a boot WARNING and not a comment somewhere: the filter means a
+    // future reader sees a clean validation log and concludes the SPIR-V is valid. It is
+    // not. Anything that genuinely validates — `spirv-val`, `spirv-opt`, GPU-AV shader
+    // instrumentation — may still refuse these modules, and this line is what connects
+    // that failure to its cause.
+    warn!(
+        "naga emits SPIR-V that violates VUID-StandaloneSpirv-None-10684 (explicit layout \
+         decorations on non-laid-out types); inert at runtime and FILTERED in \
+         environment/vk_layer_settings.txt, so the validation log understates it — see \
+         environment/patches/README.md"
+    );
+
     // Install the embedded default UI font (Inter) into iced's lazy global font
     // system while it is still untouched — before any engine/surface exists —
     // so the sans-serif default resolves even on systems with no fonts.
@@ -176,7 +201,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Initializing loop state");
 
-    let (bevy_context_rx, iced_context_rx) = initialize_wgpu_context();
+    // The format registrar is created HERE, before anything that registers a
+    // device capability or asks for one, and the handle is what travels: into the
+    // wgpu init thread below (which registers what each adapter can import) and
+    // into the kernel store further down, for everything on the compositor thread.
+    let formats = compositor_kernel_graphic_format_registrar_base::registrar::Registrar::new();
+
+    let (bevy_context_rx, iced_context_rx) = initialize_wgpu_context(formats.clone());
 
     // The injection point: the loader assembles the world set (update order
     // matters: navigator eases -> camera applies -> backgrounds react) and
@@ -233,6 +264,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Seeds the guide-popup slot (context menu, help, shader editor)
                     // — per-world, beside the iced registry holding its surfaces.
                     Box::new(compositor_y5_guide_system_base::base::GuideSystem),
+                ],
+                &kernel_data,
+            ),
+            // The KERNEL system host: systems that run every frame whatever world
+            // is active. OVERLAY-class (no Space, never a spawn-target, nothing
+            // persisted) and outside the world set — nothing here is per world.
+            compositor_support_world_kind_build_base::base::overlay(
+                compositor_orchestration_world_manager_base::manager::KERNEL,
+                "kernel",
+                vec![
+                    // The notification pill: queued, drawn above everything, on
+                    // every world, the lock screen and the picker alike.
+                    Box::new(compositor_y5_notify_system_base::base::NotifySystem::default()),
                 ],
                 &kernel_data,
             ),
@@ -311,6 +355,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             pointer,
             keyboard,
         );
+        // Kernel data, beside GPU_BINDING: created above, before anything that
+        // registers a capability, and inserted here for everything on the
+        // compositor thread. Producers hold their own clone.
+        state.inner.kernel.insert(
+            &compositor_kernel_graphic_format_registrar_base::registrar::FORMATS,
+            formats.clone(),
+        );
     }
 
     // Recreate scene worlds persisted in the `world` table under their saved UUIDs
@@ -365,6 +416,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .unwrap();
 
+    // ---------------------------------------------------------------------
+    // The wgpu/Vulkan contexts. RECEIVED here and nothing more.
+    //
+    // They are built on a background thread (a Vulkan/wayland requirement).
+    // Rather than stashing the channel and polling it every frame — lazily
+    // building GPU registries mid-render the moment a context happens to land —
+    // block until both arrive and store them in the kernel ONCE.
+    //
+    // BEFORE THE BACKEND WIRE, which is the part that changed: creating these
+    // adapters is what registers `Role::WgpuImport`, and the format layer refuses
+    // to answer anything until every role has registered — the native assembly's
+    // very first act is to ask for the scanout swapchain's candidate set. Waiting
+    // afterwards meant the contexts were still probing while answers were being
+    // given, which is exactly the race the requirement exists to remove.
+    //
+    // It costs the overlap between adapter probing and backend bring-up: a
+    // startup-latency trade, made deliberately, for an ordering guarantee.
+    //
+    // Everything that CONSUMES a context — the shared iced renderer, the capture
+    // registry, the per-world prewarm — stays below the wire, because each of them
+    // asks the format layer and the backend has not published its roles yet. That
+    // split is the whole reason this is two blocks and not one.
+    let bevy_ctx = {
+        const WGPU_INIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+        let iced_ctx = iced_context_rx
+            .recv_timeout(WGPU_INIT_TIMEOUT)
+            .unwrap_or_else(|e| compositor_model_debug_instance_record::abort!("iced wgpu context never arrived: {e:?}"));
+        let bevy_ctx = std::sync::Arc::new(
+            bevy_context_rx
+                .recv_timeout(WGPU_INIT_TIMEOUT)
+                .unwrap_or_else(|e| compositor_model_debug_instance_record::abort!("bevy wgpu context never arrived: {e:?}")),
+        );
+        info!("wgpu contexts received");
+        *state.inner.kernel.get_mut(&compositor_y5_surface_system_base::base::ICED_CONTEXT_MUT) = Some(iced_ctx);
+        *state.inner.kernel.get_mut(&compositor_background_three_system_base::base::BEVY_CONTEXT_MUT) = Some(bevy_ctx.clone());
+        bevy_ctx
+    };
+
     info!("Creating renderer");
 
     #[cfg(feature = "backend-native")]
@@ -394,43 +483,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //
     info!("Backend initialization - Complete");
 
-    // Initial seat-pointer placement. The cursor renders at the seat's world
-    // location (`(0,0)` -> screen center), but the relative-motion accumulator
-    // (`PointerState.motion`) defaults to physical top-left; without this the
-    // first mouse move would accumulate from the corner and the cursor would jump
-    // there. This must run AFTER the backend maps the output — `apply_pointer`
-    // re-projects world `(0,0)` through the live camera + output geometry, which
-    // don't exist when the seat is constructed. Single-output, so it runs once.
-    state.inner.apply_pointer(smithay::utils::Point::from((0.0, 0.0)));
-
     // ---------------------------------------------------------------------
     // Driver instances: PRE-CREATE + ASSERT, never construct during render.
     //
-    // The wgpu/Vulkan contexts are built on a background thread (a Vulkan/wayland
-    // requirement). Rather than stashing the channel and polling it every frame —
-    // lazily building GPU registries mid-render the moment the context happens to
-    // land — block here until both contexts arrive (they were created in parallel
-    // with the backend wire above), store them in the kernel ONCE, then build the
-    // capture registry and prewarm every world's iced + bevy registry. From the
-    // first frame onward these instances are guaranteed present; the render path
-    // asserts them rather than constructing them.
+    // The contexts arrived above; this is everything BUILT from them — the one
+    // shared iced renderer, the capture registry, and every world's iced + bevy
+    // registry. From the first frame onward these are guaranteed present; the
+    // render path asserts them rather than constructing them.
+    //
+    // BELOW THE BACKEND WIRE, deliberately: `ensure_engine` and the prewarm ask the
+    // format layer what their surfaces may be allocated with, and the layer will
+    // not answer until every role has registered. The backend publishes most of
+    // them, so this cannot run before it — which the gate caught the first time
+    // this block was moved up wholesale.
     {
-        const WGPU_INIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-        let iced_ctx = iced_context_rx
-            .recv_timeout(WGPU_INIT_TIMEOUT)
-            .unwrap_or_else(|e| compositor_model_debug_instance_record::abort!("iced wgpu context never arrived: {e:?}"));
-        let bevy_ctx = std::sync::Arc::new(
-            bevy_context_rx
-                .recv_timeout(WGPU_INIT_TIMEOUT)
-                .unwrap_or_else(|e| compositor_model_debug_instance_record::abort!("bevy wgpu context never arrived: {e:?}")),
-        );
-        info!("wgpu contexts received — pre-creating driver registries");
-
-        *state.inner.kernel.get_mut(&compositor_y5_surface_system_base::base::ICED_CONTEXT_MUT) = Some(iced_ctx);
         // BEFORE the prewarm loop below: every world's registry takes a clone of
         // this one renderer, so it has to exist first.
         compositor_y5_surface_system_base::base::ensure_engine(&mut state.inner.kernel);
-        *state.inner.kernel.get_mut(&compositor_background_three_system_base::base::BEVY_CONTEXT_MUT) = Some(bevy_ctx.clone());
 
         // Capture registry — kernel driver data shared by every backend.
         *state.inner.kernel.get_mut(&compositor_orchestration_driver_capture_base::base::CAPTURE_REGISTRY_MUT) =
@@ -472,6 +541,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("driver registries pre-created and asserted present");
     }
 
+    // THE REGISTRAR IS COMPLETE — advertise.
+    //
+    // Every role is now registered (the backend published its own; the wgpu
+    // contexts above published `WgpuImport`; whatever this machine has none of was
+    // registered empty), so this is the first point at which the dmabuf feedback
+    // can be computed from every term the machine imposes. It used to be built
+    // inside `lifecycle::initialize`, during backend wire, while those adapters
+    // were still probing — the advertisement was decided by a registrar that was
+    // not finished, and the layer now refuses to answer in that state at all.
+    //
+    // Late costs nothing: the event loop has not begun dispatching, so no client
+    // has seen the registry.
+    compositor_y5_graphic_display_advertise::advertise::advertise_dmabuf(&mut state);
+
+    // Initial seat-pointer placement. The cursor renders at the seat's world
+    // location (`(0,0)` -> screen center), but the relative-motion accumulator
+    // (`PointerState.motion`) defaults to physical top-left; without this the
+    // first mouse move would accumulate from the corner and the cursor would jump
+    // there. This must run AFTER the backend maps the output — `apply_pointer`
+    // re-projects world `(0,0)` through the live camera + output geometry, which
+    // don't exist when the seat is constructed. Single-output, so it runs once.
+    state.inner.apply_pointer(smithay::utils::Point::from((0.0, 0.0)));
+
+
     // Optional VulkanRenderer hardware self-test (feature `vulkan-validate`).
     // Independent of the active backend — it builds its own VkInstance and
     // renders one frame to an exported dmabuf, so it validates the new Vulkan
@@ -479,7 +572,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "vulkan-validate")]
     {
         info!("vulkan-validate: running VulkanRenderer self-test...");
-        match compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::validate() {
+        match compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::validate(formats.clone()) {
             Ok(proof) => info!("vulkan-validate: OK — {proof}"),
             Err(e) => {
                 use compositor_model_debug_instance_record::error;
@@ -571,5 +664,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // re-advertisement is event-driven off the `WORLD_SWITCHED` bus channel above.)
     })?;
 
+    // Our own teardown first, so anything EGL has to say about it is still
+    // reported — the compositor's contexts and surfaces go out with `state`.
+    drop(state);
+    // Then hand EGL's debug callback back. What remains is the driver tearing
+    // down its own contexts from a library destructor that runs after `main`
+    // returns, past the point where thread-local storage still exists; the
+    // callback reaches through TLS for the logger and panics, and the panic hook
+    // prints two backtraces over what was a clean logout. Nothing it could report
+    // that late is ours to act on, so the callback goes away rather than being
+    // taught to survive.
+    smithay::backend::egl::ffi::unset_debug_log();
     Ok(())
 }

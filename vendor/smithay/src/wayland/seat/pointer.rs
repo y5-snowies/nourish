@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, atomic::Ordering};
 
-use atomic_float::AtomicF64;
+use portable_atomic::AtomicF64;
 use wayland_server::{
     Client, DisplayHandle, Resource, Weak,
     backend::{ClientId, ObjectId},
@@ -25,7 +25,10 @@ use crate::{
         },
     },
     utils::{Client as ClientCoords, Point, Serial, iter::new_locked_obj_iter_from_vec},
-    wayland::{Dispatch2, compositor, pointer_constraints::with_pointer_constraint},
+    wayland::{
+        Dispatch2, compositor,
+        pointer_constraints::{PointerConstraintsHandler, with_pointer_constraint},
+    },
 };
 
 use super::{SeatHandler, WaylandFocus};
@@ -63,8 +66,27 @@ pub(crate) struct WlPointerHandle {
 }
 
 impl WlPointerHandle {
-    pub(super) fn new_pointer(&self, pointer: WlPointer) {
+    pub(super) fn new_pointer<D: SeatHandler + 'static>(&self, pointer: WlPointer)
+    where
+        <D as SeatHandler>::PointerFocus: WaylandFocus,
+    {
         self.known_pointers.lock().unwrap().push(pointer.downgrade());
+
+        let data = pointer.data::<PointerUserData<D>>().unwrap();
+        let guard = data.handle.as_ref().unwrap().inner.lock().unwrap();
+        if let Some((focus, location)) = &guard.focus {
+            if focus.same_client_as(&pointer.id()) {
+                if let Some(surface) = focus.wl_surface() {
+                    let serial = self.last_enter.lock().unwrap().unwrap();
+                    let client_scale = data.client_scale.load(Ordering::Acquire);
+                    let location = (guard.location - *location).to_client(client_scale);
+                    pointer.enter(serial.into(), &surface, location.x, location.y);
+                    if pointer.version() >= 5 {
+                        pointer.frame();
+                    }
+                }
+            }
+        }
     }
 
     fn enter<D: SeatHandler + 'static>(&self, surface: &WlSurface, event: &MotionEvent) {
@@ -235,7 +257,9 @@ impl WlPointerHandle {
 
 impl<D> PointerTarget<D> for WlSurface
 where
-    D: SeatHandler + 'static,
+    D: SeatHandler,
+    D: PointerConstraintsHandler,
+    D: 'static,
 {
     fn enter(&self, seat: &Seat<D>, _data: &mut D, event: &MotionEvent) {
         if let Some(pointer) = seat.get_pointer() {
@@ -243,14 +267,14 @@ where
         }
     }
 
-    fn leave(&self, seat: &Seat<D>, _data: &mut D, serial: Serial, time: u32) {
+    fn leave(&self, seat: &Seat<D>, data: &mut D, serial: Serial, time: u32) {
         if let Some(pointer) = seat.get_pointer() {
             pointer.wp_pointer_gestures.leave::<D>(self, serial, time);
             pointer.wl_pointer.leave(self, serial, time);
 
             with_pointer_constraint(self, &pointer, |constraint| {
                 if let Some(constraint) = constraint {
-                    constraint.deactivate();
+                    constraint.deactivate(data, self, &pointer);
                 }
             });
         }

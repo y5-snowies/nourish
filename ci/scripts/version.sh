@@ -32,7 +32,19 @@ series="v$major.$minor."
 git -C "$REPO_ROOT" fetch --tags --quiet 2>/dev/null || true
 
 # Re-run guard: a version already pinned to this commit wins — don't double-bump.
-on_head="$(git -C "$REPO_ROOT" tag --points-at HEAD --list "$series*" 2>/dev/null | sort -V | tail -n1)"
+#
+# Only pure-integer patches count, using the same filter as the series scan below. The
+# `$series*` glob also matches PRE-RELEASE tags — for series `v1.0.` it matches
+# `v1.0.5-rc.2` — and `sort -V` orders those AFTER `v1.0.5`, so an unfiltered guard hands
+# an `-rc.N` string to the STABLE release job whenever an rc-tagged commit becomes the tip
+# of `upstream` (a fast-forward promotion of a validated rc). That would publish the stable
+# release as `v1.0.5-rc.2` and mark it Latest.
+on_head=""
+while IFS= read -r tag; do
+    p="${tag#"$series"}"
+    case "$p" in '' | *[!0-9]*) continue ;; esac
+    on_head="$tag"
+done < <(git -C "$REPO_ROOT" tag --points-at HEAD --list "$series*" 2>/dev/null | sort -V)
 if [ -n "$on_head" ]; then
     printf '%s\n' "${on_head#v}"
     exit 0

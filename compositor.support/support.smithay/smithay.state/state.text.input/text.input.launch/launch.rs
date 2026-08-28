@@ -13,6 +13,7 @@ use smithay::reexports::wayland_server::{Client, DisplayHandle};
 
 use compositor_model_environment_preference_base::base::Ime;
 use compositor_support_library_process_child_hygiene::hygiene::command;
+use compositor_support_library_process_child_spawn::spawn as child_spawn;
 
 /// pid (== process-group id) of the launched IME; `0` before launch / if none started.
 static IME_PGID: AtomicI32 = AtomicI32::new(0);
@@ -30,13 +31,13 @@ pub fn launch(configured: Option<Ime>) {
 
     // `process_group(0)` → new group with pgid == child pid (covers the IME + any helper it forks).
     // The IME must NOT daemonize (`-d`), or the connecting process is a reparented grandchild.
-    let spawned = command(&ime.exec)
-        .args(&ime.args)
+    let mut cmd = command(&ime.exec);
+    cmd.args(&ime.args)
         .process_group(0)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn();
+        .stderr(Stdio::piped());
+    let spawned = child_spawn::spawn(&mut cmd);
     let mut child = match spawned {
         Ok(c) => c,
         Err(e) => return error!("ime: failed to launch '{}': {e}", ime.exec),

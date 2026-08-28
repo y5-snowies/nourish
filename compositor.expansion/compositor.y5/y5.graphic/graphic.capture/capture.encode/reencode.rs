@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 
 use compositor_support_library_process_child_hygiene::hygiene::command;
+use compositor_support_library_process_child_spawn::spawn as child_spawn;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread::JoinHandle;
@@ -99,8 +100,7 @@ impl ReencodeJob {
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
 
-        let mut child = cmd
-            .spawn()
+        let mut child = child_spawn::spawn(&mut cmd)
             .map_err(|e| warn!("reencode: ffmpeg spawn failed: {e}"))
             .ok()?;
 
@@ -260,7 +260,7 @@ fn run_blocking(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let status = cmd.status();
+    let status = child_spawn::status(&mut cmd);
     matches!(status, Ok(s) if s.success())
         && std::fs::metadata(output).map(|m| m.len() > 0).unwrap_or(false)
 }
@@ -294,8 +294,8 @@ fn snap_fps(avg: f64) -> u32 {
 
 /// Probe a file's average frame rate via `ffprobe`. `None` if unavailable.
 fn probe_avg_fps(input: &Path) -> Option<f64> {
-    let out = command("ffprobe")
-        .args([
+    let mut cmd = command("ffprobe");
+    cmd.args([
             "-v",
             "error",
             "-select_streams",
@@ -305,9 +305,8 @@ fn probe_avg_fps(input: &Path) -> Option<f64> {
             "-of",
             "default=nw=1:nk=1",
         ])
-        .arg(input)
-        .output()
-        .ok()?;
+        .arg(input);
+    let out = child_spawn::output(&mut cmd).ok()?;
     let s = String::from_utf8_lossy(&out.stdout);
     let (n, d) = s.trim().split_once('/')?;
     let n: f64 = n.trim().parse().ok()?;
@@ -347,20 +346,19 @@ fn input_decode_args(input: &Path, render_node: &str) -> Vec<String> {
 
 /// The input stream's codec name (e.g. `h264`, `hevc`, `av1`) via `ffprobe`.
 fn probe_codec_name(input: &Path) -> Option<String> {
-    let out = command("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=codec_name",
-            "-of",
-            "default=nw=1:nk=1",
-        ])
-        .arg(input)
-        .output()
-        .ok()?;
+    let mut cmd = command("ffprobe");
+    cmd.args([
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=codec_name",
+        "-of",
+        "default=nw=1:nk=1",
+    ])
+    .arg(input);
+    let out = child_spawn::output(&mut cmd).ok()?;
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if s.is_empty() { None } else { Some(s) }
 }
@@ -370,11 +368,9 @@ fn probe_codec_name(input: &Path) -> Option<String> {
 /// token is surrounded by spaces). Defaults to `true` if the probe itself fails
 /// (can't tell → assume software decode and let ffmpeg try).
 fn software_decoder_available(codec: &str) -> bool {
-    let Ok(out) = command("ffmpeg")
-        .args(["-hide_banner", "-decoders"])
-        .stderr(Stdio::null())
-        .output()
-    else {
+    let mut cmd = command("ffmpeg");
+    cmd.args(["-hide_banner", "-decoders"]);
+    let Ok(out) = child_spawn::output(&mut cmd) else {
         return true;
     };
     let needle = format!(" {codec} ");
@@ -386,18 +382,17 @@ fn software_decoder_available(codec: &str) -> bool {
 /// Probe a media file's duration in microseconds via `ffprobe`. `None` if
 /// unavailable (progress then stays best-effort 0).
 fn probe_duration_us(input: &Path) -> Option<i64> {
-    let out = command("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=nw=1:nk=1",
-        ])
-        .arg(input)
-        .output()
-        .ok()?;
+    let mut cmd = command("ffprobe");
+    cmd.args([
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=nw=1:nk=1",
+    ])
+    .arg(input);
+    let out = child_spawn::output(&mut cmd).ok()?;
     let secs: f64 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
     Some((secs * 1_000_000.0) as i64)
 }

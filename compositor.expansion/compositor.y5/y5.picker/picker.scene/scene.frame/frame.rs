@@ -19,6 +19,8 @@ pub struct PickerPrepared {
     pub background_two:
         Option<compositor_background_two_draw_element::element::ParallaxBackground>,
     pub surfaces: Vec<compositor_monitor_compositor_iced_base::IcedRenderElement>,
+    /// The notification pill, above everything (`None` while nothing is queued).
+    pub notify: Option<compositor_y5_notify_present_base::base::NotifyFrame>,
 }
 
 /// Active-monitor-only gate. The picker overlay (sphere + details panel + pointer)
@@ -45,7 +47,7 @@ pub fn prepare(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Ph
 
     // Per-frame pre-step: momentum, transform push, parallax extraction. Runs on
     // every output so the parallax fills each monitor behind the picker.
-    let background_two = compositor_y5_picker_scene_tick::tick::tick(state, renderer);
+    let (background_two, notify) = compositor_y5_picker_scene_tick::tick::tick(state, renderer, size);
 
     // The per-frame statement of what THIS world's background needs from the
     // engine — the same call the orchestration scene makes, through the same
@@ -72,7 +74,7 @@ pub fn prepare(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Ph
     // Non-active output: parallax only. Skip the (size-baked) bevy sphere and iced
     // details panel so they render exclusively on the active monitor.
     if !on_active_output(state) {
-        return PickerPrepared { bevy: vec![], background_two, surfaces: vec![] };
+        return PickerPrepared { bevy: vec![], background_two, surfaces: vec![], notify };
     }
 
     let gpu = state.inner.environment.GPU.clone();
@@ -117,7 +119,7 @@ pub fn prepare(state: &mut Loop, renderer: &mut GlesRenderer, size: Size<i32, Ph
         state.schedule_redraw_post_vblank();
     }
 
-    PickerPrepared { bevy, background_two, surfaces }
+    PickerPrepared { bevy, background_two, surfaces, notify }
 }
 
 /// Lower the bevy elements (+ pointer) into the renderer-agnostic `Scene`.
@@ -135,6 +137,11 @@ where
     // Active monitor only: fade overlay, pointer, details panel, and the sphere.
     // Other outputs draw the parallax alone (below), so the picker UI never lands
     // on a monitor the user isn't on.
+    // The notification pill, above the fade and the pointer alike — on every
+    // output (the presenter hands back this pass's own), unlike the picker UI.
+    if let Some(n) = prepared.notify {
+        plan.extend(layer::NOTIFY, n.elements.into_iter().map(DrawNode::Iced));
+    }
     if on_active_output(state) {
         // Entry fade: a black overlay (above the scene) that clears over FADE_SECS.
         if let Some(solid) = compositor_y5_picker_scene_fade::fade::overlay(state, size) {

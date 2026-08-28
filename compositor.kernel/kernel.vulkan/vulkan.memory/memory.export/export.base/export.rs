@@ -183,6 +183,6 @@ pub fn export(device: &VulkanDevice, img: &ExportableImage) -> Result<Dmabuf, Ex
         modifier,
         DmabufFlags::empty(),
     );
-    builder.add_plane(fd, 0, layout.offset as u32, layout.row_pitch as u32);
+    builder.add_plane(fd, layout.offset as u32, layout.row_pitch as u32);
     builder.build().ok_or(ExportError::Assembly)
 }

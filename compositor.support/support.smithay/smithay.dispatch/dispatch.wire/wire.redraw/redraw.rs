@@ -1,27 +1,10 @@
 use smithay::desktop::{Space, Window};
-use smithay::reexports::calloop;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::wayland::seat::WaylandFocus;
 use smithay::utils::{Rectangle, Logical};
 use smithay::wayland::{compositor, fractional_scale};
 use smithay::wayland::compositor::{send_surface_state, with_states};
 use compositor_support_smithay_state_fractional_base::state::NestedCompositorSurface;
-
-pub fn schedule_redraw(
-    needs_redraw: &mut bool,
-    render_in_flight: bool,
-    ping: &Option<calloop::ping::Ping>,
-) {
-    if *needs_redraw { return; }
-    *needs_redraw = true;
-    if !render_in_flight {
-        if let Some(p) = ping { p.ping(); }
-    }
-}
-
-pub fn take_needs_redraw(needs_redraw: &mut bool) -> bool {
-    std::mem::replace(needs_redraw, false)
-}
 
 pub fn window_for_toplevel(space: &Space<Window>, surface: &WlSurface) -> Option<Window> {
     space.elements()

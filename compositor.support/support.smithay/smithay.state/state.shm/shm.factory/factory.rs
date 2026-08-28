@@ -22,12 +22,10 @@ where
     // mapping automatically behind the scenes.
     let shm_state = ShmState::new::<I>(
         &display_handle,
-        // NEW Added explicit formats
-        vec![
-            Format::Abgr8888, // common; the byte-swap of Argb
-            Format::Xbgr8888,
-            Format::Bgr888,
-        ],
+        // The extras beyond the protocol's mandatory Argb/Xrgb, from the format
+        // layer. Advertising one the renderer cannot upload is a client that gets
+        // nothing — which is what `Bgr888` did here for as long as it was listed.
+        compositor_kernel_graphic_format_answer_base::answer::shm_extra(),
     );
 
     return SHMState { state: shm_state };

@@ -23,7 +23,6 @@ use compositor_kernel_graphic_render_contract_base::contract::{RenderContract, R
 use compositor_kernel_graphic_preference_renderer_rank::rank::RendererKind;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::allocator::format::FormatSet;
-use smithay::backend::drm::VrrSupport;
 use smithay::backend::renderer::ImportEgl;
 use smithay::output::{Mode, Output};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -41,13 +40,14 @@ pub struct RendererAssembly {
 }
 
 /// Preference-driven assembly (the default entry).
-pub fn assemble(display: &mut DisplayAssembly) -> RendererAssembly {
-    assemble_with(display, None)
+pub fn assemble(formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar, display: &mut DisplayAssembly) -> RendererAssembly {
+    assemble_with(formats, display, None)
 }
 
 /// Assembly with an optional compile-time override (the entry's
 /// `renderer-vulkan` feature passes `Some(RendererKind::Vulkan)`).
 pub fn assemble_with(
+    formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar,
     display: &mut DisplayAssembly,
     override_kind: Option<RendererKind>,
 ) -> RendererAssembly {
@@ -61,13 +61,13 @@ pub fn assemble_with(
         .unwrap_or(RendererKind::Gles);
 
     match kind {
-        RendererKind::Gles => assemble_gles(display),
-        RendererKind::Vulkan => vulkan_selected(display),
+        RendererKind::Gles => assemble_gles(formats, display),
+        RendererKind::Vulkan => vulkan_selected(formats, display),
     }
 }
 
 /// The gles arm (the original path, with the mode fallback chain made real).
-fn assemble_gles(display: &mut DisplayAssembly) -> RendererAssembly {
+fn assemble_gles(formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar, display: &mut DisplayAssembly) -> RendererAssembly {
     // Native scanout machine validation (reinstated de-delegation crates):
     // kernel-checked against the real device, screen untouched. The hosted
     // manager remains the live path until the swap-over; a compiled-in
@@ -97,13 +97,54 @@ fn assemble_gles(display: &mut DisplayAssembly) -> RendererAssembly {
         &mut gpus,
         &display.primary_gpu,
     );
-    let render_formats = filter_formats(
-        renderer
-            .as_mut()
-            .egl_context()
-            .dmabuf_render_formats()
-            .clone(),
+    // Register the scanout device's own answer, then ASK the format layer. This
+    // crate no longer intersects anything: it hands over a capability and takes a
+    // decision.
+    formats.set_split_device(display.split_device);
+    formats.register(
+        compositor_kernel_graphic_format_registrar_base::registrar::Device::of(&display.primary_gpu),
+        compositor_kernel_graphic_format_role_base::role::Role::ScanoutEgl,
+        filter_formats(renderer.as_mut().egl_context().dmabuf_render_formats().clone()),
+        "scanout egl (dmabuf_render_formats)",
     );
+    // THE REST OF THE MACHINE, BEFORE THE FIRST ANSWER.
+    //
+    // `scanout_formats` below is an `answer::available` call, and the format layer
+    // refuses to answer anything while `registrar::REQUIRED` is unsatisfied. It
+    // reads only `ScanoutEgl` and `Render`, but the rule is deliberately not
+    // per-question — an answer is not entitled to know which roles it happens to
+    // read — so the two EGL-derived roles are registered HERE, where the renderer
+    // that answers for them is already in hand, instead of after the assembly.
+    //
+    // Both are the same expression the later registration uses, so this is not a
+    // placeholder that gets corrected: `bind::bind` returns exactly
+    // `ImportDma::dmabuf_formats(renderer)` (the wl_drm bind beside it is a legacy
+    // bridge and does not change the list), and `bind::texture_formats` is exactly
+    // `egl_context().dmabuf_texture_formats()`. The re-registration that follows in
+    // `wire.entry` therefore sees an identical set and is a silent no-op.
+    formats.register(
+        compositor_kernel_graphic_format_registrar_base::registrar::Device::UNSPECIFIED,
+        compositor_kernel_graphic_format_role_base::role::Role::GlesSample,
+        smithay::backend::renderer::ImportDma::dmabuf_formats(&renderer),
+        "egl (dmabuf_formats)",
+    );
+    // `Sample` only if nobody has answered for it yet. A VULKAN composite registers
+    // it before the assembly from its physical device — the identical value, since
+    // `VulkanRenderer::dmabuf_formats()` IS `modifier::import_formats(&phd)` — and
+    // that is the set that must stand. Registering unconditionally here would
+    // overwrite it with the GLES renderer's, which is a different device's answer
+    // to the same question. Checking rather than predicating on the `renderer`
+    // setting also covers the case where Vulkan was asked for and its physical
+    // device lookup failed: nothing registered, and this fills in.
+    if formats.view().set(compositor_kernel_graphic_format_role_base::role::Role::Sample).is_none() {
+        formats.register(
+            compositor_kernel_graphic_format_registrar_base::registrar::Device::of(&display.primary_gpu),
+            compositor_kernel_graphic_format_role_base::role::Role::Sample,
+            renderer.as_mut().egl_context().dmabuf_texture_formats().clone(),
+            "gles composite (dmabuf_texture_formats)",
+        );
+    }
+    let render_formats = scanout_formats(formats);
 
     let drm = display
         .drm
@@ -193,7 +234,7 @@ fn assemble_gles(display: &mut DisplayAssembly) -> RendererAssembly {
             .modifiers()
             .first()
             .copied()
-            .unwrap_or(smithay::backend::allocator::Modifier::Invalid);
+            .unwrap_or(compositor_kernel_graphic_format_rule_base::rule::UNKNOWN);
         // Print the WHOLE offered set, not just the head. Logging only the first turned out
         // to be useless in the one case that matters: `modifier=Invalid (2 offered)` says we
         // are on the implicit/driver-negotiated path but hides what the alternative was, so it
@@ -205,15 +246,15 @@ fn assemble_gles(display: &mut DisplayAssembly) -> RendererAssembly {
              ({offered} offered: {})",
             all.join(", ")
         );
-        use compositor_kernel_graphic_bridge_negotiate_classify::classify;
+        use compositor_kernel_graphic_format_rule_base::rule;
         // The achieved depth, for producers that should match it rather than
         // render 8-bit into a 10-bit pipeline (the background worker does).
-        compositor_kernel_graphic_bridge_negotiate_compositor::compositor::set_scanout_fourcc(fourcc);
+        formats.set_scanout_fourcc(u32::from(display.pipe) as u64, fourcc);
         compositor_model_stats_registry_base::base::set_device_format(
             "scanout",
             &format!("{fourcc:?}"),
             modifier.into(),
-            classify::label(classify::classify(modifier)),
+            rule::label(rule::classify(modifier)),
             1,
         );
     });
@@ -221,33 +262,21 @@ fn assemble_gles(display: &mut DisplayAssembly) -> RendererAssembly {
     // M4: enable VRR / adaptive-sync on capable outputs (controlled by `vrr`).
     // smithay sets VRR_ENABLED on the CRTC; a no-op on fixed-refresh panels. With
     // VRR active and our damage-driven scheduling, the refresh rate tracks content.
-    let vrr_requested = env.vrr;
-    if vrr_requested {
-        let conn = display.connector.handle();
-        drm_output.with_compositor(|comp| {
-            let supported =
-                matches!(comp.vrr_supported(conn), Ok(VrrSupport::Supported | VrrSupport::RequiresModeset));
-            let enabled = if supported {
-                match comp.use_vrr(true) {
-                    Ok(()) => {
-                        info!("native: VRR enabled");
-                        true
-                    }
-                    Err(e) => {
-                        warn!("native: VRR enable failed: {e:?}");
-                        false
-                    }
-                }
-            } else {
-                info!("native: VRR not supported by this output");
-                false
-            };
-            compositor_model_stats_registry_base::base::set_vrr(supported, enabled);
-        });
-    } else {
-        info!("native: VRR disabled (COMPOSITOR_VRR)");
-        compositor_model_stats_registry_base::base::set_vrr(false, false);
-    }
+    // Same call the runtime builder (`context.display/display.build`) makes for
+    // every pipe it constructs — assembly is just the first one. Kept as one
+    // implementation so a second monitor and a failed-over primary get exactly
+    // what the assembly pipe gets.
+    let conn = display.connector.handle();
+    let vrr = compositor_kernel_scanout_surface_output_base::output::apply_vrr(
+        &drm_output,
+        conn,
+        env.vrr,
+    );
+    info!(
+        "native: VRR requested={} supported={} enabled={}",
+        env.vrr, vrr.supported, vrr.enabled
+    );
+    compositor_model_stats_registry_base::base::set_vrr(vrr.supported, vrr.enabled);
 
     // Output + mode for the Statistics tab.
     {
@@ -293,8 +322,45 @@ fn filter_formats(formats: FormatSet) -> FormatSet {
     formats
 }
 
+/// The scanout swapchain's candidate set, from the format layer.
+///
+/// The narrowing itself (scanout EGL ∩ what the composite can colour-attach, with
+/// `INVALID` dropped) lives in `format.resolve`. What stays here is the RESPONSE
+/// to a refusal, because only this layer can abort startup.
+///
+/// A refusal means there is no legal arrangement in which this composite renders
+/// directly into this scanout device's buffers. The only correct answers are the
+/// cross-device blit path (composite renders into its OWN tiled buffer, a copy
+/// bridges to the scanout — see `~/PRIME_VULKAN.md`), which is not implemented, or
+/// a composite on the scanout device itself. Failing at startup beats a session
+/// that renders undefined pixels and freezes later — which is what the old
+/// widen-back-to-EGL fallback did.
+fn scanout_formats(formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar) -> FormatSet {
+    use compositor_kernel_graphic_format_answer_base::answer;
+    use compositor_kernel_graphic_format_rule_base::rule::Outcome;
+    let answer::Answer::Set { set, outcome } =
+        answer::available(formats, answer::Consumer::ScanoutSwapchain)
+    else {
+        abort!("scanout: the format layer answered the swapchain with a non-set shape");
+    };
+    if let Outcome::Refused(why) = outcome {
+        abort!(
+            "scanout: the composite can render into NONE of the pair(s) this scanout device \
+             offers — {why}. Rendering into an unsanctioned modifier is what this refuses to \
+             do. Until the cross-device blit path lands, run the composite on the scanout \
+             device instead: set `renderer = \"gles\"`, or point `render_node` at the \
+             scanout device."
+        );
+    }
+    info!(
+        "scanout render formats: {} pair(s) after the composite's renderable set",
+        set.iter().count()
+    );
+    set
+}
+
 #[cfg(not(feature = "renderer-vulkan"))]
-fn vulkan_selected(_display: &mut DisplayAssembly) -> RendererAssembly {
+fn vulkan_selected(_formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar, _display: &mut DisplayAssembly) -> RendererAssembly {
     abort!(
         "the vulkan renderer was selected but the backend was built without the \
          `renderer-vulkan` feature"
@@ -303,7 +369,7 @@ fn vulkan_selected(_display: &mut DisplayAssembly) -> RendererAssembly {
 
 /// The vulkan arm: run the full foundation self-test, then state the gap.
 #[cfg(feature = "renderer-vulkan")]
-fn vulkan_selected(display: &mut DisplayAssembly) -> RendererAssembly {
+fn vulkan_selected(formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar, display: &mut DisplayAssembly) -> RendererAssembly {
     let proof = vulkan_self_test(display);
     abort!(
         "vulkan renderer selected and PROVEN on this node ({proof}) — but the hosted scanout \
@@ -335,7 +401,7 @@ fn vulkan_self_test(display: &DisplayAssembly) -> String {
         .unwrap_or_else(|e| abort!("vulkan allocator creation failed: {e}"));
 
     // Negotiated formats for the offered color set.
-    let fourccs = compositor_kernel_scanout_surface_output_base::output::color_formats(false);
+    let fourccs = compositor_kernel_graphic_format_catalog_base::catalog::scanout_ladder(false);
     let formats = compositor_kernel_vulkan_format_modifier_base::modifier::render_formats(
         &phd, &fourccs,
     );
@@ -343,13 +409,36 @@ fn vulkan_self_test(display: &DisplayAssembly) -> String {
         !formats.indexset().is_empty(),
         "vulkan negotiated zero render formats"
     );
-    let modifiers: Vec<_> = formats.iter().map(|f| f.modifier).collect();
+    // DEVICE-LOCAL: this probe target is created and consumed by THIS device, so
+    // the device's own list is legal and no cross-API narrowing applies.
+    //
+    // `constant`, not `available`: the output target's fourcc is an assertion that
+    // consults no device, which is what the other two call sites already use
+    // (`renderer/bind.rs`, `renderer/lifecycle.rs`). It also keeps this self-test
+    // out of the registrar-completeness gate — it runs mid-assembly, before the
+    // machine it would be asked about is finished being built.
+    let fourcc = compositor_kernel_graphic_format_answer_base::answer::constant(
+        compositor_kernel_graphic_format_answer_base::answer::Consumer::VulkanOutputTarget,
+    )
+    .0;
+    // FILTERED TO THAT FOURCC. `render_formats` spans the whole ladder, so a flat
+    // `.map(|f| f.modifier)` collected modifiers belonging to OTHER fourccs and
+    // then offered them for this one — a modifier valid only for Abgr8888 handed
+    // to Vulkan as an Argb8888 candidate. Deduped too: the flat map repeated any
+    // modifier every fourcc shared.
+    // Sorted and deduped through the u64 each one wraps: `DrmModifier` is not
+    // `Ord`, so a bare `sort_unstable()` does not compile — which it had not, for
+    // as long as this cfg has been off.
+    let mut modifiers: Vec<_> =
+        formats.iter().filter(|f| f.code == fourcc).map(|f| f.modifier).collect();
+    modifiers.sort_unstable_by_key(|m| u64::from(*m));
+    modifiers.dedup();
 
     // Exportable render target + composition pipelines.
     let target = compositor_kernel_vulkan_memory_export_base::export::create_exportable(
         &device,
         &phd,
-        smithay::backend::allocator::Fourcc::Argb8888,
+        fourcc,
         (64, 64),
         &modifiers,
     )
@@ -500,6 +589,9 @@ fn vulkan_self_test(display: &DisplayAssembly) -> String {
                 cmd,
                 descriptor_set,
                 tex_quad,
+                // Self-test blit into a scratch target: nothing declared an opaque
+                // region here, so the blended path is the right one.
+                false,
             );
         },
     )
@@ -548,11 +640,14 @@ fn native_scanout_self_test(display: &DisplayAssembly) -> String {
         display.drm_mode.size().0 as u32,
         display.drm_mode.size().1 as u32,
     );
+    // A self-test swapchain, deliberately implicit: it proves the KMS plumbing,
+    // not the negotiation, so it asks the layer for the fourcc and seeds the
+    // driver-negotiated modifier by name rather than spelling either here.
     let mut swapchain = slot::create(
         allocator,
         (w, h),
-        smithay::backend::allocator::Fourcc::Argb8888,
-        vec![Modifier::Invalid],
+        compositor_kernel_graphic_format_catalog_base::catalog::FLOOR,
+        vec![compositor_kernel_graphic_format_rule_base::rule::UNKNOWN],
     );
     let buffer_slot = acquire::acquire(&mut swapchain);
     let fb = compositor_kernel_scanout_framebuffer_export_base::export::framebuffer_for(

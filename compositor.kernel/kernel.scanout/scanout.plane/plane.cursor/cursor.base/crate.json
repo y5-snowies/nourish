@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_kernel_graphic_format_answer_base",
     "compositor_model_debug_instance_record",
     "smithay",
     "thiserror"

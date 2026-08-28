@@ -12,8 +12,10 @@ use std::os::unix::io::{AsRawFd, BorrowedFd, IntoRawFd, RawFd};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
-    #[error("unsupported fourcc for the vulkan path: {0:?}")]
-    UnsupportedFormat(smithay::backend::allocator::Fourcc),
+    // The second field is the reason from the exhaustive table, so the warning
+    // says WHY rather than leaving a fourcc to be decoded by hand.
+    #[error("unsupported fourcc for the vulkan path: {0:?} ({1})")]
+    UnsupportedFormat(smithay::backend::allocator::Fourcc, &'static str),
     #[error("disjoint multi-plane import not populated (single-memory path only)")]
     Disjoint,
     #[error("vulkan call failed: {0}")]
@@ -51,8 +53,14 @@ pub fn import(
 ) -> Result<ImportedImage, ImportError> {
     let fourcc = dmabuf.format().code;
     let modifier = dmabuf.format().modifier;
-    let format = compositor_kernel_vulkan_format_query_base::query::vk_format(fourcc)
-        .ok_or(ImportError::UnsupportedFormat(fourcc))?;
+    let format = compositor_kernel_vulkan_format_query_base::query::vk_format(fourcc).ok_or_else(
+        || {
+            ImportError::UnsupportedFormat(
+                fourcc,
+                compositor_kernel_vulkan_format_query_base::query::refusal(fourcc),
+            )
+        },
+    )?;
     let size = dmabuf.size();
     let (width, height) = (size.w as u32, size.h as u32);
 
@@ -138,15 +146,13 @@ pub fn import(
         }
     };
 
-    // Opaque (X-prefixed) formats have no real alpha — the X byte is undefined,
-    // so clients often leave it 0. Vulkan maps Xrgb8888 -> B8G8R8A8_UNORM (which
-    // HAS alpha), so sampling that 0 makes the window blend out transparent.
-    // Force alpha to 1 via a view swizzle for X-formats; ARGB/ABGR keep alpha.
-    use smithay::backend::allocator::Fourcc;
-    let opaque = matches!(
-        fourcc,
-        Fourcc::Xrgb8888 | Fourcc::Xbgr8888 | Fourcc::Xrgb2101010 | Fourcc::Xbgr2101010
-    );
+    // Opaque (X-prefixed) formats have no real alpha — the X channel is
+    // undefined, so clients often leave it 0. Vulkan maps Xrgb8888 ->
+    // B8G8R8A8_UNORM (which HAS alpha), so sampling that 0 makes the window
+    // blend out transparent. Force alpha to 1 via a view swizzle for X-formats;
+    // ARGB/ABGR keep alpha. The table answers, not a second list here: this one
+    // silently missed every X-format added after it (Xbgr16161616f, Xrgb1555, …).
+    let opaque = compositor_kernel_vulkan_format_query_base::query::opaque(fourcc);
     let components = vk::ComponentMapping {
         r: vk::ComponentSwizzle::IDENTITY,
         g: vk::ComponentSwizzle::IDENTITY,
@@ -197,6 +203,32 @@ fn bind_single(
     fds: &[BorrowedFd<'_>],
 ) -> Result<vk::DeviceMemory, ImportError> {
     let requirements = unsafe { dev.get_image_memory_requirements(image) };
+    // DOES THE CLIENT'S BUFFER ACTUALLY HOLD THAT MANY BYTES? `allocation_size` below
+    // is what VULKAN wants for this extent/pitch, and importing an fd smaller than
+    // that binds the tail of the image to memory the client never wrote — which
+    // reaches the screen as a black or garbage band at the bottom of the surface,
+    // persistently, and is invisible to every client-side check because the client's
+    // own view of its buffer is complete and correct.
+    //
+    // Drivers pad differently (NVIDIA rounds a LINEAR row pitch to 256 and may want
+    // height alignment on top), so this is a real mismatch, not a theoretical one.
+    // dma-buf implements llseek, so SEEK_END is the buffer's true size; the offset is
+    // restored so nothing downstream sees a moved cursor.
+    //     if let Some(bytes) = dmabuf_bytes(&fds[0]) {
+    //         if bytes < requirements.size {
+    //             warn!(
+    //                 "vulkan import: image needs {} byte(s) but the dmabuf holds {} — the tail \
+    //                  of this image is NOT client memory (expect a black/garbage band). \
+    //                  alignment={} memory_type_bits={:#x}",
+    //                 requirements.size, bytes, requirements.alignment, requirements.memory_type_bits
+    //             );
+    //         } else {
+    //             trace!(
+    //                 "vulkan import: dmabuf {} byte(s) >= required {} (alignment {})",
+    //                 bytes, requirements.size, requirements.alignment
+    //             );
+    //         }
+    //     }
     let owned = fds[0]
         .try_clone_to_owned()
         .map_err(|e| ImportError::Vk(format!("fd dup: {e}")))?;
@@ -317,6 +349,18 @@ fn pick_memory_type(
     }
     Ok(compatible.trailing_zeros())
 }
+
+// /// The true size of a dmabuf, via `SEEK_END` (dma-buf implements llseek; `fstat`
+// /// reports 0). The seek position is restored. `None` when the fd will not seek.
+// fn dmabuf_bytes(fd: &BorrowedFd<'_>) -> Option<u64> {
+//     let raw = fd.as_raw_fd();
+//     let cur = unsafe { libc::lseek(raw, 0, libc::SEEK_CUR) };
+//     let end = unsafe { libc::lseek(raw, 0, libc::SEEK_END) };
+//     if cur >= 0 {
+//         unsafe { libc::lseek(raw, cur, libc::SEEK_SET) };
+//     }
+//     (end > 0).then_some(end as u64)
+// }
 
 /// Memory identity of a plane fd: `(st_dev, st_ino)`. dup'd fds of one BO share it,
 /// so single-BO multi-plane (AMD DCC) resolves to a single object. On fstat failure

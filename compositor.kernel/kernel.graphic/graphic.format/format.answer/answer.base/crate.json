@@ -1,0 +1,12 @@
+{
+  "deps": [
+    "compositor_kernel_graphic_format_audit_base",
+    "compositor_model_debug_instance_record",
+    "compositor_kernel_graphic_format_role_base",
+    "compositor_kernel_graphic_format_rule_base",
+    "compositor_kernel_graphic_format_registrar_base",
+    "compositor_kernel_graphic_format_catalog_base",
+    "compositor_kernel_graphic_format_resolve_base",
+    "smithay"
+  ]
+}

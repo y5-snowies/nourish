@@ -254,7 +254,8 @@ pub(crate) fn enter_internal<D: SeatHandler + 'static>(
     text_input.set_focus(Some(surface.clone()));
 
     // y5: notify `enter` UNCONDITIONALLY (upstream gates this on an IME instance
-    // existing). y5's on-screen keyboard consumes the text-input FOCUS signal
+    // existing, or the compositor acting as the input method itself — either way a
+    // gate this strictly subsumes). y5's on-screen keyboard consumes the text-input FOCUS signal
     // directly — a client enabling text-input on `enter` is how the compositor
     // learns a text field is focused (the OSK auto-show trigger), whether or not an
     // external IME is running. This pairs with the relaxed request gate in

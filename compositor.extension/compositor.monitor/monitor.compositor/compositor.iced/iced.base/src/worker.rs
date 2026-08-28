@@ -171,7 +171,7 @@ fn run(rx: Receiver<Job>, board: Board, ctx: Arc<WgpuVulkanContext>, render_node
         &ctx.adapter,
         Arc::new(ctx.device.clone()),
         Arc::new(ctx.queue.clone()),
-        compositor_monitor_runtime_surface_base::TEXTURE_FORMAT,
+        compositor_monitor_runtime_surface_base::texture_format(&ctx.formats),
         EngineSettings::default(),
     );
     let mut hosted: HashMap<HandleId, Hosted> = HashMap::new();

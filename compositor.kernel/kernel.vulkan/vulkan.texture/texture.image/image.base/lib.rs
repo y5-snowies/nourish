@@ -4,4 +4,4 @@
 
 pub mod image;
 
-pub use image::{TextureInner, VulkanTexture};
+pub use image::{RetiredTexture, TextureInner, VulkanTexture};

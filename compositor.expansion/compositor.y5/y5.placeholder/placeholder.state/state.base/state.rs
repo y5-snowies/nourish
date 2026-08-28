@@ -74,7 +74,7 @@ impl PlaceholderState {
     /// Like `modify`, but a no-op when no map record exists for `uuid` instead of
     /// aborting. Used by the placeholder system's buffer, where an announced
     /// geometry update is keyed by a uuid that may be a window (live → in `map`)
-    /// OR a visible tile (in `visible`, not `map`) — the buffer applies both halves
+    /// OR a visible placeholder (in `visible`, not `map`) — the buffer applies both halves
     /// and this absorbs the miss for the namespace that doesn't match.
     pub fn modify_present<F>(&mut self, uuid: &Uuid, mut action: F)
     where

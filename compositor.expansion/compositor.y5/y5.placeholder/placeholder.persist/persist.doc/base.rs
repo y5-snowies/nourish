@@ -17,14 +17,14 @@ impl Document for PlaceholderDoc {
     const VERSION: u32 = 1;
 
     /// Persist ALL THREE sets: `map` (invisible, window-backed), `visible` (the
-    /// launcher tiles shown after a window closes, incl. their dragged transform),
-    /// and `pending_restore` (earned a tile, still waiting for a renderer).
+    /// placeholders shown after a window closes, incl. their dragged transform),
+    /// and `pending_restore` (earned a placeholder, still waiting for a renderer).
     ///
     /// A visible placeholder is no longer in `map`, so omitting it would delete its
     /// record the moment its window closed — exactly the state worth keeping. The
     /// same is true one step earlier: a window closed while the user was on another
     /// world hands its record to that world's `pending_restore`, where it sits until
-    /// the world is next on screen. Omitting that set lost the tile outright if the
+    /// the world is next on screen. Omitting that set lost the placeholder outright if the
     /// compositor restarted first.
     ///
     /// The three are disjoint by construction — `erase` empties `map` before the
@@ -61,7 +61,7 @@ impl Document for PlaceholderDoc {
 
     /// Queue the restored placeholder for visible promotion: on restart no client
     /// window exists, so every persisted placeholder returns as a dormant launcher
-    /// tile. The rim drains `pending_restore` once it has a renderer (the iced
+    /// placeholder. The rim drains `pending_restore` once it has a renderer (the iced
     /// surface can't be built here, with only `&mut PlaceholderState`).
     fn apply(s: &mut PlaceholderState, id: &str, rec: PlaceholderRecord) {
         let Ok(uuid) = uuid::Uuid::parse_str(id) else { return };

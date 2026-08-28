@@ -77,5 +77,5 @@ pub use compositor_support_iced_core_engine_base::{
     Theme,
 };
 pub use compositor_monitor_runtime_surface_base::{
-    TEXTURE_FORMAT, WgpuVulkanContext, create_wgpu_vulkan_context,
+    texture_format, WgpuVulkanContext, create_wgpu_vulkan_context,
 };

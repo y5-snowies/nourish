@@ -12,6 +12,7 @@
 
 use compositor_kernel_native_context_render_base::render::NativeRenderContext;
 use compositor_kernel_native_render_execute_base::execute::FrameOutcome;
+use std::os::fd::AsFd;
 use smithay::backend::drm::DrmDeviceNotifier;
 use smithay::reexports::calloop::ping::make_ping;
 use smithay::reexports::calloop::EventLoop;
@@ -47,13 +48,24 @@ pub fn register(
 
     // ---- Redraw ping: fired by schedule_redraw while the vblank cycle is idle.
     let (redraw_ping, redraw_ping_source) = make_ping().unwrap();
-    state.state.redraw_ping = Some(redraw_ping.clone());
+    state.state.redraw.set_ping(redraw_ping.clone());
     // The off-thread background wakes the compositor through this: an undamaged
     // frame queues no flip, so no vblank arrives and the loop stops. While the
     // background is the only thing animating, its publish is the only event that
     // can restart it.
+    //
+    // Not while a redraw gate is engaged: under exclusivity the tagged client is
+    // the sole cadence source, and a producer's publish must not wake the loop —
+    // the wake would cash in whatever the latch held and render off-cadence. The
+    // `published` flag itself is still set (`notify_offthread_published`), so the
+    // next commit-driven composite samples the buffer, and the flag survives
+    // until the gate lifts and the loop free-runs again.
     compositor_kernel_graphic_bridge_publish_wake::wake::set_offthread_waker(std::sync::Arc::new(
-        move || redraw_ping.ping(),
+        move || {
+            if !compositor_support_smithay_state_tearing_gate::gate::engaged() {
+                redraw_ping.ping();
+            }
+        },
     ));
 
     // Last-resort unfreeze, independent of every producer's own rescue. Acts only
@@ -88,39 +100,22 @@ pub fn register(
             // gate and the publish is not lost when exclusivity lifts.
             let published = !compositor_support_smithay_state_tearing_gate::gate::engaged()
                 && compositor_kernel_graphic_bridge_publish_wake::wake::take_offthread_published();
-            if state.take_needs_redraw() || published {
-                // Sampled BEFORE execute, and that ordering is the whole point.
-                // `execute` SETS `in_flight` on every pipe it queues, so sampling
-                // afterwards cannot tell "a pipe was already flying and got
-                // skipped" (the case this guards) from "I just queued a frame"
-                // (the normal case) — it sees `true` either way and re-arms
-                // unconditionally. The pending vblank then finds the latch set
-                // and renders a second time, so every frame produces two.
-                //
-                // That was invisible while the parallax re-armed `needs_redraw`
-                // each frame anyway; with exclusive pacing silencing every other
-                // source it became the sole re-arm, and doubled the pacer's rate.
-                let was_in_flight =
-                    context_ping.borrow().outputs.iter().any(|p| p.in_flight);
+            // A publish is a redraw request with no commit behind it, so nothing
+            // has moved the epoch: mark the pipes stale or the executor's
+            // epoch-current skip would (correctly) find nothing to do.
+            if published {
+                state.bump_redraw_epoch();
+            }
+            // Render iff some pipe is idle and behind the epoch. A wake is a stale
+            // signal — it only says a request happened since the last drain — so
+            // the schedule decides; in-flight pipes are served by their own vblank.
+            if state.state.redraw.pending() {
                 let outcome = compositor_kernel_native_render_execute_base::execute::execute(
                     context_ping.clone(),
                     loop_handle_ping.clone(),
                     state,
                     compositor_kernel_native_render_execute_base::execute::RenderScope::All,
                 );
-                // Lost-wakeup guard: if this ping fired while a flip was still in
-                // flight, execute(All) SKIPPED that pipe (its `in_flight` guard) and
-                // re-armed nothing, yet `take_needs_redraw()` above already consumed
-                // the latch. That pipe's vblank runs `take_needs_redraw()` next and
-                // would find it cleared → no re-render, no further flip, and the
-                // parallax's non-pinging `schedule_redraw_post_vblank` cannot restart
-                // an idle cycle: the loop freezes until the next input schedule_redraw.
-                // Re-arm (no ping) so the pending vblank still re-renders.
-                if was_in_flight {
-                    // `rearm_redraw`, not the animation path: this must survive
-                    // exclusive pacing or the lost-wakeup freeze comes back.
-                    state.rearm_redraw();
-                }
                 handle_outcome(
                     outcome,
                     &loop_handle_ping,
@@ -292,9 +287,11 @@ fn process_vblank(
     };
 
     // This pipe's flip completed → it is no longer in flight. The re-render below
-    // (on `needs_redraw`) will now redraw THIS output; other pipes still in flight
-    // stay skipped until their own vblank, so each output paces to its own refresh.
-    ctx.outputs[idx].in_flight = false;
+    // (if it lags the epoch) will now redraw THIS output; other pipes still in
+    // flight stay skipped until their own vblank, so each output paces to its
+    // own refresh.
+    let key = compositor_orchestration_core_state_base::state::output_key(&ctx.outputs[idx].output);
+    state.state.redraw.completed(&key);
     // Phase reference for the tearing policy's "time until the next vblank".
     //
     // Anchored to the retrace the kernel timestamped, NOT to when we observed
@@ -343,6 +340,15 @@ fn process_vblank(
     // throttle gate above, which is feature-gated off in the shipping build.
     let this_refresh =
         compositor_kernel_scanout_timing_vblank_base::vblank::interval(&ctx.outputs[idx].mode);
+    // MSC for presentation feedback. The page-flip event's own sequence is the cheap
+    // source and is used whenever it carries one; a driver that leaves it 0 is repaired
+    // from the CRTC here, while `ctx` still holds the device fd. See
+    // `scanout.timing/timing.sequence` for why 0 is the tell and what it costs clients.
+    let sequence = compositor_kernel_scanout_timing_sequence_base::sequence::resolve(
+        ctx.drm_fd.as_fd(),
+        crtc.into(),
+        sequence,
+    );
     drop(ctx);
 
     let stamp = compositor_kernel_scanout_timing_vblank_base::vblank::interpret(
@@ -360,8 +366,6 @@ fn process_vblank(
         compositor_kernel_scanout_flip_estimate_base::estimate::disarm(loop_handle, token);
     }
 
-    state.mark_vblank_arrived();
-
     // 2. Fire presentation callbacks for that completed frame.
     if let Some(Some(mut feedback)) = pending_feedback {
         compositor_kernel_scanout_flip_feedback_base::feedback::presented(
@@ -373,10 +377,16 @@ fn process_vblank(
         );
     }
 
-    // 3. If anything has requested a redraw since last time, render now — but
-    //    ONLY this output (the one that flipped). Other outputs are re-rendered
-    //    on their OWN vblanks, so a fast monitor is never paced by a slow one.
-    let was_needed = state.take_needs_redraw();
+    // 3. If anything has requested a redraw since THIS pipe last rendered, render
+    //    now — but ONLY this output (the one that flipped). Other outputs are
+    //    re-rendered on their OWN vblanks, so a fast monitor is never paced by a
+    //    slow one.
+    //
+    // Per pipe, via the schedule: this output renders iff it lags the request
+    // epoch. (A single global latch here once let this output's vblank swallow a
+    // redraw another output was still waiting for, and it did not repaint until
+    // some unrelated caller re-armed it.)
+    let was_needed = state.state.redraw.needs(&key);
     if was_needed {
         let outcome = compositor_kernel_native_render_execute_base::execute::execute(
             ctx_rc.clone(),

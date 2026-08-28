@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_kernel_graphic_format_registrar_base",
     "smithay",
     "compositor_kernel_native_context_render_base",
     "compositor_kernel_native_context_display_build",

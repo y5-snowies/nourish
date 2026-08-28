@@ -5,7 +5,7 @@ use downcast_rs::{Downcast, impl_downcast};
 use crate::{
     backend::input::TouchSlot,
     input::SeatHandler,
-    utils::{Logical, Point, Serial},
+    utils::{Logical, Point},
 };
 
 use super::{DownEvent, MotionEvent, OrientationEvent, ShapeEvent, TouchInnerHandle, UpEvent};
@@ -45,7 +45,6 @@ pub trait TouchGrab<D: SeatHandler>: Send + Downcast {
         handle: &mut TouchInnerHandle<'_, D>,
         focus: Option<(<D as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
         event: &DownEvent,
-        seq: Serial,
     );
     /// A touch point disappeared
     ///
@@ -55,7 +54,7 @@ pub trait TouchGrab<D: SeatHandler>: Send + Downcast {
     ///
     /// Some grabs (such as drag'n'drop, shell resize and motion) drop up events while they are active,
     /// but will end when the touch point that initiated the grab disappeared.
-    fn up(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &UpEvent, seq: Serial);
+    fn up(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &UpEvent);
 
     /// A touch point has changed coordinates.
     ///
@@ -72,7 +71,6 @@ pub trait TouchGrab<D: SeatHandler>: Send + Downcast {
         handle: &mut TouchInnerHandle<'_, D>,
         focus: Option<(<D as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
         event: &MotionEvent,
-        seq: Serial,
     );
 
     /// Marks the end of a set of events that logically belong together.
@@ -82,7 +80,7 @@ pub trait TouchGrab<D: SeatHandler>: Send + Downcast {
     /// If you don't, the rest of the compositor will behave as if the frame event never occurred.
     ///
     /// This will to be called after one or more calls to down/motion events.
-    fn frame(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, seq: Serial);
+    fn frame(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>);
 
     /// A touch session has been cancelled.
     ///
@@ -91,19 +89,13 @@ pub trait TouchGrab<D: SeatHandler>: Send + Downcast {
     /// If you don't, the rest of the compositor will behave as if the cancel event never occurred.
     ///
     /// Usually called in case the compositor decides the touch stream is a global gesture.
-    fn cancel(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, seq: Serial);
+    fn cancel(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>);
 
     /// A touch point has changed its shape.
-    fn shape(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &ShapeEvent, seq: Serial);
+    fn shape(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &ShapeEvent);
 
     /// A touch point has changed its orientation.
-    fn orientation(
-        &mut self,
-        data: &mut D,
-        handle: &mut TouchInnerHandle<'_, D>,
-        event: &OrientationEvent,
-        seq: Serial,
-    );
+    fn orientation(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &OrientationEvent);
 
     /// The data about the event that started the grab.
     fn start_data(&self) -> &GrabStartData<D>;
@@ -157,26 +149,18 @@ impl<D: SeatHandler + 'static> TouchGrab<D> for DefaultGrab {
         handle: &mut TouchInnerHandle<'_, D>,
         focus: Option<(<D as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
         event: &DownEvent,
-        seq: Serial,
     ) {
-        handle.down(data, focus.clone(), event, seq);
-        handle.set_grab(
-            self,
-            data,
-            event.serial,
-            TouchDownGrab {
-                start_data: GrabStartData {
-                    focus,
-                    slot: event.slot,
-                    location: event.location,
-                },
-                touch_points: 1,
-            },
-        );
+        handle.down(data, focus.clone(), event);
+        let grab = data.touch_down_grab(GrabStartData {
+            focus,
+            slot: event.slot,
+            location: event.location,
+        });
+        handle.set_grab(self, data, event.serial, grab);
     }
 
-    fn up(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &UpEvent, seq: Serial) {
-        handle.up(data, event, seq)
+    fn up(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &UpEvent) {
+        handle.up(data, event)
     }
 
     fn motion(
@@ -185,31 +169,24 @@ impl<D: SeatHandler + 'static> TouchGrab<D> for DefaultGrab {
         handle: &mut TouchInnerHandle<'_, D>,
         focus: Option<(<D as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
         event: &MotionEvent,
-        seq: Serial,
     ) {
-        handle.motion(data, focus, event, seq)
+        handle.motion(data, focus, event)
     }
 
-    fn frame(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, seq: Serial) {
-        handle.frame(data, seq)
+    fn frame(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>) {
+        handle.frame(data)
     }
 
-    fn cancel(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, seq: Serial) {
-        handle.cancel(data, seq)
+    fn cancel(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>) {
+        handle.cancel(data)
     }
 
-    fn shape(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &ShapeEvent, seq: Serial) {
-        handle.shape(data, event, seq)
+    fn shape(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &ShapeEvent) {
+        handle.shape(data, event)
     }
 
-    fn orientation(
-        &mut self,
-        data: &mut D,
-        handle: &mut TouchInnerHandle<'_, D>,
-        event: &OrientationEvent,
-        seq: Serial,
-    ) {
-        handle.orientation(data, event, seq)
+    fn orientation(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &OrientationEvent) {
+        handle.orientation(data, event)
     }
 
     fn start_data(&self) -> &GrabStartData<D> {
@@ -231,6 +208,15 @@ pub struct TouchDownGrab<D: SeatHandler> {
     pub touch_points: usize,
 }
 
+impl<D: SeatHandler> TouchDownGrab<D> {
+    pub(in crate::input) fn new(start_data: GrabStartData<D>) -> Self {
+        Self {
+            start_data,
+            touch_points: 1,
+        }
+    }
+}
+
 impl<D: SeatHandler + 'static> fmt::Debug for TouchDownGrab<D> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TouchDownGrab")
@@ -247,14 +233,13 @@ impl<D: SeatHandler + 'static> TouchGrab<D> for TouchDownGrab<D> {
         handle: &mut TouchInnerHandle<'_, D>,
         _focus: Option<(<D as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
         event: &DownEvent,
-        seq: Serial,
     ) {
-        handle.down(data, self.start_data.focus.clone(), event, seq);
+        handle.down(data, self.start_data.focus.clone(), event);
         self.touch_points += 1;
     }
 
-    fn up(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &UpEvent, seq: Serial) {
-        handle.up(data, event, seq);
+    fn up(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &UpEvent) {
+        handle.up(data, event);
         self.touch_points = self.touch_points.saturating_sub(1);
         if self.touch_points == 0 {
             handle.unset_grab(self, data);
@@ -267,32 +252,25 @@ impl<D: SeatHandler + 'static> TouchGrab<D> for TouchDownGrab<D> {
         handle: &mut TouchInnerHandle<'_, D>,
         _focus: Option<(<D as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
         event: &MotionEvent,
-        seq: Serial,
     ) {
-        handle.motion(data, self.start_data.focus.clone(), event, seq)
+        handle.motion(data, self.start_data.focus.clone(), event)
     }
 
-    fn frame(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, seq: Serial) {
-        handle.frame(data, seq)
+    fn frame(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>) {
+        handle.frame(data)
     }
 
-    fn cancel(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, seq: Serial) {
-        handle.cancel(data, seq);
+    fn cancel(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>) {
+        handle.cancel(data);
         handle.unset_grab(self, data);
     }
 
-    fn shape(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &ShapeEvent, seq: Serial) {
-        handle.shape(data, event, seq)
+    fn shape(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &ShapeEvent) {
+        handle.shape(data, event)
     }
 
-    fn orientation(
-        &mut self,
-        data: &mut D,
-        handle: &mut TouchInnerHandle<'_, D>,
-        event: &OrientationEvent,
-        seq: Serial,
-    ) {
-        handle.orientation(data, event, seq)
+    fn orientation(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &OrientationEvent) {
+        handle.orientation(data, event)
     }
 
     fn start_data(&self) -> &GrabStartData<D> {

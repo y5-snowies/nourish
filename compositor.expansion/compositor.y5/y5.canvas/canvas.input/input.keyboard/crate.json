@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_orchestration_seat_pointer_input",
     "compositor_model_environment_keybinding_base",
     "compositor_support_library_input_keyboard_format",
     "compositor_support_action_camera_fit_aspect",

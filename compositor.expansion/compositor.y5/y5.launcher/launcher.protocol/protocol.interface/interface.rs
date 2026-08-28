@@ -25,7 +25,7 @@ pub fn handle(
                     let mut argv = vec![bin.to_string_lossy().into_owned()];
                     argv.extend(args);
 
-                    // Plain launcher tile: no correlation (nothing restores it),
+                    // Plain placeholder: no correlation (nothing restores it),
                     // no extra env — the Executor injects the faithful base env
                     // (WAYLAND_DISPLAY, XDG_CURRENT_DESKTOP, …).
                     let req = LaunchRequest {

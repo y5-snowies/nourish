@@ -98,7 +98,7 @@ pub(crate) fn press(cx: &mut SystemCx, button: u32, x: f64, y: f64, modality: Mo
 
     // A press on compositor SCREEN-space iced UI (the touch pane, a docked toolbar)
     // goes to that UI even with the Hand tool armed, so the menu stays tappable in
-    // Hand mode. But WORLD-space iced (placeholders, group tiles) must NOT short-
+    // Hand mode. But WORLD-space iced (placeholders, group surfaces) must NOT short-
     // circuit here — the Hand tool has to pan even when the finger lands on a
     // placeholder or a grouped window, so those fall through to the pan branch below.
     let over_world_iced = matches!(
@@ -182,7 +182,7 @@ pub(crate) fn press(cx: &mut SystemCx, button: u32, x: f64, y: f64, modality: Mo
         // (the selection toolbar, the touch pane) must reach that UI rather than
         // be swallowed as a no-op select. This matters for touch's persistent
         // Select mode, where the tool stays armed while the bottom-centre menu is
-        // used. Move/Scale keep their iced candidates (group / placeholder tiles).
+        // used. Move/Scale keep their iced candidates (group / placeholders).
         // DIRECT only: this exists for touch's PERSISTENT Select mode, where the tool
         // stays armed while the bottom-centre menu is used. A mouse user's Select mode
         // is momentary and has no such menu, so it keeps its pre-touch routing.
@@ -246,7 +246,7 @@ pub(crate) fn press(cx: &mut SystemCx, button: u32, x: f64, y: f64, modality: Mo
     }
 
     // A Hand press always OWNS the event (it started a pan): consume it so a
-    // passthrough world-iced hit (a group tile) doesn't also leak the press to the
+    // passthrough world-iced hit (a group surface) doesn't also leak the press to the
     // window behind via the rim's native_press.
     if temporary_passthrough && !canvas_grab_hand {
         InputFlow::Pass

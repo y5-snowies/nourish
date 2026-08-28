@@ -261,6 +261,25 @@ pub struct Preference {
     /// stock tablet keeps its driver defaults until the user binds something.
     #[serde(default)]
     pub pen: PenConfig,
+    /// How a returning window may reclaim the placeholder it left behind, using the
+    /// identity its client declared via session management (Settings → Misc):
+    ///
+    /// * `"off"` — ignore declared identity; a returning window is matched only
+    ///   by the launch signals (activation token, pid tree, hints).
+    /// * `"on"` (default) — a placeholder in the CURRENT world may reclaim it. This is
+    ///   the historical behaviour.
+    /// * `"all_worlds"` — a placeholder in any world may reclaim it, and the window is
+    ///   restored into that placeholder's world rather than the current one.
+    ///
+    /// Read live on every map, so a change takes effect on the next window.
+    #[serde(default = "default_session_capture")]
+    pub session_capture: String,
+}
+
+/// Default for `session_capture`: `"on"` — same-world reclaim, which is what the
+/// placeholder path did before this became configurable.
+pub fn default_session_capture() -> String {
+    String::from("on")
 }
 
 /// Default for `protocol_foreign`: `"disabled"` — off unless the user opts in, so
@@ -576,6 +595,7 @@ impl Default for Preference {
             protocol_foreign: default_protocol_foreign(),
             protocol_foreign_all_worlds: false,
             pen: PenConfig::default(),
+            session_capture: default_session_capture(),
         }
     }
 }

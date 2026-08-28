@@ -10,7 +10,7 @@
 //! protocol. The store below is therefore deliberately keyed by the session id
 //! the COMPOSITOR mints and holds a value that never appears in argv, in the
 //! title, or anywhere the compositor could have re-derived it: if the value
-//! comes back after a relaunch from a placeholder tile, it came back because
+//! comes back after a relaunch from a placeholder, it came back because
 //! the compositor handed the process the same session id, and nothing else.
 
 pub mod protocol {

@@ -30,7 +30,7 @@ pub fn cell_at_direction(dir: Vec3) -> usize {
 pub struct CellPose {
     pub translation: Vec3,
     pub rotation: Quat,
-    /// Square edge length of the (flat) cell tile.
+    /// Square edge length of the (flat) cell placeholder.
     pub edge: f32,
 }
 
@@ -66,7 +66,7 @@ pub fn face_basis(face: usize) -> (Vec3, Vec3, Vec3) {
     }
 }
 
-/// Pose for cell `index` (0..CELL_COUNT). Cells tile each cube face in a
+/// Pose for cell `index` (0..CELL_COUNT). Cells placeholder each cube face in a
 /// `CELLS_PER_FACE²` grid, projected outward onto the sphere.
 pub fn cell_pose(index: usize) -> CellPose {
     let per_face = CELLS_PER_FACE * CELLS_PER_FACE;

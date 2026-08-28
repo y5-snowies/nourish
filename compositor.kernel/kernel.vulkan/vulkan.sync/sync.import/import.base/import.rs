@@ -6,7 +6,7 @@ use ash::vk;
 use compositor_kernel_vulkan_device_factory_base::factory::VulkanDevice;
 use smithay::backend::drm::DrmDeviceFd;
 use smithay::reexports::drm::control::{syncobj, Device as ControlDevice};
-use std::os::unix::io::{IntoRawFd, OwnedFd};
+use std::os::unix::io::{FromRawFd, IntoRawFd, OwnedFd};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SemImportError {
@@ -48,15 +48,20 @@ pub fn import_sync_file(
 ) -> Result<(), SemImportError> {
     let loader =
         ash::khr::external_semaphore_fd::Device::new(&device.instance, &device.device);
+    // The driver takes ownership of the fd ONLY on success. `into_raw_fd` has already
+    // released it here, so the error arm has to take it back or the fd leaks — which, on a
+    // path that runs per frame, reaches `EMFILE` and kills the compositor.
+    let raw = fd.into_raw_fd();
     let info = vk::ImportSemaphoreFdInfoKHR::default()
         .semaphore(semaphore)
         .handle_type(vk::ExternalSemaphoreHandleTypeFlags::SYNC_FD)
         .flags(vk::SemaphoreImportFlags::TEMPORARY)
-        .fd(fd.into_raw_fd());
+        .fd(raw);
     unsafe {
-        loader
-            .import_semaphore_fd(&info)
-            .map_err(|e| SemImportError::Import(format!("{e}")))
+        loader.import_semaphore_fd(&info).map_err(|e| {
+            drop(OwnedFd::from_raw_fd(raw));
+            SemImportError::Import(format!("{e}"))
+        })
     }
 }
 

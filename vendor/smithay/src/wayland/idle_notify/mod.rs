@@ -3,9 +3,11 @@
 //! ```
 //! # extern crate wayland_server;
 //! # #[macro_use] extern crate smithay;
+//! # use smithay::wayland::compositor::{CompositorHandler, CompositorState, CompositorClientState};
 //! use smithay::wayland::idle_notify::{IdleNotifierState, IdleNotifierHandler};
 //! # use smithay::input::{Seat, SeatHandler, SeatState, pointer::CursorImageStatus};
 //! # use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+//! # use smithay::wayland::pointer_constraints::PointerConstraintsHandler;
 //!
 //! struct State { idle_notifier: IdleNotifierState<Self> }
 //! # let mut event_loop = smithay::reexports::calloop::EventLoop::<State>::try_new().unwrap();
@@ -19,6 +21,11 @@
 //! let state = State { idle_notifier };
 //!
 //! // Implement the necessary trait
+//! # impl CompositorHandler for State {
+//! #     fn compositor_state(&mut self) -> &mut CompositorState { unimplemented!() }
+//! #     fn client_compositor_state<'a>(&self, client: &'a wayland_server::Client) -> &'a CompositorClientState { unimplemented!() }
+//! #     fn commit(&mut self, surface: &wayland_server::protocol::wl_surface::WlSurface) {}
+//! # }
 //! # impl SeatHandler for State {
 //! #     type KeyboardFocus = WlSurface;
 //! #     type PointerFocus = WlSurface;
@@ -27,6 +34,7 @@
 //! #     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) { unimplemented!() }
 //! #     fn cursor_image(&mut self, seat: &Seat<Self>, image: CursorImageStatus) { unimplemented!() }
 //! # }
+//! # impl PointerConstraintsHandler for State {}
 //! impl IdleNotifierHandler for State {
 //!     fn idle_notifier_state(&mut self) -> &mut IdleNotifierState<Self> {
 //!         &mut self.idle_notifier

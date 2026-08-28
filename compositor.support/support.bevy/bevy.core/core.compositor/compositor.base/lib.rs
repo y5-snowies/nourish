@@ -36,6 +36,6 @@ pub use compositor_support_bevy_core_engine_base::{
     SharedContext, create_input_placeholder, create_output_placeholder,
 };
 pub use compositor_support_bevy_core_runtime_base::{
-    BevySurface, TEXTURE_FORMAT, WgpuVulkanContext, create_wgpu_vulkan_context,
+    BevySurface, texture_format, WgpuVulkanContext, create_wgpu_vulkan_context,
     import_dmabuf_to_wgpu,
 };

@@ -499,12 +499,11 @@ where
         _handle: &mut TouchInnerHandle<'_, D>,
         _focus: Option<(<D as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
         _event: &DownEvent,
-        _seq: Serial,
     ) {
         // Ignore
     }
 
-    fn up(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &UpEvent, _seq: Serial) {
+    fn up(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, event: &UpEvent) {
         if event.slot != self.start_data().slot {
             return;
         }
@@ -520,13 +519,12 @@ where
         handle: &mut TouchInnerHandle<'_, D>,
         focus: Option<(<D as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
         event: &TouchMotionEvent,
-        seq: Serial,
     ) {
         if event.slot != self.start_data().slot {
             return;
         }
 
-        handle.motion(data, self.touch_focus(), event, seq);
+        handle.motion(data, self.touch_focus(), event);
 
         self.last_position = event.location;
 
@@ -539,11 +537,11 @@ where
         );
     }
 
-    fn frame(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, seq: Serial) {
-        handle.frame(data, seq);
+    fn frame(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>) {
+        handle.frame(data);
     }
 
-    fn cancel(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>, _seq: Serial) {
+    fn cancel(&mut self, data: &mut D, handle: &mut TouchInnerHandle<'_, D>) {
         handle.unset_grab(self, data);
     }
 
@@ -552,7 +550,6 @@ where
         _data: &mut D,
         _handle: &mut TouchInnerHandle<'_, D>,
         _event: &crate::input::touch::ShapeEvent,
-        _seq: Serial,
     ) {
     }
 
@@ -561,7 +558,6 @@ where
         _data: &mut D,
         _handle: &mut TouchInnerHandle<'_, D>,
         _event: &crate::input::touch::OrientationEvent,
-        _seq: Serial,
     ) {
     }
 

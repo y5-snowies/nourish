@@ -15,10 +15,10 @@ use std::sync::{Arc, OnceLock};
 /// The shared worker, spawning it on first call. `None` means it could not
 /// start — the caller must then draw no background rather than quietly reverting
 /// to the inline shader path, which is the thing this exists to avoid.
-pub fn worker() -> Option<Arc<Worker>> {
+pub fn worker(formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar) -> Option<Arc<Worker>> {
     static W: OnceLock<Option<Arc<Worker>>> = OnceLock::new();
     W.get_or_init(|| {
-        match Worker::spawn() {
+        match Worker::spawn(formats.clone()) {
             Ok(w) => Some(Arc::new(w)),
             Err(e) => {
                 error!("background worker failed to start: {e}; background disabled");

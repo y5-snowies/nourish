@@ -50,11 +50,11 @@ pub struct MorphMaterial {
 
 impl Material for MorphMaterial {
     fn vertex_shader() -> ShaderRef {
-        "embedded://compositor_background_three_lock_shader/morph.wgsl".into()
+        "embedded://compositor_background_three_lock_shader/morph.wesl".into()
     }
 
     fn fragment_shader() -> ShaderRef {
-        "embedded://compositor_background_three_lock_shader/morph.wgsl".into()
+        "embedded://compositor_background_three_lock_shader/morph.wesl".into()
     }
 
     fn specialize(

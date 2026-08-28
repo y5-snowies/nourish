@@ -1,5 +1,6 @@
 // Every spawn goes through the hygiene wrapper — see `process.child`.
 use compositor_support_library_process_child_hygiene::hygiene::command;
+use compositor_support_library_process_child_spawn::spawn as child_spawn;
 
 /// Name advertised to portals — must match `DesktopNames=` in the .desktop
 /// and `XDG_CURRENT_DESKTOP` in the wrapper.
@@ -19,12 +20,12 @@ pub fn announce_session(wayland_socket: &str, desktop_name: &str) {
     // WAYLAND_DISPLAY is passed as NAME=VALUE so we don't depend on it being
     // present in our own process env. The desktop name and session type are
     // passed explicitly too, so this works regardless of what the wrapper set.
-    let result = command("dbus-update-activation-environment")
-        .arg("--systemd")
+    let mut cmd = command("dbus-update-activation-environment");
+    cmd.arg("--systemd")
         .arg(format!("WAYLAND_DISPLAY={wayland_socket}"))
         .arg(format!("XDG_CURRENT_DESKTOP={desktop_name}"))
-        .arg("XDG_SESSION_TYPE=wayland")
-        .status();
+        .arg("XDG_SESSION_TYPE=wayland");
+    let result = child_spawn::status(&mut cmd);
 
     match result {
         Ok(s) if s.success() => {

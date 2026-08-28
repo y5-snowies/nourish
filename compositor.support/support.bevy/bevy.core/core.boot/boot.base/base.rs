@@ -67,13 +67,14 @@ fn build_manual_render_plugin(ctx: &SharedContext) -> RenderPlugin {
 
     RenderPlugin {
         debug_flags: RenderDebugFlags::all(),
-        render_creation: RenderCreation::Manual(RenderResources(
+        // bevy 0.20 boxes the manual resources (`Manual(Box<RenderResources>)`).
+        render_creation: RenderCreation::Manual(Box::new(RenderResources(
             render_device,
             render_queue,
             render_adapter_info,
             render_adapter,
             render_instance,
-        )),
+        ))),
         synchronous_pipeline_compilation: false,
     }
 }

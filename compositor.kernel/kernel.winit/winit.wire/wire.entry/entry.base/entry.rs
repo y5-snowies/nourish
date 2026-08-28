@@ -145,7 +145,7 @@ pub fn wire(_loop: &mut Loop, _wayland_socket_name: OsString, event_loop: &mut E
     // not run inside the winit redraw handler.
     if context.vulkan_mode {
         trace!("winit: building VulkanRenderer + output dmabuf target for present path");
-        match compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::new_default() {
+        match compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::new_default(_loop.inner.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS).clone()) {
             Ok(vk) => {
                 let sz = context.winit_backend.window_size();
                 match vk.create_output_target((sz.w.max(1), sz.h.max(1))) {
@@ -180,6 +180,51 @@ pub fn wire(_loop: &mut Loop, _wayland_socket_name: OsString, event_loop: &mut E
     compositor_model_stats_registry_base::base::set_compositor_prefers_dmabuf(
         context.vulkan_mode,
     );
+    // And WHAT it can import — the native backend's counterpart, which this path was
+    // missing. The off-thread producers allocate their own dmabufs and hand them here to
+    // be sampled, so they negotiate against this set and cannot ask the renderer directly
+    // (it lives behind a `&mut` on this thread). Publishing nothing did not mean "no
+    // constraint" to `worker_modifiers`, it meant an EMPTY intersection: the bridge saw a
+    // renderer offering 0 formats against wgpu's 30, negotiated nothing, and every iced
+    // and bevy surface failed to allocate. Published here, after the GLES fallback has
+    // been resolved, so it names the renderer that will actually sample.
+    {
+        let formats = match context.vulkan.as_ref() {
+            Some(vk) => smithay::backend::renderer::ImportDma::dmabuf_formats(vk),
+            None => smithay::backend::renderer::ImportDma::dmabuf_formats(
+                context.winit_backend.renderer(),
+            ),
+        };
+        info!("winit: compositor-importable dmabuf pairs: {}", formats.iter().count());
+        // Nested: no DRM node of our own, so this registers against
+        // UNSPECIFIED. Still a real registration — what matters is that the
+        // advertisement can see it.
+        _loop.inner.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS).register(
+            compositor_kernel_graphic_format_registrar_base::registrar::Device::UNSPECIFIED,
+            compositor_kernel_graphic_format_role_base::role::Role::Sample,
+            formats,
+            "winit renderer",
+        );
+    }
+
+    // WHAT NESTED DOES NOT HAVE, said out loud.
+    //
+    // The format layer requires every role in `Role::ALL` to be REGISTERED before
+    // it will answer anything, and it is deliberately not per-question: an answer
+    // is not entitled to know which roles it happens to read. Nested composites
+    // into a window on someone else's compositor — there is no scanout device and
+    // no KMS plane — so these three have no answer here. Registering an empty set
+    // states that; it reads identically to silence at every consumer (the term is
+    // dropped either way) and differs only in that the layer can now tell "there
+    // is none" from "it has not arrived yet".
+    {
+        use compositor_kernel_graphic_format_role_base::role::Role;
+        let formats = _loop.inner.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS);
+        formats.absent(Role::ScanoutEgl, "winit (nested: no scanout device)");
+        formats.absent(Role::Render, "winit (nested: nothing renders into a scanout format)");
+        formats.absent(Role::Plane, "winit (nested: no KMS plane)");
+    }
+
 
     event_loop
         .handle()

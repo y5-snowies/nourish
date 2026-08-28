@@ -1,7 +1,0 @@
-{
-  "deps": [
-    "smithay",
-    "compositor_kernel_graphic_bridge_negotiate_classify",
-    "compositor_model_debug_instance_record"
-  ]
-}

@@ -84,7 +84,10 @@ const KEY_SUPER_L: u32 = 0xffeb;
 /// This is the matchers' view ONLY. Clients are forwarded the untouched xkb state
 /// (`input_forward` takes `mods_changed`), so a nested client still sees a plain
 /// Ctrl on either key.
-fn nested_shortcut_view(
+///
+/// `pub`: every keyboard path that matches shortcuts needs the same view — the
+/// picker's own handler included, or no Super chord works there when nested.
+pub fn nested_shortcut_view(
     _loop: &Loop,
     shortcut_sym: Keysym,
     modifiers: smithay::input::keyboard::ModifiersState,

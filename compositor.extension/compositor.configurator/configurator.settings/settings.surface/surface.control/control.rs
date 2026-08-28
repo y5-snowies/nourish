@@ -103,7 +103,6 @@ pub fn field(_t: &Theme, s: IStatus) -> TextInput {
             width: 1.0,
             radius: 3.0.into(),
         },
-        icon: MUTED,
         placeholder: rgba(1.0, 1.0, 1.0, if off { 0.15 } else { 0.35 }),
         value: if off { rgba(1.0, 1.0, 1.0, 0.25) } else { TEXT },
         selection: ACCENT,

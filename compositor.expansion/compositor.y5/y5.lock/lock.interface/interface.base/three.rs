@@ -52,7 +52,10 @@ pub(crate) fn create(
         compositor_orchestration_draw_layer_base::base::Layer::LOCK_SCENE.bits(),
     ) {
         Ok(handle) => Some(handle),
-        Err(_) => None,
+        Err(e) => {
+            error!("lock morph: bevy instance creation failed: {e:?}");
+            None
+        }
     }
 }
 

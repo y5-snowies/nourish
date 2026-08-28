@@ -1,0 +1,7 @@
+/dmabuf-probe
+/dmabuf-format-test
+/dmabuf-draw
+/vkfmt
+/gbmtest
+/gbmtry
+*.png

@@ -55,7 +55,7 @@ impl DrawOrder {
     }
 
     /// Hand an existing entry's slot (tier + `OrderKey`) to a successor, keeping
-    /// its z-position — a restored window appears WHERE THE PLACEHOLDER TILE SAT,
+    /// its z-position — a restored window appears WHERE THE PLACEHOLDER SAT,
     /// not popped to the top. Drops stale `new` first; `false` if `old` is absent.
     pub fn reassign(&mut self, old: ComponentId, new: ComponentId) -> bool {
         if old == new { return self.key(old).is_some(); }

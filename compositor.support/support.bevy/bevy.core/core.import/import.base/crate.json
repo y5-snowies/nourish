@@ -1,5 +1,8 @@
 {
   "deps": [
+    "compositor_kernel_graphic_format_registrar_base",
+    "compositor_kernel_graphic_format_answer_base",
+    "compositor_kernel_graphic_format_catalog_base",
     "compositor_support_bevy_core_context_base",
     "compositor_support_bevy_core_fault_base",
     "compositor_model_debug_instance_record",
