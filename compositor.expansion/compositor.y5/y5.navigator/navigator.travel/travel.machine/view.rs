@@ -52,8 +52,8 @@ pub fn view(state: &mut Loop, elements: Vec<&Window>, fit_absolute: bool) -> Res
     }
 
     for w in &elements {
-        let rect_space = state.inner.space_state().state
-            .element_geometry(w)
+        // The slot (what is drawn), not the client's geometry — see `slot::rect`.
+        let rect_space = compositor_y5_camera_transform_translate::slot::rect(&state.inner.space_state().state, w)
             .unwrap_or_else(|| abort!("element has geometry"))
             .to_f64();
 
@@ -73,8 +73,7 @@ pub fn view(state: &mut Loop, elements: Vec<&Window>, fit_absolute: bool) -> Res
     let bbox: Rectangle<f64, Logical> = elements
         .iter()
         .filter_map(|b| {
-            state.inner.space_state().state
-                .element_bbox(b)
+            compositor_y5_camera_transform_translate::slot::rect(&state.inner.space_state().state, b)
                 .map(|rect| rect.to_f64())
         })
         .reduce(|acc, rect| acc.merge(rect)).unwrap();

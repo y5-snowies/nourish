@@ -30,8 +30,21 @@ impl VulkanRenderer {
         clear: [f32; 4],
         clear_rects: Vec<vk::Rect2D>,
         acquire: crate::frame::TargetAcquire,
-        ops: Vec<DrawOp>,
+        mut ops: Vec<DrawOp>,
     ) -> Result<SyncPoint, VulkanError> {
+        // The band's machinery, published OUT-OF-BAND by `lower()`. The band
+        // element's `draw()` is the op's normal carrier, and smithay may have
+        // occlusion-culled it (a window zoomed to cover the output does exactly
+        // that) — which used to switch the bundle's after-content passes off with
+        // it. Injected at the BOTTOM of the op list, the band's z-position, and
+        // only when no pipeline op arrived through element dispatch; the graph,
+        // its intermediates and the after passes then run identically either way.
+        // `take`, so a frame with no band publish cannot run a stale bundle.
+        if let Some(gp) = self.band_machinery.take() {
+            if !ops.iter().any(|o| matches!(o, DrawOp::Pipeline(_))) {
+                ops.insert(0, DrawOp::Pipeline(gp));
+            }
+        }
         let key = std::sync::Arc::clone(&self.output);
         let mut out = self.outputs.remove(&key).unwrap_or_default();
         let r = self.submit_pass(
@@ -121,6 +134,18 @@ impl VulkanRenderer {
         // whose dmabuf has died are reclaimed here.
         self.reap_targets();
         self.in_flight_textures = std::mem::take(&mut self.pinned_textures);
+        // Destroy the textures those two steps just retired. AFTER them, not beside
+        // `drain_retired()` above: at that point neither has run, so draining there would
+        // always trail a frame behind — and the queue only ever grew, because nothing else
+        // drained it until the renderer itself dropped. Every evicted `import_cache` entry
+        // and every dying client buffer accumulated its VkImage/VkImageView/VkDeviceMemory
+        // for the whole session.
+        //
+        // Safe at exactly this point, on the same proof the two lines above rely on: the
+        // previous frame is complete (fence wait / device_wait_idle), and the next has not
+        // been recorded yet. A texture the coming frame will use is still held by
+        // `import_cache` or by a fresh pin, so it cannot be in this queue.
+        self.drain_textures();
 
         // Compose only what smithay says changed. Requires a target whose
         // contents we can take over (see `TargetAcquire`); the HDR branch below
@@ -314,9 +339,20 @@ impl VulkanRenderer {
                                     fp.draw(dev, cmd, &v.push);
                                 }
                             }
-                            DrawOp::Textured { quad, view: v, surf, .. } => {
+                            DrawOp::Textured { quad, view: v, surf, opaque, .. } => {
                                 match hdr.texture_set(dev, *v) {
-                                    Ok(set) => hdr.draw_textured(dev, cmd, set, to_push(quad, *surf)),
+                                    Ok(set) => {
+                                        hdr.draw_textured(dev, cmd, set, to_push(quad, *surf), false);
+                                        // Then replace the declared-opaque parts, so
+                                        // the rects the damage tracker removed from the
+                                        // clear are actually painted. Same shape as the
+                                        // SDR composite; this pass has no scissor loop
+                                        // of its own, so it sets them here.
+                                        for r in opaque.iter() {
+                                            unsafe { dev.device.cmd_set_scissor(cmd, 0, std::slice::from_ref(r)) };
+                                            hdr.draw_textured(dev, cmd, set, to_push(quad, *surf), true);
+                                        }
+                                    }
                                     Err(e) => warn!("hdr texture set: {e}"),
                                 }
                             }
@@ -394,7 +430,8 @@ impl VulkanRenderer {
             let mut aa_op: Vec<bool> = Vec::with_capacity(ops.len());
             let mut mip_jobs: Vec<(usize, vk::DescriptorSet)> = Vec::new();
             {
-                let mut mg = self.mipgen.borrow_mut();
+                let mut mip_pools = self.mipgen.borrow_mut();
+                let mg = mip_pools.entry(self.output.clone()).or_default();
                 if method_mips {
                     mg.begin_frame();
                 }
@@ -469,6 +506,8 @@ impl VulkanRenderer {
             }
 
             let mipgen = &self.mipgen;
+            // This pass's pool; the closure below runs after `self` is reborrowed.
+            let mip_key = self.output.clone();
             let damage_pass = acquire_layout.map(|old_layout| {
                 compositor_kernel_vulkan_command_record_base::record::DamagePass {
                     clear_rects: &clear_rects,
@@ -504,9 +543,11 @@ impl VulkanRenderer {
                 // Pre-pass: (re)generate the mip chain for each AA mip op.
                 if !mip_jobs.is_empty() {
                     if let Some(aa) = aa {
-                        let mg = mipgen.borrow();
-                        for (idx, fill) in &mip_jobs {
-                            mg.record(dev, cmd, aa, *fill, *idx);
+                        let pools = mipgen.borrow();
+                        if let Some(mg) = pools.get(&mip_key) {
+                            for (idx, fill) in &mip_jobs {
+                                mg.record(dev, cmd, aa, *fill, *idx);
+                            }
                         }
                     }
                 }
@@ -567,6 +608,7 @@ impl VulkanRenderer {
                 tick: value,
                 use_hdr,
                 format,
+                extent,
                 damaged,
                 skip_windows,
                 split_at,

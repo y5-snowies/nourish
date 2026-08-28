@@ -1,9 +1,16 @@
 {
   "deps": [
-    "compositor_kernel_graphic_bridge_negotiate_report",
+    "compositor_orchestration_smithay_data_base",
+    "compositor_kernel_graphic_format_catalog_base",
+    "compositor_kernel_graphic_format_registrar_base",
+    "compositor_kernel_graphic_format_role_base",
+    "compositor_kernel_vulkan_instance_factory_base",
+    "compositor_kernel_vulkan_instance_physical_base",
+    "compositor_kernel_vulkan_format_modifier_base",
+    "compositor_kernel_scanout_surface_output_base",
+    "compositor_kernel_graphic_format_audit_base",
     "compositor_kernel_drm_device_node_base",
     "compositor_kernel_gles_multigpu_bind_base",
-    "compositor_kernel_graphic_bridge_negotiate_compositor",
     "compositor_orchestration_driver_output_base",
     "compositor_kernel_vulkan_renderer_core_base",
     "compositor_model_debug_instance_record",

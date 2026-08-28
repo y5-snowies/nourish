@@ -1,0 +1,97 @@
+# Khronos validation layer settings for a y5 debug session.
+#
+# Point the loader at this file with:
+#     export VK_LAYER_SETTINGS_PATH=$PWD/environment/vk_layer_settings.txt
+#
+# Why a file rather than env vars: the `enables` key names are stable across layer
+# versions, the file is reviewable, and it survives being pasted between machines.
+# Env vars still work and override this — see environment/README.md.
+#
+# APPLIES TO EVERY VULKAN INSTANCE IN THE PROCESS. y5 creates several: the compositor
+# renderer, the background worker, and one each for bevy and iced (wgpu). Expect
+# messages attributed to wgpu's devices as well as ours; the `Objects:` block names
+# which. That is how the ANGLE/Chrome misattribution happened once already.
+
+# Core object/parameter checking. The default, kept explicit.
+khronos_validation.validate_core = true
+
+# SYNCHRONIZATION VALIDATION — the one that matters for y5's open questions.
+# Catches missing barriers, a read racing a write, and queue-family ownership
+# mistakes: exactly the class we spent a session guessing at from Xid faults.
+khronos_validation.validate_sync = true
+
+# Best practices, including the vendor-specific passes. Noisy, but it is where
+# "you are doing this legally and stupidly" shows up.
+khronos_validation.validate_best_practices = true
+khronos_validation.validate_best_practices_nvidia = true
+
+# The `khronos_validation.enables = VK_VALIDATION_FEATURE_ENABLE_*` list that used to
+# be here is DEPRECATED as of layer 1.4.341 — the layer itself prints "Deprecated:
+# VK_VALIDATION_FEATURE_ENABLE_… | New: …" and points at the boolean keys above. Do not
+# re-add it; setting the same thing twice in two spellings is how a run ends up with a
+# configuration nobody can reconstruct afterwards.
+
+# ---------------------------------------------------------------------------------
+# GPU-ASSISTED VALIDATION — off, and this is how to turn it on.
+#
+# Uncomment the next line. That is the whole switch (the modern key; the old
+# VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT enum is deprecated):
+# khronos_validation.gpuav_enable = true
+#
+# The equivalent for one run without editing this file:
+#     VK_KHRONOS_VALIDATION_GPUAV_ENABLE=1 ./your-run-script
+#
+# READ THIS BEFORE YOU DO. GPU-AV rewrites every shader to add bounds checks and
+# reserves a descriptor binding slot. y5 runs descriptor indexing, so that slot is not
+# free. In the 2026-08-13 session it failed at startup with
+#
+#     UNASSIGNED-GPU-Assisted-Validation: Internal Error, GPU-AV is being disabled.
+#     Details: Failed to create fences
+#
+# and the compositor did not survive the session; with GPU-AV off and everything else
+# unchanged it ran fine. That is a correlation, not a proven cause, but it is the only
+# difference between the run that died and the run that did not. Expect to debug
+# GPU-AV itself before you get any signal out of it.
+#
+# It is also slow enough to change frame timing, so it is the wrong tool for anything
+# where pacing, FPS or a race is the subject. Its actual use is out-of-bounds
+# descriptor/buffer access — a wrong-index or past-the-end read that core validation
+# cannot see because it is a runtime value.
+#
+# If it does start disabling itself, these narrow what it instruments:
+#   khronos_validation.gpuav_safe_mode = true            # slower, survives more drivers
+#   khronos_validation.gpuav_shader_instrumentation = false   # keep only buffer checks
+#   khronos_validation.gpuav_select_instrumented_shaders = true
+#   khronos_validation.gpuav_shaders_to_instrument = <shader>  # one shader at a time
+#
+# Mutually exclusive with DebugPrintf: enabling both silently loses one of them.
+# ---------------------------------------------------------------------------------
+
+# Report everything once per unique message rather than stopping at 10. The default
+# limit truncated a real investigation: "This VUID has now been reported 10 times,
+# which is the duplicate_message_limit value" hid whether a fault was one surface or
+# every surface. 0 = unlimited; expect a large log on a long session.
+khronos_validation.duplicate_message_limit = 0
+
+# Silence VUID-StandaloneSpirv-None-10684 — explicit layout decorations (Offset,
+# ArrayStride, MatrixStride) on types a non-laid-out storage class also uses.
+#
+# This is naga's, not ours: it interns SPIR-V types by handle alone, so the struct
+# emitted for a push-constant block is reused verbatim for a function-local, carrying
+# decorations SPIR-V permits only in Uniform/StorageBuffer/PushConstant/
+# PhysicalStorageBuffer. The decoration is INERT where it is illegal — those classes
+# have no defined layout and nothing reads it — and the laid-out uses of the same type
+# keep their correct decorations, so addressing is unaffected. wgpu suppresses the same
+# VUID in its own debug callback (wgpu-hal/src/vulkan/instance.rs, gfx-rs/wgpu#7696).
+#
+# It is filtered rather than fixed because with duplicate_message_limit = 0 it fires per
+# module across every instance and buries the sync validation above, which is the output
+# this file exists to get. The fix we are NOT carrying is
+# environment/patches/naga-spv-layout-strip.patch — read that before re-enabling this.
+#
+# Comment this out if you are auditing SPIR-V validity rather than debugging y5.
+khronos_validation.message_id_filter = VUID-StandaloneSpirv-None-10684
+
+khronos_validation.report_flags = error,warn,perf
+khronos_validation.debug_action = VK_DBG_LAYER_ACTION_LOG_MSG
+khronos_validation.log_filename = stdout

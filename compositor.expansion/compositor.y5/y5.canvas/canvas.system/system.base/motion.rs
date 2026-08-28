@@ -196,7 +196,7 @@ pub(crate) fn motion(cx: &mut SystemCx, x: f64, y: f64, _screen_x: f64, _screen_
                     let rdy = dy + sdy;
                     let mut new_geo = *start_geo;
                     // A placeholder is not a client surface: it is our own iced
-                    // tile, and its floor is the smallest size its responsive
+                    // placeholder, and its floor is the smallest size its responsive
                     // layout is designed for — much shorter than a window's 300,
                     // since the compact step is a single row (icon | identity |
                     // actions). See `placeholder.surface::breakpoint`. The same
@@ -275,7 +275,7 @@ pub(crate) fn motion(cx: &mut SystemCx, x: f64, y: f64, _screen_x: f64, _screen_
     // Apply window reforms (force = interactive drag) reading `cx.platform.space()`.
     // Each window owns a live `map` placeholder keyed by its UUID; keep its geometry
     // in sync with the drag (rim `_reform` did this via `placeholder.interface::set`)
-    // so the tile spawns at the dragged-to geometry when the window later closes.
+    // so the placeholder spawns at the dragged-to geometry when the window later closes.
     for (window, update) in window_updates {
         if let Some(uuid) = window.uuid() {
             let position = update.position.map(|p| (p.x, p.y));

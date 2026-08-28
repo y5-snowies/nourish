@@ -23,9 +23,14 @@ pub fn initialize(
     // Creates the damage tracker
     let output_damage_tracker = OutputDamageTracker::from_output(&output);
 
-    // 1. Advertises dmabuf to GPU accelerated clients connected via wayland.
-    // 2. Allows smithay to render DMABUF imports from clients
-    output::register_dmabuf(_loop, backend);
+    // Allows smithay to render DMABUF imports from clients, and registers the EGL
+    // import set with the format layer.
+    //
+    // ADVERTISING them is a separate step now (`output::advertise_dmabuf`, driven
+    // by the loader). Building the feedback here meant answering the format layer
+    // in the middle of the registration phase, while the wgpu adapters were still
+    // probing — so the advertisement was computed from an unfinished registrar.
+    output::bind_display(_loop, backend);
 
     // Damage tracker created for the output(monitor)
     output_damage_tracker

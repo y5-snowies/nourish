@@ -992,6 +992,16 @@ enum PreparedFrameKind {
 struct PreparedFrame<A: Allocator, F: ExportFramebuffer<<A as Allocator>::Buffer>> {
     frame: CompositorFrameState<A, F>,
     kind: PreparedFrameKind,
+    /// y5: this frame must be presentable even with nothing to update.
+    ///
+    /// Separate from `kind` on purpose. Forcing `Full` would reach the same
+    /// `is_empty` answer, but `submit` derives `allow_partial_update` back out of
+    /// `kind` — so a `Full` frame also builds the whole plane state, claiming
+    /// planes it never used. That turns a single-plane FB swap into a multi-plane
+    /// commit, and the kernel only accepts `PAGE_FLIP_ASYNC` for the former: it
+    /// would silently disable tearing. This flag changes the empty test and
+    /// nothing else.
+    force: bool,
 }
 
 impl<A: Allocator, F: ExportFramebuffer<<A as Allocator>::Buffer>> PreparedFrame<A, F> {
@@ -999,7 +1009,9 @@ impl<A: Allocator, F: ExportFramebuffer<<A as Allocator>::Buffer>> PreparedFrame
     fn is_empty(&self) -> bool {
         // It can happen that we have no changes, but there is a pending commit or
         // we are forced to do a full update in which case we just set the previous state again
-        self.kind == PreparedFrameKind::Partial && self.frame.planes.iter().all(|p| p.1.skip)
+        !self.force
+            && self.kind == PreparedFrameKind::Partial
+            && self.frame.planes.iter().all(|p| p.1.skip)
     }
 }
 
@@ -1037,6 +1049,20 @@ bitflags::bitflags! {
         /// y5: draw every element the render loop reaches, even undamaged ones.
         /// See `OutputDamageTracker::set_draw_all`.
         const DRAW_ALL_ELEMENTS = 32;
+        /// y5: never report this frame empty, so `queue_frame` always has
+        /// something to flip and the caller's redraw loop never parks.
+        ///
+        /// Deliberately NOT `DRAW_ALL_ELEMENTS`, NOT `reset_buffer_ages` and NOT
+        /// `PreparedFrameKind::Full`. The first two change what gets RENDERED; the
+        /// third changes what gets COMMITTED (see `PreparedFrame::force`). This
+        /// changes only the empty test, so buffer ages, damage history, the render
+        /// work and the shape of the atomic commit are all untouched — which is
+        /// what keeps an async/tearing flip a single-plane FB swap.
+        ///
+        /// Flipping to a slot the tracker chose not to redraw is safe on the usual
+        /// aged-buffer contract: empty damage means that slot's contents were
+        /// already correct when last presented and nothing has changed since.
+        const FORCE_PRESENT = 64;
         /// Allow to realize the frame by assigning elements on any plane
         const ALLOW_SCANOUT = Self::ALLOW_PRIMARY_PLANE_SCANOUT.bits() | Self::ALLOW_OVERLAY_PLANE_SCANOUT.bits() | Self::ALLOW_CURSOR_PLANE_SCANOUT.bits();
         /// Safe default set of flags
@@ -2406,6 +2432,7 @@ where
                 PreparedFrameKind::Full
             },
             frame: next_frame_state,
+            force: frame_flags.contains(FrameFlags::FORCE_PRESENT),
         };
         let frame_reference: RenderFrameResult<'a, A::Buffer, F::Framebuffer, E> = RenderFrameResult {
             is_empty: next_frame.is_empty(),

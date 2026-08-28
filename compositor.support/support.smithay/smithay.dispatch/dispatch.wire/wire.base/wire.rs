@@ -149,9 +149,7 @@ pub fn new_dispatch(
         session: Default::default(),
         session_live: Default::default(),
         toplevel_drag: Default::default(),
-        needs_redraw: true,
-        redraw_ping: None,
-        render_in_flight: false,
+        redraw: compositor_support_smithay_state_redraw_schedule::schedule::Schedule::new(),
         committed: vec![],
         new_toplevels: vec![],
         destroyed_toplevels: vec![],
@@ -177,12 +175,9 @@ pub fn new_dispatch(
 // ── Inherent helpers (on Wire<A>: they bridge `state` (seat) + `inner` (world)) ─
 impl<A: WireTrait + 'static> Wire<A> {
     #[inline] pub fn schedule_redraw_post_vblank(&mut self) { self.state.schedule_redraw_post_vblank(); }
-    #[inline] pub fn rearm_redraw(&mut self) { self.state.rearm_redraw(); }
+    #[inline] pub fn bump_redraw_epoch(&mut self) { self.state.bump_redraw_epoch(); }
     #[inline] pub fn schedule_redraw(&mut self) { self.state.schedule_redraw(); }
     #[inline] pub fn force_redraw(&mut self) { self.state.force_redraw(); }
-    #[inline] pub fn take_needs_redraw(&mut self) -> bool { self.state.take_needs_redraw() }
-    #[inline] pub fn mark_render_queued(&mut self) { self.state.mark_render_queued(); }
-    #[inline] pub fn mark_vblank_arrived(&mut self) { self.state.mark_vblank_arrived(); }
     pub fn window_for_toplevel(&self, surface: &ToplevelSurface) -> Option<smithay::desktop::Window> {
         rd::window_for_toplevel(&self.inner.host_space().state, surface.wl_surface())
     }
@@ -367,11 +362,21 @@ impl<A: WireTrait + 'static> Wire<A> {
     pub fn apply_constraint_restoration(&mut self, token: (WlSurface, Point<f64, Logical>)) {
         let (hint_surface, hint_surface_local) = token;
         let Some(pointer) = self.state.seat.seat.get_pointer() else { return; };
-        let surface_origin = self.inner.host_space().element_location_for_surface(&hint_surface).to_f64();
-        let warp_world = surface_origin + hint_surface_local;
+        // The hint is surface-local; where it SHOWS is through the window's fit
+        // (world side). Fall back to the raw geometry origin only for a surface no
+        // window owns.
+        let warp_world = self
+            .inner
+            .surface_point_to_world(&hint_surface, hint_surface_local)
+            .unwrap_or_else(|| {
+                self.inner.host_space().element_location_for_surface(&hint_surface).to_f64()
+                    + hint_surface_local
+            });
         let serial = SERIAL_COUNTER.next_serial();
         let time = self.state.compositor.clock.now().as_millis() as u32;
-        pointer.motion(&mut self.state, Some((hint_surface, hint_surface_local)), &MotionEvent { location: warp_world, serial, time });
+        // Smithay derives the client's local coordinate as `location - focus_origin`,
+        // so hand it the origin that yields exactly the hint (`hit.rs` does the same).
+        pointer.motion(&mut self.state, Some((hint_surface, warp_world - hint_surface_local)), &MotionEvent { location: warp_world, serial, time });
         pointer.frame(&mut self.state);
         self.inner.apply_pointer(warp_world);
         self.state.schedule_redraw();
@@ -390,11 +395,28 @@ impl<A: WireTrait + 'static> Wire<A> {
         // Commits: on_commit, initial configure + placement, resize.
         let committed = std::mem::take(&mut self.state.committed);
         for surface in &committed {
-            if let Some((window, geometry)) =
-                compositor_support_smithay_state_compositor_dispatch::wire::apply_commit(
-                    &mut self.inner.host_space_mut().state,
-                    surface,
-                )
+            // Against the Space of the world that OWNS the window — a window in a
+            // world the user is not in still commits, and its `on_commit` (bbox) and
+            // startup jiggle must land there, not be dropped because it is absent
+            // from the host Space. A not-yet-mapped toplevel resolves to the host
+            // Space, where `new_toplevels` above just mapped it.
+            //
+            // The remembered size only for a MAPPED toplevel's commit preceding its
+            // initial configure — the one moment it can still be proposed. Commits
+            // are the hottest path here, and that lookup walks every world's
+            // placeholders. Resolved BEFORE the mutable space borrow: the
+            // placeholder that answers lives in the world slot.
+            use compositor_support_smithay_state_compositor_dispatch::wire as commit;
+            let toplevel = commit::toplevel_window(&self.inner.owning_space(surface).state, surface);
+            let initial = toplevel.is_some() && commit::awaits_initial_configure(surface);
+            let restore_size = initial.then(|| self.inner.session_restore_size(surface)).flatten();
+            if let Some((window, geometry)) = commit::apply_commit(
+                &mut self.inner.owning_space_mut(surface).state,
+                surface,
+                toplevel,
+                initial,
+                restore_size,
+            )
             {
                 self.inner.place_window(window, geometry);
             }
@@ -449,7 +471,7 @@ impl<A: WireTrait + 'static> Wire<A> {
         // `is_pointer_over` → `current_focus()` query can't re-lock a held pointer mutex.
         if let Some(surface) = self.state.pending_constraint_activation.take() {
             if let Some(pointer) = self.state.seat.seat.get_pointer() {
-                if self.state.seat.is_pointer_over(&pointer, &surface) {
+                if self.state.seat.is_pointer_over(&pointer, &surface) && !self.state.seat.constraints_suspended {
                     with_pointer_constraint(&surface, &pointer, |c| {
                         if let Some(c) = c {
                             if !c.is_active() {

@@ -157,6 +157,9 @@ pub fn input_received(
         // Show the grab (open hand) cursor while the hand tool is active; the
         // per-frame render forces it over any client-set cursor.
         state.state.seat.force_cursor = Some(CursorIcon::Grab);
+        // The hand tool breaks out of any pointer lock/confine the focused client
+        // holds (a game's locked pointer must not pin the pan).
+        compositor_orchestration_seat_pointer_input::constraint::break_constraint(state);
     } else {
         state.inner.canvas_mut().Grab = CanvasGrab::None;
     }

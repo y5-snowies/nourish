@@ -36,9 +36,9 @@ use compositor_y5_placeholder_surface_base::{PlaceholderMessage, PlaceholderUi};
 /// there is nothing to restore it to.
 /// How long a launch stays a match candidate.
 ///
-/// `launching` is set when the tile is clicked and never cleared — a launch that
+/// `launching` is set when the placeholder is clicked and never cleared — a launch that
 /// produces no window (a single-instance app that just focused an existing one, a
-/// crash, a splash that never maps) leaves the tile armed indefinitely. Long
+/// crash, a splash that never maps) leaves the placeholder armed indefinitely. Long
 /// enough to cover a cold start; short enough that the next unrelated window does
 /// not get adopted by it.
 const LAUNCH_GRACE: std::time::Duration = std::time::Duration::from_secs(30);
@@ -49,12 +49,12 @@ const LAUNCH_GRACE: std::time::Duration = std::time::Duration::from_secs(30);
 /// host launch and gets the normal grace. Starting one is different — `podman start` then `podman exec`, with an image pull and whatever the
 /// container's own init does in between. Thirty seconds is a plausible time for a
 /// host binary to map its first window and nowhere near enough for that, and a
-/// tile that stops matching mid-start hands its window to a fresh placeholder,
-/// losing the position and session identity the tile carried.
+/// placeholder that stops matching mid-start hands its window to a fresh placeholder,
+/// losing the position and session identity the placeholder carried.
 ///
 /// Matched to the session claim's TTL so the two predicates that associate a
 /// window with a launch expire together rather than leaving a window that matches
-/// the tile but is minted a different session id.
+/// the placeholder but is minted a different session id.
 const CONTAINER_LAUNCH_GRACE: std::time::Duration = std::time::Duration::from_secs(120);
 
 pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) -> bool {
@@ -68,7 +68,7 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
     if let Some(data) = window_data_0 {
         // `NoDisplay=true` means no menu will ever offer this program: a portal
         // backend, a MIME handler, a session helper. The user did not launch this
-        // window and cannot launch it again, so it must not leave a tile.
+        // window and cannot launch it again, so it must not leave a placeholder.
         //
         // Latched here rather than at destroy because by then the process is gone
         // and its desktop entry is no longer resolvable — and latched from THIS
@@ -105,6 +105,22 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
     let mut window_plan_0: Option<_> = None;
     let mut restored_ph: Option<Uuid> = None;
     let mut candidate_session: Option<SessionKey> = None;
+    // Every key the client declared, for MATCHING. `candidate_session` above is
+    // the CURRENT one and is what a placeholder records; the two differ whenever the
+    // client retired the restored name before mapping (Chrome, every run).
+    let mut candidate_session_keys: Vec<SessionKey> = vec![];
+    // Settings → Misc, read live: "off" | "on" | "all_worlds". Off suppresses the
+    // declared-identity match entirely (the launch signals still apply); all_worlds
+    // lets a placeholder in ANY world claim the window, and restores it into that world.
+    let capture_mode = state.inner.preference.session_capture.clone();
+    let capture_all_worlds = capture_mode == "all_worlds";
+    // Placeholders offered by a world other than the spawn target: placeholder id -> world.
+    // Only consulted in `all_worlds`, and only ever populated with SESSION-bearing
+    // placeholders — a launch/capture signal describes a spawn that happened in one world
+    // and has no meaning in another.
+    let mut foreign_tile_world: HashMap<Uuid, Uuid> = HashMap::new();
+    // App name for the cross-world notice, captured before the plan consumes the data.
+    let mut notice_app: Option<String> = None;
 
     if let Some(window_data_0) = window_data_0 {
         // On first-commit:
@@ -113,6 +129,20 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
         // here rather than inferred later: `restore_toplevel` had to precede the
         // first commit, so it is already on the surface by now.
         candidate_session = window.session();
+        // The identity is still RECORDED when capture is off — only the match is
+        // suppressed — so turning the setting back on works for placeholders left behind
+        // while it was off, instead of starting from nothing.
+        if capture_mode != "off" {
+            candidate_session_keys = window.session_keys();
+        }
+        // Captured here because `window_data_0` is consumed into the LaunchPlan
+        // below, and re-deriving it costs a /proc walk plus an XDG scan.
+        notice_app = window_data_0
+            .meta
+            .meta
+            .app_id
+            .clone()
+            .or_else(|| window_data_0.meta.meta.title.clone());
 
         let candidate_token_string = if let Some(candi) = &candidate_token {
             Some(candi.token.as_str())
@@ -128,13 +158,13 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
             // token and pid `-1`, so neither the token nor the PID-tree signal
             // can spuriously bind it.
             //
-            // The session arm is what lets a tile claim a window NOBODY here
+            // The session arm is what lets a placeholder claim a window NOBODY here
             // launched — the client came back on its own and re-declared which
             // window it is. The other two can only ever claim our own spawns.
-            // Bounded by `launch_at`: nothing ever clears `launching`, so a tile
+            // Bounded by `launch_at`: nothing ever clears `launching`, so a placeholder
             // whose launch produced no window stays a match candidate forever and
             // can adopt an unrelated app that opens much later. The bound applies
-            // ONLY to this predicate — a capture-armed or session-bearing tile
+            // ONLY to this predicate — a capture-armed or session-bearing placeholder
             // qualifies on its own terms below and is not time-limited, because
             // those signals identify the window rather than a launch in flight.
             let grace = match ph.launch_started_container {
@@ -173,11 +203,49 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
             });
         }
 
+        // ALL WORLDS: offer every OTHER world's session-bearing placeholders as candidates
+        // too. Restricted to the session arm on purpose — `is_launching` and
+        // `is_capture_armed` describe a spawn this world is waiting for, and letting
+        // them reach across worlds would let any world's stale launch adopt a window
+        // that merely opened somewhere else. A declared identity names the window
+        // itself, so it is the only signal that travels.
+        if capture_all_worlds && !candidate_session_keys.is_empty() {
+            let host = state.inner.worlds.spawn_target();
+            for world in state.inner.worlds.ids() {
+                if world == host {
+                    continue;
+                }
+                let Some(store) = state
+                    .inner
+                    .worlds
+                    .get(world)
+                    .storage()
+                    .try_get(&compositor_y5_placeholder_system_base::base::PLACEHOLDER)
+                else {
+                    continue;
+                };
+                for (ph, _) in &store.visible {
+                    if ph.session.is_none() {
+                        continue;
+                    }
+                    pending_restoration.push(PendingRestoration {
+                        id: ph.uuid,
+                        plan: ph.launch.clone(),
+                        launched_pid: -1,
+                        activation_env: HashMap::new(),
+                        session: ph.session.clone(),
+                        launch_at: ph.launch_at,
+                    });
+                    foreign_tile_world.insert(ph.uuid, world);
+                }
+            }
+        }
+
         // println!("CHecking pending restoration");
         // `restore` gates only the MATCH. A carried window still falls through to
         // the branch below that creates a fresh placeholder and records it —
         // skipping that would leave a live window with no record at all, and a
-        // window with no record leaves no tile when it is eventually closed.
+        // window with no record leaves no placeholder when it is eventually closed.
         let matched = restore
             .then(|| {
                 match_window(
@@ -185,7 +253,7 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
                     &window_data_0.meta.clone(),
                     &window_data_0.hints.clone(),
                     candidate_token_string,
-                    candidate_session.as_ref(),
+                    candidate_session_keys.as_slice(),
                     &state.inner.placeholder_mut().restoration_registry,
                 )
             })
@@ -210,37 +278,75 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
         window_plan_0 = Some(compositor_introspection_launchplan_plan_base::LaunchPlan::new(window_data_0))
     }
 
+    // Which world owns this map. The spawn target, except when an `all_worlds`
+    // match handed the window to a placeholder living somewhere else — then EVERY step
+    // below (placeholder erase, iced handle, space, draw order, the new record) has to
+    // address that world instead, or the window is mapped into one world holding
+    // another's placeholder slot.
+    let host_world = state.inner.worlds.spawn_target();
+    let target_world = restored_ph
+        .and_then(|id| foreign_tile_world.get(&id).copied())
+        .unwrap_or(host_world);
+    let cross_world = target_world != host_world;
+
     let mut placeholder = if let Some(placeholder_id) = restored_ph {
         /// Erase restored PH
-        let (restored_ph, restored_ph_handle) = state.inner.placeholder_mut()
+        let (restored_ph, restored_ph_handle) = state.inner.placeholder_of_mut(target_world)
             .erase_visible(&placeholder_id)
             .unwrap_or_else(|| abort!("Restored PH to exist."));
 
-        // The placeholder tile holds a slot in the draw-order authority (its
+        // The placeholder holds a slot in the draw-order authority (its
         // z-position within the CONTENT tier). Capture its drawable id before
         // `destroy` consumes the handle so the restored window can inherit that
         // exact slot below (id derived reversibly from the iced HandleId, matching
         // `handle::load`).
         let placeholder_drawable = uuid::Uuid::from_u128(restored_ph_handle.id.0 as u128);
 
-        // Clears out the handle.
-        if let Some(ref mut registry) = state.inner.surface_mut().registry {
+        // Clears out the handle — in the placeholder's OWN world, since the iced registry
+        // that minted it is per-world.
+        if let Some(ref mut registry) = state
+            .inner
+            .worlds
+            .get_mut(target_world)
+            .storage_mut()
+            .get_mut(&compositor_y5_surface_system_base::base::SURFACE_MUT)
+            .registry
+        {
             registry.destroy(restored_ph_handle);
         }
-        // Maps window surface.
-        state.inner.space_state_mut().state.map_element(
+        // Maps window surface into the placeholder's world.
+        state.inner.space_of_mut(target_world).state.map_element(
             window.clone(),
             Point::new(restored_ph.position.0, restored_ph.position.1),
             true,
         );
+        // MOVE, not copy. `drain_protocol` already mapped this window into the HOST
+        // space at (0,0) so commits could find it (`wire.rs`, the `new_toplevels`
+        // drain). For a same-world restore the `map_element` above just repositions
+        // that entry, but across worlds it creates a SECOND one — the window then
+        // exists in both spaces and is drawn, hit-tested and persisted by each.
+        // Unmapped after the map, mirroring `picker.world/world.delete`.
+        if cross_world {
+            state.inner.space_of_mut(host_world).state.unmap_elem(&window);
+        }
         // Register in the draw-order authority (restore is a map path). Hand the
-        // window the placeholder tile's EXACT slot (tier + z-position) so it draws
-        // where the tile was instead of popping to the top of CONTENT — and this
-        // GCs the tile's otherwise-dangling entry. Fall back to a normal top
-        // insert only if the tile had no slot (e.g. never registered).
+        // window the placeholder's EXACT slot (tier + z-position) so it draws
+        // where the placeholder was instead of popping to the top of CONTENT — and this
+        // GCs the placeholder's otherwise-dangling entry. Fall back to a normal top
+        // insert only if the placeholder had no slot (e.g. never registered).
         if let Some(uuid) = window.uuid() {
-            if !state.inner.reassign_drawable(placeholder_drawable, uuid) {
-                state.inner.register_drawable(uuid, compositor_support_world_order_track_base::base::DrawLayer::CONTENT);
+            use compositor_support_world_order_track_base::base as order;
+            let order_mut = state
+                .inner
+                .worlds
+                .get_mut(target_world)
+                .storage_mut()
+                .get_mut(&order::DRAW_ORDER_MUT);
+            if !order_mut.reassign(
+                order::ComponentId(placeholder_drawable),
+                order::ComponentId(uuid),
+            ) {
+                order_mut.insert_top(order::ComponentId(uuid), order::DrawLayer::CONTENT);
             }
         }
 
@@ -285,7 +391,7 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
         let mut placeholder = Placeholder {
             uuid: Uuid::now_v7(),
             // The layout floor, not an arbitrary number: this is a real size
-            // the tile can be rendered at if the window never reports one.
+            // the placeholder can be rendered at if the window never reports one.
             size: clamp_size((0, 0)),
             position: (0, 0),
             launch: window_plan_0,
@@ -303,11 +409,31 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
     // grab the window UUID.
     let window_uuid = window.uuid().unwrap_or_else(|| abort!("Windows to have UUID"));
     info!("Insert PH, Window UUID: {:?}", window_uuid);
-    state.inner.placeholder_mut().insert(placeholder, window_uuid);
-    // Persist this world's placeholders (incl. not-yet-visible ones). Inserting a
-    // placeholder is a discrete, important event → IMMEDIATE (the per-frame sample
-    // transform updates below stay debounced).
-    compositor_support_system_persist_mark_base::base::mark_world(state.inner.worlds.active_id(), true);
+    state.inner.placeholder_of_mut(target_world).insert(placeholder, window_uuid);
+    // Persist the placeholders of the world that actually took the window (incl.
+    // not-yet-visible ones). Inserting a placeholder is a discrete, important
+    // event → IMMEDIATE (the per-frame sample transform updates below stay
+    // debounced).
+    // The HOST world (spawn target) for the ordinary path — the world the
+    // placeholder was inserted into above — never `active_id()`, which is the
+    // lock or picker overlay while one is up; only a cross-world adoption
+    // redirects it, since that is the world whose placeholder list changed.
+    let persist_world = match cross_world {
+        true => target_world,
+        false => state.inner.worlds.spawn_target(),
+    };
+    compositor_support_system_persist_mark_base::base::mark_world(persist_world, true);
+
+    // The window went somewhere the user is not looking. Tell them, or it reads as
+    // a launch that silently did nothing.
+    if cross_world {
+        let app = notice_app.clone().unwrap_or_else(|| String::from("A window"));
+        compositor_y5_notify_state_base::base::announce(
+            state.inner.kernel_channels(),
+            format!("{app} restored window on another world"),
+        );
+        info!("placeholder: {app} restored into world {target_world} (placeholder from another world)");
+    }
 
     if restored_ph.is_some() {
         return true;
@@ -344,7 +470,7 @@ pub fn on_window_destroy(
     // The record lives in the world the window was MAPPED in, which is not
     // necessarily the one on screen now — a window is free to exit while the user
     // is looking at another world. Resolving against `spawn_target` here searched
-    // the wrong world, found nothing, and dismissed the tile the window had
+    // the wrong world, found nothing, and dismissed the placeholder the window had
     // earned, leaving its record orphaned in the origin world for good measure.
     let Some(world) = state.inner.world_of_placeholder(uuid) else {
         return;
@@ -357,7 +483,7 @@ pub fn on_window_destroy(
     // exits while the user is elsewhere.
     compositor_support_system_persist_mark_base::base::mark_world(world, true);
 
-    // No tile wanted. Either the user asked for none (Shift-close from the
+    // No placeholder wanted. Either the user asked for none (Shift-close from the
     // selection toolbar) or the window was never theirs to begin with — a modal
     // dialog, or a `NoDisplay=true` entry such as the portal file chooser. Both
     // arrive as surface user data read by the wire layer.
@@ -370,7 +496,7 @@ pub fn on_window_destroy(
         return;
     }
 
-    // The tile belongs to the window's own world, at the position it was closed
+    // The placeholder belongs to the window's own world, at the position it was closed
     // at. Building it needs the renderer AND the world's iced registry, neither of
     // which applies to a world that is not on screen — so hand it to that world's
     // `pending_restore`, which `promote_restored` drains on the first frame that
@@ -381,16 +507,16 @@ pub fn on_window_destroy(
         return;
     }
 
-    // Window's draw-order slot is still live (GC runs after this); tile inherits it.
+    // Window's draw-order slot is still live (GC runs after this); placeholder inherits it.
     spawn_visible(state, renderer, ph, Some(uuid));
 }
 
 /// Build the visible iced launcher surface for a placeholder and register it in
 /// the spawn-target world's `visible` set. Shared by window-destroy (live window →
-/// tile) and restore (disk → tile). No-op if the placeholder has no launch plan.
+/// placeholder) and restore (disk → placeholder). No-op if the placeholder has no launch plan.
 ///
-/// `predecessor` is the captured window's UUID: the tile inherits its exact
-/// draw-order slot (mirror of the restore path). `None` for disk-restored tiles.
+/// `predecessor` is the captured window's UUID: the placeholder inherits its exact
+/// draw-order slot (mirror of the restore path). `None` for disk-restored placeholders.
 pub fn spawn_visible(
     state: &mut Loop,
     renderer: &mut GlesRenderer,
@@ -402,8 +528,8 @@ pub fn spawn_visible(
     };
     // Clamp HERE, at the boundary, rather than inside the placeholder store:
     // storage stays idempotent and callers own their geometry. This is the one
-    // point where a record becomes a rendered tile, so it is where a size the
-    // UI has no design for has to be corrected — a tile inheriting a tiny
+    // point where a record becomes a rendered placeholder, so it is where a size the
+    // UI has no design for has to be corrected — a placeholder inheriting a tiny
     // window's geometry, or rehydrated from a record written before the floor
     // existed. The same `ph` is moved into `push_visible` below, so the
     // surface and the stored record cannot disagree.
@@ -428,8 +554,8 @@ pub fn spawn_visible(
         compositor_orchestration_draw_layer_base::base::Layer::SCENE.bits(),
     );
 
-    // `handle::load` inserted the tile at CONTENT top; hand it the captured
-    // window's exact slot instead. `reassign` drops the tile's fresh entry before
+    // `handle::load` inserted the placeholder at CONTENT top; hand it the captured
+    // window's exact slot instead. `reassign` drops the placeholder's fresh entry before
     // it finds the window, so re-insert on a miss (window never registered).
     if let Some(win_uuid) = predecessor {
         let placeholder_drawable = uuid::Uuid::from_u128(handle.id.0 as u128);
@@ -443,7 +569,7 @@ pub fn spawn_visible(
 
     // The placeholder paints its whole rect with an opaque background, so it
     // occludes anything fully behind it — e.g. a previous placeholder retained
-    // at the same tile. Marking it lets the registry skip rasterizing/compositing
+    // at the same placeholder. Marking it lets the registry skip rasterizing/compositing
     // the covered one entirely (see `set_opaque_occluder_by_id`).
     state.inner.surface_mut()
         .registry
@@ -463,7 +589,7 @@ pub fn spawn_visible(
 }
 
 /// Promote the spawn-target world's disk-restored placeholders into visible
-/// launcher tiles, now that the rim has a renderer. Cheap no-op when none are
+/// placeholders, now that the rim has a renderer. Cheap no-op when none are
 /// pending; defers a frame if the iced registry isn't up yet (early startup).
 pub fn promote_restored(state: &mut Loop, renderer: &mut GlesRenderer) {
     if state.inner.placeholder().pending_restore.is_empty() {
@@ -492,7 +618,7 @@ pub fn promote_restored(state: &mut Loop, renderer: &mut GlesRenderer) {
 /// **Renames**: `xdg_toplevel_session_v1.rename` re-keys an identity mid-run. The
 /// wire layer records it (it cannot reach placeholders); this applies it to every
 /// placeholder holding the old key, in EVERY world — the window may have been
-/// mapped in one world while its tile lives in another, and a stale name stops the
+/// mapped in one world while its placeholder lives in another, and a stale name stops the
 /// client matching on its next run.
 ///
 /// Persistence is marked LAZY: rename cadence is the client's to choose, and an
@@ -681,7 +807,7 @@ fn window_of(state: &Loop, uuid: Uuid) -> Option<Window> {
 ///
 /// The pixel buffers are deliberately dropped here: a placeholder record outlives
 /// its window, and a decoded icon is client state that would then be retained —
-/// unresolvable, unpersistable and unbounded — for as long as the tile exists.
+/// unresolvable, unpersistable and unbounded — for as long as the placeholder exists.
 /// A name survives all of that and re-resolves against the icon theme on demand.
 fn window_icon(state: &Loop, uuid: Uuid) -> Option<compositor_introspection_extraction_window_base::ToplevelIcon> {
     let icon = window_of(state, uuid)?.toplevel_icon()?;

@@ -1,5 +1,6 @@
 // Every spawn goes through the hygiene wrapper — see `process.child`.
 use compositor_support_library_process_child_hygiene::hygiene;
+use compositor_support_library_process_child_spawn::spawn as child_spawn;
 
 pub fn init_logging() {
     if let Ok(env_filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
@@ -16,10 +17,10 @@ pub fn spawn_client() {
 
     match (flag.as_deref(), arg) {
         (Some("-c") | Some("--command"), Some(program)) => {
-            hygiene::command(program).spawn().ok();
+            child_spawn::spawn(&mut hygiene::command(program)).ok();
         }
         _ => {
-            hygiene::command("foot").spawn().ok();        }
+            child_spawn::spawn(&mut hygiene::command("foot")).ok();        }
         // std::process::Command::new("weston-terminal").spawn().ok();        }
     }
 }

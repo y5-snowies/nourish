@@ -31,10 +31,20 @@ pub struct BuiltOutput {
 /// default policy. Errors only if the connector advertises nothing.
 fn pick_mode(target: &connector::Info, requested: Option<ModeInfo>) -> Result<DrmMode, String> {
     if let Some(r) = requested {
-        if let Some(m) = target.modes().iter().find(|m| {
+        // Progressive variant first: a connector can advertise the same WxH@R both
+        // ways, and an interlaced pick fails every tiled-format atomic test, which
+        // drags the WHOLE device onto implicit modifiers (see
+        // `drm.mode/mode.select::is_interlaced`).
+        let matches = |m: &&DrmMode| {
             let (w, h) = m.size();
             w == r.width && h == r.height && m.vrefresh() * 1000 == r.refresh_mhz
-        }) {
+        };
+        let hit = target
+            .modes()
+            .iter()
+            .find(|m| matches(m) && !compositor_kernel_drm_mode_select_base::select::is_interlaced(m))
+            .or_else(|| target.modes().iter().find(matches));
+        if let Some(m) = hit {
             return Ok(*m);
         }
     }
@@ -46,6 +56,7 @@ fn pick_mode(target: &connector::Info, requested: Option<ModeInfo>) -> Result<Dr
 /// `Err` (leaving the active pipe untouched) on no free CRTC / no mode / modeset
 /// failure, so the caller can report a clean `Failed` with no state change.
 pub fn build(
+    formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar,
     manager: &Rc<RefCell<NativeDrmOutputManager>>,
     gpu_binding: &Rc<RefCell<StateDRMBinding>>,
     output: &Output,
@@ -105,8 +116,63 @@ pub fn build(
         }
     })?;
 
+    let drm_output = slot.ok_or_else(|| "try_chain ok without output".to_string())?;
+
+    // Undo any implicit-modifier fallback the bring-up above triggered. Enabling an
+    // extra CRTC can push smithay into forcing `DrmModifier::Invalid` on EVERY
+    // compositor, including the pipes that were already working — and with the
+    // Vulkan renderer that is fatal, not merely slow (Vulkan cannot create an image
+    // for an implicit-modifier buffer, so every render_frame fails and all screens
+    // stay black). smithay ships the recovery; nothing called it until now.
+    if let Err(e) = compositor_kernel_scanout_surface_output_base::output::restore_modifiers::<
+        _,
+        GlesElementWrapper<SceneElement<GlesRenderer>>,
+    >(&mut mgr, &mut renderer)
+    {
+        warn!("restore_modifiers failed after bringing up crtc {pipe:?}: {e} \
+               — pipes may be left on implicit modifiers");
+    }
+
+    // Release the manager/renderer borrows before touching the new pipe: the calls
+    // below take their own guards on the compositor map.
+    drop(mgr);
+    drop(binding);
+
+    let env = compositor_model_environment_config_base::base::get();
+
+    // VRR belongs to EVERY pipe, not just the one assembly built. `use_vrr` writes
+    // the surface's PENDING state and this is a brand new surface, so without this
+    // a second monitor — or the primary after any fail-over/rebuild — silently
+    // scans out fixed-refresh while the setting still says VRR is on.
+    let vrr = compositor_kernel_scanout_surface_output_base::output::apply_vrr(
+        &drm_output,
+        target.handle(),
+        env.vrr,
+    );
+    compositor_model_stats_registry_base::base::set_vrr(vrr.supported, vrr.enabled);
+
+    // Record the achieved scanout format FOR THIS CRTC. Per-CRTC and not one
+    // process-wide value: pipes are per-monitor, and the old single slot meant the
+    // last monitor built decided the session's colour depth for every producer —
+    // so plugging an 8-bit panel in beside a 10-bit one silently banded the good
+    // display. `Registrar::scanout_fourcc` now prefers the deepest live pipe.
+    let (fourcc, modifier, offered) =
+        compositor_kernel_scanout_surface_output_base::output::format_info(&drm_output);
+    formats.set_scanout_fourcc(u32::from(pipe) as u64, fourcc);
+    {
+        use compositor_kernel_graphic_format_rule_base::rule;
+        compositor_model_stats_registry_base::base::set_device_format(
+            "scanout",
+            &format!("{fourcc:?}"),
+            modifier.into(),
+            rule::label(rule::classify(modifier)),
+            1,
+        );
+    }
+
+
     Ok(BuiltOutput {
-        drm_output: slot.ok_or_else(|| "try_chain ok without output".to_string())?,
+        drm_output,
         crtc: pipe,
         drm_mode: chosen,
         modes: target.modes().to_vec(),

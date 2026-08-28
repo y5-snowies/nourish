@@ -15,11 +15,16 @@ use wgpu::TextureUses;
 use crate::error::WgpuImportError;
 use crate::wgpu_context::WgpuVulkanContext;
 
-/// Canonical format for our DMABUF round-trip.
+/// The wgpu format our DMABUF round-trip is seen through, DERIVED from the fourcc
+/// the format layer gives this producer.
 ///
-/// gbm's `Argb8888` Fourcc maps to BGRA in API endianness, so this is what
-/// WGPU sees. sRGB so iced_wgpu's text rendering looks right.
-pub const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
+/// It was a hardcoded constant here (and in three other files), and because the
+/// buffer is imported as this format it was what PINNED every producer to
+/// `Argb8888`. The mapping now lives in `format.catalog::wgpu_format`, so the
+/// fourcc leads and the wgpu format follows instead of the other way round.
+pub fn texture_format(formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar) -> wgpu::TextureFormat {
+    compositor_kernel_graphic_format_catalog_base::catalog::wgpu_format(compositor_kernel_graphic_format_answer_base::answer::producer_formats(formats, compositor_kernel_graphic_format_answer_base::answer::Consumer::IcedInline).0)
+}
 
 /// Usage flags applied to imported textures. Render attachment for Iced
 /// drawing into, texture binding for sampling (rare, but cheap to include),
@@ -72,7 +77,7 @@ pub fn import_dmabuf_to_wgpu(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: TEXTURE_FORMAT,
+        format: texture_format(&ctx.formats),
         usage: TextureUses::COLOR_TARGET | TextureUses::RESOURCE,
         memory_flags: MemoryFlags::empty(),
         view_formats: vec![],
@@ -112,7 +117,7 @@ pub fn import_dmabuf_to_wgpu(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: TEXTURE_FORMAT,
+        format: texture_format(&ctx.formats),
         usage: TEXTURE_USAGE,
         view_formats: &[],
     };

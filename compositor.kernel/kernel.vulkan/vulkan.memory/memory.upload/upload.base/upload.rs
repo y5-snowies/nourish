@@ -250,10 +250,11 @@ pub fn create_and_upload(
 
     // X-formats are opaque (no real alpha) — force alpha to 1 so the window
     // doesn't blend out transparent (see the dmabuf import path).
-    let opaque = matches!(
-        format,
-        Fourcc::Xrgb8888 | Fourcc::Xbgr8888 | Fourcc::Xrgb2101010 | Fourcc::Xbgr2101010
-    );
+    //
+    // From the fourcc table, not a local list: this was a fourth copy of the same
+    // predicate, and the dmabuf path had already moved to the table. A local copy
+    // goes stale the first time a format is added and nobody remembers it exists.
+    let opaque = compositor_kernel_vulkan_format_query_base::query::opaque(format);
     let components = vk::ComponentMapping {
         r: vk::ComponentSwizzle::IDENTITY,
         g: vk::ComponentSwizzle::IDENTITY,

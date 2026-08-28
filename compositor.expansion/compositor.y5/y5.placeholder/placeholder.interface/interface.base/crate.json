@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_y5_notify_state_base",
     "compositor_support_system_persist_mark_base",
     "compositor_orchestration_driver_introspection_base",
     "compositor_model_debug_instance_record",
@@ -29,6 +30,11 @@
     "compositor_kernel_execution_driver_executor_base",
     "compositor_introspection_execution_launch_build_container",
     "compositor_support_smithay_state_session_claim",
-    "compositor_support_smithay_state_ephemeral_mark"
+    "compositor_support_smithay_state_ephemeral_mark",
+    // Cross-world adoption (`session_capture = "all_worlds"`): the placeholder's own world
+    // owns the iced registry that minted its handle, and the notice slot the
+    // screen-space presenter reads lives with the placeholder state.
+    "compositor_y5_surface_system_base",
+    "compositor_y5_placeholder_state_base"
   ]
 }

@@ -57,13 +57,15 @@ impl VulkanRenderer {
     /// flip mid-gesture, so this must not stall the frame with a drain of its
     /// own. Rebuilt lazily by `ensure_aa_pipeline` when AA is re-enabled.
     pub(super) fn teardown_aa(&mut self) {
-        if self.aa_pipelines.is_empty() && self.mipgen.borrow().is_empty() {
+        if self.aa_pipelines.is_empty() && self.mipgen.borrow().values().all(|m| m.is_empty()) {
             return;
         }
         for (_, aa) in self.aa_pipelines.drain() {
             aa.destroy(&self.dev);
         }
-        self.mipgen.borrow_mut().destroy(&self.dev);
+        for (_, mut m) in self.mipgen.borrow_mut().drain() {
+            m.destroy(&self.dev);
+        }
     }
 
     /// Lazily build the HDR composite pipeline for `format`.

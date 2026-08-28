@@ -4,6 +4,7 @@ use std::process::Stdio;
 
 use compositor_introspection_execution_launch_scope::scope::adopt_into_scope;
 use compositor_support_library_process_child_hygiene::hygiene::command;
+use compositor_support_library_process_child_spawn::spawn::spawn;
 use compositor_introspection_execution_launch_types::types::{LaunchOutcome, LaunchRequest};
 
 /// Spawn `req` and return its outcome. The PID is always `Child::id()` — we
@@ -34,7 +35,11 @@ pub fn execute(req: &LaunchRequest, scope: bool) -> LaunchOutcome {
     cmd.stderr(Stdio::inherit());
 
 
-    let pid = match cmd.spawn() {
+    // `child.spawn`, never `Command::spawn` directly: it refuses a program that
+    // could not be resolved (the ordinary failure — a plan naming a binary that
+    // isn't installed) BEFORE forking, and holds the reaper off for the fork+exec
+    // window so std's own wait on a failed exec cannot lose the race.
+    let pid = match spawn(&mut cmd) {
         Ok(child) => {
             let pid = child.id();
             // std's Child does not wait on drop, so dropping here cannot race
@@ -55,6 +60,9 @@ pub fn execute(req: &LaunchRequest, scope: bool) -> LaunchOutcome {
 }
 
 fn fail(req: &LaunchRequest, reason: String) -> LaunchOutcome {
-    warn!("launch failed: {reason}");
+    // Name BOTH resolvable inputs. `spawn` reports a failed `chdir` and a failed
+    // `exec` with the same bare ENOENT, so a message carrying neither path sends
+    // you looking at the binary when the pinned working directory is what moved.
+    warn!("launch failed: {reason} (argv={:?} cwd={:?})", req.argv, req.working_dir);
     LaunchOutcome { correlation: req.correlation, token: req.token.clone(), pid: None, result: Err(reason) }
 }

@@ -1,0 +1,754 @@
+diff --git a/compositor.kernel/kernel.native/native.wire/wire.entry/entry.base/entry.rs b/compositor.kernel/kernel.native/native.wire/wire.entry/entry.base/entry.rs
+index 39849047..57a22842 100644
+--- a/compositor.kernel/kernel.native/native.wire/wire.entry/entry.base/entry.rs
++++ b/compositor.kernel/kernel.native/native.wire/wire.entry/entry.base/entry.rs
+@@ -237,6 +237,12 @@ pub fn wire(
+                 // synchronous device_wait_idle. `set_drm_fd` logs the mode
+                 // actually chosen.
+                 vk.set_drm_fd(display.drm_fd.clone());
++                // With the native fence path the renderer waits acquire points on
++                // the queue, so the dispatch layer stops blocking commits on them.
++                if vk.gpu_ordered_acquire() {
++                    compositor_support_smithay_dispatch_state_base::state::GPU_ORDERED_ACQUIRE
++                        .store(true, std::sync::atomic::Ordering::Relaxed);
++                }
+                 info!("native: renderer = vulkan (COMPOSITOR_RENDERER)");
+                 Some(vk)
+             }
+diff --git a/compositor.kernel/kernel.native/native.wire/wire.frame/frame.base/frame.rs b/compositor.kernel/kernel.native/native.wire/wire.frame/frame.base/frame.rs
+index d51bf33f..d9ef0bc2 100644
+--- a/compositor.kernel/kernel.native/native.wire/wire.frame/frame.base/frame.rs
++++ b/compositor.kernel/kernel.native/native.wire/wire.frame/frame.base/frame.rs
+@@ -351,10 +351,14 @@ fn process_vblank(
+     );
+     drop(ctx);
+ 
++    // The fallback (a driver that stamped the event with no monotonic time) must
++    // be CLOCK_MONOTONIC too: presentation feedback advertises clock id 1, and a
++    // since-launch duration in that field is a timestamp from a different clock.
+     let stamp = compositor_kernel_scanout_timing_vblank_base::vblank::interpret(
+         time,
+         sequence,
+-        state.inner.start_time.elapsed(),
++        compositor_kernel_scanout_timing_vblank_base::vblank::monotonic_now()
++            .unwrap_or_else(|| state.inner.start_time.elapsed()),
+     );
+ 
+     #[cfg(feature = "timing-predict")]
+diff --git a/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/crate.json b/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/crate.json
+index 092bca54..a51b3516 100644
+--- a/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/crate.json
++++ b/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/crate.json
+@@ -29,6 +29,8 @@
+     "compositor_kernel_vulkan_instance_physical_base",
+     "compositor_kernel_vulkan_memory_export_base",
+     "compositor_kernel_vulkan_sync_export_base",
++    "compositor_kernel_vulkan_sync_import_base",
++    "compositor_kernel_vulkan_sync_timeline_base",
+     "compositor_kernel_drm_syncobj_device_base",
+     "compositor_kernel_vulkan_sync_fence_base",
+     "compositor_kernel_vulkan_format_query_base",
+diff --git a/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/frame.rs b/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/frame.rs
+index 9db6c630..1a97700a 100644
+--- a/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/frame.rs
++++ b/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/frame.rs
+@@ -332,6 +332,21 @@ impl Frame for VulkanFrame<'_, '_> {
+         // the native IN_FENCE path returns from submit while the GPU still
+         // reads it (see `VulkanRenderer::pinned_textures`).
+         self.renderer.pinned_textures.push(texture.clone());
++        // And the explicit-sync buffer behind it, for the same reason and for
++        // the acquire wait the submit records. Deduped: a surface visible in
++        // several panes draws its one buffer several times.
++        // Upgraded here and held only until the frame's drain point: the strong
++        // handle exists exactly as long as a read of the buffer is in flight.
++        if let Some(b) = self
++            .renderer
++            .explicit_by_image
++            .get(&texture.inner.image)
++            .and_then(|w| w.upgrade())
++        {
++            if !self.renderer.pinned_buffers.iter().any(|p| **p == *b) {
++                self.renderer.pinned_buffers.push(b);
++            }
++        }
+         // The shader pipeline's WORLD set — every world-space drawable
+         // (`is_world()`), tagged per element by the scene wrapper
+         // (`set_element_meta`), not just the client windows.
+@@ -412,11 +427,8 @@ impl Frame for VulkanFrame<'_, '_> {
+         self.output_size
+     }
+ 
+-    fn wait(&mut self, _sync: &SyncPoint) -> Result<(), VulkanError> {
+-        // Foundation: submission is synchronous (finish() waits the device), so
+-        // an explicit cross-frame wait is a no-op. Real acquire-fence waits
+-        // bridge through vulkan.sync once async submission lands.
+-        Ok(())
++    fn wait(&mut self, sync: &SyncPoint) -> Result<(), VulkanError> {
++        self.renderer.queue_wait(sync)
+     }
+ 
+     fn finish(self) -> Result<SyncPoint, VulkanError> {
+diff --git a/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/bind.rs b/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/bind.rs
+index 615d289e..2b839579 100644
+--- a/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/bind.rs
++++ b/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/bind.rs
+@@ -133,9 +133,8 @@ impl Renderer for VulkanRenderer {
+         })
+     }
+ 
+-    fn wait(&mut self, _sync: &SyncPoint) -> Result<(), VulkanError> {
+-        // Synchronous foundation; nothing to wait on.
+-        Ok(())
++    fn wait(&mut self, sync: &SyncPoint) -> Result<(), VulkanError> {
++        self.queue_wait(sync)
+     }
+ }
+ 
+diff --git a/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/import.rs b/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/import.rs
+index 8570346a..eb60cb5f 100644
+--- a/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/import.rs
++++ b/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/import.rs
+@@ -248,6 +248,25 @@ impl ImportDmaWl for VulkanRenderer {
+         let dmabuf = smithay::wayland::dmabuf::get_dmabuf(buffer)
+             .map_err(|e| VulkanError::Import(format!("get_dmabuf: {e}")))?;
+         let mut tex = ImportDma::import_dmabuf(self, dmabuf, Some(damage))?;
++        // The commit's explicit-sync points travel with the surface's current
++        // `Buffer`. Read from the side slot smithay publishes for exactly this
++        // call — the surface state itself is locked around us — and recorded
++        // against the image, which is what every later draw of it can see.
++        // Implicit-sync buffers (no acquire point) clear the record, so a surface
++        // switching sync modes never carries a stale point.
++        let explicit = surface
++            .filter(|_| self.gpu_ordered_acquire())
++            .and_then(|s| s.data_map.get::<smithay::backend::renderer::utils::CurrentBufferUserData>())
++            .and_then(|slot| slot.lock().ok().and_then(|b| b.clone()))
++            .filter(|b| b.acquire_point().is_some());
++        match explicit {
++            Some(b) => {
++                self.explicit_by_image.insert(tex.inner.image, b.weak());
++            }
++            None => {
++                self.explicit_by_image.remove(&tex.inner.image);
++            }
++        }
+         if self.hdr_enabled {
+             if let Some(s) = surface {
+                 tex.set_surf(crate::shm_cache::surf_from_surface(s));
+diff --git a/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/lifecycle.rs b/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/lifecycle.rs
+index e5a779d1..1fc85a6a 100644
+--- a/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/lifecycle.rs
++++ b/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/lifecycle.rs
+@@ -104,6 +104,12 @@ impl VulkanRenderer {
+             target_cache: HashMap::new(),
+             import_cache: HashMap::new(),
+             pending_acquires: Vec::new(),
++            explicit_by_image: HashMap::new(),
++            pinned_buffers: Vec::new(),
++            in_flight_buffers: Vec::new(),
++            pending_acquire_fds: Vec::new(),
++            acquire_semaphores: Vec::new(),
++            acquire_timelines: Vec::new(),
+             retired_textures: Default::default(),
+             debug_flags: DebugFlags::empty(),
+             downscale: TextureFilter::Linear,
+diff --git a/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/state.rs b/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/state.rs
+index aaff940f..abb371c0 100644
+--- a/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/state.rs
++++ b/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/state.rs
+@@ -94,6 +94,13 @@ impl OutputResources {
+     }
+ }
+ 
++/// GPU-ordered explicit sync: on the native fence path, clients' acquire points
++/// are waited on the render queue and commits are applied on arrival, instead
++/// of the dispatch layer blocking each commit on its fence. `false` restores the
++/// blocker path exactly: nothing is recorded at import, nothing pinned, no wait
++/// semaphores, and the kernel never publishes the mode.
++pub const GPU_ORDERED_EXPLICIT_SYNC: bool = false;
++
+ pub struct VulkanRenderer {
+     /// The kernel's format registrar. Held because the import path asks a POLICY
+     /// question per client buffer — can this compositor express that colour —
+@@ -260,6 +267,43 @@ pub struct VulkanRenderer {
+     /// unbounded: the pin keeps a since-evicted image valid, and the dedup bounds
+     /// the length by the number of distinct live surfaces.
+     pub(crate) pending_acquires: Vec<VulkanTexture>,
++    /// Explicit-sync client buffers by the image they were imported into, as
++    /// WEAK handles: a draw upgrades one to pin the buffer for exactly the frame
++    /// that reads it. The map itself must own nothing — smithay signals a
++    /// buffer's release point when its last strong handle drops, and a client
++    /// alternating two buffers cannot commit the first again until that happens.
++    /// A strong handle here, replaced only by the next import of the same image,
++    /// was a deadlock: the release the client waited for was gated on the commit
++    /// the release would have allowed. Refreshed on every import; dropped with the
++    /// image.
++    pub(crate) explicit_by_image: HashMap<vk::Image, smithay::backend::renderer::utils::WeakBuffer>,
++    /// The explicit-sync buffers the frame being recorded samples, pinned the way
++    /// `pinned_textures` are: as long as a handle is held here the release point
++    /// cannot signal, so the client cannot reuse the buffer under a read still
++    /// queued on the GPU.
++    pub(crate) pinned_buffers: Vec<smithay::backend::renderer::utils::Buffer>,
++    /// The previously submitted frame's buffer pins. Dropped at the drain point,
++    /// once that frame has provably completed — which is what turns smithay's
++    /// host-side release signal into a GPU-ordered one: it fires when we let go,
++    /// and we let go only after the last read has finished.
++    pub(crate) in_flight_buffers: Vec<smithay::backend::renderer::utils::Buffer>,
++    /// Acquire fences arriving through `Frame::wait` as bare `sync_file` fds
++    /// (anything exportable that is not a client buffer's own point). Waited on
++    /// by the next submit alongside the pinned buffers' acquire points.
++    pub(crate) pending_acquire_fds: Vec<std::os::unix::io::OwnedFd>,
++    /// Binary semaphores the native submit waits on, one per acquire fence this
++    /// frame: each takes a `sync_file` as a TEMPORARY payload (`sync.import`).
++    /// Reused across frames — the previous frame's waits have executed by the
++    /// time the frame fence has been waited, so re-import is legal — and grown
++    /// on demand to the widest frame seen.
++    pub(crate) acquire_semaphores: Vec<vk::Semaphore>,
++    /// Clients' syncobj timelines imported as Vulkan TIMELINE semaphores
++    /// (`OPAQUE_FD`): an acquire point becomes a `(semaphore, value)` wait on
++    /// the submit. Legal before the point's fence even exists — a client may
++    /// commit ahead of queueing the work that signals the point — which a
++    /// `sync_file` export is not: that needs the fence materialized first. One
++    /// per client timeline, dropped once the client's object is gone.
++    pub(crate) acquire_timelines: Vec<(smithay::wayland::drm_syncobj::DrmTimeline, vk::Semaphore)>,
+ }
+ 
+ impl std::fmt::Debug for VulkanRenderer {
+@@ -422,6 +466,11 @@ impl VulkanRenderer {
+     /// their objects outright, hence the explicit destroy.
+     pub(crate) fn reap_targets(&mut self) {
+         self.import_cache.retain(|w, _| w.upgrade().is_some());
++        // An explicit-sync record outlives its image only until here: a surface
++        // that is gone must not keep its last buffer un-released through us.
++        let live: std::collections::HashSet<vk::Image> =
++            self.import_cache.values().map(|t| t.inner.image).collect();
++        self.explicit_by_image.retain(|image, _| live.contains(image));
+         let dead: Vec<_> = self
+             .target_cache
+             .keys()
+@@ -477,6 +526,14 @@ impl VulkanRenderer {
+     pub(crate) fn use_native_fence(&self) -> bool {
+         self.native_fence_optin && self.drm_fd.is_some()
+     }
++
++    /// Whether this renderer waits clients' explicit-sync acquire points on the
++    /// GPU queue (the native fence path) — in which case the dispatch layer need
++    /// not block commits on them. Synchronous mode waits them on the CPU at
++    /// submit, which is only correct if the commit was blocked first.
++    pub fn gpu_ordered_acquire(&self) -> bool {
++        GPU_ORDERED_EXPLICIT_SYNC && self.use_native_fence()
++    }
+ }
+ 
+ impl Drop for VulkanRenderer {
+@@ -484,6 +541,18 @@ impl Drop for VulkanRenderer {
+         unsafe {
+             let _ = self.dev.device.device_wait_idle();
+             self.drain_retired();
++            // Idle above: every read is done, so releasing the clients' buffers
++            // here is exactly as ordered as it is at a drain point.
++            self.in_flight_buffers.clear();
++            self.pinned_buffers.clear();
++            self.explicit_by_image.clear();
++            self.pending_acquire_fds.clear();
++            for sem in self.acquire_semaphores.drain(..) {
++                self.dev.device.destroy_semaphore(sem, None);
++            }
++            for (_, sem) in self.acquire_timelines.drain(..) {
++                self.dev.device.destroy_semaphore(sem, None);
++            }
+             self.in_flight_textures.clear();
+             self.pinned_textures.clear();
+             self.pending_acquires.clear();
+diff --git a/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/submit.rs b/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/submit.rs
+index 45eb59d3..1a789c4b 100644
+--- a/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/submit.rs
++++ b/compositor.kernel/kernel.vulkan/vulkan.renderer/renderer.core/core.base/renderer/submit.rs
+@@ -9,6 +9,14 @@ use crate::error::VulkanError;
+ use crate::frame::DrawOp;
+ use super::VulkanRenderer;
+ 
++/// One thing a submit must be ordered behind.
++enum AcquireWait {
++    /// A client timeline point, waited as a timeline-semaphore value.
++    Timeline(vk::Semaphore, u64),
++    /// A materialized fence, waited through a pooled binary semaphore.
++    SyncFile(std::os::unix::io::OwnedFd),
++}
++
+ impl VulkanRenderer {
+     /// Replay the queued draw ops into one composite pass and submit. Called by
+     /// `VulkanFrame::finish`.
+@@ -134,6 +142,31 @@ impl VulkanRenderer {
+         // whose dmabuf has died are reclaimed here.
+         self.reap_targets();
+         self.in_flight_textures = std::mem::take(&mut self.pinned_textures);
++        // The previous frame's client buffers, on the same proof. Dropping these
++        // handles is what lets smithay signal their release points and send
++        // `wl_buffer.release` — after the last GPU read of them, never before.
++        self.in_flight_buffers = std::mem::take(&mut self.pinned_buffers);
++        // What THIS frame must wait for before it samples anything: every pinned
++        // buffer's acquire point that has not signaled yet, plus any bare fence
++        // handed to `wait`. The native submit waits on them GPU-side; the
++        // synchronous path, having no queue wait to hand them to, waits here —
++        // the blocker's semantics, one frame later.
++        let acquire_waits = if self.use_native_fence() {
++            self.take_acquire_waits()
++        } else {
++            self.cpu_wait_acquires();
++            Vec::new()
++        };
++        // Client timelines whose objects are gone: their semaphores can go too.
++        // The previous submit is complete at this point, so nothing waits on them.
++        let dev_for_reap = self.dev.device.clone();
++        self.acquire_timelines.retain(|(timeline, sem)| {
++            let gone = timeline.is_unique();
++            if gone {
++                unsafe { dev_for_reap.destroy_semaphore(*sem, None) };
++            }
++            !gone
++        });
+         // Destroy the textures those two steps just retired. AFTER them, not beside
+         // `drain_retired()` above: at that point neither has run, so draining there would
+         // always trail a frame behind — and the queue only ever grew, because nothing else
+@@ -679,7 +712,8 @@ impl VulkanRenderer {
+             // Synchronous (winit, which has no DRM fd; or the explicit
+             // `renderer_sync = "sync"` opt-out; or a failed self-test): signal
+             // the timeline, then device_wait_idle. The returned SyncPoint is
+-            // already-signaled.
++            // already-signaled. (Acquire points were waited on the CPU at the
++            // drain point above.)
+             compositor_kernel_vulkan_device_queue_base::queue::submit_with_timeline(
+                 dev,
+                 &self.queue,
+@@ -691,6 +725,8 @@ impl VulkanRenderer {
+             unsafe {
+                 dev.device.device_wait_idle()?;
+             }
++            // Idle: this frame's reads are done, so its buffers can go back now.
++            self.in_flight_buffers.clear();
+             stats::fence_synchronous();
+             // Post-scene capture: copy the now-complete composed scene into
+             // the registry entry dmabufs. No-op unless the backend set capture
+@@ -717,6 +753,32 @@ impl VulkanRenderer {
+         // semaphore's pending signal directly as a `sync_file` fd for the
+         // atomic-commit IN_FENCE.
+         let cmd_info = vk::CommandBufferSubmitInfo::default().command_buffer(cmd);
++        // Acquire: a client timeline point is a `(timeline semaphore, value)`
++        // wait; a bare fence becomes a pooled binary semaphore's temporary
++        // payload. Either way the composite is ordered behind the clients'
++        // rendering ON THE QUEUE — the commit itself was applied the moment it
++        // arrived, and no CPU ever waited for the client.
++        let mut waits: Vec<vk::SemaphoreSubmitInfo> = Vec::with_capacity(acquire_waits.len());
++        let mut fds = Vec::new();
++        for w in acquire_waits {
++            match w {
++                AcquireWait::Timeline(sem, value) => waits.push(
++                    vk::SemaphoreSubmitInfo::default()
++                        .semaphore(sem)
++                        .value(value)
++                        .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS),
++                ),
++                AcquireWait::SyncFile(fd) => fds.push(fd),
++            }
++        }
++        for sem in self.import_acquire_fences(fds)? {
++            waits.push(
++                vk::SemaphoreSubmitInfo::default()
++                    .semaphore(sem)
++                    .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS),
++            );
++        }
++        let dev = &self.dev;
+         let timeline_sig = vk::SemaphoreSubmitInfo::default()
+             .semaphore(self.timeline)
+             .value(value)
+@@ -726,6 +788,7 @@ impl VulkanRenderer {
+             .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS);
+         let signals = [timeline_sig, render_sig];
+         let submit = vk::SubmitInfo2::default()
++            .wait_semaphore_infos(&waits)
+             .command_buffer_infos(std::slice::from_ref(&cmd_info))
+             .signal_semaphore_infos(&signals);
+         unsafe {
+@@ -804,4 +867,123 @@ impl VulkanRenderer {
+         );
+         Ok(sync)
+     }
++
++    /// `Renderer::wait` / `Frame::wait`: a sync point the next submit must be
++    /// ordered behind. An exportable one is queued as a fence for the GPU to
++    /// wait on; anything else can only be waited on the CPU, here. A reached
++    /// point costs nothing.
++    pub(crate) fn queue_wait(&mut self, sync: &SyncPoint) -> Result<(), VulkanError> {
++        if !self.gpu_ordered_acquire() || sync.is_reached() {
++            return Ok(());
++        }
++        match sync.export() {
++            Some(fd) => self.pending_acquire_fds.push(fd),
++            None => sync
++                .wait()
++                .map_err(|_| VulkanError::Vk("sync point wait interrupted".into()))?,
++        }
++        Ok(())
++    }
++
++    /// The waits the frame being submitted must be ordered behind: every pinned
++    /// client buffer's acquire point that has not signaled, plus the bare fences
++    /// `wait` queued. A point already signaled is skipped — the common case for a
++    /// client running ahead of us, and a query is far cheaper than an import.
++    ///
++    /// A point is waited as a TIMELINE value wherever its timeline imports into
++    /// a semaphore (wait-before-signal safe, no materialization). Where it does
++    /// not, the fallback waits for the point's fence to be submitted and exports
++    /// it as a `sync_file`; a point that cannot be exported even then is waited
++    /// on the CPU rather than sampled early.
++    fn take_acquire_waits(&mut self) -> Vec<AcquireWait> {
++        use smithay::backend::renderer::sync::Fence;
++        let mut waits: Vec<AcquireWait> = std::mem::take(&mut self.pending_acquire_fds)
++            .into_iter()
++            .map(AcquireWait::SyncFile)
++            .collect();
++        let pinned = std::mem::take(&mut self.pinned_buffers);
++        for buffer in &pinned {
++            let Some(point) = buffer.acquire_point() else { continue };
++            if point.is_signaled() {
++                continue;
++            }
++            if let Some(sem) = self.timeline_semaphore(point.timeline()) {
++                waits.push(AcquireWait::Timeline(sem, point.point()));
++                continue;
++            }
++            let exported = point
++                .wait_available(i64::MAX)
++                .and_then(|()| point.export_sync_file());
++            match exported {
++                Ok(fd) => waits.push(AcquireWait::SyncFile(fd)),
++                Err(_) => {
++                    let _ = point.wait(i64::MAX);
++                }
++            }
++        }
++        self.pinned_buffers = pinned;
++        waits
++    }
++
++    /// The synchronous path's equivalent: wait every pinned acquire point (and
++    /// bare fence) on the CPU before recording.
++    fn cpu_wait_acquires(&mut self) {
++        use smithay::backend::renderer::sync::Fence;
++        for fd in self.pending_acquire_fds.drain(..) {
++            crate::sync_fence::SyncFileFence::new(fd).wait_blocking();
++        }
++        for buffer in &self.pinned_buffers {
++            if let Some(point) = buffer.acquire_point() {
++                if !point.is_signaled() {
++                    let _ = point.wait(i64::MAX);
++                }
++            }
++        }
++    }
++
++    /// The Vulkan timeline semaphore mirroring a client's syncobj timeline,
++    /// imported on first sight and kept until the client's object is gone.
++    /// `None` when the device cannot import it (the caller falls back).
++    fn timeline_semaphore(
++        &mut self,
++        timeline: &smithay::wayland::drm_syncobj::DrmTimeline,
++    ) -> Option<vk::Semaphore> {
++        if let Some((_, sem)) = self.acquire_timelines.iter().find(|(t, _)| t == timeline) {
++            return Some(*sem);
++        }
++        let fd = timeline.export_fd().ok()?;
++        let sem = compositor_kernel_vulkan_sync_timeline_base::timeline::create(&self.dev, 0).ok()?;
++        if compositor_kernel_vulkan_sync_import_base::import::import_opaque_fd(&self.dev, sem, fd).is_err() {
++            unsafe { self.dev.device.destroy_semaphore(sem, None) };
++            return None;
++        }
++        self.acquire_timelines.push((timeline.clone(), sem));
++        Some(sem)
++    }
++
++    /// Import each acquire fence as the temporary payload of a pooled binary
++    /// semaphore, returning the semaphores the submit waits on. The pool grows to
++    /// the widest frame and is reused: by the time a frame is recorded, the
++    /// previous frame's fence has been waited, so its waits have executed and
++    /// the semaphores are free for a new payload.
++    fn import_acquire_fences(
++        &mut self,
++        fds: Vec<std::os::unix::io::OwnedFd>,
++    ) -> Result<Vec<vk::Semaphore>, VulkanError> {
++        while self.acquire_semaphores.len() < fds.len() {
++            let mut export = vk::ExportSemaphoreCreateInfo::default()
++                .handle_types(vk::ExternalSemaphoreHandleTypeFlags::SYNC_FD);
++            let info = vk::SemaphoreCreateInfo::default().push_next(&mut export);
++            let sem = unsafe { self.dev.device.create_semaphore(&info, None)? };
++            self.acquire_semaphores.push(sem);
++        }
++        let mut used = Vec::with_capacity(fds.len());
++        for (i, fd) in fds.into_iter().enumerate() {
++            let sem = self.acquire_semaphores[i];
++            compositor_kernel_vulkan_sync_import_base::import::import_sync_file(&self.dev, sem, fd)
++                .map_err(|e| VulkanError::Vk(format!("acquire fence import: {e}")))?;
++            used.push(sem);
++        }
++        Ok(used)
++    }
+ }
+diff --git a/compositor.kernel/kernel.vulkan/vulkan.sync/sync.fence/fence.syncfile/syncfile.rs b/compositor.kernel/kernel.vulkan/vulkan.sync/sync.fence/fence.syncfile/syncfile.rs
+index 8eb58ee4..13cb0641 100644
+--- a/compositor.kernel/kernel.vulkan/vulkan.sync/sync.fence/fence.syncfile/syncfile.rs
++++ b/compositor.kernel/kernel.vulkan/vulkan.sync/sync.fence/fence.syncfile/syncfile.rs
+@@ -25,6 +25,14 @@ impl SyncFileFence {
+     }
+ }
+ 
++impl SyncFileFence {
++    /// Block until signaled, ignoring interruption. For the synchronous submit
++    /// path, which has no GPU wait to hand an acquire fence to.
++    pub fn wait_blocking(&self) {
++        while self.wait().is_err() {}
++    }
++}
++
+ impl Fence for SyncFileFence {
+     fn is_signaled(&self) -> bool {
+         self.poll(0)
+diff --git a/compositor.support/support.smithay/smithay.dispatch/dispatch.state/state.base/state.rs b/compositor.support/support.smithay/smithay.dispatch/dispatch.state/state.base/state.rs
+index 65393910..fd5deeae 100644
+--- a/compositor.support/support.smithay/smithay.dispatch/dispatch.state/state.base/state.rs
++++ b/compositor.support/support.smithay/smithay.dispatch/dispatch.state/state.base/state.rs
+@@ -785,6 +785,17 @@ impl DispatchWire for Dispatch {}
+ 
+ // ── All smithay handler impls (inlined; bodies use only `*.base` state +
+ // smithay + leaf helpers — no `*.dispatch` crate, to avoid a dependency cycle).
++/// The active renderer orders its reads behind clients' acquire points ON THE
++/// GPU (the Vulkan native-fence path). Then an explicit-sync commit is applied
++/// the moment it arrives, like an implicit one, and no blocker is installed:
++/// the composite that samples the buffer carries the wait as a queue
++/// dependency, and the pacer ticks at commit time for every client class.
++/// Set once by the kernel at assembly; `false` keeps the CPU blocker (GLES,
++/// winit, or the synchronous submit mode), which waits on the fence before the
++/// commit is applied.
++pub static GPU_ORDERED_ACQUIRE: std::sync::atomic::AtomicBool =
++    std::sync::atomic::AtomicBool::new(false);
++
+ mod handler_impls {
+     use std::sync::Mutex;
+     use smithay::reexports::wayland_server::backend::ClientId;
+@@ -1203,6 +1214,9 @@ mod handler_impls {
+     fn install_syncobj_blocker_hook(surface: &WlSurface) {
+         trace!("installing syncobj blocker hook surface={surface:?}");
+         add_pre_commit_hook::<Dispatch, _>(surface, |state: &mut Dispatch, _dh, surface| {
++            if super::GPU_ORDERED_ACQUIRE.load(std::sync::atomic::Ordering::Relaxed) {
++                return;
++            }
+             let maybe_acquire = compositor::with_states(surface, |states| {
+                 let mut cached = states.cached_state.get::<DrmSyncobjCachedState>();
+                 cached.pending().acquire_point.clone()
+diff --git a/vendor/smithay/src/backend/drm/compositor/mod.rs b/vendor/smithay/src/backend/drm/compositor/mod.rs
+index 2844d15e..73e4d2a3 100644
+--- a/vendor/smithay/src/backend/drm/compositor/mod.rs
++++ b/vendor/smithay/src/backend/drm/compositor/mod.rs
+@@ -229,10 +229,20 @@ impl<B: Buffer> ScanoutBuffer<B> {
+         signaled_fence: Option<&Arc<OwnedFd>>,
+     ) -> Option<(SyncPoint, Option<Arc<OwnedFd>>)> {
+         if let Self::Wayland(buffer) = self {
+-            // Assume `DrmSyncobjBlocker` is used, so acquire point has already
+-            // been signaled. Instead of converting with `SyncPoint::from`.
+-            if buffer.acquire_point().is_some() {
+-                return Some((SyncPoint::signaled(), signaled_fence.cloned()));
++            if let Some(acquire) = buffer.acquire_point() {
++                use crate::backend::renderer::sync::Fence;
++                // With `DrmSyncobjBlocker` in use the point has already been
++                // signaled by the time a commit is applied; a signaled syncobj fd
++                // stands in for it.
++                if acquire.is_signaled() {
++                    return Some((SyncPoint::signaled(), signaled_fence.cloned()));
++                }
++                // Not signaled: the compositor applied the commit without a
++                // blocker (it orders its own reads behind the point on the GPU).
++                // A plane scanning this buffer out bypasses those reads, so hand
++                // the point itself over — `build_planes` exports it as the plane's
++                // IN_FENCE, or waits on it where fencing is unsupported.
++                return Some((SyncPoint::from(acquire.clone()), None));
+             }
+         }
+         None
+@@ -773,6 +783,25 @@ impl<B: Buffer, F: Framebuffer> FrameState<B, F> {
+                 if let Some((sync, fence)) = config.sync.as_mut() {
+                     if supports_fencing && fence.is_none() {
+                         *fence = sync.export().map(Arc::new);
++                        // A client's acquire point whose fence does not exist yet
++                        // cannot be exported. Wait for it to be SUBMITTED (not
++                        // signaled) and export again — the flip then still waits
++                        // on the GPU rather than here.
++                        #[cfg(feature = "wayland_frontend")]
++                        if fence.is_none() {
++                            if let Some(point) = sync.get::<crate::wayland::drm_syncobj::DrmSyncPoint>() {
++                                if point.wait_available(i64::MAX).is_ok() {
++                                    *fence = sync.export().map(Arc::new);
++                                }
++                            }
++                        }
++                    }
++                    // No fence will reach the kernel for this plane: the wait is
++                    // ours. Already-signaled points (the blocker case, and the
++                    // primary swapchain after the caller honored `needs_sync`)
++                    // return at once.
++                    if fence.is_none() && !sync.is_reached() {
++                        let _ = sync.wait();
+                     }
+                 }
+             }
+diff --git a/vendor/smithay/src/backend/renderer/utils/wayland.rs b/vendor/smithay/src/backend/renderer/utils/wayland.rs
+index ef9f5ed6..d60386d2 100644
+--- a/vendor/smithay/src/backend/renderer/utils/wayland.rs
++++ b/vendor/smithay/src/backend/renderer/utils/wayland.rs
+@@ -35,6 +35,24 @@ use wayland_server::protocol::{wl_buffer::WlBuffer, wl_surface::WlSurface};
+ /// ```
+ pub type RendererSurfaceStateUserData = Mutex<RendererSurfaceState>;
+ 
++/// The surface's current [`Buffer`], as a side slot that is readable while the
++/// [`RendererSurfaceState`] is LOCKED — [`import_surface`] calls the renderer's
++/// importer with that lock held, so an importer that needs the buffer's
++/// explicit-sync points ([`Buffer::acquire_point`]) cannot reach them through
++/// the state. Kept in step with `RendererSurfaceState::buffer`: set whenever a
++/// new buffer is taken, cleared on `Removed` and on surface destruction, so it
++/// never holds a buffer the state has let go of.
++pub type CurrentBufferUserData = Mutex<Option<Buffer>>;
++
++fn publish_current_buffer(states: &SurfaceData, buffer: Option<Buffer>) {
++    states
++        .data_map
++        .insert_if_missing_threadsafe(|| Mutex::new(None::<Buffer>));
++    if let Some(slot) = states.data_map.get::<CurrentBufferUserData>() {
++        *slot.lock().unwrap() = buffer;
++    }
++}
++
+ /// Surface state for rendering related data
+ #[derive(Default, Debug)]
+ pub struct RendererSurfaceState {
+@@ -110,13 +128,42 @@ impl Buffer {
+         }
+     }
+ 
++    /// The explicit-sync acquire point this buffer was committed with, if any.
++    /// A renderer that orders its reads on the GPU waits on this at submit
++    /// instead of the compositor blocking the commit on it.
+     #[cfg(feature = "backend_drm")]
+-    #[allow(dead_code)]
+-    pub(crate) fn acquire_point(&self) -> Option<&DrmSyncPoint> {
++    pub fn acquire_point(&self) -> Option<&DrmSyncPoint> {
+         self.inner.acquire_point.as_ref()
+     }
+ }
+ 
++/// A non-owning handle to a [`Buffer`]. Holding one does not delay the
++/// buffer's release: a renderer that must find a client's buffer again at draw
++/// time (for its explicit-sync points) keeps this, and upgrades to a strong
++/// handle only for as long as a read of it is in flight.
++#[derive(Debug, Clone)]
++pub struct WeakBuffer {
++    inner: std::sync::Weak<InnerBuffer>,
++}
++
++impl WeakBuffer {
++    /// The buffer, while any strong handle to it still exists.
++    pub fn upgrade(&self) -> Option<Buffer> {
++        self.inner.upgrade().map(|inner| Buffer { inner })
++    }
++}
++
++impl Buffer {
++    /// A handle that does not keep the buffer from being released. (`weak`,
++    /// not `downgrade`: `Buffer` derefs to `WlBuffer`, whose `downgrade` callers
++    /// reach through it.)
++    pub fn weak(&self) -> WeakBuffer {
++        WeakBuffer {
++            inner: Arc::downgrade(&self.inner),
++        }
++    }
++}
++
+ impl std::ops::Deref for Buffer {
+     type Target = WlBuffer;
+ 
+@@ -178,9 +225,11 @@ impl RendererSurfaceState {
+                 }
+ 
+                 self.textures.clear();
++                publish_current_buffer(states, self.buffer.clone());
+             }
+             Some(BufferAssignment::Removed) => {
+                 self.reset();
++                publish_current_buffer(states, None);
+                 return;
+             }
+             None => {}
+@@ -404,6 +453,7 @@ pub fn on_commit_buffer_handler<D: 'static>(surface: &WlSurface) {
+                     {
+                         state.reset();
+                     }
++                    publish_current_buffer(data, None);
+                     #[cfg(feature = "renderer_multi")]
+                     crate::backend::renderer::multigpu::clear_surface_textures(data);
+                 });
+diff --git a/vendor/smithay/src/wayland/drm_syncobj/sync_point.rs b/vendor/smithay/src/wayland/drm_syncobj/sync_point.rs
+index 52d6cf3b..a3690a31 100644
+--- a/vendor/smithay/src/wayland/drm_syncobj/sync_point.rs
++++ b/vendor/smithay/src/wayland/drm_syncobj/sync_point.rs
+@@ -91,6 +91,19 @@ impl DrmTimeline {
+         })))
+     }
+ 
++    /// A duplicate of the timeline's syncobj fd, for importing the timeline
++    /// into another API (a Vulkan timeline semaphore via `OPAQUE_FD`) so its
++    /// points can be waited on there — wait-before-signal safe, unlike a
++    /// `sync_file`, which needs the point's fence to exist first.
++    pub fn export_fd(&self) -> io::Result<OwnedFd> {
++        self.0.timeline_fd.try_clone()
++    }
++
++    /// Whether this handle is the last one: the client's object is gone.
++    pub fn is_unique(&self) -> bool {
++        Arc::strong_count(&self.0) == 1
++    }
++
+     /// Query the last signalled timeline point
+     pub fn query_signalled_point(&self) -> io::Result<u64> {
+         let ctx = self.0.dev_ctx.lock().unwrap();
+@@ -151,12 +164,32 @@ impl DrmSyncPoint {
+     }
+ 
+     /// Wait for sync point.
++    ///
++    /// Waits for the point's fence to be SUBMITTED as well as signaled: a client
++    /// may commit before queueing the GPU work that signals its acquire point,
++    /// and without `WAIT_FOR_SUBMIT` the kernel rejects a wait on such a point
++    /// outright (`EINVAL`) rather than waiting — which a caller treating an
++    /// error as "waited" then turns into a read of an unfinished buffer.
+     pub fn wait(&self, timeout_nsec: i64) -> io::Result<()> {
+         let ctx = self.timeline.0.dev_ctx.lock().unwrap();
+         ctx.device
+             .upgrade()
+             .ok_or::<io::Error>(io::ErrorKind::InvalidInput.into())?
+-            .syncobj_timeline_wait(&[ctx.syncobj], &[self.point], timeout_nsec, false, false, false)?;
++            .syncobj_timeline_wait(&[ctx.syncobj], &[self.point], timeout_nsec, false, true, false)?;
++        Ok(())
++    }
++
++    /// Wait until the point's fence EXISTS (the signaling work has been
++    /// submitted), not until it signals. After this, [`export_sync_file`] can
++    /// materialize the point; before it, the export fails.
++    ///
++    /// [`export_sync_file`]: DrmSyncPoint::export_sync_file
++    pub fn wait_available(&self, timeout_nsec: i64) -> io::Result<()> {
++        let ctx = self.timeline.0.dev_ctx.lock().unwrap();
++        ctx.device
++            .upgrade()
++            .ok_or::<io::Error>(io::ErrorKind::InvalidInput.into())?
++            .syncobj_timeline_wait(&[ctx.syncobj], &[self.point], timeout_nsec, false, false, true)?;
+         Ok(())
+     }
+ 

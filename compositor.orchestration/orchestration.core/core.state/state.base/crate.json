@@ -1,7 +1,10 @@
 {
   "deps": [
+    "compositor_kernel_graphic_format_registrar_base",
+    "compositor_kernel_graphic_format_resolve_base",
+    "compositor_introspection_restoration_state_pending",
+    "compositor_support_smithay_state_session_store",
     "compositor_kernel_graphic_bridge_publish_retire",
-    "compositor_kernel_graphic_bridge_negotiate_compositor",
     "compositor_y5_launcher_system_base",
     "compositor_y5_placeholder_system_base",
     "compositor_y5_surface_system_base",

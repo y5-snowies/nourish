@@ -23,6 +23,20 @@ pub struct NativeHandles {
     pub ctx: Rc<RefCell<NativeRenderContext>>,
 }
 
+/// `Role::Render` has no answer on this machine — state it.
+///
+/// Every role must be REGISTERED before the format layer will answer anything,
+/// and "the composite is GLES" or "vulkan enumerated nothing" are answers, not
+/// gaps. An empty set reads identically to a missing one at every consumer
+/// (`set_or_empty` → empty → the term is dropped), so this changes no decision;
+/// what it changes is that the layer can tell "there is none" from "not yet".
+fn absent(_loop: &mut Loop, why: &'static str) {
+    _loop.inner
+        .kernel
+        .get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS)
+        .absent(compositor_kernel_graphic_format_role_base::role::Role::Render, why);
+}
+
 pub fn wire(
     _loop: &mut Loop,
     _wayland_socket_name: OsString,
@@ -33,7 +47,9 @@ pub fn wire(
     // ---- Display + renderer assembly (ex new()); panics internally on
     //      failure — a compositor without a display/renderer cannot run.
     trace!("native: assembling display (DRM/GBM) then renderer");
-    let mut display = compositor_kernel_native_assemble_display_base::display::assemble();
+    let mut display = compositor_kernel_native_assemble_display_base::display::assemble(
+        _loop.inner.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS),
+    );
     // Compile-time renderer override (the loader's `renderer-vulkan` feature
     // forwards here); preference decides otherwise. No fallback either way.
     let override_kind = if cfg!(feature = "renderer-vulkan") {
@@ -42,7 +58,93 @@ pub fn wire(
         None
     };
     trace!("native: renderer override kind = {override_kind:?}");
+    // PUBLISH WHAT THE COMPOSITE CAN RENDER INTO, BEFORE the swapchain is built.
+    //
+    // `assemble_with` below creates the scanout swapchain, allocated from the SCANOUT
+    // device's gbm. If the composite is Vulkan on a DIFFERENT device, an explicit modifier
+    // chosen from the scanout side is a layout assertion the composite never agreed to, and
+    // `vkCreateImage` answers `VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT` —
+    // failing every frame. So the assembly has to be able to intersect, which means the
+    // renderable set must exist first. Instance + physical device only; the logical device
+    // and the renderer proper are still built further down.
+    //
+    // Cheap where it does not apply: skipped entirely when the composite is GLES, and an
+    // empty publish means "no constraint" at the consumer.
+    if !compositor_model_environment_config_base::base::get()
+        .renderer
+        .eq_ignore_ascii_case("gles")
+    {
+        let node = compositor_kernel_graphic_format_registrar_base::registrar::composite_node(
+            display.primary_gpu,
+        );
+        match compositor_kernel_vulkan_instance_factory_base::factory::create() {
+            Ok(instance) => match compositor_kernel_vulkan_instance_physical_base::physical::for_node(
+                &instance, node,
+            ) {
+                Ok(Some(phd)) => {
+                    // Only the fourccs the scanout ladder can actually choose from.
+                    let fourccs =
+                        compositor_kernel_graphic_format_catalog_base::catalog::scanout_ladder(true);
+                    let set = compositor_kernel_vulkan_format_modifier_base::modifier::render_formats(
+                        &phd, &fourccs,
+                    );
+                    info!(
+                        "composite renderable: {} (fourcc x modifier) pair(s) on {:?} — the \
+                         scanout swapchain will be intersected with this",
+                        set.iter().count(),
+                        node.dev_path()
+                    );
+                    _loop.inner.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS).register(
+                        compositor_kernel_graphic_format_registrar_base::registrar::Device::of(&node),
+                        compositor_kernel_graphic_format_role_base::role::Role::Render,
+                        set,
+                        "vulkan composite (render_formats)",
+                    );
+                    // And what it can SAMPLE, from the same physical device.
+                    //
+                    // Registered here rather than only further down, because the
+                    // assembly below asks the format layer for the scanout
+                    // swapchain's candidate set and the layer refuses to answer
+                    // while `registrar::REQUIRED` is unsatisfied. This is not an
+                    // approximation of the later value, it is the same one:
+                    // `VulkanRenderer::dmabuf_formats()` is literally
+                    // `modifier::import_formats(&phd)`, so the re-registration
+                    // below is a silent no-op. If Vulkan then FAILS to build and
+                    // the session falls back to GLES, that later registration
+                    // corrects this and says so — which is the honest outcome.
+                    _loop.inner.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS).register(
+                        compositor_kernel_graphic_format_registrar_base::registrar::Device::of(&node),
+                        compositor_kernel_graphic_format_role_base::role::Role::Sample,
+                        compositor_kernel_vulkan_format_modifier_base::modifier::import_formats(&phd),
+                        "vulkan composite (import_formats)",
+                    );
+                }
+                Ok(None) | Err(_) => {
+                    warn!(
+                        "composite renderable: no vulkan physical device for {:?}; the scanout \
+                         swapchain will not be narrowed (it keeps the EGL set, implicit included)",
+                        node.dev_path()
+                    );
+                    absent(_loop, "vulkan (no physical device for the composite node)");
+                }
+            },
+            Err(e) => {
+                warn!(
+                    "composite renderable: vulkan instance creation failed ({e}); the scanout \
+                     swapchain will not be narrowed"
+                );
+                absent(_loop, "vulkan (instance creation failed)");
+            }
+        }
+    } else {
+        // GLES composite: no Vulkan device is consulted at all, so `Render` has no
+        // answer. SAY so rather than leaving it silent — `format.registrar` treats
+        // an unregistered role as a race and refuses to answer across it, and the
+        // assembly below is the first thing that asks.
+        absent(_loop, "gles composite (no vulkan device is consulted)");
+    }
     let renderer = compositor_kernel_native_assemble_renderer_base::renderer::assemble_with(
+        _loop.inner.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS),
         &mut display,
         override_kind,
     );
@@ -73,36 +175,17 @@ pub fn wire(
         display.drm_fd.clone(),
     );
 
-    info!("Backend initialization - wire backend to renderer and initialize renderer");
-
-    // ---- Compositor lifecycle init through the contract (DisplayBackend shape).
-    let mut contract =
-        compositor_kernel_native_assemble_renderer_base::renderer::NativeContract {
-            output: display.output.clone(),
-            mode: display.mode,
-            gpu_binding: renderer.gpu_binding.clone(),
-        };
-    let damage_tracker = compositor_orchestration_draw_state_lifecycle::lifecycle::initialize(
-        _loop,
-        &display.output.clone(),
-        &_loop.inner.loader.display_handle.clone(),
-        &mut contract,
-    );
-
-    // ---- Input stack (panics internally; a compositor without input cannot run).
-    trace!("native: creating libinput stack for seat '{}'", display.seat_name);
-    let libinput_context = compositor_kernel_input_libinput_factory_base::factory::create(
-        display.session.clone(),
-        &display.seat_name,
-    );
-    let libinput_source =
-        compositor_kernel_input_loop_libinput_base::libinput::source(libinput_context.clone());
-
-    info!("Backend initialization - Native.start()");
-
-    // ---- The shared render context (ex start()).
-    _loop.state.seat.libseat = Some(display.session.clone());
-
+    // ---- The COMPOSITING renderer, chosen and PUBLISHED here (`Role::Sample`).
+    //      The dmabuf feedback clients negotiate against narrows the EGL set to
+    //      this; without it there is nothing to narrow to and the compositor
+    //      advertises formats it cannot import (an fp16 client then gets a blank
+    //      window, every frame, forever).
+    //
+    //      The ordering that used to make this fragile is gone: the feedback is
+    //      no longer built by `lifecycle::initialize` below, but by the loader,
+    //      after `Registrar::expect` has been armed and every role has landed. So
+    //      this no longer has to run before that call to be correct — it has to
+    //      run before the loader advertises, which the manifest now enforces.
     // Renderer selection (native): `renderer` = "gles" | "vulkan", default
     // vulkan — compose via VulkanRenderer and scan out through the same
     // DrmOutput. The GLES multigpu is still used for the per-frame
@@ -127,9 +210,10 @@ pub fn wire(
         // Falls back to the scanout device only when `render_node` has no Vulkan
         // device at all — a configuration error, so it is loud, but landing on a
         // known-good device beats refusing to start.
-        let composite_node = compositor_kernel_graphic_bridge_negotiate_compositor::compositor::composite_node(display.primary_gpu);
-        compositor_kernel_graphic_bridge_negotiate_report::report::node("composite (vulkan renderer)", &format!("{:?}", composite_node.dev_path()));
+        let composite_node = compositor_kernel_graphic_format_registrar_base::registrar::composite_node(display.primary_gpu);
+        compositor_kernel_graphic_format_audit_base::audit::node("composite (vulkan renderer)", &format!("{:?}", composite_node.dev_path()));
         match compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::for_node(
+            _loop.inner.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS).clone(),
             composite_node,
         )
         .or_else(|e| {
@@ -142,6 +226,7 @@ pub fn wire(
                 composite_node.dev_path(), display.primary_gpu.dev_path()
             );
             compositor_kernel_vulkan_renderer_core_base::renderer::VulkanRenderer::for_node(
+            _loop.inner.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS).clone(),
                 display.primary_gpu,
             )
         }) {
@@ -191,10 +276,22 @@ pub fn wire(
                 compositor_kernel_gles_multigpu_bind_base::bind::texture_formats(gpus, &primary)
             }
         };
-        compositor_kernel_graphic_bridge_negotiate_compositor::compositor::set_compositor_importable(
+        _loop.inner.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS).register(
+            compositor_kernel_graphic_format_registrar_base::registrar::Device::of(&compositor_kernel_graphic_format_registrar_base::registrar::composite_node(display.primary_gpu)),
+            compositor_kernel_graphic_format_role_base::role::Role::Sample,
             formats,
+            if vulkan.is_some() { "vulkan composite (import_formats)" } else { "gles (texture_formats)" },
         );
     }
+    // And whether the composite can be TOLD what a surface's numbers mean. Only
+    // the HDR composite takes a per-surface transfer, so this decides whether the
+    // extended-range (fp16) formats are offered at all: in SDR they would be
+    // sampled as if sRGB-encoded and come out far too dark, so declining them and
+    // leaving the client on 8-bit sRGB is the honest answer. Computed here rather
+    // than with the HDR block below because the dmabuf feedback is built in
+    // `lifecycle::initialize`, which is next.
+    let hdr_active = env.hdr && display.hdr.hdr_capable() && vulkan_mode;
+    _loop.inner.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS).set_color_managed(hdr_active);
     // A split configuration is legal but only half-supported, and it is invisible
     // from the client side: what gets advertised is the SCANOUT device, while the
     // off-thread producers allocate on `render_node`. Their modifier sets then
@@ -219,13 +316,50 @@ pub fn wire(
         }
     }
 
+    info!("Backend initialization - wire backend to renderer and initialize renderer");
+
+    // ---- Compositor lifecycle init through the contract (DisplayBackend shape).
+    let mut contract =
+        compositor_kernel_native_assemble_renderer_base::renderer::NativeContract {
+            output: display.output.clone(),
+            mode: display.mode,
+            gpu_binding: renderer.gpu_binding.clone(),
+        };
+    // The returned `OutputDamageTracker` is DISCARDED: on the native path every
+    // pipe's damage tracking lives inside its own smithay `DrmCompositor`, so a
+    // second tracker here would never be read. `initialize` is still called for
+    // its side effects (output registration + EGL bind/registration); winit does
+    // use the return value.
+    let _ = compositor_orchestration_draw_state_lifecycle::lifecycle::initialize(
+        _loop,
+        &display.output.clone(),
+        &_loop.inner.loader.display_handle.clone(),
+        &mut contract,
+    );
+
+
+    // ---- Input stack (panics internally; a compositor without input cannot run).
+    trace!("native: creating libinput stack for seat '{}'", display.seat_name);
+    let libinput_context = compositor_kernel_input_libinput_factory_base::factory::create(
+        display.session.clone(),
+        &display.seat_name,
+    );
+    let libinput_source =
+        compositor_kernel_input_loop_libinput_base::libinput::source(libinput_context.clone());
+
+    info!("Backend initialization - Native.start()");
+
+    // ---- The shared render context (ex start()).
+    _loop.state.seat.libseat = Some(display.session.clone());
+
     // HDR (M5): opt-in via COMPOSITOR_HDR, Vulkan-only, and only on a
     // PQ-capable display. Until the full pipeline lands the path is incomplete;
     // this records capability + state for the developer tool (Statistics tab)
     // and gates later stages. SDR is the default and is untouched.
     let hdr_caps = display.hdr;
     let hdr_requested = env.hdr;
-    let hdr_active = hdr_requested && hdr_caps.hdr_capable() && vulkan_mode;
+    // `hdr_active` was computed with the renderer above (the dmabuf feedback needed
+    // it); this is the same value, not a second decision.
     let hdr_transfer = if hdr_active {
         if hdr_caps.hdr.eotf_pq { "PQ" } else { "HLG" }
     } else {
@@ -265,17 +399,16 @@ pub fn wire(
             crtc: display.pipe,
             mode: display.mode,
             output: display.output.clone(),
-            damage_tracker,
             drm_output: Some(renderer.drm_output),
             hdr_caps,
             hdr_active,
-            hdr_signalled: false,
+            props_applied: false,
+            render_failures: 0,
             connector: display.connector.handle(),
             current_drm_mode: display.drm_mode,
             modes: display.connector.modes().to_vec(),
             mode_revert: None,
             global: None,
-            in_flight: false,
             last_vblank: None,
             render_start: None,
             last_tear: false,
@@ -401,6 +534,9 @@ pub fn wire(
             // captures is the state's own. Outcome handling belongs to the
             // pacing layer — the watchdog only needs the kick.
             let handle = state.loop_handle.clone();
+            // A resume render has no commit behind it: move the epoch, or the
+            // executor's epoch-current skip finds every pipe up to date.
+            state.bump_redraw_epoch();
             let _ = compositor_kernel_native_render_execute_base::execute::execute(
                 ctx, handle, state,
                 compositor_kernel_native_render_execute_base::execute::RenderScope::All,

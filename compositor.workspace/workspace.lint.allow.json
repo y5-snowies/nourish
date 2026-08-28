@@ -1,4 +1,8 @@
 {
+  "compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.trait": {
+    "allow": ["size"],
+    "reason": "The neutral Wire's one seam to the world side: it grows a method per world capability the smithay handlers need (space, focus, pointer warp, surface-to-world mapping), and splitting the trait would split a single contract across crates."
+  },
   "compositor.support/support.smithay/smithay.state/state.seat/seat.factory": [
     "size"
   ],
@@ -60,12 +64,6 @@
     "size"
   ],
   "compositor.support/support.bevy/bevy.core/core.import/import.base": [
-    "size"
-  ],
-  "compositor.kernel/kernel.graphic/graphic.bridge/bridge.negotiate/negotiate.base": [
-    "size"
-  ],
-  "compositor.kernel/kernel.graphic/graphic.bridge/bridge.negotiate/negotiate.wgpu": [
     "size"
   ],
   "compositor.support/support.bevy/bevy.core/core.context/context.base": [
@@ -685,13 +683,13 @@
     "allow": [
       "size"
     ],
-    "reason": "One record and the single function that observes every edge on it. The alternative to its length is seven lifecycle hooks in six files, which is what this exists to avoid — and the per-moment rationale is what stops the next one being added as an eighth hook somewhere else."
+    "reason": "One record and the single function that observes every edge on it. The alternative to its length is seven lifecycle hooks in six files, which is what this exists to avoid \u2014 and the per-moment rationale is what stops the next one being added as an eighth hook somewhere else."
   },
   "compositor.expansion/compositor.y5/y5.window/window.draw/draw.occlude": {
     "allow": [
       "size"
     ],
-    "reason": "Three near-identical booleans about one window, whose whole difficulty is which consumer reads which — frame callbacks, fractional scale, xdg suspended. The length is the note saying so; without it the next consumer picks whichever name reads best and is wrong in a way nothing catches."
+    "reason": "Three near-identical booleans about one window, whose whole difficulty is which consumer reads which \u2014 frame callbacks, fractional scale, xdg suspended. The length is the note saying so; without it the next consumer picks whichever name reads best and is wrong in a way nothing catches."
   },
   "compositor.introspection/introspection.extraction/extraction.window/window.hints.codec": {
     "allow": [
@@ -715,7 +713,7 @@
     "allow": [
       "size"
     ],
-    "reason": "A published slot plus the layout of the block it fills. The bulk is why each value is where it is — a lane meaning that lives away from the lane is how a shader and an engine come to disagree about what they are exchanging."
+    "reason": "A published slot plus the layout of the block it fills. The bulk is why each value is where it is \u2014 a lane meaning that lives away from the lane is how a shader and an engine come to disagree about what they are exchanging."
   },
   "compositor.orchestration/orchestration.seat/seat.pointer/pointer.warp": {
     "allow": [
@@ -787,7 +785,7 @@
     "allow": [
       "size"
     ],
-    "reason": "The sampler thread's single loop — cadence, forced refresh, batching and flush deadlines are one interleaved state machine."
+    "reason": "The sampler thread's single loop \u2014 cadence, forced refresh, batching and flush deadlines are one interleaved state machine."
   },
   "compositor.introspection/introspection.sampler/sampler.window/window.schedule": {
     "allow": [
@@ -805,7 +803,7 @@
     "allow": [
       "size"
     ],
-    "reason": "Pure façade — the re-export map for the whole extraction subsystem; its length IS the module tree it fronts."
+    "reason": "Pure fa\u00e7ade \u2014 the re-export map for the whole extraction subsystem; its length IS the module tree it fronts."
   },
   "compositor.introspection/introspection.extraction/extraction.window/window.handler.registry": {
     "allow": [
@@ -835,7 +833,7 @@
     "allow": [
       "size"
     ],
-    "reason": "One ordered fallback chain for the hover card's icon. Its length IS the order, and the order is the behaviour — splitting it hides which source beat which."
+    "reason": "One ordered fallback chain for the hover card's icon. Its length IS the order, and the order is the behaviour \u2014 splitting it hides which source beat which."
   },
   "compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.session": [
     "size"
@@ -874,13 +872,13 @@
     "allow": [
       "size"
     ],
-    "reason": "One policy: every limit the clipboard transfer layer answers to — how much is held, for how long in each direction, in what order flavors are taken, and how big a bite each direction takes. They are chosen against each other (the chunk sizes are what the idle windows grant time for; the capture pipe is sized to the read chunk), so splitting them would scatter one set of trade-offs across crates."
+    "reason": "One policy: every limit the clipboard transfer layer answers to \u2014 how much is held, for how long in each direction, in what order flavors are taken, and how big a bite each direction takes. They are chosen against each other (the chunk sizes are what the idle windows grant time for; the capture pipe is sized to the read chunk), so splitting them would scatter one set of trade-offs across crates."
   },
   "compositor.support/support.smithay/smithay.state/state.clipboard/clipboard.worker": {
     "allow": [
       "size"
     ],
-    "reason": "One thread and the handle that speaks to it. The command set, the tick that services it and the budget/deadline arithmetic are the same ownership story — fds move in, finished flavors move out, nothing is shared — and splitting the handle from the loop would put the two halves of that protocol in different crates."
+    "reason": "One thread and the handle that speaks to it. The command set, the tick that services it and the budget/deadline arithmetic are the same ownership story \u2014 fds move in, finished flavors move out, nothing is shared \u2014 and splitting the handle from the loop would put the two halves of that protocol in different crates."
   },
   "compositor.support/support.smithay/smithay.state/state.grab/grab.drag.state": {
     "allow": [
@@ -892,7 +890,7 @@
     "allow": [
       "size"
     ],
-    "reason": "One correlation unit: the claim registry plus both predicates it resolves on (activation token from /proc environ, pid parent chain) — splitting them would separate a lookup from the two ways it answers."
+    "reason": "One correlation unit: the claim registry plus both predicates it resolves on (activation token from /proc environ, pid parent chain) \u2014 splitting them would separate a lookup from the two ways it answers."
   },
   "compositor.support/support.smithay/smithay.state/state.session/session.store": {
     "allow": [
@@ -904,12 +902,66 @@
     "allow": [
       "size"
     ],
-    "reason": "LaunchPlan's descriptor-keyed accessors (has_pref_override / clear_pref_override / is_pref_enabled) resolve preferences AND inferred hints together — is_pref_enabled defaults from whether a hint exists — so they need both private halves of the plan and cannot be split out."
+    "reason": "LaunchPlan's descriptor-keyed accessors (has_pref_override / clear_pref_override / is_pref_enabled) resolve preferences AND inferred hints together \u2014 is_pref_enabled defaults from whether a hint exists \u2014 so they need both private halves of the plan and cannot be split out."
   },
   "compositor.introspection/introspection.launchplan/launchplan.plan/plan.preferences": {
     "allow": [
       "size"
     ],
     "reason": "One type, one private map. The name-keyed accessors the settings UI needs (is_enabled_by_name_or / has_override_by_name / clear_override_by_name) must be methods on Preferences because they read and mutate its private `fields`; hoisting them into a sibling crate would force the map public and make the override/enabled invariants unenforceable."
+  },
+  "compositor.kernel/kernel.vulkan/vulkan.format/format.table/table.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "fourcc -> capability classification table; one flat mapping that every format gate reads, splitting it would separate entries from the rule that reads them."
+  },
+  "compositor.kernel/kernel.graphic/graphic.format/format.rule/rule.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "The modifier classification, ranking and the single empty-result vocabulary. Splitting the rules from the words for their outcomes is how four call sites came to answer 'empty' four different ways."
+  },
+  "compositor.kernel/kernel.graphic/graphic.format/format.registrar/registrar.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One slot per capability role plus the session facts every answer reads; splitting them would let a reader think a role could be published without the others noticing."
+  },
+  "compositor.kernel/kernel.graphic/graphic.format/format.catalog/catalog.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "The single fourcc vocabulary. It replaces four disjoint lists that had to be hand-kept in lockstep; splitting it recreates exactly that problem."
+  },
+  "compositor.kernel/kernel.graphic/graphic.format/format.resolve/resolve.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "THE intersection engine. It absorbs five call sites that disagreed on empty-set policy, INVALID and LINEAR; the point is that all of it is readable in one sitting."
+  },
+  "compositor.kernel/kernel.graphic/graphic.format/format.answer/answer.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "One exhaustive match from consumer to formats, with no wildcard arm. Splitting the arms across crates would defeat the reason it is one function."
+  },
+  "compositor.kernel/kernel.graphic/graphic.format/format.audit/audit.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Latched reporting for what the negotiation decided and what it cost; the loss report and the allocation report share the de-duplication table."
+  },
+  "compositor.kernel/kernel.graphic/graphic.format/format.probe/probe.wgpu": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Raw-ash per-modifier probe of a wgpu adapter: the two-pass enumerate, the usability probe and the adapter pick are one device conversation and read as one."
+  },
+  "compositor.support/support.system/system.storage/storage.concurrent/concurrent.base": {
+    "allow": [
+      "size"
+    ],
+    "reason": "Thread-safe sibling of Storage: insert/contains/with/with_mut/entry are one addressing scheme and splitting them would separate the lock from what it guards."
   }
 }

@@ -8,7 +8,7 @@ pub enum WindowLifecycleEvent {
     InitialMap(Window),
     // Resize(Window),
     /// The `bool` is the surface's `DiscardPlaceholder` mark (Shift-close from the
-    /// selection toolbar): destroy must leave no placeholder tile behind.
+    /// selection toolbar): destroy must leave no placeholder behind.
     Destroyed(Uuid, Option<ActivationDetails>, bool),
     /// (Un)fullscreen request for a window. `true` = enter fullscreen.
     Fullscreen(Window, bool),

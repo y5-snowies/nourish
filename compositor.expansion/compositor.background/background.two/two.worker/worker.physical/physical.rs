@@ -23,6 +23,6 @@ pub fn select(instance: &Instance) -> Result<PhysicalDevice, String> {
     let phd = compositor_kernel_vulkan_instance_physical_base::physical::for_node(instance, drm)
         .map_err(|e| format!("worker physical: {e}"))?
         .ok_or_else(|| format!("worker: no vulkan device for the selected render node {node}"))?;
-    compositor_kernel_graphic_bridge_negotiate_report::report::node("background shader worker", &node);
+    compositor_kernel_graphic_format_audit_base::audit::node("background shader worker", &node);
     Ok(phd)
 }

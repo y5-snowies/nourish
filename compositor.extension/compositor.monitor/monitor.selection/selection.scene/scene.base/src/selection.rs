@@ -64,7 +64,7 @@ pub struct ScaleToFitOption {
 ///   share a client process (Chrome windows, a terminal's windows) close just
 ///   the chosen one and the app runs its own teardown.
 /// - `Discard` (Shift): the same polite close, but first mark the window so it
-///   leaves NO placeholder tile behind. Only meaningful for windows that were
+///   leaves NO placeholder behind. Only meaningful for windows that were
 ///   not themselves restored from a placeholder (those keep their placeholder).
 /// - `Terminate` (Alt): SIGTERM the owning process (systemd scope stop, else
 ///   `kill -TERM`). The former default.
@@ -267,7 +267,7 @@ impl Overlay {
         // the modifiers held at render time (baked into the message, since the
         // view re-renders on Shift/AltChanged), each with its own glyph:
         //   none      -> ask the window to close (xdg_toplevel.close protocol)  [door]
-        //   Shift     -> close AND leave no placeholder tile                    [bin]
+        //   Shift     -> close AND leave no placeholder                    [bin]
         //   Alt       -> SIGTERM the owning process                             [power-off]
         //   Alt+Shift -> SIGKILL the owning process                             [skull]
         // Holding Alt (either process-killing variant) deepens the red to

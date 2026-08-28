@@ -118,7 +118,7 @@ placeholder relaunches by replaying the argv it captured, so anything that disti
 on the command line would be an alternative explanation for a value coming back — one you
 could only rule out by reading the source. With argv identical there is nothing left: the
 session id the compositor mints per placeholder is the only thing that can tell two subjects
-apart, so the tiles must be told apart by the compositor or not at all. The overlay's last
+apart, so the placeholders must be told apart by the compositor or not at all. The overlay's last
 line is the verdict:
 
 ```
@@ -129,11 +129,11 @@ Procedure:
 
 1. `SPAWN 3` — three subjects come up, each `[NEW]` with its own `VALUE`. The `VALUE` is the
    only thing distinguishing them on screen; note which window is which.
-2. Close each window **in the compositor** → three placeholder tiles appear.
-3. Press **Launch** on a tile. y5 relaunches the subject binary with the captured argv.
+2. Close each window **in the compositor** → three placeholders appear.
+3. Press **Launch** on a placeholder. y5 relaunches the subject binary with the captured argv.
 4. The subject must come back showing the **same `VALUE`** and `[RESTORED]` — and pressing a
-   *different* tile must produce a *different* `VALUE`. Three identical processes resolving to
-   three different values is the whole result; one tile restoring correctly proves much less.
+   *different* placeholder must produce a *different* `VALUE`. Three identical processes resolving to
+   three different values is the whole result; one placeholder restoring correctly proves much less.
 
 `CLEAR STORE` deletes the store file — the control case, after which a spawn must report
 `[NEW]` with a fresh value. `--no-session` disables the protocol entirely (the overlay reads

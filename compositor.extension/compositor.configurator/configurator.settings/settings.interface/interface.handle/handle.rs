@@ -58,15 +58,15 @@ fn connected_keys(state: &Loop) -> Vec<String> {
         .collect()
 }
 
-/// Set the active world's background pan inversion (per axis; `None` leaves an axis
+/// Set the SESSION world's (spawn target — never the lock/picker overlay) background pan inversion (per axis; `None` leaves an axis
 /// unchanged): persist it on the world's `Two` slot and flip the live instance in
 /// place so the background reacts without a rebuild.
 fn set_world_invert(state: &mut Loop, x: Option<bool>, y: Option<bool>) {
-    let world = state.inner.worlds.active_id();
+    let world = state.inner.worlds.spawn_target();
     if let Some(two) = state
         .inner
         .worlds
-        .active_mut()
+        .get_mut(world)
         .storage_mut()
         .try_get_mut(&compositor_background_two_storage_base::base::BG_TWO_MUT)
     {
@@ -84,11 +84,11 @@ fn set_world_invert(state: &mut Loop, x: Option<bool>, y: Option<bool>) {
 /// Set the active world's sRGB background output: persist it on the world's `Two`
 /// slot and flip the live instance in place (no rebuild — it's a shader-side encode).
 fn set_world_srgb(state: &mut Loop, on: bool) {
-    let world = state.inner.worlds.active_id();
+    let world = state.inner.worlds.spawn_target();
     if let Some(two) = state
         .inner
         .worlds
-        .active_mut()
+        .get_mut(world)
         .storage_mut()
         .try_get_mut(&compositor_background_two_storage_base::base::BG_TWO_MUT)
     {
@@ -110,11 +110,11 @@ fn set_world_srgb(state: &mut Loop, on: bool) {
 /// renderer's pipeline cache is keyed on `(id, format)` and ignores the bytes on a
 /// hit, it would stay stale until restart.
 fn set_world_optimized(state: &mut Loop, on: bool) {
-    let world = state.inner.worlds.active_id();
+    let world = state.inner.worlds.spawn_target();
     if let Some(two) = state
         .inner
         .worlds
-        .active_mut()
+        .get_mut(world)
         .storage_mut()
         .try_get_mut(&compositor_background_two_storage_base::base::BG_TWO_MUT)
     {
@@ -262,6 +262,13 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
             state.state.foreign.set_all_worlds(v);
             state.foreign_reconcile();
         }
+        SettingsMessage::SetSessionCapture(v) => {
+            // Read live by the placeholder map path (`session_capture_mode`), so
+            // persisting IS applying — no live-scope flag and no re-reconcile, the
+            // next window to map already sees the new value.
+            state.inner.preference.session_capture = v;
+            let _ = pref::save(&state.inner.preference);
+        }
         SettingsMessage::Keyboard(kl) => {
             // Persist AND apply the keyboard layout live: mutate the preference, save,
             // then recompile the keymap on the seat's keyboard. `get_keyboard()` hands
@@ -344,11 +351,11 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
         // world's own `Two` slot (persisted by `BackgroundDoc` on mark), and clear
         // the instance so `TwoSystem::update` rebuilds next frame. Empty = default.
         SettingsMessage::SetWorldShader(name) => {
-            let world = state.inner.worlds.active_id();
+            let world = state.inner.worlds.spawn_target();
             if let Some(two) = state
                 .inner
                 .worlds
-                .active_mut()
+                .get_mut(world)
                 .storage_mut()
                 .try_get_mut(&compositor_background_two_storage_base::base::BG_TWO_MUT)
             {
@@ -361,11 +368,11 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, m: SettingsMessage
         // world's `Two` slot (persisted, debounced — drags fire fast) and update
         // the live instance in place so the background reacts without a rebuild.
         SettingsMessage::SetWorldShaderParams(values) => {
-            let world = state.inner.worlds.active_id();
+            let world = state.inner.worlds.spawn_target();
             if let Some(two) = state
                 .inner
                 .worlds
-                .active_mut()
+                .get_mut(world)
                 .storage_mut()
                 .try_get_mut(&compositor_background_two_storage_base::base::BG_TWO_MUT)
             {

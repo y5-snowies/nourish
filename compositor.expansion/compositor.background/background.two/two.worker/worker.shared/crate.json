@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_kernel_graphic_format_registrar_base",
     "compositor_background_two_worker_base",
     "compositor_model_debug_instance_record"
   ]

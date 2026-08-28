@@ -19,6 +19,8 @@ pub fn toggle_hand(_loop: &mut Loop) {
     } else {
         _loop.inner.canvas_mut().Grab = CanvasGrab::Active(ActiveOption::Hand);
         _loop.state.seat.force_cursor = Some(CursorIcon::Grab);
+        // The hand tool breaks out of any pointer lock/confine the focused client holds.
+        crate::constraint::break_constraint(_loop);
     }
 }
 

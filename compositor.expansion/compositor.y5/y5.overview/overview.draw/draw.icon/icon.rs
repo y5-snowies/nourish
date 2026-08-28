@@ -6,7 +6,7 @@
 //! source that is right in real time. Everything after it is a fallback, tried
 //! in order until one resolves to something that exists.
 //!
-//! The fallbacks matter most for a window just launched from a placeholder tile.
+//! The fallbacks matter most for a window just launched from a placeholder.
 //! At first map a client often has not set `app_id` yet, so the introspection
 //! captured then resolved no desktop entry and no icon — and the sampler
 //! PRESERVES that captured app_id across its refreshes (it cannot read a

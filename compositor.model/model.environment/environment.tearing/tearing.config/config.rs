@@ -46,6 +46,31 @@ impl Default for Tagging {
     fn default() -> Self { Self { steam: true } }
 }
 
+/// When the render loop may skip a frame nothing changed in. See
+/// [`Config::preemptive`] for what each value costs.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Preemptive {
+    /// Skip whenever damage is empty. The loop parks on an idle desktop.
+    Off,
+    /// Never skip while a section is in force. The shipped value.
+    #[default]
+    Engaged,
+    /// Never skip, in force or not.
+    Always,
+}
+
+impl Preemptive {
+    pub const ALL: [Preemptive; 3] = [Self::Off, Self::Engaged, Self::Always];
+    /// `governed` is whether a tearing or pacing section resolved this frame.
+    pub fn forces(self, governed: bool) -> bool {
+        match self {
+            Self::Off => false,
+            Self::Engaged => governed,
+            Self::Always => true,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct Config {
     pub tearing: Tearing,
@@ -61,6 +86,60 @@ pub struct Config {
     /// see [`FLOOR_MIN_FPS`]. Anything slower normalizes up to it.
     #[serde(default = "floor_default")]
     pub floor: Rate,
+    /// Pre-emptive rendering: present every frame the loop reaches, instead of
+    /// only when the damage tracker found something changed. Shared by both
+    /// sections, like [`floor`] — there is one redraw loop, and this decides
+    /// whether it may ever skip.
+    ///
+    /// Normally a frame in which nothing moved is reported empty, `queue_frame`
+    /// refuses it outright (`FrameError::EmptyFrame`), and — because the render
+    /// loop re-arms its redraw latch only after a NON-EMPTY result — the loop
+    /// parks until something wakes it. That is the saving.
+    ///
+    /// What this does NOT do is fake damage to defeat that. Forcing full-output
+    /// damage (`reset_buffer_ages`) or drawing undamaged elements
+    /// (`DRAW_ALL_ELEMENTS`) would make every frame a full-screen recomposite, so
+    /// the numbers would describe a compositor nobody runs. Instead it sets
+    /// `FrameFlags::FORCE_PRESENT`, which only changes whether the prepared frame may be
+    /// reported EMPTY: buffer ages, damage history, the render work and the shape of
+    /// the atomic commit are all untouched — so an async (tearing) flip stays the
+    /// single-plane FB swap the kernel requires. The flip always has something to
+    /// queue, the latch always re-arms, and the loop free-runs at its real cost.
+    ///
+    /// [`Preemptive::Engaged`] by default: while a section IS in force the loop
+    /// never parks, and on an ordinary desktop — where pacing never engages and
+    /// tearing waits for a tagged, focused target — it behaves exactly as it did
+    /// before this setting existed. That is what makes the default free: the
+    /// frames it adds are only ever added where a cadence policy is already
+    /// driving, and there a frame ready ahead of the flip is the whole point.
+    ///
+    /// [`Preemptive::Always`] extends it to the ungoverned case as well, so the
+    /// loop never parks at all. Flips are vblank-locked with no section in force,
+    /// so this is bounded by the panel rather than free-running — one composite
+    /// per refresh on a screen doing nothing. It also restores what the
+    /// compositor did before element identities were stabilised, when a
+    /// per-frame-rebuilt element re-damaged itself and kept the loop alive by
+    /// accident: useful when something updates without reporting damage, and the
+    /// setting to reach for when a surface looks stale rather than slow.
+    ///
+    /// `serde(default = ...)` rather than plain `serde(default)`: preferences.json
+    /// predates the key, and a bare default would give every existing install
+    /// `Off` — the opposite of the shipped value.
+    /// NOT SETTABLE. `serde(skip)`, so it is neither read from nor written to
+    /// preferences.json, and the Settings panel no longer offers it.
+    ///
+    /// It is pinned to [`PREEMPTIVE_DEFAULT`] — `Always` — because the loop
+    /// parking on an empty frame turned out to be a HANG, not an optimisation: a
+    /// bundle's band is damage the engine cannot see, and once the band element is
+    /// occluded there is nothing left to re-arm the redraw latch. That is not a
+    /// trade-off to expose until the occlusion side is fixed, because one of the
+    /// three values freezes the session.
+    ///
+    /// The enum, [`Preemptive::forces`] and [`Preemptive::ALL`] are all kept: this
+    /// is a knob withdrawn from users, not deleted from the code, and flipping
+    /// `PREEMPTIVE_DEFAULT` is how you test the parking behaviour again.
+    #[serde(skip, default = "preemptive_default")]
+    pub preemptive: Preemptive,
 }
 
 /// One times refresh: a stalled target drops the desktop back to exactly the rate
@@ -72,6 +151,14 @@ pub struct Config {
 /// refresh never reaches it.
 pub const FLOOR_DEFAULT: Rate = Rate::Multiplier(1.0);
 fn floor_default() -> Rate { FLOOR_DEFAULT }
+
+/// ALWAYS, pinned. An active bundle's band is a damage source smithay cannot
+/// always see (an opaque window covering the output occludes it), and a frame
+/// wrongly reported empty parks the render loop for good — so the loop never
+/// parks, by decree. Flip here to test the parking behaviour; nothing else
+/// selects it.
+pub const PREEMPTIVE_DEFAULT: Preemptive = Preemptive::Always;
+fn preemptive_default() -> Preemptive { PREEMPTIVE_DEFAULT }
 
 /// The floor has no "off". While a gate is engaged the rescue frames are the only
 /// thing still driving the loop: the cursor, the compositor's own UI and — the
@@ -119,7 +206,13 @@ impl Default for Pacing {
 }
 impl Default for Config {
     fn default() -> Self {
-        Self { tearing: TEARING_DEFAULT, pacing: PACING_DEFAULT, tag: Tagging { steam: true }, floor: FLOOR_DEFAULT }
+        Self {
+            tearing: TEARING_DEFAULT,
+            pacing: PACING_DEFAULT,
+            tag: Tagging { steam: true },
+            floor: FLOOR_DEFAULT,
+            preemptive: PREEMPTIVE_DEFAULT,
+        }
     }
 }
 
@@ -147,6 +240,7 @@ static CONFIG: std::sync::RwLock<Config> =
     std::sync::RwLock::new(Config {
         tearing: TEARING_DEFAULT, pacing: PACING_DEFAULT,
         tag: Tagging { steam: true }, floor: FLOOR_DEFAULT,
+        preemptive: PREEMPTIVE_DEFAULT,
     });
 
 pub fn get() -> Config { CONFIG.read().map(|c| *c).unwrap_or_default() }

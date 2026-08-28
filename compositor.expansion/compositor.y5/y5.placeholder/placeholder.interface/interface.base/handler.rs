@@ -29,7 +29,7 @@ pub fn delegate(
                 (record.clone(), handle.clone())
             };
             // The user edited a launcher's plan → persist the edit IMMEDIATELY.
-            compositor_support_system_persist_mark_base::base::mark_world(_loop.inner.worlds.active_id(), true);
+            compositor_support_system_persist_mark_base::base::mark_world(_loop.inner.worlds.spawn_target(), true);
 
             if let Some(registry) = &mut _loop.inner.surface_mut().registry {
                 // Push the canonical plan back through the registry, NOT through
@@ -56,8 +56,8 @@ pub fn delegate(
                 }
                 // DrawOrder GC: the placeholder surface is world-space (registered).
                 _loop.inner.remove_drawable(drawable_id);
-                // Dismissing a launcher tile is a deletion → persist IMMEDIATELY.
-                compositor_support_system_persist_mark_base::base::mark_world(_loop.inner.worlds.active_id(), true);
+                // Dismissing a placeholder is a deletion → persist IMMEDIATELY.
+                compositor_support_system_persist_mark_base::base::mark_world(_loop.inner.worlds.spawn_target(), true);
             }
         }
         PlaceholderAction::Launch() => launch(_loop, message.uuid, false),
@@ -104,7 +104,7 @@ fn launch(_loop: &mut Loop, uuid: uuid::Uuid, start_container: bool) {
 
     // Containerised plan whose container is down: ask before starting it, and
     // do nothing else this press. Clear `launching` first — the user may answer
-    // no, and a tile stuck mid-launch would refuse every later press. The
+    // no, and a placeholder stuck mid-launch would refuse every later press. The
     // confirmed answer arrives as its own action and re-enters here.
     if !start_container {
         if let Some(container) = container_needs_start(&record.launch) {

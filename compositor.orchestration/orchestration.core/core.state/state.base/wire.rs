@@ -25,6 +25,18 @@ impl WireTrait for Orchestrator {
     fn host_space_mut(&mut self) -> &mut compositor_support_smithay_state_space_base::state::SpaceState {
         self.space_state_mut()
     }
+    fn owning_space(&self, surface: &WlSurface) -> &compositor_support_smithay_state_space_base::state::SpaceState {
+        match self.surface_world(surface) {
+            Some(world) => &self.worlds.get(world).storage().get(&compositor_support_world_host_space_base::base::SPACE).inner,
+            None => self.space_state(),
+        }
+    }
+    fn owning_space_mut(&mut self, surface: &WlSurface) -> &mut compositor_support_smithay_state_space_base::state::SpaceState {
+        match self.surface_world(surface) {
+            Some(world) => &mut self.worlds.get_mut(world).storage_mut().get_mut(&compositor_support_world_host_space_base::base::SPACE_MUT).inner,
+            None => self.space_state_mut(),
+        }
+    }
     fn all_world_spaces(&self) -> Vec<&compositor_support_smithay_state_space_base::state::SpaceState> {
         self.worlds
             .ids()
@@ -92,6 +104,79 @@ impl WireTrait for Orchestrator {
             .cloned()
     }
 
+    fn session_restore_size(
+        &self,
+        surface: &WlSurface,
+    ) -> Option<smithay::utils::Size<i32, Logical>> {
+        use compositor_introspection_restoration_state_pending::pending::SessionKey;
+        let identity =
+            compositor_support_smithay_state_session_store::store::identity(surface)?;
+        // Both names, for the same reason the matcher takes both: a client may retire
+        // the name it restored under before it maps (Chrome does, every run), and the
+        // placeholder is filed under whichever name that client last used.
+        let held = |key: &Option<SessionKey>| {
+            key.as_ref().is_some_and(|k| {
+                k.session_id == identity.session_id
+                    && (k.name == identity.name
+                        || identity.restored_from.as_deref() == Some(k.name.as_str()))
+            })
+        };
+        // Same gate as the map-time matcher (placeholder.interface), or the size
+        // comes from a placeholder the window will never bind to: Settings → Misc
+        // `session_capture` — "off" suppresses the declared-identity match entirely,
+        // "on" lets only the spawn target's placeholders claim the window, and only
+        // "all_worlds" lets a placeholder in any world claim (and receive) it.
+        // Spawn target FIRST in every mode: it is the world the matcher offers first,
+        // and the one that wins an all-tie below.
+        let host = self.worlds.spawn_target();
+        let worlds: Vec<uuid::Uuid> = match self.preference.session_capture.as_str() {
+            "off" => vec![],
+            "all_worlds" => std::iter::once(host)
+                .chain(self.worlds.ids().into_iter().filter(|w| *w != host))
+                .collect(),
+            _ => vec![host],
+        };
+        // `visible` is the live placeholder list; `pending_restore` holds placeholders rehydrated
+        // from disk that the rim has not built a surface for yet. After a REBOOT the
+        // second is where a returning window's placeholder still is, so skipping it would
+        // make this work only for restores within one compositor run.
+        //
+        // Duplicated identity (a session restored twice) is tie-broken the way the
+        // matcher does: most recent launch wins, a launch beats none, and an all-tie
+        // keeps the first — which the world order above makes the spawn target's.
+        let candidates = worlds.into_iter().flat_map(|world| {
+            let store = self
+                .worlds
+                .get(world)
+                .storage()
+                .try_get(&compositor_y5_placeholder_system_base::base::PLACEHOLDER);
+            let visible = store
+                .iter()
+                .flat_map(|s| s.visible.iter())
+                .filter(|(v, _)| held(&v.session))
+                .map(|(v, _)| (v.size, v.launch_at))
+                .collect::<Vec<_>>();
+            let pending = store
+                .iter()
+                .flat_map(|s| s.pending_restore.iter())
+                .filter(|p| held(&p.session))
+                .map(|p| (p.size, None))
+                .collect::<Vec<_>>();
+            visible.into_iter().chain(pending)
+        });
+        // Ranked by `launch_at` only; the size is the payload carried by the winner.
+        let (size, _launch_at) = candidates.max_by(|(_, launched_a), (_, launched_b)| {
+            match (launched_a, launched_b) {
+                (Some(a), Some(b)) => a.cmp(b),
+                (Some(_), None) => std::cmp::Ordering::Greater,
+                (None, Some(_)) => std::cmp::Ordering::Less,
+                // `max_by` keeps the LAST maximum: report the earlier as greater.
+                (None, None) => std::cmp::Ordering::Greater,
+            }
+        })?;
+        (size.0 > 0 && size.1 > 0).then(|| smithay::utils::Size::from((size.0, size.1)))
+    }
+
     fn initialize_surface_data(&mut self, window: Window) {
         let uuid = uuid::Uuid::now_v7();
         let user_data = window.user_data().get::<WindowData>();
@@ -155,7 +240,7 @@ impl WireTrait for Orchestrator {
                 .clone();
             info!("destroy_surface_data: {:?}", data);
             // Shift-close mark: surface user data set by the selection toolbar —
-            // the placeholder destroy path must not spawn a tile for this window.
+            // the placeholder destroy path must not spawn a placeholder for this window.
             // `drag_discard` is the same verdict reached the other way: a torn-off
             // tab destroyed mid-drag because another toplevel adopted it.
             //
@@ -197,6 +282,15 @@ impl WireTrait for Orchestrator {
         self.window_lifecycle_mut()
             .incoming
             .push(WindowLifecycleEvent::DragSettled(surface));
+    }
+
+    fn surface_point_to_world(
+        &self,
+        surface: &WlSurface,
+        local: Point<f64, Logical>,
+    ) -> Option<Point<f64, Logical>> {
+        compositor_y5_camera_transform_translate::map::surface_map(&self.host_space().state, surface)
+            .map(|m| m.to_world(local))
     }
 
     fn apply_pointer(&mut self, storage_point: Point<f64, Logical>) {
@@ -258,6 +352,41 @@ impl WireTrait for Orchestrator {
         smithay::backend::allocator::dmabuf::Dmabuf,
         smithay::wayland::dmabuf::ImportNotifier,
     )> {
+        // REFUSE what the compositing renderer cannot import, before validating.
+        // The validation below runs on GLES whatever composites, so a format only
+        // GLES can take passed here and then failed at draw — every frame, as a
+        // blank window, with nothing the client could react to. `failed()` is a
+        // protocol answer it CAN react to (fall back to another format, or shm).
+        // Fourcc-level: a v3/wl_drm client sends modifier INVALID and must not be
+        // judged on the modifier. Advertising is narrowed the same way, so a
+        // well-behaved client never reaches this.
+        {
+            let format = smithay::backend::allocator::Buffer::format(&_dmabuf);
+            let (code, modifier) = (format.code, format.modifier);
+            // The MODIFIER is judged too, not just the fourcc. A legacy v3/`wl_drm` client
+            // sends `INVALID`, and the vulkan import path has no way to take it: it builds
+            // `VkImageDrmFormatModifierExplicitCreateInfoEXT` from the buffer's modifier, and
+            // no device lists INVALID among its supported ones, so `vkCreateImage` fails and
+            // the window never draws. Judging the pair turns that into `failed()`, which the
+            // client can act on — fall back to shm, or renegotiate.
+            //
+            // This does NOT punish the gles path: it publishes its EGL set, which carries an
+            // INVALID entry per fourcc, so an implicit buffer still passes there. One rule,
+            // no renderer detection — the published set answers for whoever is compositing.
+            if !compositor_kernel_graphic_format_resolve_base::resolve::importable_pair(
+                self.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS),
+                code,
+                modifier,
+            ) {
+                warn!(
+                    "Refusing client dmabuf {code:?} modifier {modifier:?}: the compositing \
+                     renderer cannot import that pair (nor is it in the advertised set)"
+                );
+                notifier.failed();
+                return None;
+            }
+        }
+
         let Some(gpu_ref) = self.kernel.get(&crate::state::GPU_BINDING).as_ref() else {
             return Some((_dmabuf, notifier));
         };
@@ -278,13 +407,39 @@ impl WireTrait for Orchestrator {
         // `single_renderer` enumerates on demand and returns `NoDevice` for a node
         // it cannot reach, which falls through to the default import below. So a
         // node without a usable GL driver degrades rather than rejecting clients.
-        let node = compositor_kernel_graphic_bridge_negotiate_compositor::compositor::composite_node(*primary);
+        let node = compositor_kernel_graphic_format_registrar_base::registrar::composite_node(*primary);
         let mut renderer = match gpus.single_renderer(&node) {
             Ok(r) => r,
             Err(err) => {
-                warn!(
-                    "Failed to acquire renderer, falling through to default DMABuf import: err={err:?}"
-                );
+                // ONCE PER NODE, not once per buffer. This fires for every client dmabuf a
+                // client commits — thousands per minute — and it says the same thing every
+                // time, because the condition is static for the session: a node the GLES
+                // `GpuManager` cannot reach now will not become reachable later.
+                //
+                // `NoDevice` here is EXPECTED on a split machine and is not a fault. The
+                // composite node is `render_node`, and this manager is the GLES multigpu one
+                // paired with the SCANOUT device — so when the composite moved to a separate
+                // GPU, there is legitimately no GL device here for it. The buffer still gets
+                // smithay's default import, and the fourcc-level refusal above has already
+                // applied the compositing renderer's own answer.
+                static WARNED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<i64>>> =
+                    std::sync::OnceLock::new();
+                let seen = WARNED.get_or_init(Default::default);
+                let first = seen
+                    .lock()
+                    .map(|mut g| g.insert(node.dev_id() as i64))
+                    .unwrap_or(false);
+                if first {
+                    warn!(
+                        "No GLES renderer for the composite node {:?} (err={err:?}); client \
+                         dmabufs fall through to the default import for the rest of this \
+                         session. Expected when the composite is on a separate GPU from the \
+                         scanout device. Logged once per node.",
+                        node.dev_path()
+                    );
+                } else {
+                    trace!("dmabuf import: still no GLES renderer for {:?}", node.dev_path());
+                }
                 // Already moved..
                 return Some((_dmabuf, notifier));
             }

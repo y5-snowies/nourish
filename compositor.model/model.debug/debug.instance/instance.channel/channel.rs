@@ -50,27 +50,48 @@ pub fn push(record: Record) {
     }
 }
 
-/// Backing function for `abort!`: log the message at Error level and **block until the
-/// drain thread has fully handled it** (printed + streamed) before panicking. The wait is
-/// bounded so a dead/absent drain never hangs the abort. Always logs regardless of the
-/// level features / `COMPOSITOR_LOG_LEVEL` — an abort is fatal.
-#[cold]
-#[inline(never)]
-pub fn abort(crate_name: &'static str, function: &'static str, message: String) -> ! {
+/// Log at Error level and **block until the drain has fully handled it** (printed +
+/// streamed), bounded so a dead drain never hangs the caller. Always logs, whatever the
+/// level features say: both callers below are fatal, so this is the message that must land.
+fn say_last(crate_name: &'static str, function: &'static str, message: &str) {
     if let Some(tx) = SENDER.get() {
         let (ack_tx, ack_rx) = crossbeam_channel::bounded::<()>(1);
         let record = Record {
             level: Level::Error,
             crate_name,
             function,
-            message: message.clone(),
+            message: message.to_string(),
             at: Instant::now(),
             ack: Some(ack_tx),
         };
         if tx.try_send(record).is_ok() {
-            // Wait for the drain's signal; bounded so abort can't hang on a stalled drain.
             let _ = ack_rx.recv_timeout(Duration::from_secs(1));
         }
     }
+}
+
+/// Backing function for `abort!`: say it, then panic.
+#[cold]
+#[inline(never)]
+pub fn abort(crate_name: &'static str, function: &'static str, message: String) -> ! {
+    say_last(crate_name, function, &message);
     panic!("{message}");
+}
+
+/// Backing function for `fatal!`: say it, then END THE PROCESS — from whichever thread
+/// found the condition. Distinct from [`abort`] because panics are deliberately `unwind`
+/// here (`kernel.loader`'s Cargo.toml), so an `abort!` on a SPAWNED thread — and every
+/// off-thread producer is one: iced, bevy, background — unwinds that thread alone and
+/// leaves the compositor up without it. For a session-wide condition that silent
+/// amputation IS the failure: it turned an empty modifier negotiation into a blank
+/// session instead of a compositor that refused to start.
+/// `_exit`, NOT `process::exit`, which runs atexit handlers and static destructors: this
+/// is called while the MAIN thread is still in the event loop, so that teardown tore EGL
+/// down under the running compositor and glibc aborted on a corrupted heap — a core dump
+/// in place of the refusal. The record above is already printed and acknowledged.
+#[cold]
+#[inline(never)]
+pub fn fatal(crate_name: &'static str, function: &'static str, message: String) -> ! {
+    say_last(crate_name, function, &message);
+    unsafe { libc::_exit(1) }
 }

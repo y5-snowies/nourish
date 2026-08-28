@@ -19,10 +19,13 @@
 
 use std::collections::HashMap;
 use std::io::Read;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
+
+use compositor_support_library_process_child_hygiene::hygiene::command;
+use compositor_support_library_process_child_spawn::spawn as child_spawn;
 
 /// How long a cached table is served before [`name_for`] triggers a refresh.
 const TTL: Duration = Duration::from_secs(30);
@@ -156,12 +159,9 @@ fn list() -> Option<Vec<Entry>> {
 /// `None` on a non-zero exit, a spawn failure, or the timeout — all of which the
 /// callers read as "unknown" rather than as an answer.
 fn probe(args: &[&str]) -> Option<String> {
-    let mut child = Command::new("podman")
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
+    let mut cmd = command("podman");
+    cmd.args(args).stdout(Stdio::piped()).stderr(Stdio::null());
+    let mut child = child_spawn::spawn(&mut cmd).ok()?;
     // Spawned and polled rather than `output()`, which waits without a bound —
     // see `PROBE_TIMEOUT` for why an unbounded wait here freezes the compositor.
     let deadline = Instant::now() + PROBE_TIMEOUT;

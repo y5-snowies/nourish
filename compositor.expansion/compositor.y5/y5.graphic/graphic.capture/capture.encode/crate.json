@@ -1,6 +1,7 @@
 {
   "deps": [
     "compositor_support_library_process_child_hygiene",
+    "compositor_support_library_process_child_spawn",
     "wgpu",
     "compositor_support_bevy_core_runtime_base",
     "zbus",

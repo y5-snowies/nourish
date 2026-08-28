@@ -22,6 +22,10 @@ use crate::texture::VulkanTexture;
 /// which is also what lets the composite preserve the undamaged remainder,
 /// since the driver still tracks that image's layout.
 pub(crate) struct CachedTarget {
+    /// Whether this image was created with `TRANSFER_SRC`. Recorded because usage is
+    /// fixed at `vkCreateImage`: a target minted before capture was ever armed cannot
+    /// serve as a blit source later without being re-imported.
+    pub(crate) transfer_src: bool,
     pub(crate) image: vk::Image,
     pub(crate) memory: vk::DeviceMemory,
     pub(crate) view: vk::ImageView,
@@ -91,6 +95,10 @@ impl OutputResources {
 }
 
 pub struct VulkanRenderer {
+    /// The kernel's format registrar. Held because the import path asks a POLICY
+    /// question per client buffer — can this compositor express that colour —
+    /// which depends on session state, not on this device.
+    pub(crate) formats: compositor_kernel_graphic_format_registrar_base::registrar::Registrar,
     pub(crate) dev: VulkanDevice,
     pub(crate) phd: PhysicalDevice,
     pub(crate) queue: RenderQueue,
@@ -105,7 +113,15 @@ pub struct VulkanRenderer {
     /// Reusable per-surface mipped copies for the trilinear/aniso AA modes
     /// (`RefCell` so the per-frame acquire + record borrow cleanly alongside the
     /// other renderer field borrows in `submit`). Empty until such a mode runs.
-    pub(crate) mipgen: std::cell::RefCell<super::mipgen::MipGen>,
+    ///
+    /// Keyed per OUTPUT, for the same reason `outputs` is. `MipGen` is a
+    /// round-robin pool whose index resets once per pass, and `acquire` destroys
+    /// and recreates slot `i` whenever the requested size or format differs. Held
+    /// as ONE pool, slot `i` belonged to a different surface on each monitor's
+    /// pass, so two monitors of different sizes destroyed and recreated every mip
+    /// image twice per frame — the same thrash that keying `graph` per output was
+    /// introduced to fix.
+    pub(crate) mipgen: std::cell::RefCell<HashMap<std::sync::Arc<str>, super::mipgen::MipGen>>,
     /// Whether AA was active last frame — drives lazy build on activation and
     /// resource teardown on deactivation (see `teardown_aa`).
     pub(crate) aa_was_active: bool,
@@ -127,6 +143,14 @@ pub struct VulkanRenderer {
     /// seam. TAKEN by the frame that presents it — a band left in place would
     /// freeze the desktop — so it must be re-supplied every frame it is wanted.
     pub(crate) after_band: Option<smithay::backend::allocator::dmabuf::Dmabuf>,
+    /// The band's multipass machinery, published OUT-OF-BAND by `lower()`
+    /// (`SceneDispatch::set_band_machinery`) so it exists whether or not smithay's
+    /// occlusion culls let the band element draw. TAKEN by `submit_frame`, which
+    /// injects it at the band's op position when no pipeline op arrived through
+    /// element dispatch — take, not read, so a frame with no band publish cannot
+    /// run a stale bundle.
+    pub(crate) band_machinery:
+        Option<std::sync::Arc<compositor_pipeline_execute_graph_base::graph::GraphPipeline>>,
     /// What the world being DRAWN asks of the engine this frame.
     ///
     /// Set by the frame driver before the frame, from that world's own
@@ -193,6 +217,14 @@ pub struct VulkanRenderer {
     /// still be writing to them (native IN_FENCE path). Destroyed by
     /// `drain_retired` at points where the using frame is provably complete.
     pub(crate) retired: std::sync::Arc<std::sync::Mutex<Vec<crate::frame::RetiredTarget>>>,
+    /// The same deferral for TEXTURES. `TextureInner::drop` can fire at any point in a
+    /// frame — an `import_cache` eviction, a client buffer dying — so it hands its
+    /// handles here instead of destroying them under a command buffer that may still
+    /// reference the image. Drained beside `retired`, at the one point the previous
+    /// frame is provably complete — see `submit.rs`, just after the pin rotation.
+    pub(crate) retired_textures: std::sync::Arc<
+        std::sync::Mutex<Vec<compositor_kernel_vulkan_texture_image_base::RetiredTexture>>,
+    >,
     /// Arc pins for every texture the frame currently being recorded samples
     /// (pushed by `render_texture_from_to`), moved to `in_flight_textures` at
     /// submit — so a client texture whose last other handle drops mid-flight
@@ -269,6 +301,11 @@ impl VulkanRenderer {
                 info!("renderer: output {output:?} removed — released its intermediate targets");
                 r.destroy(&self.dev);
             }
+            // Its mip pool too — these are raw Vulkan images, so they must be
+            // destroyed rather than merely dropped.
+            if let Some(mut m) = self.mipgen.borrow_mut().remove(output.as_str()) {
+                m.destroy(&self.dev);
+            }
         }
     }
 
@@ -319,6 +356,31 @@ impl VulkanRenderer {
     /// Destroy retired render-target objects. Call ONLY where the frames that
     /// used them are provably complete: after the pre-record `frame_fence`
     /// wait (native path), after a `device_wait_idle`, or at renderer drop.
+    pub(crate) fn drain_textures(&self) {
+        let mut q = match self.retired_textures.lock() {
+            Ok(q) => q,
+            Err(e) => e.into_inner(),
+        };
+        for t in q.drain(..) {
+            unsafe {
+                if t.view != vk::ImageView::null() {
+                    self.dev.device.destroy_image_view(t.view, None);
+                }
+                if t.image != vk::Image::null() {
+                    self.dev.device.destroy_image(t.image, None);
+                }
+                if t.owns_memory {
+                    if t.memory != vk::DeviceMemory::null() {
+                        self.dev.device.free_memory(t.memory, None);
+                    }
+                    for m in &t.extra_memory {
+                        self.dev.device.free_memory(*m, None);
+                    }
+                }
+            }
+        }
+    }
+
     pub(crate) fn drain_retired(&self) {
         let mut retired = match self.retired.lock() {
             Ok(list) => list,
@@ -422,6 +484,11 @@ impl Drop for VulkanRenderer {
         unsafe {
             let _ = self.dev.device.device_wait_idle();
             self.drain_retired();
+            self.in_flight_textures.clear();
+            self.pinned_textures.clear();
+            self.pending_acquires.clear();
+            self.import_cache.clear();
+            self.drain_textures();
             // Scanout-target imports: the framebuffers no longer own these.
             for (_, t) in self.target_cache.drain() {
                 Self::destroy_target(&self.dev, &t);
@@ -450,9 +517,12 @@ impl Drop for VulkanRenderer {
             for (_, a) in aa {
                 a.destroy(&self.dev);
             }
-            self.mipgen.borrow_mut().destroy(&self.dev);
+            for (_, mut m) in self.mipgen.borrow_mut().drain() {
+                m.destroy(&self.dev);
+            }
             for (_, p) in self.pipelines.drain() {
                 self.dev.device.destroy_pipeline(p.textured, None);
+                self.dev.device.destroy_pipeline(p.textured_opaque, None);
                 self.dev.device.destroy_pipeline(p.solid, None);
                 self.dev.device.destroy_pipeline_layout(p.layout, None);
                 self.dev

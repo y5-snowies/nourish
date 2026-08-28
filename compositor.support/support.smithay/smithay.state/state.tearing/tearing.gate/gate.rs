@@ -1,14 +1,13 @@
 //! The commit-time redraw gate: which surfaces may drive the frame cadence.
 //!
 //! `Exclusivity` (a user setting) resolves per frame into a `Gate` (what the
-//! Wayland dispatch enforces per commit). They are separate types on purpose:
-//! the dispatch layer sits below orchestration and cannot see policy, scenes or
-//! windows — only the surface in front of it and these globals.
+//! Wayland dispatch enforces per commit). Separate types on purpose: the dispatch
+//! layer sits below orchestration and cannot see policy, scenes or windows — only
+//! the surface in front of it and these globals.
 //!
 //! Hence the home: this is the render loop's channel TO dispatch, written once a
-//! frame by the compositor and read on every commit. It is runtime state, not a
-//! setting, so it belongs beside the other smithay state and not with the
-//! persisted policy in `environment.tearing`.
+//! frame by the compositor and read on every commit. Runtime state, not a setting,
+//! so it sits beside the other smithay state, not with `environment.tearing`.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 
@@ -36,8 +35,8 @@ impl Gate {
     }
     fn from_code(c: u8) -> Self {
         match c {
-            1 => Self::Tagged, 2 => Self::TaggedFocused,
-            3 => Self::Focused, 4 => Self::Visible, _ => Self::Off,
+            1 => Self::Tagged, 2 => Self::TaggedFocused, 3 => Self::Focused,
+            4 => Self::Visible, _ => Self::Off,
         }
     }
 
@@ -87,9 +86,15 @@ static FRAME: AtomicU64 = AtomicU64::new(0);
 pub fn frame() -> u64 { FRAME.load(Ordering::Relaxed) }
 pub fn advance_frame() -> u64 { FRAME.fetch_add(1, Ordering::Relaxed) + 1 }
 
-/// Whether the resolved policy could tear, published for the NEXT frame's plane
-/// assignment (which is decided before that frame's scene exists).
+/// Two facts about the policy resolved LAST frame, published because both are read
+/// while building the next frame's flags — before that frame's scene, and so its
+/// own resolution, exists. `TEARING`: could the section in force issue an async
+/// flip (plane assignment). `GOVERNED`: was any section in force at all
+/// (pre-emptive rendering) — capped `Fixed` pacing governs without tearing.
 static TEARING: AtomicBool = AtomicBool::new(false);
+static GOVERNED: AtomicBool = AtomicBool::new(false);
 
 pub fn set_tearing(on: bool) -> bool { TEARING.swap(on, Ordering::Relaxed) != on }
 pub fn tearing() -> bool { TEARING.load(Ordering::Relaxed) }
+pub fn set_governed(on: bool) { GOVERNED.store(on, Ordering::Relaxed); }
+pub fn governed() -> bool { GOVERNED.load(Ordering::Relaxed) }

@@ -404,7 +404,7 @@ impl Params {
         // The placeholder session-restore check. These subjects are spawned
         // DETACHED (no stdin pipe, no controller commands) precisely because the
         // point is what survives without a controller: close them in the
-        // compositor, then press Launch on the placeholder tiles they leave
+        // compositor, then press Launch on the placeholders they leave
         // behind. Each should come back showing RESTORED and the same VALUE —
         // a value that is in none of the launch args the placeholder replays.
         hdr(&mut h, x, &mut y, "SESSION RESTORE (detached subjects)");
@@ -621,7 +621,7 @@ impl Controller {
     }
 
     /// Stop tracking the detached subjects without killing them — closing them
-    /// from inside the compositor is what produces the placeholder tiles.
+    /// from inside the compositor is what produces the placeholders.
     fn forget_session(&mut self) {
         let n = self.session_children.len();
         self.session_children.clear();

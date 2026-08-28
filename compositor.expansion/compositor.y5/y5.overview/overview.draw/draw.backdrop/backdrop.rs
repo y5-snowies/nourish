@@ -65,7 +65,10 @@ pub fn arm(state: &mut Loop, gles: &mut GlesRenderer, _size: Size<i32, Physical>
                         // Blur the frozen desktop; fall back to the sharp snapshot
                         // if the blur passes fail.
                         Some(snap) => Some(
-                            match compositor_y5_overview_draw_blur::blur::blur(gles, &gpu, &snap) {
+                            match compositor_y5_overview_draw_blur::blur::blur(
+                                state.inner.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS),
+                                gles, &gpu, &snap,
+                            ) {
                                 Some(blurred) => Backdrop::Blur(blurred, snap),
                                 None => Backdrop::Sharp(snap),
                             },

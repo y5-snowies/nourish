@@ -183,6 +183,15 @@ pub(crate) enum DrawOp {
         /// window set can hand a SECOND device something it can import; `None` for
         /// a SHM surface, which has no fd.
         source: compositor_pipeline_abi_worldset_base::base::Source,
+        /// The parts of this draw the surface declared OPAQUE, in output space —
+        /// they may replace the destination instead of blending over it.
+        ///
+        /// Rects, not a bool. The first cut of this asked whether one region
+        /// contained the whole `dst`, which never fired: `ClampOpaque` clips every
+        /// reported opaque region to the central `OPAQUE_CLAMP_FRACTION` (75%) of the
+        /// screen, so a window's opaque region is essentially never the whole window.
+        /// Partial coverage is not the rare case here, it is the ONLY case.
+        opaque: Vec<vk::Rect2D>,
     },
     /// A fullscreen native shader pass (e.g. the parallax background): the SDR
     /// variant plus an optional HDR-output variant; `submit_frame` builds/caches
@@ -300,7 +309,7 @@ impl Frame for VulkanFrame<'_, '_> {
         src: Rectangle<f64, BufferCoord>,
         dst: Rectangle<i32, Physical>,
         damage: &[Rectangle<i32, Physical>],
-        _opaque_regions: &[Rectangle<i32, Physical>],
+        opaque_regions: &[Rectangle<i32, Physical>],
         _src_transform: Transform,
         alpha: f32,
     ) -> Result<(), VulkanError> {
@@ -376,6 +385,21 @@ impl Frame for VulkanFrame<'_, '_> {
                 }
                 _ => compositor_pipeline_abi_worldset_base::base::Source::Unavailable,
             },
+            // The client's `set_opaque_region` promise, which this renderer used to
+            // drop on the floor while the damage tracker acted on it. `dst` is in
+            // output space and so are these rects, so a single containment test
+            // settles it.
+            // The client's `set_opaque_region` promise, which this renderer used to
+            // drop on the floor while the damage tracker acted on it.
+            //
+            // `scissors_for`, the SAME conversion damage uses, because these arrive in
+            // the same space: smithay hands both to the draw ELEMENT-RELATIVE
+            // (`damage/mod.rs`: `rect.loc -= element_geometry.loc`), and scissors are
+            // output-space. Intersecting them against `dst` directly — which is what
+            // this did first — compares a rect at the element's origin against one at
+            // the element's screen position, so every region was silently discarded
+            // and the whole fix was inert.
+            opaque: crate::frame::scissors_for(dst, opaque_regions),
         });
         Ok(())
     }

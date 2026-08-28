@@ -46,7 +46,10 @@ impl VulkanRenderer {
         &self,
         size: (i32, i32),
     ) -> Result<Dmabuf, VulkanError> {
-        let fourcc = Fourcc::Argb8888;
+        // DEVICE-LOCAL: this target is written and sampled by THIS Vulkan device,
+        // so no cross-API narrowing applies and the device's full modifier list
+        // below is legal. See `Answer::DeviceLocal`.
+        let fourcc = compositor_kernel_graphic_format_answer_base::answer::constant(compositor_kernel_graphic_format_answer_base::answer::Consumer::VulkanOutputTarget).0;
         let vk_fmt = compositor_kernel_vulkan_format_query_base::query::vk_format(fourcc)
             .ok_or(VulkanError::UnsupportedFormat(fourcc))?;
         let mods: Vec<_> =
@@ -144,11 +147,24 @@ impl Bind<Dmabuf> for VulkanRenderer {
         use crate::frame::TargetAcquire;
 
         let weak = target.weak();
+        // TRANSFER_SRC only when something will actually blit FROM this target.
+        //
+        // `capture.blit` is the only such consumer — it takes the composed scene as the
+        // `srcImage` of `vkCmdBlitImage`, which the spec requires TRANSFER_SRC_BIT for
+        // (VUID-vkCmdBlitImage-srcImage-00219, observed firing). `mipgen` does NOT: it
+        // blits from its own `MipChain` image, which it creates itself.
+        //
+        // `set_capture_targets` runs before `render_frame` (and so before this), so the
+        // frame's answer is already known here. Lazily UPGRADE and never downgrade: the
+        // first capture re-imports the target with the extra bit and it keeps it, because
+        // a screenshot is one frame and toggling the flag per frame would otherwise
+        // recreate the scanout image constantly.
+        let want_src = !self.capture_targets.is_empty();
         // Reuse the import rather than paying create-image + dedicated
         // import-alloc + view — and the matching destroy — on every frame. A
         // scanout swapchain cycles a handful of buffers forever, so after the
         // first pass over them this is always a hit.
-        if let Some(t) = self.target_cache.get(&weak) {
+        if let Some(t) = self.target_cache.get(&weak).filter(|t| t.transfer_src || !want_src) {
             return Ok(VulkanFramebuffer {
                 device: self.dev.device.clone(),
                 retire: self.retired.clone(),
@@ -167,12 +183,24 @@ impl Bind<Dmabuf> for VulkanRenderer {
             });
         }
 
+        // A cache entry that exists but lacks TRANSFER_SRC (capture armed after it was
+        // minted) is retired here rather than leaked — the frames that used it are the
+        // ones already drained.
+        if let Some(old) = self.target_cache.remove(&weak) {
+            Self::destroy_target(&self.dev, &old);
+        }
+        let mut usage = vk::ImageUsageFlags::COLOR_ATTACHMENT;
+        if want_src {
+            usage |= vk::ImageUsageFlags::TRANSFER_SRC;
+        }
         let (image, memory, view, format, width, height) =
-            self.import_dmabuf_as_target(target, vk::ImageUsageFlags::COLOR_ATTACHMENT, true)?;
+            self.import_dmabuf_as_target(target, usage, true)?;
         let view = view.expect("make_view=true ⇒ Some(view)");
         self.target_cache.insert(
             weak,
-            crate::renderer::CachedTarget { image, memory, view, format, width, height },
+            crate::renderer::CachedTarget {
+                transfer_src: want_src, image, memory, view, format, width, height,
+            },
         );
         Ok(VulkanFramebuffer {
             device: self.dev.device.clone(),

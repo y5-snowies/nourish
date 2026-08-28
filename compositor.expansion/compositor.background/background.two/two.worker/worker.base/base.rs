@@ -44,7 +44,7 @@ impl Worker {
     /// Takes no configuration: the render format is resolved on the worker
     /// thread from the physical device and the session's achieved scanout depth
     /// (`worker.format`), and every tunable is re-read from the global each pass.
-    pub fn spawn() -> Result<Self, String> {
+    pub fn spawn(formats: compositor_kernel_graphic_format_registrar_base::registrar::Registrar) -> Result<Self, String> {
         let signal = Arc::new(Signal::new());
         let registry: Registry = Arc::new(Mutex::new(Default::default()));
         let readbacks: compositor_background_two_worker_pane::pane::Readbacks =
@@ -54,7 +54,7 @@ impl Worker {
         let rb = Arc::clone(&readbacks);
         let thread = std::thread::Builder::new()
             .name("y5-background".into())
-            .spawn(move || compositor_background_two_worker_serve::serve::run(s, r, rb, tx))
+            .spawn(move || compositor_background_two_worker_serve::serve::run(formats, s, r, rb, tx))
             .map_err(|e| format!("background worker thread: {e}"))?;
         rx.recv()
             .map_err(|_| "background worker died during setup".to_string())??;

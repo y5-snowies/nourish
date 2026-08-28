@@ -128,6 +128,7 @@ fn bring_up(state: &mut Loop, ctx: &mut NativeRenderContext, target: &connector:
         false => ctx.pipe().output.clone(),
     };
     let built = compositor_kernel_native_context_display_build::build::build(
+        state.inner.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS),
         &ctx.drm_output_manager,
         &ctx.gpu_binding,
         &output,
@@ -166,9 +167,6 @@ fn bring_up(state: &mut Loop, ctx: &mut NativeRenderContext, target: &connector:
             );
         ctx.pipe_mut().global = Some(global);
         state.inner.map_output_everywhere(&output, position);
-        // Bound to the output it was made from, so it cannot outlive the swap.
-        ctx.pipe_mut().damage_tracker =
-            smithay::backend::renderer::damage::OutputDamageTracker::from_output(&output);
         info!(
             "reconcile: primary failed over to a different monitor; output identity is now {}",
             identity.key()
@@ -187,11 +185,13 @@ fn bring_up(state: &mut Loop, ctx: &mut NativeRenderContext, target: &connector:
     ctx.pipe_mut().connector = built.connector;
     ctx.pipe_mut().hdr_caps = built.hdr;
     ctx.pipe_mut().hdr_active = new_hdr_active;
-    ctx.pipe_mut().hdr_signalled = false;
-    // Fresh scanout target — no page-flip is pending on it, so clear any stale in-flight
-    // flag left by the torn-down output (else the render loop would skip the rebuilt pipe
-    // and it would never flip / never get a vblank to clear the flag).
-    ctx.pipe_mut().in_flight = false;
+    ctx.pipe_mut().props_applied = false;
+    ctx.pipe_mut().render_failures = 0;
+    // Fresh scanout target — no page-flip is pending on it, so any flight the
+    // schedule still records for the torn-down output is over (else the render
+    // loop would skip the rebuilt pipe and it would never flip / never get a
+    // vblank to end it).
+    state.state.redraw.completed(&compositor_orchestration_core_state_base::state::output_key(&ctx.pipe().output));
     ctx.pipe().output.change_current_state(Some(new_mode), None, None, None);
     Ok(())
 }
@@ -295,6 +295,7 @@ fn add_output(
     // Second pipe on a free CRTC (excluding the ones already lit).
     let busy: Vec<crtc::Handle> = ctx.outputs.iter().map(|p| p.crtc).collect();
     let built = compositor_kernel_native_context_display_build::build::build(
+        state.inner.kernel.get(&compositor_kernel_graphic_format_registrar_base::registrar::FORMATS),
         &ctx.drm_output_manager,
         &ctx.gpu_binding,
         &output,
@@ -315,7 +316,6 @@ fn add_output(
     );
     // Every world's Space, not just the hosted one (`map_output_everywhere`).
     state.inner.map_output_everywhere(&output, smithay::utils::Point::from((x, 0)));
-    let damage_tracker = smithay::backend::renderer::damage::OutputDamageTracker::from_output(&output);
     let env = compositor_model_environment_config_base::base::get();
     let hdr_active = env.hdr && built.hdr.hdr_capable() && ctx.vulkan_mode;
     info!(
@@ -331,17 +331,16 @@ fn add_output(
         crtc: built.crtc,
         mode,
         output,
-        damage_tracker,
         drm_output: Some(built.drm_output),
         hdr_caps: built.hdr,
         hdr_active,
-        hdr_signalled: false,
+        props_applied: false,
+        render_failures: 0,
         connector: built.connector,
         current_drm_mode: built.drm_mode,
         modes: built.modes,
         mode_revert: None,
         global: Some(global),
-        in_flight: false,
         last_vblank: None,
         render_start: None,
         last_tear: false,
@@ -356,6 +355,19 @@ fn add_output(
 /// but leaves any secondary pipes to the caller's prune step.
 fn go_dark_primary(state: &mut Loop, ctx: &mut NativeRenderContext) {
     ctx.outputs[0].drm_output = None;
+    // The anchor keeps its `wl_output` global AND its Space mapping, deliberately.
+    //
+    // It cannot be unmapped: `current_output()` ends in
+    // `.expect("at least one mapped output")`. And the global cannot be dropped
+    // while it stays mapped — `wl_output.leave` is emitted by
+    // `refresh_outputs_with`, which only retires an element's membership once the
+    // output leaves the Space's output list (`unmap_output_everywhere`). Removing
+    // the global here destroyed it under clients that were still entered on it,
+    // with no leave ever sent.
+    //
+    // So with nothing connected the compositor still exposes exactly one logical
+    // output, dark. What must NOT happen is treating it as a live monitor: that is
+    // handled by the `live_keys` liveness checks below, not by tearing it down.
     *state.inner.kernel.get_mut(&DISPLAY_OFF_MUT) = true;
 }
 
@@ -413,6 +425,7 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
     while i < ctx.outputs.len() {
         if !drive_handles.contains(&ctx.outputs[i].connector) {
             let removed = ctx.outputs.remove(i);
+            state.state.redraw.remove(&compositor_orchestration_core_state_base::state::output_key(&removed.output));
             // Every world's Space, not just the hosted one (`unmap_output_everywhere`).
             state.inner.unmap_output_everywhere(&removed.output);
             // Destroy this output's `wl_output` global so re-adding the monitor doesn't
@@ -463,6 +476,7 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
                 while i < ctx.outputs.len() {
                     if ctx.outputs[i].connector == th && ctx.outputs[i].drm_output.is_some() {
                         let removed = ctx.outputs.remove(i);
+                        state.state.redraw.remove(&compositor_orchestration_core_state_base::state::output_key(&removed.output));
                         // Every world's Space, not just the hosted one
                         // (`unmap_output_everywhere`).
                         state.inner.unmap_output_everywhere(&removed.output);
@@ -519,7 +533,10 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
             pref_mode(mgr.device(), c)
         };
         match add_output(state, &mut ctx, c, requested) {
-            Ok(()) => { info!("reconcile: added output {:?}", c.handle()); brought_up = true; }
+            Ok(()) => {
+                info!("reconcile: added output {:?}", c.handle());
+                brought_up = true;
+            }
             Err(e) => warn!("reconcile: add_output failed for {:?}: {e}", c.handle()),
         }
     }
@@ -530,6 +547,15 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
         *state.inner.kernel.get_mut(&DISPLAY_OFF_MUT) = false;
     }
     write_snapshots(state, &ctx);
+    // Keys of pipes that are actually SCANNING OUT. A dark anchor is still mapped in
+    // the Space (it must be), so Space membership alone cannot answer "is this
+    // monitor real" — every liveness check below keys off this instead.
+    let live_keys: Vec<String> = ctx
+        .outputs
+        .iter()
+        .filter(|p| p.drm_output.is_some())
+        .map(|p| compositor_orchestration_core_state_base::state::output_key(&p.output))
+        .collect();
     drop(ctx);
     // Rebuild the live cursor-teleport map: only active + connected monitors' placements
     // survive (`build_teleport` filters). The active flags come from the live in-memory
@@ -551,22 +577,25 @@ pub fn reconcile(state: &mut Loop, ctx_rc: &Ctx) -> Option<OutputChange> {
     // Re-pointed at a real output rather than set to `None`: the empty-string
     // default that `current_output_key()` falls back to is itself a key, and
     // `views()` would mint a second phantom viewport tree under it.
+    // LIVE, not merely mapped: the dark anchor stays in the Space carrying the
+    // departed monitor's key, so a membership test passes for a screen that is gone
+    // and the cursor is never moved off it — the exact case this block exists for.
     let cursor_mapped = state.inner.cursor_output.as_ref().is_some_and(|k| {
-        state
-            .inner
-            .space_state()
-            .state
-            .outputs()
-            .any(|o| compositor_orchestration_core_state_base::state::output_key(o) == *k)
+        live_keys.iter().any(|lk| lk == k)
+            && state.inner.space_state().state.outputs().any(|o| compositor_orchestration_core_state_base::state::output_key(o) == *k)
     });
     if !cursor_mapped {
-        let survivor = state
-            .inner
-            .space_state()
-            .state
-            .outputs()
-            .next()
-            .map(compositor_orchestration_core_state_base::state::output_key);
+        // Prefer a live output; fall back to any mapped one (all-dark: the anchor is
+        // all there is, and `current_output()` still needs a key that resolves).
+        let survivor = {
+            let mapped: Vec<smithay::output::Output> =
+                state.inner.space_state().state.outputs().cloned().collect();
+            mapped
+                .iter()
+                .find(|o| live_keys.contains(&compositor_orchestration_core_state_base::state::output_key(o)))
+                .or_else(|| mapped.first())
+                .map(|o| compositor_orchestration_core_state_base::state::output_key(o))
+        };
         state.inner.cursor_output = survivor.clone();
         if let Some(key) = survivor {
             state.inner.output_views_mut().set_current(&key);

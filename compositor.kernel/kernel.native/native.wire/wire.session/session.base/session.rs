@@ -43,6 +43,29 @@ pub fn register(
                     // consumed by the other VT — forget held modifiers now.
                     compositor_kernel_graphic_seat_modifier_clear::clear::clear_held_modifiers(state);
 
+                    // Release every live pipe's CRTC/planes NOW, while the device is
+                    // still active. Once `pause()` below flips it inactive, smithay's
+                    // surface `Drop` skips its disabling commit
+                    // (`AtomicDrmSurface::drop` early-returns on `!active`), so any pipe
+                    // torn down from here on leaves its CRTC configured in the kernel.
+                    // This is the last point a modeset can still be committed; the
+                    // resume path re-enables via `queue_frame`.
+                    for p in ctx_ref.outputs.iter() {
+                        if let Some(o) = p.drm_output.as_ref() {
+                            if let Err(e) =
+                                compositor_kernel_scanout_surface_output_base::output::clear(o)
+                            {
+                                warn!(
+                                    "pause: clearing connector={:?} crtc={:?} failed: {e} — its \
+                                     CRTC stays configured. EACCES/EPERM here means DRM master was \
+                                     already revoked before the pause event reached us, in which \
+                                     case this release point is too late to be effective.",
+                                    p.connector, p.crtc
+                                );
+                            }
+                        }
+                    }
+
                     // Pause protocol: display first, then input (seat.lifecycle).
                     let manager = ctx_ref.drm_output_manager.clone();
                     let libinput = &mut ctx_ref.libinput_context;
@@ -110,14 +133,23 @@ pub fn register(
                                         force,
                                     )
                                 },
-                                // Reset EVERY live pipe's surface, not just the primary,
-                                // and clear its in-flight flag: any frame queued before
-                                // the switch will never deliver a vblank, so the flag
-                                // must not wedge the pipe out of the render loop.
+                                // Reset EVERY live pipe's surface, not just the primary.
+                                // (Their in-flight bookkeeping is cleared below, once
+                                // the whole `Loop` is reachable again.)
                                 reset_surface: || {
                                     let mut result = Ok(());
                                     for p in pipes.iter_mut() {
-                                        p.in_flight = false;
+                                        // Whatever ran on the other VT may have
+                                        // reprogrammed this connector's colorimetry
+                                        // properties. HDR/PQ + BT.2020 is signalled ONCE
+                                        // per pipe and deliberately never retried
+                                        // (`render.execute`), and the flag is otherwise
+                                        // only cleared when a pipe is BUILT — so without
+                                        // this the panel keeps the other compositor's
+                                        // colorspace and the whole framebuffer reads
+                                        // wrong (heavy red cast) until a mode change
+                                        // rebuilds the pipe.
+                                        p.props_applied = false;
                                         if let Some(o) = p.drm_output.as_mut() {
                                             if let Err(e) = compositor_kernel_scanout_surface_output_base::output::reset(o) {
                                                 result = Err(e);
@@ -145,7 +177,25 @@ pub fn register(
                     // frame's `housekeeping` so a resume that stalls before it renders
                     // still leaves the space consistent.
                     state.inner.refresh_space();
+                    // Any flip queued before the switch will never deliver a vblank:
+                    // forget every pipe's flight so none is wedged out of the render
+                    // loop. The schedule is incremental, so this is a plain reset —
+                    // the next render re-creates each pipe as it reports.
+                    state.state.redraw.clear();
                     drop(ctx);
+
+                    // Reconcile the driven outputs against the live connector set.
+                    // Drained here, onto a loop timer: the drain in `execute` is
+                    // vblank-driven, and a display that came back dark never reaches
+                    // it. Safety net — it re-syncs OUR view, it does not undo kernel
+                    // state left behind by a teardown that happened while inactive.
+                    *state.inner.kernel.get_mut(
+                        &compositor_orchestration_driver_output_base::base::OUTPUT_RECONCILE_REQUEST_MUT,
+                    ) = true;
+                    compositor_kernel_native_context_display_reconcile::reconcile::drain_reconcile(
+                        state,
+                        &session_context,
+                    );
 
                     // Reclaim the RPC socket if a second compositor (another TTY)
                     // took over the socket file while we were paused and has since

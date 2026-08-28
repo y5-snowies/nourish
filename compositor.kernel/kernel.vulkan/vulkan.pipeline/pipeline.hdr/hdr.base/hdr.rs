@@ -54,6 +54,10 @@ pub struct HdrComposite {
     set1_layout: vk::DescriptorSetLayout,
     layout: vk::PipelineLayout,
     textured: vk::Pipeline,
+    /// Blending OFF, RGB-only write — the opaque-region variant. See the SDR
+    /// composite's `textured_opaque`; the reasoning is identical and applies here
+    /// whenever the HDR composite is the one drawing client surfaces.
+    textured_opaque: vk::Pipeline,
     solid: vk::Pipeline,
     sampler: vk::Sampler,
     ubo: vk::Buffer,
@@ -178,11 +182,24 @@ impl HdrComposite {
             .color_write_mask(vk::ColorComponentFlags::RGBA);
         let blend = vk::PipelineColorBlendStateCreateInfo::default()
             .attachments(std::slice::from_ref(&blend_attachment));
+        // Opaque variant, same reasoning as the SDR composite: a surface inside its
+        // declared opaque region must REPLACE the destination, because the damage
+        // tracker has already excluded that region from the clear. RGB only, so the
+        // target's alpha survives for anything drawn over it later this frame.
+        let opaque_attachment = vk::PipelineColorBlendAttachmentState::default()
+            .blend_enable(false)
+            .color_write_mask(
+                vk::ColorComponentFlags::R | vk::ColorComponentFlags::G | vk::ColorComponentFlags::B,
+            );
+        let opaque_blend = vk::PipelineColorBlendStateCreateInfo::default()
+            .attachments(std::slice::from_ref(&opaque_attachment));
         let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
         let dynamic = vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
         let color_formats = [color_format];
 
-        let build = |frag: &std::ffi::CStr| -> Result<vk::Pipeline, HdrError> {
+        let build = |frag: &std::ffi::CStr,
+                     blend: &vk::PipelineColorBlendStateCreateInfo|
+         -> Result<vk::Pipeline, HdrError> {
             let stages = [
                 vk::PipelineShaderStageCreateInfo::default()
                     .stage(vk::ShaderStageFlags::VERTEX)
@@ -202,7 +219,7 @@ impl HdrComposite {
                 .viewport_state(&viewport_state)
                 .rasterization_state(&raster)
                 .multisample_state(&multisample)
-                .color_blend_state(&blend)
+                .color_blend_state(blend)
                 .dynamic_state(&dynamic)
                 .layout(layout)
                 .push_next(&mut rendering_info);
@@ -212,8 +229,9 @@ impl HdrComposite {
                     .map(|p| p[0])
             }
         };
-        let textured = build(fs_tex)?;
-        let solid = build(fs_solid)?;
+        let textured = build(fs_tex, &blend)?;
+        let textured_opaque = build(fs_tex, &opaque_blend)?;
+        let solid = build(fs_solid, &blend)?;
         unsafe { dev.destroy_shader_module(module, None) };
 
         // Tuning UBO: host-visible, persistently mapped, coherent.
@@ -314,6 +332,7 @@ impl HdrComposite {
             set1_layout,
             layout,
             textured,
+            textured_opaque,
             solid,
             sampler,
             ubo,
@@ -394,16 +413,19 @@ impl HdrComposite {
         Ok(set)
     }
 
+    /// `opaque`: inside the surface's declared opaque region — replace, don't blend.
     pub fn draw_textured(
         &self,
         device: &VulkanDevice,
         cmd: vk::CommandBuffer,
         set0: vk::DescriptorSet,
         push: HdrPush,
+        opaque: bool,
     ) {
         let dev = &device.device;
         unsafe {
-            dev.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.textured);
+            let pipeline = if opaque { self.textured_opaque } else { self.textured };
+            dev.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, pipeline);
             dev.cmd_bind_descriptor_sets(
                 cmd,
                 vk::PipelineBindPoint::GRAPHICS,
@@ -448,6 +470,7 @@ impl HdrComposite {
             dev.free_memory(self.ubo_mem, None);
             dev.destroy_sampler(self.sampler, None);
             dev.destroy_pipeline(self.textured, None);
+            dev.destroy_pipeline(self.textured_opaque, None);
             dev.destroy_pipeline(self.solid, None);
             dev.destroy_pipeline_layout(self.layout, None);
             dev.destroy_descriptor_set_layout(self.set0_layout, None);

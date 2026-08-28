@@ -1,6 +1,8 @@
 {
   "deps": [
-    "compositor_kernel_graphic_bridge_negotiate_compositor",
+    "compositor_kernel_graphic_format_role_base",
+    "compositor_kernel_graphic_format_answer_base",
+    "compositor_kernel_graphic_format_registrar_base",
     "compositor_y5_graphic_display_backend",
     "compositor_model_debug_instance_record",
     "smithay",

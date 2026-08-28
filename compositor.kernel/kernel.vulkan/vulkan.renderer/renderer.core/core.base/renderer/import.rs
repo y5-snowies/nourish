@@ -138,33 +138,16 @@ impl VulkanRenderer {
 }
 
 impl ImportDma for VulkanRenderer {
-    /// EVERY fourcc `query::vk_format` maps, not just the 8-bit ones.
+    /// EXACTLY what `import_dmabuf` will accept — no hand-kept list.
     ///
-    /// This list is what `import_dmabuf` will accept, and that function decides
-    /// by calling `vk_format` — so any code the map handles but this list omits
-    /// is a format the renderer can import while claiming it cannot. The 10-bit
-    /// codes were the omission: `vk_format` has mapped them all along, the
-    /// scanout ladder offers them when deep colour is on, and the background
-    /// worker now renders `Argb2101010` — while this said 8-bit only.
-    ///
-    /// Nothing here is asserted. `render_formats` drops any code the device
-    /// cannot colour-attach and any that reports no DRM modifier, so on hardware
-    /// without 10-bit support the set comes back exactly as before.
-    ///
-    /// Keep in step with `vk_format`: a code added there and not here is
-    /// invisible; a code here and not there is filtered out harmlessly.
+    /// Both sides now derive from `format.table`, which is exhaustive over
+    /// `Fourcc`: this walks the table's importable formats and keeps what the
+    /// device can sample through which modifier, and `import_dmabuf` decides by
+    /// classifying the same table. There is no way for the two to drift, which
+    /// is what a hand-written list here could not promise — it went stale twice
+    /// (10-bit, then fp16), and each time the gap surfaced as a blank window.
     fn dmabuf_formats(&self) -> smithay::backend::allocator::format::FormatSet {
-        const FOURCCS: &[Fourcc] = &[
-            Fourcc::Argb8888,
-            Fourcc::Xrgb8888,
-            Fourcc::Abgr8888,
-            Fourcc::Xbgr8888,
-            Fourcc::Argb2101010,
-            Fourcc::Xrgb2101010,
-            Fourcc::Abgr2101010,
-            Fourcc::Xbgr2101010,
-        ];
-        compositor_kernel_vulkan_format_modifier_base::modifier::render_formats(&self.phd, FOURCCS)
+        compositor_kernel_vulkan_format_modifier_base::modifier::import_formats(&self.phd)
     }
 
     fn import_dmabuf(
@@ -172,6 +155,18 @@ impl ImportDma for VulkanRenderer {
         dmabuf: &Dmabuf,
         _damage: Option<&[Rectangle<i32, BufferCoord>]>,
     ) -> Result<VulkanTexture, VulkanError> {
+        // POLICY, ahead of capability. `vk_format` answers what this device can
+        // sample; it says yes to the float formats, which the SDR composite cannot
+        // EXPRESS (linear-light values read as if sRGB-encoded). Those are already
+        // withheld from the advertisement and refused at buffer creation, so a client
+        // cannot reach here — but a v3/wl_drm client, XWayland, or one of our own
+        // producers still could, and then the only sign would be a too-dark window.
+        // Refusing here is what makes "not advertised" and "not importable" the same
+        // statement rather than two that can drift.
+        let code = dmabuf.format().code;
+        if !compositor_kernel_graphic_format_resolve_base::resolve::may_import(&self.formats, code) {
+            return Err(VulkanError::UnsupportedFormat(code));
+        }
         // Reuse the import for a dmabuf we already hold. The scene lowers
         // iced/bevy nodes by calling this EVERY FRAME for EVERY surface
         // (`draw.node`'s `import_texture`) — unlike client buffers, which smithay
@@ -222,6 +217,7 @@ impl ImportDma for VulkanRenderer {
                 width: imported.size.0,
                 height: imported.size.1,
                 owns_memory: true,
+                retire: Some(self.retired_textures.clone()),
             }),
             surf: [0.0; 4],
             // Keep a WEAK handle on the client's own dmabuf: this image's memory
@@ -309,6 +305,7 @@ impl ImportMem for VulkanRenderer {
                 width: up.width,
                 height: up.height,
                 owns_memory: true,
+                retire: Some(self.retired_textures.clone()),
             }),
             surf: [0.0; 4],
             source: None,
@@ -356,15 +353,7 @@ impl ImportMem for VulkanRenderer {
     }
 
     fn mem_formats(&self) -> Box<dyn Iterator<Item = Fourcc>> {
-        Box::new(
-            [
-                Fourcc::Argb8888,
-                Fourcc::Xrgb8888,
-                Fourcc::Abgr8888,
-                Fourcc::Xbgr8888,
-            ]
-            .into_iter(),
-        )
+        Box::new(compositor_kernel_graphic_format_answer_base::answer::shm().iter().copied())
     }
 }
 

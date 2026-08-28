@@ -27,11 +27,11 @@ pub struct PlaceholderVisible {
     pub size: (i32, i32),
     pub launch: LaunchPlan,
     pub launching: bool,
-    /// When `launching` was last set. Two tiles can carry the same session key —
+    /// When `launching` was last set. Two placeholders can carry the same session key —
     /// a session restored twice, say — and the matcher has to pick one; the most
     /// recently launched is the one the user just clicked. `launching` alone will
-    /// not do, because a tile whose launch never produced a window stays stuck in
-    /// that state, and a stale stuck tile must not outrank a fresh click.
+    /// not do, because a placeholder whose launch never produced a window stays stuck in
+    /// that state, and a stale stuck placeholder must not outrank a fresh click.
     pub launch_at: Option<Instant>,
     /// Whether that launch had to START this plan's container first.
     ///
@@ -43,7 +43,7 @@ pub struct PlaceholderVisible {
     pub launch_started_container: bool,
     pub uuid: Uuid,
     pub restoration: Option<PlaceholderLaunchToken>,
-    /// See [`Placeholder::session`]. Carried onto the visible tile so the
+    /// See [`Placeholder::session`]. Carried onto the visible placeholder so the
     /// pending it builds can match on it.
     pub session: Option<SessionKey>,
 }

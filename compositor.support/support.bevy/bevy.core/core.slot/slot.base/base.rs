@@ -31,13 +31,10 @@ impl Slot {
     ) -> Result<Self, SurfaceError> {
         trace!("bevy slot allocate {}x{}", size.w, size.h);
 
-        // Negotiate an explicit modifier across gles ∩ wgpu (empty ⇒ implicit path).
-        let fourcc = smithay::backend::allocator::Fourcc::Argb8888;
-        let mods = compositor_kernel_graphic_bridge_negotiate_base::negotiate::bridge_modifiers(
-            smithay::backend::renderer::ImportDma::dmabuf_formats(gles),
-            wgpu_ctx.importable.clone(),
-            fourcc,
-        );
+        // What may this consumer use? The layer answers; this crate does not name
+        // a format, query a device, or intersect anything.
+        let (fourcc, mods) =
+            compositor_kernel_graphic_format_answer_base::answer::producer_formats(&wgpu_ctx.formats, compositor_kernel_graphic_format_answer_base::answer::Consumer::BevyInline);
         let allocated =
             allocate_dmabuf_negotiated(render_node, size.w as u32, size.h as u32, fourcc, &mods)?;
         let gles_texture = import_dmabuf_to_gles(gles, &allocated.dmabuf)?;

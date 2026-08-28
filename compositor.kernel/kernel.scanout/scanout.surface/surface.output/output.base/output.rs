@@ -13,7 +13,7 @@ use smithay::backend::allocator::gbm::{GbmAllocator, GbmDevice};
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
 use smithay::backend::drm::output::{DrmOutput, DrmOutputManager, DrmOutputRenderElements};
-use smithay::backend::drm::{DrmDevice, DrmDeviceFd};
+use smithay::backend::drm::{DrmDevice, DrmDeviceFd, VrrSupport};
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::renderer::element::RenderElement;
 use smithay::backend::renderer::{Bind, Renderer, Texture};
@@ -46,18 +46,25 @@ pub type NativeDrmOutputManager = DrmOutputManager<
 /// needs the extra precision) and by plain deep-color SDR (COMPOSITOR_DEPTH=10):
 /// the format choice is independent of the transfer function — 10-bit SDR scans
 /// out the same sRGB values at finer quantization (less banding), no PQ.
-pub fn color_formats(ten_bit: bool) -> Vec<Fourcc> {
-    if ten_bit {
-        vec![
-            Fourcc::Xrgb2101010,
-            Fourcc::Argb2101010,
-            Fourcc::Argb8888,
-            Fourcc::Abgr8888,
-        ]
-    } else {
-        vec![Fourcc::Argb8888, Fourcc::Abgr8888]
-    }
-}
+///
+/// **B-first leads at 10 bits, R-first at 8.** Not cosmetic: a KMS plane may
+/// expose one channel order and not the other, and it is not the same order at
+/// every depth. Measured on NVIDIA (595.80, RTX 4090), the primary plane offers
+/// `AR15 AR24 XR15 XR24` — R-first — but at 10 bits offers only `AB30 XB30`, no
+/// `AR30`/`XR30`. An R-first-only 10-bit ladder therefore misses every rung and
+/// drops silently to 8-bit: smithay walks the ladder by design, so the
+/// `NoSupportedPlaneFormat` warning per missed rung is indistinguishable from a
+/// healthy probe, and `scanout_is_deep()` then reports 8-bit consistently to every
+/// producer. A coherent 8-bit session with no artifact to notice — which is how
+/// this went unseen. See `developer.tool.color/probe-change.MD`.
+///
+/// B-first is also the better-supported order across this tree: smithay's GLES
+/// tables map only `Abgr2101010` (R-first 10-bit has no GL mapping at all), and
+/// `negotiate.wgpu` omits `Argb2101010` for want of a wgpu `TextureFormat`. The
+/// R-first pair stays as a fallback for hardware that exposes only it.
+///
+/// The 8-bit tail keeps `Argb8888` first — that path works today and reordering it
+/// would change a format every producer is hardcoded to.
 
 pub fn manager(
     drm: DrmDevice,
@@ -72,7 +79,7 @@ pub fn manager(
         allocator,
         exporter,
         gbm,
-        color_formats(ten_bit).into_iter(),
+        compositor_kernel_graphic_format_catalog_base::catalog::scanout_ladder(ten_bit).into_iter(),
         render_formats,
     )
 }
@@ -111,9 +118,116 @@ where
         .map_err(|e| format!("initialize_output failed: {e:?}"))
 }
 
+/// What `apply_vrr` found and did, for the caller to log and publish to stats.
+pub struct VrrOutcome {
+    pub supported: bool,
+    pub enabled: bool,
+    /// Human-readable trace of the probe + transition, for the log line.
+    pub detail: String,
+}
+
+/// Apply the VRR / adaptive-sync request to this pipe's CRTC.
+///
+/// Must run for EVERY pipe, not just the one built at assembly. `use_vrr` writes
+/// the surface's PENDING state, and `add_output` / `bring_up` construct a brand
+/// new surface whose pending VRR defaults to false — so a pipe that never gets
+/// this call silently scans out fixed-refresh no matter what the setting says.
+/// That is why this lives here rather than inline in the assembly path: assembly,
+/// the runtime builder and the fail-over rebuild all need the same call.
+pub fn apply_vrr(output: &NativeDrmOutput, conn: connector::Handle, want: bool) -> VrrOutcome {
+    let mut out = VrrOutcome { supported: false, enabled: false, detail: String::new() };
+    output.with_compositor(|comp| {
+        let probe = comp.vrr_supported(conn);
+        out.supported = matches!(probe, Ok(VrrSupport::Supported | VrrSupport::RequiresModeset));
+        let was = comp.vrr_enabled();
+        out.detail = format!("probe={probe:?} supported={} want={want} was={was}", out.supported);
+        if !want || !out.supported {
+            out.enabled = false;
+            return;
+        }
+        match comp.use_vrr(true) {
+            Ok(()) => {
+                out.enabled = comp.vrr_enabled();
+                out.detail.push_str(&format!(" -> now={}", out.enabled));
+            }
+            Err(e) => {
+                out.detail.push_str(&format!(" use_vrr FAILED: {e:?}"));
+            }
+        }
+    });
+    out
+}
+
+/// The pipe's negotiated scanout format + modifier set. Published so producers can
+/// match the achieved depth instead of rendering 8-bit into a 10-bit pipeline.
+pub fn format_info(output: &NativeDrmOutput) -> (Fourcc, smithay::backend::allocator::Modifier, Vec<String>) {
+    let mut got = (
+        compositor_kernel_graphic_format_catalog_base::catalog::FLOOR,
+        compositor_kernel_graphic_format_rule_base::rule::UNKNOWN,
+        Vec::new(),
+    );
+    output.with_compositor(|comp| {
+        let all: Vec<String> = comp.modifiers().iter().map(|m| format!("{m:?}")).collect();
+        got = (
+            comp.format(),
+            comp.modifiers().first().copied()
+                .unwrap_or(compositor_kernel_graphic_format_rule_base::rule::UNKNOWN),
+            all,
+        );
+    });
+    got
+}
+
+/// Undo smithay's implicit-modifier fallback once the device is stable again.
+///
+/// When enabling an extra CRTC fails, `initialize_output` escalates: it lowers
+/// bandwidth across ALL compositors and finally forces `DrmModifier::Invalid` on
+/// every one of them. That is device-wide collateral — the pipes that were
+/// working get dragged down with the one that failed — and it is never undone on
+/// its own. With the Vulkan renderer it is fatal rather than merely slow: Vulkan
+/// cannot create an image for an implicit-modifier buffer, so every `render_frame`
+/// fails and the screen stays black.
+///
+/// smithay provides the recovery; nothing was calling it. Cheap when no pipe is on
+/// implicit modifiers (it checks first and returns).
+pub fn restore_modifiers<R, E>(
+    manager: &mut NativeDrmOutputManager,
+    renderer: &mut R,
+) -> Result<(), String>
+where
+    R: Renderer + Bind<Dmabuf>,
+    R::TextureId: Texture + 'static,
+    R::Error: Send + Sync + 'static,
+    E: RenderElement<R>,
+{
+    manager
+        .lock()
+        .try_to_restore_modifiers::<_, E>(renderer, &DrmOutputRenderElements::default())
+        .map_err(|e| format!("try_to_restore_modifiers failed: {e:?}"))
+}
+
 /// Session-pause the whole device's pipes.
 pub fn pause(manager: &mut NativeDrmOutputManager) {
     manager.pause();
+}
+
+/// Release the pipe's CRTC and planes while the session is STILL active.
+///
+/// smithay's surface `Drop` skips its disabling atomic commit once the device has
+/// been deactivated (`AtomicDrmSurface::drop` early-returns on `!active`, assuming
+/// the VT switch restores the old state). A pipe therefore leaves its CRTC
+/// configured in the kernel whenever it is torn down after deactivation. Calling
+/// this from the PAUSE path — before `pause()` flips the device inactive — is the
+/// last moment a modeset can still be committed. `queue_frame` re-enables the
+/// surface, so the resume path recovers it.
+pub fn clear(output: &NativeDrmOutput) -> Result<(), String> {
+    let mut result = Ok(());
+    output.with_compositor(|compositor| {
+        if let Err(err) = compositor.clear() {
+            result = Err(format!("surface clear failed: {err:?}"));
+        }
+    });
+    result
 }
 
 /// Session-activate; `force = true` performs the reclaiming modeset.

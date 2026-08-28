@@ -40,6 +40,22 @@ impl SceneDispatch for VulkanRenderer {
         self.after_band = band;
     }
 
+    fn set_band_machinery(&mut self, pass: Option<NativeShaderPass>) {
+        // The SAME conversion `draw_pixel_program` performs on the element path,
+        // so the injected op is byte-for-byte what the band's draw would have
+        // pushed. A pass without a pipeline handle (single-pass shader) carries no
+        // after-content machinery and publishes nothing.
+        self.band_machinery = pass
+            .as_ref()
+            .and_then(|p| p.pipeline.as_ref())
+            .and_then(|p| compositor_pipeline_abi_seam_base::base::as_pipeline(Some(p)))
+            .map(|gp| {
+                std::sync::Arc::new(compositor_pipeline_execute_graph_base::graph::from_seam(
+                    gp.clone(),
+                ))
+            });
+    }
+
     // Vulkan consumes iced/bevy/parallax output via dmabuf import (PreImported),
     // not the GLES-welded seam below.
     fn prefers_dmabuf() -> bool {

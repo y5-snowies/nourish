@@ -18,7 +18,11 @@ pub fn input_received<I: InputBackend>(event: &I::KeyboardKeyEvent, state: &mut 
     // Extract the keysym + modifiers via the seat (the callback only sees
     // `&mut Dispatch`), then act with `state` free. No client windows here, so
     // always intercept at the wayland level.
-    let mut extracted: Option<(Keysym, ModifiersState)> = None;
+    // `keysym` is the active-layout sym (what the details field types);
+    // `shortcut_sym` the layout-agnostic Latin identity of the physical key, as
+    // the main path uses for matching — with an `il`-style layout, Alt+Shift
+    // toggles layouts and the modified sym is no longer a Latin letter.
+    let mut extracted: Option<(Keysym, Keysym, ModifiersState)> = None;
     state.state.seat.seat.get_keyboard().unwrap().input::<(), _>(
         &mut state.state,
         key_code,
@@ -26,23 +30,41 @@ pub fn input_received<I: InputBackend>(event: &I::KeyboardKeyEvent, state: &mut 
         serial,
         time,
         |_state: &mut Dispatch, modifiers, handle| {
-            extracted = Some((handle.modified_sym(), *modifiers));
+            let modified = handle.modified_sym();
+            let shortcut = handle.raw_latin_sym_or_raw_current_sym().unwrap_or(modified);
+            extracted = Some((modified, shortcut, *modifiers));
             FilterResult::Intercept(())
         },
     );
 
-    let Some((keysym, modifiers)) = extracted else {
+    let Some((keysym, shortcut_sym, modifiers)) = extracted else {
         return;
     };
+    // Nested session: Right Ctrl stands in for Super (the host eats the real
+    // one) — the same substitution the main path's matchers see.
+    let (shortcut_sym, modifiers) =
+        compositor_orchestration_seat_keyboard_input::keyboard::nested_shortcut_view(state, shortcut_sym, modifiers);
+    // Overlay shortcuts (sleep, diagnostics, ...) apply in the picker as on the
+    // lock screen. A Super chord is never text, so it goes first even while the
+    // details field has focus; everything else reaches the field first.
+    let overlay = |state: &mut Loop| {
+        compositor_y5_overlay_interface_keyboard::keyboard::input_received::<I>(state, shortcut_sym, key_state, &modifiers)
+    };
+    if modifiers.logo && overlay(state) {
+        return;
+    }
     // If the details panel field has focus, the key edits it (Esc defocuses).
     if compositor_y5_picker_seat_iced::iced::route_key(state, keysym, key_state) {
+        return;
+    }
+    if !modifiers.logo && overlay(state) {
         return;
     }
     if key_state != KeyState::Pressed {
         return;
     }
 
-    match Key::from_keysym(keysym) {
+    match Key::from_keysym(shortcut_sym) {
         Some(Key::Left) => navigate(state, -1, 0),
         Some(Key::Right) => navigate(state, 1, 0),
         Some(Key::Up) => navigate(state, 0, 1),

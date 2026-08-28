@@ -106,10 +106,16 @@ pub fn dispatch(
 
     let prev_focus = pointer.current_focus();
 
+    // Under the hand tool the canvas owns the pointer: the cursor still moves
+    // (that is what `motion` is for) but no client is its focus — the one under
+    // it gets `leave` when the tool engages and `enter` when it is released, the
+    // same shape as a compositor grab, and consistent with the withheld button
+    // and relative motion. Compositor iced above keeps its hover.
+    let hand = crate::constraint::hand_active(_loop);
     if !was_constrain_locked {
         pointer.motion(
             &mut _loop.state,
-            under_hit.clone(),
+            if hand { None } else { under_hit.clone() },
             &MotionEvent {
                 location: position_normalized,
                 serial,
@@ -118,14 +124,9 @@ pub fn dispatch(
         );
     }
 
-    if let Some((delta, delta_unaccelerated)) = delta {
-        // tracing::info!(
-        //     ?delta,
-        //     ?delta_unaccelerated,
-        //     "relative_motion firing: {:?}",
-        //     under_hit.is_some()
-        // );
-
+    // Not under the hand tool: the deltas are the canvas pan, and a game that was
+    // locked a moment ago must not keep turning with them.
+    if let Some((delta, delta_unaccelerated)) = delta.filter(|_| !hand) {
         pointer.relative_motion(
             &mut _loop.state,
             under_hit.clone(),
@@ -141,7 +142,8 @@ pub fn dispatch(
 
     pointer.frame(&mut _loop.state);
 
-    let new_focus = under_hit.map(|(target, _)| target);
+    // The focus actually handed to `motion` above — none under the hand tool.
+    let new_focus = if hand { None } else { under_hit.map(|(target, _)| target) };
 
     if prev_focus.as_ref() != new_focus.as_ref() {
         // The unlock-restoration warp is queued by `remove_constraint` (smithay

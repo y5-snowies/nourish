@@ -492,6 +492,7 @@ fn flip_section<'a>(f: Config) -> El<'a> {
     ].spacing(10).into()
 }
 
+
 /// Reset every control on this page at once.
 ///
 /// The whole page is a single `Config`, so this is literally `Config::default()`
@@ -505,8 +506,9 @@ fn reset_row<'a>(f: Config) -> El<'a> {
     field(
         "DEFAULTS",
         vec![b.into()],
-        "Restores tearing, pacing, target tagging and the exclusivity floor to \
-         their shipped values. Applies immediately, like every other control here.",
+        "Restores tearing, pacing, target tagging, the exclusivity floor and \
+         pre-emptive rendering to their shipped values. Applies immediately, like \
+         every other control here.",
     )
 }
 
@@ -759,7 +761,7 @@ pub fn render<'a>(
     layout: &'a [LayoutPlacement], selected_placement: Option<u64>, cyclic: bool, selected_inactive: bool,
     ime: &'a Ime, keyboard: &'a KeyboardLayout, catalog: &'a [(String, String)],
     lang_picker_open: bool, lang_search: &'a str,
-    protocol_foreign: &'a str, protocol_foreign_all_worlds: bool,
+    protocol_foreign: &'a str, protocol_foreign_all_worlds: bool, session_capture: &'a str,
     shaders: &'a [ShaderEntry], shader_current: Option<&'a str>, shader_category: Option<&'a str>, shader_props: &'a [ShaderProp],
     preview_source: Option<&'a str>, shader_facts: Option<&'a ShaderFacts>,
     shader_status: Option<&'a str>, shader_notice: Option<&'a str>,
@@ -787,7 +789,7 @@ pub fn render<'a>(
             Tab::Bluetooth => bluetooth_tab::build(bt),
             Tab::Performance => vscroll(performance(fps, show_fps, release_hidden, fractional_invisible, tb, its)),
             Tab::System => environment::build(env, devices),
-            Tab::Misc => misc::build(protocol_foreign, protocol_foreign_all_worlds),
+            Tab::Misc => misc::build(protocol_foreign, protocol_foreign_all_worlds, session_capture),
             Tab::Language => language::build(keyboard, catalog, lang_picker_open, lang_search, ime),
             Tab::World => world::build(shaders, shader_current, shader_category, shader_props, preview_source, shader_facts, shader_status, shader_notice, invert_pan_x, invert_pan_y, srgb, optimized, can_optimize),
             Tab::Graphics(sub) => graphics_body(sub, graphics, flip),

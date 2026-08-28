@@ -11,10 +11,9 @@ pub fn current_username() -> Option<String> {
             return Some(u);
         }
     }
-    let output = compositor_support_library_process_child_hygiene::hygiene::command("id")
-        .arg("-un")
-        .output()
-        .ok()?;
+    let mut cmd = compositor_support_library_process_child_hygiene::hygiene::command("id");
+    cmd.arg("-un");
+    let output = compositor_support_library_process_child_spawn::spawn::output(&mut cmd).ok()?;
     if !output.status.success() {
         return None;
     }

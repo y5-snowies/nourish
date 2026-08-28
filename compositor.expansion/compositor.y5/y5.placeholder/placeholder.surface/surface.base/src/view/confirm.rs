@@ -5,10 +5,10 @@
 //! entrypoint — a side effect well beyond "open this window again" — so it is
 //! never done implicitly.
 //!
-//! Follows the same two arrangements as the tile behind it: a ROW at
+//! Follows the same two arrangements as the placeholder behind it: a ROW at
 //! [`Breakpoint::Compact`] (prompt left, answers right) and a centered COLUMN
 //! above it. A dialog that didn't respect the breakpoints would be the one
-//! view that overflows a tile sitting at the layout floor — and it would
+//! view that overflows a placeholder sitting at the layout floor — and it would
 //! overflow while blocking the launch the user just asked for.
 
 use iced_core::text::{Ellipsis, Wrapping};
@@ -92,7 +92,7 @@ fn actions<'a>(step: Breakpoint) -> Element<'a, PlaceholderMessage, Theme, Rende
     .into()
 }
 
-/// A single ellipsized line, matching the tile's detail lines.
+/// A single ellipsized line, matching the placeholder's detail lines.
 fn line<'a>(
     value: &str,
     step: Breakpoint,

@@ -14,7 +14,7 @@ use compositor_introspection_execution_launch_types::types::LaunchRequest;
 
 /// The container this plan should be launched into. Re-exported from the
 /// shared plan query so the launch path and the placeholder UI cannot drift
-/// apart on what "has a container" means — they did, and the tile ended up
+/// apart on what "has a container" means — they did, and the placeholder ended up
 /// showing a container badge for a launch that built a broken command.
 ///
 /// A disabled attribute reads as absent (that is what `current` does), so

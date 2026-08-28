@@ -5,7 +5,7 @@ use iced_core::{Color, Padding};
 // Background tones
 pub const BG: Color = Color { r: 0.04, g: 0.05, b: 0.07, a: 1.0 };
 /// Panel background when the placeholder's app runs inside a container.
-/// Violet-shifted rather than brighter, so the tile reads as "different
+/// Violet-shifted rather than brighter, so the placeholder reads as "different
 /// place" at a glance without competing with the selection ring.
 pub const BG_CONTAINER: Color = Color { r: 0.08, g: 0.05, b: 0.13, a: 1.0 };
 /// Panel background when the placeholder's client declares an
@@ -14,7 +14,7 @@ pub const BG_CONTAINER: Color = Color { r: 0.08, g: 0.05, b: 0.13, a: 1.0 };
 /// neither reads as "more important".
 pub const BG_SESSION: Color = Color { r: 0.03, g: 0.08, b: 0.09, a: 1.0 };
 /// Both at once. Carries the container violet with the session teal lifted into
-/// it, so a tile that is both is recognisably neither of the single states — the
+/// it, so a placeholder that is both is recognisably neither of the single states — the
 /// point is that you can tell all four apart, not that they blend.
 pub const BG_CONTAINER_SESSION: Color = Color { r: 0.06, g: 0.08, b: 0.14, a: 1.0 };
 pub const PANEL_BG: Color = Color { r: 0.08, g: 0.09, b: 0.12, a: 1.0 };

@@ -1,5 +1,7 @@
 {
   "deps": [
+    "compositor_kernel_graphic_format_registrar_base",
+    "compositor_orchestration_smithay_data_base",
     "smithay",
     "compositor_orchestration_core_state_base",
     "compositor_orchestration_driver_capture_base",

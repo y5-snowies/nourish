@@ -15,6 +15,10 @@ pub struct WgpuVulkanContext {
     pub queue: Queue,
     /// The `(fourcc × modifier)` set this device can import (bridge intersection input).
     pub importable: smithay::backend::allocator::format::FormatSet,
+    /// The kernel's format registrar. Carried HERE because every producer that
+    /// allocates through this context runs on its own thread and receives the
+    /// context — so the handle rides along instead of being looked up.
+    pub formats: compositor_kernel_graphic_format_registrar_base::registrar::Registrar,
 }
 
 impl WgpuVulkanContext {
@@ -28,7 +32,7 @@ impl WgpuVulkanContext {
 ///
 /// Synchronous via `pollster`. Run from a worker thread if you want to keep
 /// the main loop responsive during init.
-pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextError> {
+pub fn create_wgpu_vulkan_context(formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar) -> Result<WgpuVulkanContext, WgpuContextError> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::VULKAN,
         flags: wgpu::InstanceFlags::empty(),
@@ -41,7 +45,7 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
     // Pin the wgpu adapter to the render node by default; opt out via gpu_no_pin_wgpu_node.
     let pinned = (!experimental::get().contains(experimental::GpuFlags::NO_PIN_WGPU_NODE)).then(|| {
         let node = compositor_model_environment_config_base::base::get().render_node.clone();
-        compositor_kernel_graphic_bridge_negotiate_wgpu::query::pick_adapter(&instance, &node)
+        compositor_kernel_graphic_format_probe_wgpu::query::pick_adapter(&instance, &node)
     });
     // NO SILENT FALLBACK when pinning was asked for. Every buffer this context
     // produces is imported by the compositor's renderer on the configured node;
@@ -53,7 +57,7 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
     // requires having explicitly opted out of pinning.
     let adapter = match pinned {
         Some(Some(a)) => {
-            compositor_kernel_graphic_bridge_negotiate_report::report::node(
+            compositor_kernel_graphic_format_audit_base::audit::node(
                 "bevy wgpu (render_node pin)",
                 &format!("{} ({:?})", a.get_info().name, a.get_info().device_type),
             );
@@ -121,14 +125,23 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
     info!("Created Vulkan Device + Queue with dmabuf import features");
 
     // Enumerate importable dmabuf modifiers via raw ash (wgpu has no such query).
-    let importable = compositor_kernel_graphic_bridge_negotiate_wgpu::query::query_importable(
+    let importable = compositor_kernel_graphic_format_probe_wgpu::query::query_importable(
         &instance,
         &adapter,
         experimental::get().contains(experimental::GpuFlags::ALLOW_DCC),
         experimental::get().contains(experimental::GpuFlags::PROBE_MODIFIERS),
     );
+    // Register this adapter's answer, so every consumer reads it from the format
+    // layer instead of being handed the set by whoever happens to hold the context.
+    formats.register(
+        compositor_kernel_graphic_format_registrar_base::registrar::Device::UNSPECIFIED,
+        compositor_kernel_graphic_format_role_base::role::Role::WgpuImport,
+        importable.clone(),
+        "bevy wgpu adapter",
+    );
 
     Ok(WgpuVulkanContext {
+        formats: formats.clone(),
         instance,
         adapter,
         device,

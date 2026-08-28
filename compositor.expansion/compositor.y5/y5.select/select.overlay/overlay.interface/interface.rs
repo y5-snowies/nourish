@@ -20,6 +20,7 @@ use std::process::Command;
 use std::sync::Once;
 
 use compositor_support_library_process_child_hygiene::hygiene::install as child_hygiene;
+use compositor_support_library_process_child_spawn::spawn as child_spawn;
 
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::desktop::Window;
@@ -381,7 +382,7 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, forward: Selection
 ///   toplevel (XWayland) have no such event, so we fall back to a graceful
 ///   SIGTERM on the owning pid there.
 /// - `Discard` (Shift): the same polite close, but first mark the window's
-///   placeholder record so its destroy leaves NO placeholder tile. Windows that
+///   placeholder record so its destroy leaves NO placeholder. Windows that
 ///   were themselves restored from a placeholder (`persistent`) are exempt —
 ///   their placeholder is kept as before.
 /// - `Terminate` (Alt): SIGTERM the owning process. The apps are launched by the
@@ -403,7 +404,7 @@ fn close_selected(state: &mut Loop, mode: CloseMode) {
     let windows = state.inner.select().Selection.clone();
     for window in &windows {
         // Shift-close: mark the toplevel's wl_surface BEFORE the close lands — the
-        // wire layer reads it at destroy and the placeholder path skips the tile.
+        // wire layer reads it at destroy and the placeholder path skips the placeholder.
         // Restored-from-placeholder windows (`persistent`) keep their placeholder,
         // so the mark is fresh-windows-only.
         if mode == CloseMode::Discard {
@@ -482,7 +483,7 @@ fn user_scope_of(pid: i32) -> Option<String> {
 /// Spawn a killer command and detach; failures are logged, never fatal.
 fn spawn_detached(cmd: &mut Command) {
     // Even a one-shot `kill` must not inherit our fds or CPU-priority boost.
-    if let Err(e) = child_hygiene(cmd).spawn() {
+    if let Err(e) = child_spawn::spawn(child_hygiene(cmd)) {
         warn!("close: failed to spawn killer: {e}");
     }
 }

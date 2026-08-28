@@ -7,7 +7,7 @@ use uuid::Uuid;
 /// state reloads. Picker-created worlds get generated `Uuid::now_v7()` instead.
 /// Defined one layer down (`system.world/world.identity`) so crates below the world
 /// manager — the persist loader — can name them without depending back on it.
-pub use compositor_support_system_world_identity_base::base::{LOCK_WORLD, MAIN_WORLD, PICKER_WORLD};
+pub use compositor_support_system_world_identity_base::base::{KERNEL, LOCK_WORLD, MAIN_WORLD, PICKER_WORLD};
 
 /// Owns every world, identified by UUID. Exactly one world is ACTIVE (receives
 /// input, dispatch, update, draw). Worlds never close — switching disables the
@@ -15,6 +15,11 @@ pub use compositor_support_system_world_identity_base::base::{LOCK_WORLD, MAIN_W
 pub struct WorldManager {
     worlds: Vec<World>,
     index: HashMap<Uuid, usize>,
+    /// The KERNEL system host: the systems that run every frame regardless of
+    /// which world is active (see `identity::KERNEL`). Not in `worlds` — it can
+    /// be neither switched to nor looked up by id, and it owns no window Space —
+    /// so it is ticked beside the active world by the frame driver, not instead.
+    kernel: World,
     active: Uuid,
     /// The spatial world new client windows map into. Invariant: always a valid
     /// SPATIAL world, so there is always somewhere to spawn.
@@ -24,12 +29,22 @@ pub struct WorldManager {
 impl WorldManager {
     /// Start with the initial (main, SPATIAL) world, already active and the
     /// spawn-target. Activation fires `on_enable`.
-    pub fn new(mut main: World, kernel: &Storage) -> Self {
+    pub fn new(mut main: World, mut host: World, kernel: &Storage) -> Self {
+        host.enable(kernel);
         main.enable(kernel);
         let id = main.id;
         let mut index = HashMap::new();
         index.insert(id, 0);
-        Self { worlds: vec![main], index, active: id, spawn_target: id }
+        Self { worlds: vec![main], index, kernel: host, active: id, spawn_target: id }
+    }
+
+    /// The kernel system host — ticked every frame, whatever world is active.
+    pub fn kernel(&self) -> &World {
+        &self.kernel
+    }
+
+    pub fn kernel_mut(&mut self) -> &mut World {
+        &mut self.kernel
     }
 
     fn idx(&self, id: Uuid) -> usize {

@@ -9,8 +9,8 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use smithay::desktop::Window;
-use smithay::utils::{Logical, Size};
+use smithay::desktop::{Space, Window};
+use smithay::utils::{Logical, Rectangle, Size};
 
 /// A window's slot state.
 #[derive(Debug, Clone, Copy)]
@@ -90,6 +90,38 @@ pub fn expected_size(window: &Window) -> Option<Size<i32, Logical>> {
         }
         None => None,
     }
+}
+
+/// The slot size as every consumer must resolve it — the render path, the hit test,
+/// the pointer map and the navigator alike. Under `window_client_size_fallback` it is
+/// the size last configured (else the client's geometry); otherwise the slot
+/// ([`expected_size`]). `None` = no usable size (nothing committed yet).
+pub fn size_of(window: &Window) -> Option<Size<i32, Logical>> {
+    let cfg = compositor_model_environment_config_base::base::get();
+    let size = if cfg.window_client_size_fallback {
+        window
+            .toplevel()
+            .and_then(|t| t.with_pending_state(|s| s.size))
+            .filter(|s| s.w > 0 && s.h > 0)
+            .or_else(|| Some(window.geometry().size))
+    } else {
+        expected_size(window)
+    };
+    size.filter(|s| s.w > 0 && s.h > 0)
+}
+
+/// The slot as a WORLD rect: the decided size at the window's location — what is
+/// drawn, framed, hit and navigated to. A window whose client refuses the decided
+/// size still lives here; its content is fitted inside. `element_geometry` (the
+/// location + the client's own geometry) is what the client WANTS, not where the
+/// window is, and diverges from this exactly for such clients. Falls back to the
+/// client's geometry only while no slot exists.
+pub fn rect(space: &Space<Window>, window: &Window) -> Option<Rectangle<i32, Logical>> {
+    let loc = space.element_location(window)?;
+    let size = size_of(window)
+        .or_else(|| Some(window.geometry().size))
+        .filter(|s| s.w > 0 && s.h > 0)?;
+    Some(Rectangle::new(loc, size))
 }
 
 /// The size the compositor has explicitly DECIDED for `window`, or `None` when it has made no

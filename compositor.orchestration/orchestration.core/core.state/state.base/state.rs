@@ -543,6 +543,25 @@ impl Orchestrator {
         })
     }
 
+    /// The world whose Space maps the window `surface` belongs to — `surface` may be
+    /// a subsurface; the toplevel is its tree root. `None` for a surface no world
+    /// maps (a toplevel before its initial map, a layer, a cursor, an iced surface).
+    pub fn surface_world(&self, surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface) -> Option<uuid::Uuid> {
+        let mut root = surface.clone();
+        while let Some(parent) = smithay::wayland::compositor::get_parent(&root) {
+            root = parent;
+        }
+        self.worlds.ids().into_iter().find(|&id| {
+            self.worlds
+                .get(id)
+                .storage()
+                .try_get(&compositor_support_world_host_space_base::base::SPACE)
+                .is_some_and(|w| {
+                    w.inner.state.elements().any(|e| e.toplevel().is_some_and(|t| t.wl_surface() == &root))
+                })
+        })
+    }
+
     /// Make `id` both the active AND the spawn-target world (a full switch), enabling
     /// the incoming world and disabling the outgoing one, and announcing `WORLD_SWITCHED`.
     pub fn switch_to_world(&mut self, id: uuid::Uuid) {
@@ -1113,6 +1132,12 @@ impl Orchestrator {
         self.worlds.get_mut(target).channels()
     }
 
+    /// The KERNEL host's channel router — for events that belong to no world
+    /// (a notification). Not a focus accessor: the host never changes.
+    pub fn kernel_channels(&mut self) -> &mut compositor_support_system_channel_router_base::base::ChannelRouter {
+        self.worlds.kernel_mut().channels()
+    }
+
     /// FOCUS ACCESSOR: the focused world's window-selection slot.
     pub fn select(&self) -> &compositor_y5_select_state_base::select::CanvasSelect {
         let target = self.worlds.spawn_target();
@@ -1232,7 +1257,7 @@ impl Orchestrator {
     /// Records live in the world the window was mapped in, but a window can be
     /// closed while the user is looking somewhere else — and every accessor above
     /// resolves against `spawn_target`, so the destroy path would otherwise search
-    /// the wrong world, find nothing, and dismiss the tile the window earned.
+    /// the wrong world, find nothing, and dismiss the placeholder the window earned.
     /// Derived by lookup, never named: same shape as `world_of_window`.
     pub fn world_of_placeholder(&self, uuid: uuid::Uuid) -> Option<uuid::Uuid> {
         self.worlds.ids().into_iter().find(|&id| {
@@ -1299,7 +1324,7 @@ impl Orchestrator {
 
     /// Hand a drawable's exact draw-order slot (tier + z-position) to a
     /// successor, keeping the predecessor's position instead of the successor
-    /// popping to the top (a restored window inheriting the placeholder tile it
+    /// popping to the top (a restored window inheriting the placeholder it
     /// maps over). This also GCs the predecessor's now-dead entry. Returns
     /// `false` when `old` wasn't registered, so callers fall back to
     /// `register_drawable`.

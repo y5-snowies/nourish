@@ -24,6 +24,11 @@ pub struct Seat<Handler: SeatHandler> {
     /// pointer is over a window that sets its own cursor. `None` = clients win.
     pub force_cursor: Option<CursorIcon>,
     pub unlock_restoration_location: Option<(WlSurface, Point<f64, Logical>)>,
+    /// The canvas owns the pointer (hand tool): no pointer lock/confine is
+    /// honoured or activated while set. Driven by `Dispatch::suspend_constraints`
+    /// / `resume_constraints`, which the seat's constraint path keeps in step
+    /// with the hand tool.
+    pub constraints_suspended: bool,
     pub previous_focus: Option<WlSurface>,
     pub libseat: Option<LibSeatSession>,
     /// Physical (libinput) keyboard devices, tracked on DeviceAdded/Removed so

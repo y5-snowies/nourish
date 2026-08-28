@@ -4,7 +4,7 @@
 //! initialize_output; this crate owns the FALLBACK ORDER policy, which is
 //! real and consumed by assembly.
 
-use smithay::reexports::drm::control::{connector, Mode as DrmMode, ModeTypeFlags};
+use smithay::reexports::drm::control::{connector, Mode as DrmMode, ModeFlags, ModeTypeFlags};
 
 /// The fallback chain: candidate modes in the order they should be attempted
 /// when a modeset fails — the selected mode first, then by the same
@@ -14,7 +14,12 @@ pub fn fallback_chain(info: &connector::Info, selected: DrmMode) -> Vec<DrmMode>
     let mut rest: Vec<&DrmMode> = info.modes().iter().collect();
     rest.sort_by_key(|m| {
         let (w, h) = m.size();
+        // Progressive ahead of interlaced, before anything else: an interlaced
+        // candidate cannot pass the atomic test with a tiled buffer, so trying one
+        // early just burns a modeset attempt AND risks smithay's bandwidth
+        // escalation dropping every pipe to implicit modifiers.
         std::cmp::Reverse((
+            !m.flags().contains(ModeFlags::INTERLACE),
             (w as u64) * (h as u64),
             m.vrefresh(),
             m.mode_type().contains(ModeTypeFlags::PREFERRED) as u8,

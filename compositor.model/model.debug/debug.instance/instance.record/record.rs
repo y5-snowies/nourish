@@ -1,5 +1,5 @@
 pub use compositor_model_debug_instance_channel::{
-    SENDER, START, abort, install_sender, push, runtime_enabled, set_enabled_mask, set_start,
+    SENDER, START, abort, fatal, install_sender, push, runtime_enabled, set_enabled_mask, set_start,
     since_start,
 };
 
@@ -80,14 +80,16 @@ macro_rules! trace { ($($arg:tt)*) => {{ $crate::__emit!($crate::Level::Trace, $
 #[macro_export]
 macro_rules! trace { ($($arg:tt)*) => {{}}; }
 
-/// Like `panic!`, but also emits an Error-level log record first. Diverges. Always
-/// active — independent of the level features and `COMPOSITOR_LOG_LEVEL`.
+/// Like `panic!`, but emits an Error-level record first and waits for it to be printed.
 #[macro_export]
 macro_rules! abort {
-    () => {
-        $crate::abort(env!("CARGO_PKG_NAME"), $crate::function!(), ::std::string::String::from("explicit abort"))
-    };
-    ($($arg:tt)*) => {
-        $crate::abort(env!("CARGO_PKG_NAME"), $crate::function!(), ::std::format!($($arg)*))
-    };
+    () => { $crate::abort(env!("CARGO_PKG_NAME"), $crate::function!(), ::std::string::String::from("explicit abort")) };
+    ($($arg:tt)*) => { $crate::abort(env!("CARGO_PKG_NAME"), $crate::function!(), ::std::format!($($arg)*)) };
+}
+
+/// Like [`abort!`], but ENDS THE PROCESS — required when the call site can run OFF the
+/// main thread, since a panic there kills only that thread. `instance.channel::fatal`.
+#[macro_export]
+macro_rules! fatal {
+    ($($arg:tt)*) => { $crate::fatal(env!("CARGO_PKG_NAME"), $crate::function!(), ::std::format!($($arg)*)) };
 }

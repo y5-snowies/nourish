@@ -26,6 +26,10 @@ pub struct WgpuVulkanContext {
     /// The `(fourcc × modifier)` set this device can import (bridge intersection
     /// input). Multi-plane modifiers survive only under `gpu_allow_dcc`.
     pub importable: smithay::backend::allocator::format::FormatSet,
+    /// The kernel's format registrar. Carried HERE because every producer that
+    /// allocates through this context runs on its own thread and receives the
+    /// context — so the handle rides along instead of being looked up.
+    pub formats: compositor_kernel_graphic_format_registrar_base::registrar::Registrar,
 }
 
 impl WgpuVulkanContext {
@@ -48,7 +52,7 @@ pub fn debug_self_test(wgpu_ctx: &crate::wgpu_context::WgpuVulkanContext) {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Bgra8UnormSrgb,
+        format: crate::wgpu_import::texture_format(&wgpu_ctx.formats),
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
@@ -91,7 +95,7 @@ pub fn debug_self_test(wgpu_ctx: &crate::wgpu_context::WgpuVulkanContext) {
 /// Synchronous via `pollster`. Run this from a worker thread if you want to
 /// keep the compositor's main loop responsive during init — see the Bevy
 /// integration's `bevy_wgpu_context_init` pattern.
-pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextError> {
+pub fn create_wgpu_vulkan_context(formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar) -> Result<WgpuVulkanContext, WgpuContextError> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::VULKAN,
         flags: wgpu::InstanceFlags::empty(),
@@ -105,7 +109,7 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
     // Pin the wgpu adapter to the render node by default; opt out via gpu_no_pin_wgpu_node.
     let pinned = (!experimental::get().contains(experimental::GpuFlags::NO_PIN_WGPU_NODE)).then(|| {
         let node = compositor_model_environment_config_base::base::get().render_node.clone();
-        compositor_kernel_graphic_bridge_negotiate_wgpu::query::pick_adapter(&instance, &node)
+        compositor_kernel_graphic_format_probe_wgpu::query::pick_adapter(&instance, &node)
     });
     // NO SILENT FALLBACK when pinning was asked for. Every buffer this context
     // produces is imported by the compositor's renderer on the configured node;
@@ -117,7 +121,7 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
     // requires having explicitly opted out of pinning.
     let adapter = match pinned {
         Some(Some(a)) => {
-            compositor_kernel_graphic_bridge_negotiate_report::report::node(
+            compositor_kernel_graphic_format_audit_base::audit::node(
                 "iced wgpu (render_node pin)",
                 &format!("{} ({:?})", a.get_info().name, a.get_info().device_type),
             );
@@ -190,15 +194,25 @@ pub fn create_wgpu_vulkan_context() -> Result<WgpuVulkanContext, WgpuContextErro
     info!("Created Vulkan Device + Queue with dmabuf import features");
 
     // Enumerate importable dmabuf modifiers via raw ash (wgpu has no such query).
-    let importable = compositor_kernel_graphic_bridge_negotiate_wgpu::query::query_importable(
+    let importable = compositor_kernel_graphic_format_probe_wgpu::query::query_importable(
         &instance,
         &adapter,
         experimental::get().contains(experimental::GpuFlags::ALLOW_DCC),
         experimental::get().contains(experimental::GpuFlags::PROBE_MODIFIERS),
     );
     info!("iced wgpu importable dmabuf formats: {}", importable.iter().count());
+    // Register this adapter's answer, so every consumer reads it from the format
+    // layer instead of being handed the set by whoever happens to hold the context.
+    formats.register(
+        compositor_kernel_graphic_format_registrar_base::registrar::Device::UNSPECIFIED,
+        compositor_kernel_graphic_format_role_base::role::Role::WgpuImport,
+        importable.clone(),
+        "iced wgpu adapter",
+    );
+
 
     Ok(WgpuVulkanContext {
+        formats: formats.clone(),
         instance,
         adapter,
         device,

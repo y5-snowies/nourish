@@ -1,0 +1,1792 @@
+Subject: [PATCH] naga/spv: keep explicit layout decorations off non-laid-out types
+
+Carried OUT of tree deliberately. See environment/patches/README.md for why, and
+for the risk analysis if it is ever reapplied.
+
+Fixes VUID-StandaloneSpirv-None-10684 by post-processing naga's SPIR-V word
+stream: strip ArrayStride/MatrixStride/Offset from types no laid-out variable
+reaches, and for types reached from BOTH a laid-out and a non-laid-out storage
+class, emit an undecorated clone and convert with OpCopyLogical (SPIR-V 1.4+).
+
+Apply with:  git apply environment/patches/naga-spv-layout-strip.patch
+
+CONTENTS
+  vendor/wgpu/naga/src/back/spv/layout_strip.rs   the pass (new, 667 lines)
+  vendor/wgpu/naga/src/back/spv/mod.rs            `mod layout_strip;`
+  vendor/wgpu/naga/src/back/spv/writer.rs         one call, after the layouts
+  vendor/wgpu/naga/tests/out/spv/*.spvasm         62 regenerated snapshots
+
+The snapshots are part of the patch on purpose. The pass runs unconditionally on
+every module naga emits, so naga's own SPIR-V snapshot tests record its output;
+leaving them behind after reverting the pass would mean stock naga failing its
+own tests, and carrying them separately would mean the patch does not apply
+cleanly to a tree that has them. They belong together.
+
+KNOWN INCOMPLETE: is_layout() covers ArrayStride/MatrixStride/Offset, but naga
+also emits ColMajor (writer.rs, beside MatrixStride) and Block. Both are
+explicit-layout decorations, so a struct with a matrix member keeps ColMajor
+after MatrixStride is stripped and the diagnostic can still fire. Widening it is
+not a one-liner: Block is REQUIRED on a Uniform/StorageBuffer struct, so it has
+to be handled by the clone path, not the strip path.
+
+diff --git b/vendor/wgpu/naga/src/back/spv/layout_strip.rs a/vendor/wgpu/naga/src/back/spv/layout_strip.rs
+new file mode 100644
+index 00000000..5da036ca
+--- /dev/null
++++ a/vendor/wgpu/naga/src/back/spv/layout_strip.rs
+@@ -0,0 +1,667 @@
++/*!
++Keep explicit layout decorations off types that no layout storage class uses.
++
++Types are interned by handle, so a struct emitted for a push-constant or buffer block is
++reused verbatim for an entry point's function-local temporaries. `decorate_struct_member`
++decorates unconditionally, so `Offset`/`MatrixStride` end up on a type that also appears
++behind a `Function` pointer, which SPIR-V forbids: explicit layout is legal only in
++`Uniform`, `StorageBuffer`, `PushConstant` and `PhysicalStorageBuffer`.
++
++Decorating conditionally in the writer would mean emitting a type twice, once laid out and
++once not, which means threading address space through type interning. This pass instead
++works on the finished word stream, where every storage class is known. It does two things:
++
++1. **Strip** — a decorated type that NO layout-storage variable reaches was laid out where
++   layout has no meaning. Drop the decorations.
++
++2. **Split** — a decorated type that BOTH a layout-storage variable and (say) a
++   function-local reach cannot simply be stripped; the layout side needs it. Emit an
++   undecorated clone, point the non-layout variable at that, and convert values across the
++   boundary with `OpCopyLogical`, whose entire purpose is copying between two types that
++   differ only in decorations.
++
++Splitting is gated on SPIR-V 1.4 for two reasons that happen to coincide: `OpCopyLogical`
++arrived in 1.4, and 1.4 is also the first version whose validation rules diagnose this at
++all. That was measured, not assumed — the same module emitted as 1.3 is accepted by the
++Khronos validation layer and as 1.5 is rejected. Below 1.4 this pass strips and no more.
++
++Splitting follows the pointer. A variable that is INDEXED into is not the easy case: every
++`OpAccessChain` off it has a result type of its own, and leaving those alone would restate
++the same violation one level down. So the split walks the chains to a fixpoint and retypes
++each result that lands on a cloned type. The indices never change — only the result type —
++because the clone mirrors the original member for member, so the clone-side type at any
++position is just the memo's answer for the original.
++
++CONSERVATIVE BY CONSTRUCTION, in both halves. A decoration is stripped only when no
++layout-storage variable can reach its type. A variable is split only when every pointer
++whose type actually CHANGES is used in a way the rebuild can restate — a store, a load, or
++a further access chain. Anything else (an `OpCopyMemory`, a pointer handed to a function, an
++initializer that is not a clonable constant) leaves that variable exactly as it was. The
++failure mode is therefore "the diagnostic remains", never "the shader changed meaning".
++
++That check deliberately ignores chains whose pointee needed no clone: indexing a
++structurally identical clone lands on the same member type, so such a pointer is unchanged
++and whatever consumes it is unaffected. Demanding those be understood too is what used to
++decline `atomicOps`, whose chains land on a plain `int` and are consumed by `OpAtomicIAdd` —
++an instruction this pass has no opinion about and needs none.
++
++Measured at SPIR-V 1.6, the version wgpu-hal requests on a Vulkan 1.3 device:
++
++- 660 modules from the vendored WGSL corpus — this VUID goes from 12 modules to 0, total
++  validation failures 45 to 33, no module gaining a diagnostic it did not already have.
++- 56 bevy modules composed through `naga_oil` — 1 to 0, no new failures. These matter
++  separately because 177 of bevy's 193 shaders use `#import` and cannot be parsed standalone,
++  so a plain-WGSL corpus skips them silently. They are also the ones that were failing on
++  real hardware.
++*/
++
++use alloc::{vec, vec::Vec};
++
++use spirv::{Op, Word};
++
++const HEADER_WORDS: usize = 5;
++const VERSION_1_4: Word = 0x0001_0400;
++
++/// Storage classes SPIR-V permits explicit layout on.
++fn laid_out(class: Word) -> bool {
++    matches!(
++        spirv::StorageClass::from_u32(class),
++        Some(
++            spirv::StorageClass::Uniform
++                | spirv::StorageClass::StorageBuffer
++                | spirv::StorageClass::PushConstant
++                | spirv::StorageClass::PhysicalStorageBuffer
++        )
++    )
++}
++
++/// The decorations this pass treats as "explicit layout".
++fn is_layout(decoration: Word) -> bool {
++    use spirv::Decoration as D;
++    matches!(
++        spirv::Decoration::from_u32(decoration),
++        Some(D::ArrayStride | D::MatrixStride | D::Offset)
++    )
++}
++
++fn opcode(word: Word) -> (usize, Option<Op>) {
++    ((word >> 16) as usize, Op::from_u32(word & 0xffff))
++}
++
++fn inst_word(op: Op, len: usize) -> Word {
++    ((len as Word) << 16) | op as Word
++}
++
++/// One instruction's span in the word stream.
++struct Inst {
++    start: usize,
++    count: usize,
++    op: Option<Op>,
++}
++
++/// Split the stream into instructions. `None` if this is not a module we
++/// recognise, or is malformed — the caller must then leave it untouched.
++fn index(words: &[Word]) -> Option<Vec<Inst>> {
++    if words.len() <= HEADER_WORDS || words[0] != spirv::MAGIC_NUMBER {
++        return None;
++    }
++    let mut insts = Vec::new();
++    let mut i = HEADER_WORDS;
++    while i < words.len() {
++        let (count, op) = opcode(words[i]);
++        if count == 0 || i + count > words.len() {
++            return None;
++        }
++        insts.push(Inst { start: i, count, op });
++        i += count;
++    }
++    Some(insts)
++}
++
++/// The type/variable graph, as flat association lists. Modules here run to a few
++/// hundred types, so linear probes cost less than pulling in a map.
++#[derive(Default)]
++struct Graph {
++    /// `(id, storage class, pointee)`
++    pointers: Vec<(Word, Word, Word)>,
++    /// `(id, referenced types)` for structs and arrays alike.
++    members: Vec<(Word, Vec<Word>)>,
++    /// `(result type, id, storage class, initializer)`
++    variables: Vec<(Word, Word, Word, Option<Word>)>,
++    /// Types carrying at least one layout decoration.
++    decorated: Vec<Word>,
++}
++
++fn collect(words: &[Word], insts: &[Inst]) -> Graph {
++    let mut g = Graph::default();
++    for inst in insts {
++        let args = &words[inst.start + 1..inst.start + inst.count];
++        match inst.op {
++            Some(Op::TypePointer) if args.len() >= 3 => g.pointers.push((args[0], args[1], args[2])),
++            Some(Op::TypeStruct) if !args.is_empty() => g.members.push((args[0], args[1..].to_vec())),
++            // An array's element type is operand 1; a sized array's operand 2 is a
++            // length constant, not a type edge.
++            Some(Op::TypeArray | Op::TypeRuntimeArray) if args.len() >= 2 => {
++                g.members.push((args[0], vec![args[1]]))
++            }
++            Some(Op::Variable) if args.len() >= 3 => {
++                g.variables.push((args[0], args[1], args[2], args.get(3).copied()))
++            }
++            Some(Op::Decorate) if args.len() >= 2 && is_layout(args[1]) => g.decorated.push(args[0]),
++            Some(Op::MemberDecorate) if args.len() >= 3 && is_layout(args[2]) => {
++                g.decorated.push(args[0])
++            }
++            _ => {}
++        }
++    }
++    g
++}
++
++/// Types reachable from variables whose storage class satisfies `want`.
++fn reachable(g: &Graph, want: impl Fn(Word) -> bool) -> Vec<Word> {
++    let mut stack: Vec<Word> = g
++        .variables
++        .iter()
++        .filter(|&&(_, _, class, _)| want(class))
++        .filter_map(|&(result_type, ..)| {
++            g.pointers
++                .iter()
++                .find(|&&(id, ..)| id == result_type)
++                .map(|&(_, _, pointee)| pointee)
++        })
++        .collect();
++    let mut seen = Vec::new();
++    while let Some(ty) = stack.pop() {
++        if seen.contains(&ty) {
++            continue;
++        }
++        seen.push(ty);
++        if let Some((_, children)) = g.members.iter().find(|(id, _)| *id == ty) {
++            stack.extend(children.iter().copied());
++        }
++    }
++    seen
++}
++
++/// Whether `ty` is, or transitively contains, any type in `targets`. A decorated
++/// type is often nested under an undecorated one — a laid-out array inside a plain
++/// struct — so "is this the shared type" is too narrow a question to ask of either
++/// a variable's pointee or a clone's members.
++fn reaches(g: &Graph, targets: &[Word], ty: Word) -> bool {
++    let mut stack = vec![ty];
++    let mut seen: Vec<Word> = Vec::new();
++    while let Some(t) = stack.pop() {
++        if targets.contains(&t) {
++            return true;
++        }
++        if seen.contains(&t) {
++            continue;
++        }
++        seen.push(t);
++        if let Some((_, children)) = g.members.iter().find(|(id, _)| *id == t) {
++            stack.extend(children.iter().copied());
++        }
++    }
++    false
++}
++
++/// One pointer inside a split, and the type it now addresses.
++struct Pointer {
++    /// The `OpVariable` or `OpAccessChain` result id.
++    id: Word,
++    /// What it originally pointed at.
++    orig: Word,
++    /// What it points at after the split. Equal to `orig` when indexing landed
++    /// somewhere no clone was needed.
++    clone: Word,
++    /// Replacement result type for an `OpAccessChain`; `None` for the variable
++    /// (whose result type is `Split::pointer`) and for chains that need no change.
++    retype: Option<Word>,
++}
++
++/// A variable repointed at undecorated clones of its types.
++struct Split {
++    var: Word,
++    /// Replacement result type: a pointer to the variable's cloned pointee.
++    pointer: Word,
++    /// Replacement initializer, when the variable had one.
++    init: Option<Word>,
++    /// Every pointer that now addresses cloned storage: the variable itself plus
++    /// each `OpAccessChain` reached from it, paired with the undecorated type it
++    /// points at. A chain is in here even when indexing landed on a type that was
++    /// never cloned (`clone == orig`), because the rebuild still has to know the
++    /// pointer is derived — but its result type and its loads are left alone.
++    ///
++    /// This is what makes an INDEXED local splittable. Retyping the variable
++    /// alone would leave `%_ptr_Function_Decorated` result types hanging off it,
++    /// which is the same violation one level down; the pass used to decline the
++    /// whole variable rather than chase them. Chasing them is what bevy's shaders
++    /// need — they load whole nested structs out of function-local copies, so the
++    /// chain stops on a laid-out type instead of on a scalar leaf.
++    pointers: Vec<Pointer>,
++    /// This split's own declarations, spliced immediately ahead of their first
++    /// use — see `global`.
++    decls: Vec<Word>,
++    /// `Function` variables live in a function's entry block, so their clones go
++    /// in the type/constant section ahead of the first `OpFunction`. Every other
++    /// storage class is declared at module scope, IN that same section, so its
++    /// clones must instead land ahead of the `OpVariable` itself; splicing them
++    /// at the first function would put the definition after the use.
++    global: bool,
++}
++
++#[derive(Default)]
++struct Plan {
++    strip: Vec<Word>,
++    splits: Vec<Split>,
++    /// Scratch for the split under construction, moved into its `Split::decls`.
++    /// Declarations are never shared between splits: a clone reused across two
++    /// variables would have to be declared ahead of BOTH, and a module-scope
++    /// variable can precede the first function that a `Function` variable sits
++    /// in. Each split cloning its own types keeps every declaration adjacent to
++    /// the one use that needs it, at the cost of a few duplicate aggregate types
++    /// — which SPIR-V permits.
++    declarations: Vec<Word>,
++    bound: Word,
++}
++
++impl Plan {
++    fn split_for(&self, var: Word) -> Option<&Split> {
++        self.splits.iter().find(|s| s.var == var)
++    }
++    /// The pointer record for `id`, across every split.
++    fn pointer_for(&self, id: Word) -> Option<&Pointer> {
++        self.splits.iter().flat_map(|s| s.pointers.iter()).find(|p| p.id == id)
++    }
++    /// The undecorated type `id` addresses, but only when that actually differs
++    /// from the original — the callers all want "does this load/store need an
++    /// `OpCopyLogical`", and an unchanged pointee needs nothing.
++    fn changed_pointee(&self, id: Word) -> Option<Word> {
++        self.pointer_for(id).filter(|p| p.clone != p.orig).map(|p| p.clone)
++    }
++    fn next_id(&mut self) -> Word {
++        let id = self.bound;
++        self.bound += 1;
++        id
++    }
++}
++
++/// Declaration-section instructions: types, constants, and the module preamble.
++///
++/// These are exempt from the catch-all in `foreign_use`, which asks only whether
++/// the id appears among an instruction's operands and cannot tell an id from a
++/// bare literal. Declarations are full of bare literals — `OpTypeFloat 32`
++/// mentions the number 32 — so an id that happens to equal a common width or
++/// offset reads as a use of itself. That is not a loosening: SPIR-V has no way
++/// for a type or constant declaration to consume a pointer VALUE, so one of our
++/// pointers appearing here is always the coincidence and never a real use.
++fn declaration(op: Option<Op>) -> bool {
++    let Some(op) = op else { return false };
++    let n = op as u32;
++    (Op::TypeVoid as u32..=Op::TypeForwardPointer as u32).contains(&n)
++        || (Op::ConstantTrue as u32..=Op::SpecConstantOp as u32).contains(&n)
++}
++
++/// Whether `inst` names `id` somewhere the rebuild does NOT know how to restate.
++/// Debug and annotation instructions are exempt: they name ids harmlessly, and
++/// their string payloads would otherwise produce spurious matches.
++fn foreign_use(words: &[Word], inst: &Inst, id: Word) -> bool {
++    if declaration(inst.op) {
++        return false;
++    }
++    let args = &words[inst.start + 1..inst.start + inst.count];
++    let understood = match inst.op {
++        Some(
++            Op::Name
++            | Op::MemberName
++            | Op::Decorate
++            | Op::MemberDecorate
++            | Op::String
++            | Op::Source
++            | Op::SourceExtension
++            | Op::Line
++            | Op::EntryPoint
++            // Preamble, likewise all literals.
++            | Op::Capability
++            | Op::Extension
++            | Op::ExtInstImport
++            | Op::MemoryModel
++            | Op::ExecutionMode
++            | Op::ExecutionModeId,
++        ) => true,
++        // Its own declaration.
++        Some(Op::Variable) => args.len() >= 2 && args[1] == id,
++        // `OpStore pointer object` — only the pointer position is rewritten.
++        Some(Op::Store) => !args.is_empty() && args[0] == id,
++        // `OpLoad type result pointer`
++        Some(Op::Load) => args.len() >= 3 && args[2] == id,
++        // `OpAccessChain type result base indices..` — the base is rewritten, and
++        // the result is this chain's own declaration.
++        Some(Op::AccessChain | Op::InBoundsAccessChain) => {
++            args.len() >= 3 && (args[1] == id || args[2] == id)
++        }
++        _ => false,
++    };
++    !understood && args.contains(&id)
++}
++
++/// Plan a clone of `ty` plus any shared type under it, appending declarations in
++/// dependency order. `None` if some part is not a type this can restate.
++fn clone_type(
++    words: &[Word],
++    insts: &[Inst],
++    g: &Graph,
++    shared: &[Word],
++    plan: &mut Plan,
++    done: &mut Vec<(Word, Word)>,
++    ty: Word,
++) -> Option<Word> {
++    if let Some(&(_, clone)) = done.iter().find(|(orig, _)| *orig == ty) {
++        return Some(clone);
++    }
++    let inst = insts.iter().find(|i| {
++        matches!(i.op, Some(Op::TypeStruct | Op::TypeArray | Op::TypeRuntimeArray))
++            && i.count >= 2
++            && words[i.start + 1] == ty
++    })?;
++    let mut body: Vec<Word> = words[inst.start..inst.start + inst.count].to_vec();
++    let clone = plan.next_id();
++    done.push((ty, clone));
++    body[1] = clone;
++    // Struct: every operand from 2 on is a member type. Array: operand 2 is the
++    // element type and operand 3, if present, is a length constant.
++    let type_slots = match inst.op {
++        Some(Op::TypeStruct) => 2..inst.count,
++        _ => 2..3.min(inst.count),
++    };
++    for slot in type_slots {
++        if reaches(g, shared, body[slot]) {
++            body[slot] = clone_type(words, insts, g, shared, plan, done, body[slot])?;
++        }
++    }
++    plan.declarations.extend_from_slice(&body);
++    Some(clone)
++}
++
++/// Emit `OpTypePointer <class> <pointee>`.
++fn clone_pointer(plan: &mut Plan, class: Word, pointee: Word) -> Word {
++    let id = plan.next_id();
++    plan.declarations
++        .extend_from_slice(&[inst_word(Op::TypePointer, 4), id, class, pointee]);
++    id
++}
++
++/// Restate a constant onto `ty`, keeping its constituents. `None` when it is not
++/// one of the pure-shape forms that can be safely re-typed.
++fn clone_constant(
++    words: &[Word],
++    insts: &[Inst],
++    plan: &mut Plan,
++    constant: Word,
++    ty: Word,
++) -> Option<Word> {
++    let inst = insts.iter().find(|i| {
++        matches!(i.op, Some(Op::ConstantNull | Op::Undef | Op::ConstantComposite))
++            && i.count >= 3
++            && words[i.start + 2] == constant
++    })?;
++    let mut body: Vec<Word> = words[inst.start..inst.start + inst.count].to_vec();
++    let id = plan.next_id();
++    body[1] = ty;
++    body[2] = id;
++    plan.declarations.extend_from_slice(&body);
++    Some(id)
++}
++
++fn build_plan(words: &[Word], insts: &[Inst], version: Word) -> Plan {
++    let g = collect(words, insts);
++    let layout = reachable(&g, laid_out);
++    let plain = reachable(&g, |c| !laid_out(c));
++
++    let mut plan = Plan { bound: words[3], ..Plan::default() };
++    // Decorated and reached by something that may not be laid out.
++    let offenders: Vec<Word> =
++        g.decorated.iter().copied().filter(|t| plain.contains(t)).collect();
++    // Reached ONLY by non-layout storage: the decorations are simply wrong.
++    plan.strip = offenders.iter().copied().filter(|t| !layout.contains(t)).collect();
++
++    let shared: Vec<Word> = offenders.into_iter().filter(|t| layout.contains(t)).collect();
++    if shared.is_empty() || version < VERSION_1_4 {
++        return plan;
++    }
++
++    for &(result_type, var, class, init) in &g.variables {
++        if laid_out(class) {
++            continue;
++        }
++        let Some(&(_, _, pointee)) = g.pointers.iter().find(|&&(id, ..)| id == result_type) else {
++            continue;
++        };
++        if !reaches(&g, &shared, pointee) {
++            continue;
++        }
++        // Every pointer derived from this variable by indexing, to a fixpoint: a
++        // chain off a chain addresses cloned storage just as much as the first one
++        // does. `(id, result type)`, the variable standing in for itself.
++        let mut derived: Vec<(Word, Word)> = vec![(var, result_type)];
++        loop {
++            let before = derived.len();
++            for i in insts {
++                let args = &words[i.start + 1..i.start + i.count];
++                if !matches!(i.op, Some(Op::AccessChain | Op::InBoundsAccessChain)) || args.len() < 3
++                {
++                    continue;
++                }
++                if derived.iter().any(|&(id, _)| id == args[2])
++                    && !derived.iter().any(|&(id, _)| id == args[1])
++                {
++                    derived.push((args[1], args[0]));
++                }
++            }
++            if derived.len() == before {
++                break;
++            }
++        }
++        // Everything below either wholly succeeds or is rolled back, so a variable
++        // we cannot finish leaves no half-built types behind.
++        let mark = plan.bound;
++        plan.declarations.clear();
++        let mut cloned: Vec<(Word, Word)> = Vec::new();
++        let rollback = |plan: &mut Plan| {
++            plan.bound = mark;
++            plan.declarations.clear();
++        };
++        let Some(pointee_clone) =
++            clone_type(words, insts, &g, &shared, &mut plan, &mut cloned, pointee)
++        else {
++            rollback(&mut plan);
++            continue;
++        };
++        let init_clone = match init {
++            Some(c) => match clone_constant(words, insts, &mut plan, c, pointee_clone) {
++                Some(id) => Some(id),
++                None => {
++                    rollback(&mut plan);
++                    continue;
++                }
++            },
++            None => None,
++        };
++        let pointer = clone_pointer(&mut plan, class, pointee_clone);
++        // Retype the derived chains. `clone_type` cloned exactly those types that
++        // reach a shared one and left the rest identical, so the clone-side type at
++        // any position is simply the memo's answer, or the original when it has no
++        // entry — the indices themselves never change, only the result type.
++        let mut pointers = vec![Pointer {
++            id: var,
++            orig: pointee,
++            clone: pointee_clone,
++            retype: None,
++        }];
++        let mut failed = false;
++        for &(id, chain_type) in derived.iter().skip(1) {
++            let Some(&(_, chain_class, chain_pointee)) =
++                g.pointers.iter().find(|&&(p, ..)| p == chain_type)
++            else {
++                // A chain whose result type we cannot resolve is a chain we cannot
++                // prove safe to leave alone.
++                failed = true;
++                break;
++            };
++            let clone = cloned.iter().find(|(o, _)| *o == chain_pointee).map(|&(_, c)| c);
++            let retype = clone.map(|c| clone_pointer(&mut plan, chain_class, c));
++            pointers.push(Pointer {
++                id,
++                orig: chain_pointee,
++                clone: clone.unwrap_or(chain_pointee),
++                retype,
++            });
++        }
++        if failed {
++            rollback(&mut plan);
++            continue;
++        }
++        // Only now can the use check run, because only now is it known WHICH
++        // pointers actually change. A derived chain whose pointee needed no clone
++        // has exactly the type it had before — indexing a structurally identical
++        // clone lands on the same member type — so whatever consumes it is
++        // unaffected and need not be a form the rebuild understands. Checking
++        // those too is what made `atomicOps` decline: its chains land on a plain
++        // `int` and are consumed by `OpAtomicIAdd`, which this pass has no opinion
++        // about and does not need one.
++        let must_understand: Vec<Word> = pointers
++            .iter()
++            .filter(|p| p.id == var || p.clone != p.orig)
++            .map(|p| p.id)
++            .collect();
++        if insts
++            .iter()
++            .any(|i| must_understand.iter().any(|&id| foreign_use(words, i, id)))
++        {
++            rollback(&mut plan);
++            continue;
++        }
++        let decls = core::mem::take(&mut plan.declarations);
++        plan.splits.push(Split {
++            var,
++            pointer,
++            init: init_clone,
++            pointers,
++            decls,
++            global: spirv::StorageClass::from_u32(class) != Some(spirv::StorageClass::Function),
++        });
++    }
++    plan
++}
++
++/// Copy the stream through, applying `plan`.
++fn rebuild(words: &[Word], insts: &[Inst], plan: &mut Plan) -> Vec<Word> {
++    let mut out: Vec<Word> = words[..HEADER_WORDS].to_vec();
++    let mut declared = false;
++    for inst in insts {
++        let args = &words[inst.start + 1..inst.start + inst.count];
++        // Types and constants must precede the code naming them. Function-scope
++        // clones go here, once; module-scope clones went in beside their variable.
++        if !declared && matches!(inst.op, Some(Op::Function)) {
++            let decls: Vec<Word> =
++                plan.splits.iter().filter(|s| !s.global).flat_map(|s| s.decls.iter().copied()).collect();
++            out.extend_from_slice(&decls);
++            declared = true;
++        }
++        // A module-scope variable sits in the same section as the types, so its
++        // clones are spliced right here rather than at the first function.
++        if let Some(Op::Variable) = inst.op {
++            if let Some(s) = args.get(1).and_then(|&v| plan.split_for(v)).filter(|s| s.global) {
++                let decls = s.decls.clone();
++                out.extend_from_slice(&decls);
++            }
++        }
++        match inst.op {
++            Some(Op::Decorate)
++                if args.len() >= 2 && is_layout(args[1]) && plan.strip.contains(&args[0]) => {}
++            Some(Op::MemberDecorate)
++                if args.len() >= 3 && is_layout(args[2]) && plan.strip.contains(&args[0]) => {}
++
++            Some(Op::Variable)
++                if args.len() >= 3 && plan.split_for(args[1]).is_some() =>
++            {
++                let (pointer, init) = {
++                    let s = plan.split_for(args[1]).unwrap();
++                    (s.pointer, s.init)
++                };
++                out.extend_from_slice(&[words[inst.start], pointer, args[1], args[2]]);
++                out.extend(init);
++            }
++
++            // `OpAccessChain type result base indices..` — same base, same indices,
++            // but the result now points into the cloned type.
++            Some(Op::AccessChain | Op::InBoundsAccessChain)
++                if args.len() >= 3
++                    && plan.pointer_for(args[1]).is_some_and(|p| p.retype.is_some()) =>
++            {
++                let retype = plan.pointer_for(args[1]).unwrap().retype.unwrap();
++                out.push(words[inst.start]);
++                out.push(retype);
++                out.extend_from_slice(&args[1..]);
++            }
++
++            // `OpStore pointer object` — restate the value in the cloned type first.
++            Some(Op::Store) if !args.is_empty() && plan.changed_pointee(args[0]).is_some() => {
++                let clone_ty = plan.changed_pointee(args[0]).unwrap();
++                let tmp = plan.next_id();
++                out.extend_from_slice(&[
++                    inst_word(Op::CopyLogical, 4),
++                    clone_ty,
++                    tmp,
++                    args[1],
++                ]);
++                out.push(words[inst.start]);
++                out.push(args[0]);
++                out.push(tmp);
++                out.extend_from_slice(&args[2..]);
++            }
++
++            // `OpLoad type result pointer` — load as the clone, then convert back,
++            // so the result keeps both its id and its type and nothing downstream
++            // has to be rewritten.
++            Some(Op::Load) if args.len() >= 3 && plan.changed_pointee(args[2]).is_some() => {
++                let clone_ty = plan.changed_pointee(args[2]).unwrap();
++                let tmp = plan.next_id();
++                let mut load: Vec<Word> = words[inst.start..inst.start + inst.count].to_vec();
++                load[1] = clone_ty;
++                load[2] = tmp;
++                out.extend_from_slice(&load);
++                out.extend_from_slice(&[
++                    inst_word(Op::CopyLogical, 4),
++                    args[0],
++                    args[1],
++                    tmp,
++                ]);
++            }
++
++            _ => out.extend_from_slice(&words[inst.start..inst.start + inst.count]),
++        }
++    }
++    // A module with no functions at all has nothing to declare them for, but the
++    // ids were still allocated, so emit them rather than leave dangling clones.
++    if !declared {
++        let decls: Vec<Word> =
++            plan.splits.iter().filter(|s| !s.global).flat_map(|s| s.decls.iter().copied()).collect();
++        out.extend_from_slice(&decls);
++    }
++    out[3] = plan.bound;
++    out
++}
++
++/// Rewrite `words` in place: drop layout decorations that cannot legally be
++/// there, and split any type that needs them in one place and must not have them
++/// in another.
++pub(super) fn strip(words: &mut Vec<Word>) {
++    let Some(insts) = index(words) else { return };
++    let version = words[1];
++    let mut plan = build_plan(words, &insts, version);
++    if plan.strip.is_empty() && plan.splits.is_empty() {
++        return;
++    }
++    *words = rebuild(words, &insts, &mut plan);
++}
+diff --git b/vendor/wgpu/naga/src/back/spv/mod.rs a/vendor/wgpu/naga/src/back/spv/mod.rs
+index ae69c892..ea7047dd 100644
+--- b/vendor/wgpu/naga/src/back/spv/mod.rs
++++ a/vendor/wgpu/naga/src/back/spv/mod.rs
+@@ -103,6 +103,7 @@ mod image;
+ mod index;
+ mod instructions;
+ mod layout;
++mod layout_strip;
+ mod mesh_shader;
+ mod ray;
+ mod reclaimable;
+diff --git b/vendor/wgpu/naga/src/back/spv/writer.rs a/vendor/wgpu/naga/src/back/spv/writer.rs
+index 7d4df508..caf08944 100644
+--- b/vendor/wgpu/naga/src/back/spv/writer.rs
++++ a/vendor/wgpu/naga/src/back/spv/writer.rs
+@@ -3866,6 +3866,7 @@ impl Writer {
+ 
+         self.physical_layout.in_words(words);
+         self.logical_layout.in_words(words);
++        super::layout_strip::strip(words);
+         Ok(())
+     }
+ 
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-6438-conflicting-idents.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-6438-conflicting-idents.spvasm
+index be4ca450..af21d61b 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-6438-conflicting-idents.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-6438-conflicting-idents.spvasm
+@@ -8,8 +8,6 @@ OpMemoryModel Logical GLSL450
+ OpEntryPoint Vertex %15 "vs" %8 %11 %13
+ OpEntryPoint Fragment %33 "fs" %32
+ OpExecutionMode %33 OriginUpperLeft
+-OpMemberDecorate %6 0 Offset 0
+-OpMemberDecorate %6 1 Offset 16
+ OpDecorate %8 Location 0
+ OpDecorate %11 BuiltIn Position
+ OpDecorate %13 Location 0
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-7048-multiple-dynamic-1.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-7048-multiple-dynamic-1.spvasm
+index 9764b9bd..f579c6a6 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-7048-multiple-dynamic-1.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-7048-multiple-dynamic-1.spvasm
+@@ -7,7 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %11 "f"
+ OpExecutionMode %11 LocalSize 1 1 1
+-OpDecorate %5 ArrayStride 16
+ %2 = OpTypeVoid
+ %4 = OpTypeFloat 32
+ %3 = OpTypeVector %4 3
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-7048-multiple-dynamic-2.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-7048-multiple-dynamic-2.spvasm
+index 1eba8a12..b9c9055d 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-7048-multiple-dynamic-2.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-7048-multiple-dynamic-2.spvasm
+@@ -7,7 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint Fragment %13 "fs_main" %11
+ OpExecutionMode %13 OriginUpperLeft
+-OpDecorate %6 ArrayStride 8
+ OpDecorate %11 Location 0
+ %2 = OpTypeVoid
+ %4 = OpTypeFloat 32
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-7048-multiple-dynamic-3.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-7048-multiple-dynamic-3.spvasm
+index 2e4ab1e1..942ffb3d 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-7048-multiple-dynamic-3.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-7048-multiple-dynamic-3.spvasm
+@@ -7,9 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint Fragment %90 "main"
+ OpExecutionMode %90 OriginUpperLeft
+-OpMemberDecorate %5 0 Offset 0
+-OpMemberDecorate %5 1 Offset 16
+-OpDecorate %6 ArrayStride 16
+ %2 = OpTypeVoid
+ %3 = OpTypeFloat 32
+ %4 = OpTypeVector %3 3
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-8820-multiple-local-invocation-index-id.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-8820-multiple-local-invocation-index-id.spvasm
+index 81c24700..6e717320 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-8820-multiple-local-invocation-index-id.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-8820-multiple-local-invocation-index-id.spvasm
+@@ -7,8 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %16 "compute1" %10 %13
+ OpExecutionMode %16 LocalSize 1 1 1
+-OpMemberDecorate %5 0 Offset 0
+-OpMemberDecorate %5 1 Offset 12
+ OpDecorate %10 BuiltIn LocalInvocationId
+ OpDecorate %13 BuiltIn LocalInvocationIndex
+ %2 = OpTypeVoid
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-const.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-const.spvasm
+index b1dd0dc3..0240ae73 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-const.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-const.spvasm
+@@ -6,12 +6,6 @@ OpCapability Shader
+ OpCapability Linkage
+ %1 = OpExtInstImport "GLSL.std.450"
+ OpMemoryModel Logical GLSL450
+-OpDecorate %10 ArrayStride 4
+-OpDecorate %12 ArrayStride 4
+-OpDecorate %13 ArrayStride 4
+-OpMemberDecorate %14 0 Offset 0
+-OpMemberDecorate %14 1 Offset 4
+-OpMemberDecorate %14 2 Offset 8
+ %2 = OpTypeVoid
+ %3 = OpTypeInt 32 1
+ %4 = OpTypeVector %3 2
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-function-calls.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-function-calls.spvasm
+index 40931665..7ded8bb6 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-function-calls.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-function-calls.spvasm
+@@ -7,9 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %71 "main"
+ OpExecutionMode %71 LocalSize 1 1 1
+-OpDecorate %10 ArrayStride 4
+-OpDecorate %12 ArrayStride 4
+-OpDecorate %13 ArrayStride 4
+ %2 = OpTypeVoid
+ %3 = OpTypeFloat 32
+ %4 = OpTypeInt 32 1
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-let.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-let.spvasm
+index c9394eba..5dcab71b 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-let.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-let.spvasm
+@@ -7,10 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %129 "main"
+ OpExecutionMode %129 LocalSize 1 1 1
+-OpDecorate %10 ArrayStride 4
+-OpDecorate %12 ArrayStride 4
+-OpDecorate %14 ArrayStride 16
+-OpDecorate %17 ArrayStride 16
+ %2 = OpTypeVoid
+ %3 = OpTypeInt 32 1
+ %4 = OpTypeVector %3 2
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-operators.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-operators.spvasm
+index c64e2c1b..2ae9e86e 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-operators.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-operators.spvasm
+@@ -7,7 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %112 "main" %115
+ OpExecutionMode %112 LocalSize 1 1 1
+-OpDecorate %6 ArrayStride 4
+ OpDecorate %115 BuiltIn LocalInvocationIndex
+ %2 = OpTypeVoid
+ %3 = OpTypeFloat 32
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-return.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-return.spvasm
+index d2dc2cfe..ffc5a537 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-return.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-return.spvasm
+@@ -7,7 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %44 "main"
+ OpExecutionMode %44 LocalSize 1 1 1
+-OpDecorate %7 ArrayStride 4
+ %2 = OpTypeVoid
+ %3 = OpTypeInt 32 1
+ %4 = OpTypeInt 32 0
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-var.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-var.spvasm
+index 8dc36f0f..3d0e7053 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-var.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-abstract-types-var.spvasm
+@@ -7,11 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %407 "main"
+ OpExecutionMode %407 LocalSize 1 1 1
+-OpDecorate %10 ArrayStride 4
+-OpDecorate %12 ArrayStride 4
+-OpDecorate %13 ArrayStride 4
+-OpDecorate %15 ArrayStride 16
+-OpDecorate %18 ArrayStride 16
+ %2 = OpTypeVoid
+ %3 = OpTypeInt 32 1
+ %4 = OpTypeVector %3 2
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-access.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-access.spvasm
+index 1678c50d..05ec3296 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-access.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-access.spvasm
+@@ -360,9 +360,6 @@ OpName %439 "foo"
+ OpName %440 "c2"
+ OpName %484 "foo_frag"
+ OpName %502 "foo_compute"
+-OpMemberDecorate %7 0 Offset 0
+-OpMemberDecorate %7 1 Offset 16
+-OpMemberDecorate %7 2 Offset 28
+ OpMemberDecorate %8 0 Offset 0
+ OpDecorate %14 ArrayStride 16
+ OpDecorate %16 ArrayStride 4
+@@ -379,24 +376,8 @@ OpMemberDecorate %21 3 Offset 100
+ OpMemberDecorate %21 4 Offset 144
+ OpMemberDecorate %21 5 Offset 160
+ OpDecorate %21 Block
+-OpMemberDecorate %23 0 Offset 0
+ OpMemberDecorate %23 0 ColMajor
+-OpMemberDecorate %23 0 MatrixStride 8
+-OpDecorate %26 ArrayStride 32
+-OpMemberDecorate %27 0 Offset 0
+ OpMemberDecorate %27 0 ColMajor
+-OpMemberDecorate %27 0 MatrixStride 8
+-OpDecorate %29 ArrayStride 4
+-OpDecorate %30 ArrayStride 40
+-OpDecorate %33 ArrayStride 4
+-OpDecorate %35 ArrayStride 16
+-OpMemberDecorate %37 0 Offset 0
+-OpDecorate %39 ArrayStride 4
+-OpDecorate %43 ArrayStride 1
+-OpMemberDecorate %45 0 Offset 0
+-OpMemberDecorate %46 0 Offset 0
+-OpMemberDecorate %47 0 Offset 0
+-OpMemberDecorate %47 1 Offset 4
+ OpMemberDecorate %48 0 Offset 0
+ OpMemberDecorate %48 1 Offset 8
+ OpMemberDecorate %48 2 Offset 16
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-aliased-ray-query.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-aliased-ray-query.spvasm
+index 1ddbf07d..6451cd88 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-aliased-ray-query.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-aliased-ray-query.spvasm
+@@ -9,27 +9,8 @@ OpExtension "SPV_KHR_ray_query"
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %16 "main_candidate" %13
+ OpExecutionMode %16 LocalSize 1 1 1
+-OpMemberDecorate %8 0 Offset 0
+-OpMemberDecorate %8 1 Offset 4
+-OpMemberDecorate %8 2 Offset 8
+-OpMemberDecorate %8 3 Offset 12
+-OpMemberDecorate %8 4 Offset 16
+-OpMemberDecorate %8 5 Offset 32
+-OpMemberDecorate %12 0 Offset 0
+-OpMemberDecorate %12 1 Offset 4
+-OpMemberDecorate %12 2 Offset 8
+-OpMemberDecorate %12 3 Offset 12
+-OpMemberDecorate %12 4 Offset 16
+-OpMemberDecorate %12 5 Offset 20
+-OpMemberDecorate %12 6 Offset 24
+-OpMemberDecorate %12 7 Offset 28
+-OpMemberDecorate %12 8 Offset 36
+-OpMemberDecorate %12 9 Offset 48
+ OpMemberDecorate %12 9 ColMajor
+-OpMemberDecorate %12 9 MatrixStride 16
+-OpMemberDecorate %12 10 Offset 112
+ OpMemberDecorate %12 10 ColMajor
+-OpMemberDecorate %12 10 MatrixStride 16
+ OpDecorate %13 DescriptorSet 0
+ OpDecorate %13 Binding 0
+ %2 = OpTypeVoid
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-array-in-function-return-type.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-array-in-function-return-type.spvasm
+index 9e2b2220..7e9af6b0 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-array-in-function-return-type.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-array-in-function-return-type.spvasm
+@@ -7,8 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint Fragment %28 "main" %26
+ OpExecutionMode %28 OriginUpperLeft
+-OpDecorate %4 ArrayStride 4
+-OpDecorate %7 ArrayStride 8
+ OpDecorate %26 Location 0
+ %2 = OpTypeVoid
+ %3 = OpTypeFloat 32
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-atomicCompareExchange-int64.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-atomicCompareExchange-int64.spvasm
+index 95992b86..4bc5566f 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-atomicCompareExchange-int64.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-atomicCompareExchange-int64.spvasm
+@@ -14,10 +14,6 @@ OpExecutionMode %19 LocalSize 1 1 1
+ OpExecutionMode %103 LocalSize 1 1 1
+ OpDecorate %5 ArrayStride 8
+ OpDecorate %8 ArrayStride 8
+-OpMemberDecorate %10 0 Offset 0
+-OpMemberDecorate %10 1 Offset 8
+-OpMemberDecorate %11 0 Offset 0
+-OpMemberDecorate %11 1 Offset 8
+ OpDecorate %12 DescriptorSet 0
+ OpDecorate %12 Binding 0
+ OpDecorate %13 Block
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-atomicCompareExchange.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-atomicCompareExchange.spvasm
+index 17feb7de..02ba77fd 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-atomicCompareExchange.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-atomicCompareExchange.spvasm
+@@ -12,10 +12,6 @@ OpExecutionMode %18 LocalSize 1 1 1
+ OpExecutionMode %104 LocalSize 1 1 1
+ OpDecorate %5 ArrayStride 4
+ OpDecorate %7 ArrayStride 4
+-OpMemberDecorate %9 0 Offset 0
+-OpMemberDecorate %9 1 Offset 4
+-OpMemberDecorate %10 0 Offset 0
+-OpMemberDecorate %10 1 Offset 4
+ OpDecorate %11 DescriptorSet 0
+ OpDecorate %11 Binding 0
+ OpDecorate %12 Block
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-atomicOps-int64.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-atomicOps-int64.spvasm
+index 678c70a7..a188817a 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-atomicOps-int64.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-atomicOps-int64.spvasm
+@@ -13,10 +13,6 @@ OpExecutionMode %32 LocalSize 2 1 1
+ OpDecorate %5 ArrayStride 8
+ OpMemberDecorate %8 0 Offset 0
+ OpMemberDecorate %8 1 Offset 8
+-OpMemberDecorate %11 0 Offset 0
+-OpMemberDecorate %11 1 Offset 8
+-OpMemberDecorate %12 0 Offset 0
+-OpMemberDecorate %12 1 Offset 8
+ OpDecorate %13 DescriptorSet 0
+ OpDecorate %13 Binding 0
+ OpDecorate %14 Block
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-atomicOps.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-atomicOps.spvasm
+index 70f07928..b069e01f 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-atomicOps.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-atomicOps.spvasm
+@@ -11,10 +11,6 @@ OpExecutionMode %31 LocalSize 2 1 1
+ OpDecorate %5 ArrayStride 4
+ OpMemberDecorate %7 0 Offset 0
+ OpMemberDecorate %7 1 Offset 4
+-OpMemberDecorate %10 0 Offset 0
+-OpMemberDecorate %10 1 Offset 4
+-OpMemberDecorate %11 0 Offset 0
+-OpMemberDecorate %11 1 Offset 4
+ OpDecorate %12 DescriptorSet 0
+ OpDecorate %12 Binding 0
+ OpDecorate %13 Block
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-binding-arrays.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-binding-arrays.spvasm
+index 5fce471d..cc637c1b 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-binding-arrays.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-binding-arrays.spvasm
+@@ -11,7 +11,6 @@ OpMemoryModel Logical GLSL450
+ OpEntryPoint Fragment %52 "main" %47 %50
+ OpExecutionMode %52 OriginUpperLeft
+ OpMemberDecorate %4 0 Offset 0
+-OpMemberDecorate %21 0 Offset 0
+ OpDecorate %24 DescriptorSet 0
+ OpDecorate %24 Binding 0
+ OpDecorate %28 DescriptorSet 0
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-binding-buffer-arrays.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-binding-buffer-arrays.spvasm
+index f2fd001a..6eaf88e6 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-binding-buffer-arrays.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-binding-buffer-arrays.spvasm
+@@ -15,7 +15,6 @@ OpDecorate %6 ArrayStride 4
+ OpMemberDecorate %7 0 Offset 0
+ OpMemberDecorate %7 1 Offset 4
+ OpDecorate %7 Block
+-OpMemberDecorate %10 0 Offset 0
+ OpDecorate %11 NonWritable
+ OpDecorate %11 DescriptorSet 0
+ OpDecorate %11 Binding 0
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-clip-distances.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-clip-distances.spvasm
+index 24deba3c..6755bb45 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-clip-distances.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-clip-distances.spvasm
+@@ -7,9 +7,6 @@ OpCapability ClipDistance
+ %1 = OpExtInstImport "GLSL.std.450"
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint Vertex %14 "main" %10 %12
+-OpDecorate %5 ArrayStride 4
+-OpMemberDecorate %8 0 Offset 0
+-OpMemberDecorate %8 1 Offset 16
+ OpDecorate %10 BuiltIn Position
+ OpDecorate %12 BuiltIn ClipDistance
+ %2 = OpTypeVoid
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-const-exprs.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-const-exprs.spvasm
+index 889bca5b..0bbe6502 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-const-exprs.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-const-exprs.spvasm
+@@ -7,8 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %170 "main"
+ OpExecutionMode %170 LocalSize 2 3 1
+-OpDecorate %9 ArrayStride 4
+-OpDecorate %13 ArrayStride 4
+ %2 = OpTypeVoid
+ %3 = OpTypeInt 32 0
+ %4 = OpTypeInt 32 1
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-constructors.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-constructors.spvasm
+index 0192183d..cde86bc4 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-constructors.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-constructors.spvasm
+@@ -7,11 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %41 "main"
+ OpExecutionMode %41 LocalSize 1 1 1
+-OpMemberDecorate %6 0 Offset 0
+-OpMemberDecorate %6 1 Offset 16
+-OpDecorate %10 ArrayStride 16
+-OpDecorate %15 ArrayStride 32
+-OpDecorate %18 ArrayStride 4
+ %2 = OpTypeVoid
+ %3 = OpTypeFloat 32
+ %4 = OpTypeVector %3 4
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-debug-symbol-large-source.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-debug-symbol-large-source.spvasm
+index cde846a4..aba4f342 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-debug-symbol-large-source.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-debug-symbol-large-source.spvasm
+@@ -7604,20 +7604,12 @@ OpMemberDecorate %20 1 Offset 8
+ OpMemberDecorate %20 2 Offset 16
+ OpMemberDecorate %20 3 Offset 24
+ OpMemberDecorate %20 4 Offset 28
+-OpMemberDecorate %21 0 Offset 0
+-OpMemberDecorate %21 1 Offset 16
+-OpMemberDecorate %21 2 Offset 32
+-OpMemberDecorate %22 0 Offset 0
+-OpMemberDecorate %22 1 Offset 4
+ OpMemberDecorate %24 0 Offset 0
+ OpMemberDecorate %24 1 Offset 16
+ OpMemberDecorate %24 1 ColMajor
+ OpMemberDecorate %24 1 MatrixStride 16
+ OpMemberDecorate %25 0 Offset 0
+ OpMemberDecorate %25 1 Offset 16
+-OpMemberDecorate %26 0 Offset 0
+-OpMemberDecorate %26 1 Offset 16
+-OpMemberDecorate %26 2 Offset 32
+ OpDecorate %29 DescriptorSet 0
+ OpDecorate %29 Binding 0
+ OpDecorate %30 Block
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-debug-symbol-simple.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-debug-symbol-simple.spvasm
+index 7648fd4c..08aefb7c 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-debug-symbol-simple.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-debug-symbol-simple.spvasm
+@@ -61,10 +61,6 @@ OpName %55 "color"
+ OpName %57 "i"
+ OpName %59 "ii"
+ OpName %75 "loop_bound"
+-OpMemberDecorate %6 0 Offset 0
+-OpMemberDecorate %6 1 Offset 16
+-OpMemberDecorate %8 0 Offset 0
+-OpMemberDecorate %8 1 Offset 16
+ OpDecorate %12 Location 0
+ OpDecorate %15 Location 1
+ OpDecorate %17 BuiltIn Position
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-debug-symbol-terrain.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-debug-symbol-terrain.spvasm
+index a6abe809..d03f5745 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-debug-symbol-terrain.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-debug-symbol-terrain.spvasm
+@@ -440,20 +440,12 @@ OpMemberDecorate %20 1 Offset 8
+ OpMemberDecorate %20 2 Offset 16
+ OpMemberDecorate %20 3 Offset 24
+ OpMemberDecorate %20 4 Offset 28
+-OpMemberDecorate %21 0 Offset 0
+-OpMemberDecorate %21 1 Offset 16
+-OpMemberDecorate %21 2 Offset 32
+-OpMemberDecorate %22 0 Offset 0
+-OpMemberDecorate %22 1 Offset 4
+ OpMemberDecorate %24 0 Offset 0
+ OpMemberDecorate %24 1 Offset 16
+ OpMemberDecorate %24 1 ColMajor
+ OpMemberDecorate %24 1 MatrixStride 16
+ OpMemberDecorate %25 0 Offset 0
+ OpMemberDecorate %25 1 Offset 16
+-OpMemberDecorate %26 0 Offset 0
+-OpMemberDecorate %26 1 Offset 16
+-OpMemberDecorate %26 2 Offset 32
+ OpDecorate %29 DescriptorSet 0
+ OpDecorate %29 Binding 0
+ OpDecorate %30 Block
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-draw-index.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-draw-index.spvasm
+index 0c4e2b00..1faa1527 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-draw-index.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-draw-index.spvasm
+@@ -8,7 +8,6 @@ OpExtension "SPV_KHR_shader_draw_parameters"
+ %1 = OpExtInstImport "GLSL.std.450"
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint Vertex %14 "vertex" %9 %12
+-OpMemberDecorate %4 0 Offset 0
+ OpDecorate %9 BuiltIn DrawIndex
+ OpDecorate %12 BuiltIn Position
+ %2 = OpTypeVoid
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-dualsource.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-dualsource.spvasm
+index f6d5a4e3..9c454a7a 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-dualsource.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-dualsource.spvasm
+@@ -7,8 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint Fragment %10 "main" %7 %9
+ OpExecutionMode %10 OriginUpperLeft
+-OpMemberDecorate %5 0 Offset 0
+-OpMemberDecorate %5 1 Offset 16
+ OpDecorate %7 Location 0
+ OpDecorate %7 Index 0
+ OpDecorate %9 Location 0
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-extra.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-extra.spvasm
+index 0d091ae1..6f18428c 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-extra.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-extra.spvasm
+@@ -10,8 +10,6 @@ OpEntryPoint Fragment %22 "main" %14 %17 %20
+ OpExecutionMode %22 OriginUpperLeft
+ OpMemberDecorate %6 0 Offset 0
+ OpMemberDecorate %6 1 Offset 8
+-OpMemberDecorate %8 0 Offset 0
+-OpMemberDecorate %8 1 Offset 16
+ OpDecorate %10 Block
+ OpMemberDecorate %10 0 Offset 0
+ OpDecorate %14 Location 0
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-f16-native.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-f16-native.spvasm
+index 43210270..db7aa645 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-f16-native.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-f16-native.spvasm
+@@ -192,14 +192,6 @@ OpName %297 "vec4_f16"
+ OpName %298 "vec4_f32"
+ OpName %299 "test_component_access"
+ OpName %300 "output"
+-OpMemberDecorate %12 0 Offset 0
+-OpMemberDecorate %12 1 Offset 4
+-OpMemberDecorate %12 2 Offset 8
+-OpMemberDecorate %12 3 Offset 16
+-OpMemberDecorate %12 4 Offset 24
+-OpMemberDecorate %12 5 Offset 32
+-OpMemberDecorate %12 6 Offset 48
+-OpMemberDecorate %12 7 Offset 64
+ OpDecorate %14 Location 0
+ OpDecorate %17 Location 1
+ OpDecorate %20 Location 2
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-f16-polyfill.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-f16-polyfill.spvasm
+index d673816a..7420b7ba 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-f16-polyfill.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-f16-polyfill.spvasm
+@@ -191,14 +191,6 @@ OpName %322 "vec4_f16"
+ OpName %323 "vec4_f32"
+ OpName %324 "test_component_access"
+ OpName %325 "output"
+-OpMemberDecorate %12 0 Offset 0
+-OpMemberDecorate %12 1 Offset 4
+-OpMemberDecorate %12 2 Offset 8
+-OpMemberDecorate %12 3 Offset 16
+-OpMemberDecorate %12 4 Offset 24
+-OpMemberDecorate %12 5 Offset 32
+-OpMemberDecorate %12 6 Offset 48
+-OpMemberDecorate %12 7 Offset 64
+ OpDecorate %14 Location 0
+ OpDecorate %18 Location 1
+ OpDecorate %20 Location 2
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-f16.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-f16.spvasm
+index f256316e..f37cb1ec 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-f16.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-f16.spvasm
+@@ -50,12 +50,6 @@ OpMemberDecorate %19 16 ColMajor
+ OpMemberDecorate %19 16 MatrixStride 8
+ OpDecorate %20 ArrayStride 2
+ OpMemberDecorate %22 0 Offset 0
+-OpMemberDecorate %23 0 Offset 0
+-OpMemberDecorate %23 1 Offset 2
+-OpMemberDecorate %23 2 Offset 8
+-OpMemberDecorate %23 3 Offset 14
+-OpMemberDecorate %23 4 Offset 16
+-OpMemberDecorate %23 5 Offset 20
+ OpMemberDecorate %24 0 Offset 0
+ OpMemberDecorate %24 1 Offset 4
+ OpMemberDecorate %24 2 Offset 8
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-fragment-output.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-fragment-output.spvasm
+index cad9ebf7..64554d8c 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-fragment-output.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-fragment-output.spvasm
+@@ -9,18 +9,6 @@ OpEntryPoint Fragment %30 "main_vec4vec3" %18 %20 %22 %24 %26 %28
+ OpEntryPoint Fragment %82 "main_vec2scalar" %70 %72 %74 %76 %78 %80
+ OpExecutionMode %30 OriginUpperLeft
+ OpExecutionMode %82 OriginUpperLeft
+-OpMemberDecorate %12 0 Offset 0
+-OpMemberDecorate %12 1 Offset 16
+-OpMemberDecorate %12 2 Offset 32
+-OpMemberDecorate %12 3 Offset 48
+-OpMemberDecorate %12 4 Offset 64
+-OpMemberDecorate %12 5 Offset 80
+-OpMemberDecorate %16 0 Offset 0
+-OpMemberDecorate %16 1 Offset 8
+-OpMemberDecorate %16 2 Offset 16
+-OpMemberDecorate %16 3 Offset 24
+-OpMemberDecorate %16 4 Offset 28
+-OpMemberDecorate %16 5 Offset 32
+ OpDecorate %18 Location 0
+ OpDecorate %20 Location 1
+ OpDecorate %22 Location 2
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-globals.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-globals.spvasm
+index 7253b9aa..b3317360 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-globals.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-globals.spvasm
+@@ -8,15 +8,12 @@ OpExtension "SPV_KHR_storage_buffer_storage_class"
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %114 "main" %138
+ OpExecutionMode %114 LocalSize 1 1 1
+-OpDecorate %5 ArrayStride 4
+ OpMemberDecorate %9 0 Offset 0
+ OpMemberDecorate %9 1 Offset 12
+ OpDecorate %11 ArrayStride 8
+ OpDecorate %13 ArrayStride 16
+ OpDecorate %17 ArrayStride 32
+ OpDecorate %19 ArrayStride 64
+-OpDecorate %21 ArrayStride 32
+-OpDecorate %22 ArrayStride 64
+ OpMemberDecorate %25 0 Offset 0
+ OpMemberDecorate %25 1 Offset 8
+ OpMemberDecorate %25 2 Offset 16
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-index-by-value.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-index-by-value.spvasm
+index e9ed297e..6b0db75d 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-index-by-value.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-index-by-value.spvasm
+@@ -6,9 +6,6 @@ OpCapability Shader
+ %1 = OpExtInstImport "GLSL.std.450"
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint Vertex %79 "main" %74 %77
+-OpDecorate %4 ArrayStride 4
+-OpDecorate %7 ArrayStride 4
+-OpDecorate %9 ArrayStride 8
+ OpDecorate %74 BuiltIn VertexIndex
+ OpDecorate %77 BuiltIn Position
+ %2 = OpTypeVoid
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-int16.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-int16.spvasm
+index efa5a1a0..4b096d05 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-int16.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-int16.spvasm
+@@ -32,7 +32,6 @@ OpDecorate %15 ArrayStride 2
+ OpDecorate %17 ArrayStride 2
+ OpMemberDecorate %18 0 Offset 0
+ OpMemberDecorate %18 1 Offset 4
+-OpDecorate %19 ArrayStride 2
+ OpDecorate %26 DescriptorSet 0
+ OpDecorate %26 Binding 0
+ OpDecorate %27 Block
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-interface.compute.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-interface.compute.spvasm
+index c3fb080b..7a136704 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-interface.compute.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-interface.compute.spvasm
+@@ -7,14 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %29 "compute" %17 %20 %22 %25 %27
+ OpExecutionMode %29 LocalSize 1 1 1
+-OpMemberDecorate %5 0 Offset 0
+-OpMemberDecorate %5 1 Offset 16
+-OpMemberDecorate %7 0 Offset 0
+-OpMemberDecorate %7 1 Offset 4
+-OpMemberDecorate %7 2 Offset 8
+-OpDecorate %9 ArrayStride 4
+-OpMemberDecorate %12 0 Offset 0
+-OpMemberDecorate %13 0 Offset 0
+ OpDecorate %17 BuiltIn GlobalInvocationId
+ OpDecorate %20 BuiltIn LocalInvocationId
+ OpDecorate %22 BuiltIn LocalInvocationIndex
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-interface.fragment.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-interface.fragment.spvasm
+index ab1dcbd0..ed128bf7 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-interface.fragment.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-interface.fragment.spvasm
+@@ -9,14 +9,6 @@ OpMemoryModel Logical GLSL450
+ OpEntryPoint Fragment %35 "fragment" %16 %19 %22 %25 %28 %30 %32 %34
+ OpExecutionMode %35 OriginUpperLeft
+ OpExecutionMode %35 DepthReplacing
+-OpMemberDecorate %5 0 Offset 0
+-OpMemberDecorate %5 1 Offset 16
+-OpMemberDecorate %7 0 Offset 0
+-OpMemberDecorate %7 1 Offset 4
+-OpMemberDecorate %7 2 Offset 8
+-OpDecorate %9 ArrayStride 4
+-OpMemberDecorate %12 0 Offset 0
+-OpMemberDecorate %13 0 Offset 0
+ OpDecorate %16 BuiltIn FragCoord
+ OpDecorate %16 Invariant
+ OpDecorate %19 Location 1
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-interface.vertex.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-interface.vertex.spvasm
+index b72f38e7..4ab66f5c 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-interface.vertex.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-interface.vertex.spvasm
+@@ -6,14 +6,6 @@ OpCapability Shader
+ %1 = OpExtInstImport "GLSL.std.450"
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint Vertex %28 "vertex" %15 %18 %20 %22 %24 %26
+-OpMemberDecorate %5 0 Offset 0
+-OpMemberDecorate %5 1 Offset 16
+-OpMemberDecorate %7 0 Offset 0
+-OpMemberDecorate %7 1 Offset 4
+-OpMemberDecorate %7 2 Offset 8
+-OpDecorate %9 ArrayStride 4
+-OpMemberDecorate %12 0 Offset 0
+-OpMemberDecorate %13 0 Offset 0
+ OpDecorate %15 BuiltIn VertexIndex
+ OpDecorate %18 BuiltIn InstanceIndex
+ OpDecorate %20 Location 10
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-interface.vertex_two_structs.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-interface.vertex_two_structs.spvasm
+index 9706a904..3d3bea55 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-interface.vertex_two_structs.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-interface.vertex_two_structs.spvasm
+@@ -6,14 +6,6 @@ OpCapability Shader
+ %1 = OpExtInstImport "GLSL.std.450"
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint Vertex %27 "vertex_two_structs" %16 %20 %22 %24
+-OpMemberDecorate %5 0 Offset 0
+-OpMemberDecorate %5 1 Offset 16
+-OpMemberDecorate %7 0 Offset 0
+-OpMemberDecorate %7 1 Offset 4
+-OpMemberDecorate %7 2 Offset 8
+-OpDecorate %9 ArrayStride 4
+-OpMemberDecorate %12 0 Offset 0
+-OpMemberDecorate %13 0 Offset 0
+ OpDecorate %16 BuiltIn VertexIndex
+ OpDecorate %20 BuiltIn InstanceIndex
+ OpDecorate %22 BuiltIn Position
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-interpolate.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-interpolate.spvasm
+index 91af2f3f..9accd4a4 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-interpolate.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-interpolate.spvasm
+@@ -92,18 +92,6 @@ OpName %131 "perspective_centroid"
+ OpName %133 "perspective_sample"
+ OpName %135 "perspective_center"
+ OpName %137 "frag_main"
+-OpMemberDecorate %9 0 Offset 0
+-OpMemberDecorate %9 1 Offset 16
+-OpMemberDecorate %9 2 Offset 20
+-OpMemberDecorate %9 3 Offset 24
+-OpMemberDecorate %9 4 Offset 28
+-OpMemberDecorate %9 5 Offset 32
+-OpMemberDecorate %9 6 Offset 48
+-OpMemberDecorate %9 7 Offset 64
+-OpMemberDecorate %9 8 Offset 80
+-OpMemberDecorate %9 9 Offset 96
+-OpMemberDecorate %9 10 Offset 100
+-OpMemberDecorate %9 11 Offset 104
+ OpDecorate %11 BuiltIn Position
+ OpDecorate %13 Location 0
+ OpDecorate %13 Flat
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-interpolate_compat.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-interpolate_compat.spvasm
+index f09a39d5..c12d1d1f 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-interpolate_compat.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-interpolate_compat.spvasm
+@@ -91,17 +91,6 @@ OpName %125 "perspective_centroid"
+ OpName %127 "perspective_sample"
+ OpName %129 "perspective_center"
+ OpName %131 "frag_main"
+-OpMemberDecorate %9 0 Offset 0
+-OpMemberDecorate %9 1 Offset 16
+-OpMemberDecorate %9 2 Offset 20
+-OpMemberDecorate %9 3 Offset 24
+-OpMemberDecorate %9 4 Offset 32
+-OpMemberDecorate %9 5 Offset 48
+-OpMemberDecorate %9 6 Offset 64
+-OpMemberDecorate %9 7 Offset 80
+-OpMemberDecorate %9 8 Offset 96
+-OpMemberDecorate %9 9 Offset 100
+-OpMemberDecorate %9 10 Offset 104
+ OpDecorate %11 BuiltIn Position
+ OpDecorate %13 Location 0
+ OpDecorate %13 Flat
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-mat2-uniform-alignment.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-mat2-uniform-alignment.spvasm
+index e0dc13bf..a8b0eda7 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-mat2-uniform-alignment.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-mat2-uniform-alignment.spvasm
+@@ -7,10 +7,7 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %22 "main"
+ OpExecutionMode %22 LocalSize 1 1 1
+-OpMemberDecorate %7 0 Offset 0
+-OpMemberDecorate %7 1 Offset 8
+ OpMemberDecorate %7 1 ColMajor
+-OpMemberDecorate %7 1 MatrixStride 8
+ OpMemberDecorate %8 0 Offset 0
+ OpMemberDecorate %8 1 Offset 8
+ OpMemberDecorate %8 2 Offset 16
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-math-functions.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-math-functions.spvasm
+index 046ebeb4..b4bfe15f 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-math-functions.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-math-functions.spvasm
+@@ -7,16 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint Fragment %18 "main"
+ OpExecutionMode %18 OriginUpperLeft
+-OpMemberDecorate %11 0 Offset 0
+-OpMemberDecorate %11 1 Offset 4
+-OpMemberDecorate %12 0 Offset 0
+-OpMemberDecorate %12 1 Offset 8
+-OpMemberDecorate %13 0 Offset 0
+-OpMemberDecorate %13 1 Offset 16
+-OpMemberDecorate %14 0 Offset 0
+-OpMemberDecorate %14 1 Offset 4
+-OpMemberDecorate %15 0 Offset 0
+-OpMemberDecorate %15 1 Offset 16
+ %2 = OpTypeVoid
+ %3 = OpTypeFloat 32
+ %4 = OpTypeVector %3 4
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader-empty.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader-empty.spvasm
+index 0f03fdb2..a4e86dd1 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader-empty.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader-empty.spvasm
+@@ -18,15 +18,6 @@ OpDecorate %69 BuiltIn LocalInvocationIndex
+ OpMemberDecorate %71 0 BuiltIn Position
+ OpDecorate %71 Block
+ OpDecorate %77 BuiltIn PrimitiveTriangleIndicesEXT
+-OpMemberDecorate %4 0 Offset 0
+-OpMemberDecorate %7 0 Offset 0
+-OpMemberDecorate %9 0 Offset 0
+-OpDecorate %10 ArrayStride 16
+-OpDecorate %12 ArrayStride 16
+-OpMemberDecorate %14 0 Offset 0
+-OpMemberDecorate %14 1 Offset 48
+-OpMemberDecorate %14 2 Offset 64
+-OpMemberDecorate %14 3 Offset 68
+ OpDecorate %25 BuiltIn LocalInvocationIndex
+ OpDecorate %81 BuiltIn LocalInvocationIndex
+ %2 = OpTypeVoid
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader-lines.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader-lines.spvasm
+index b281d20f..92134d23 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader-lines.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader-lines.spvasm
+@@ -18,15 +18,6 @@ OpDecorate %69 BuiltIn LocalInvocationIndex
+ OpMemberDecorate %71 0 BuiltIn Position
+ OpDecorate %71 Block
+ OpDecorate %77 BuiltIn PrimitiveLineIndicesEXT
+-OpMemberDecorate %4 0 Offset 0
+-OpMemberDecorate %7 0 Offset 0
+-OpMemberDecorate %9 0 Offset 0
+-OpDecorate %11 ArrayStride 16
+-OpDecorate %13 ArrayStride 8
+-OpMemberDecorate %15 0 Offset 0
+-OpMemberDecorate %15 1 Offset 32
+-OpMemberDecorate %15 2 Offset 40
+-OpMemberDecorate %15 3 Offset 44
+ OpDecorate %26 BuiltIn LocalInvocationIndex
+ OpDecorate %81 BuiltIn LocalInvocationIndex
+ %2 = OpTypeVoid
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader-points.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader-points.spvasm
+index b1ee7101..aa39dfcc 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader-points.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader-points.spvasm
+@@ -18,15 +18,6 @@ OpDecorate %68 BuiltIn LocalInvocationIndex
+ OpMemberDecorate %70 0 BuiltIn Position
+ OpDecorate %70 Block
+ OpDecorate %76 BuiltIn PrimitivePointIndicesEXT
+-OpMemberDecorate %4 0 Offset 0
+-OpMemberDecorate %7 0 Offset 0
+-OpMemberDecorate %8 0 Offset 0
+-OpDecorate %10 ArrayStride 16
+-OpDecorate %12 ArrayStride 4
+-OpMemberDecorate %13 0 Offset 0
+-OpMemberDecorate %13 1 Offset 16
+-OpMemberDecorate %13 2 Offset 20
+-OpMemberDecorate %13 3 Offset 24
+ OpDecorate %24 BuiltIn LocalInvocationIndex
+ OpDecorate %80 BuiltIn LocalInvocationIndex
+ %2 = OpTypeVoid
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader.spvasm
+index da0c90bb..19f233aa 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-mesh-shader.spvasm
+@@ -61,20 +61,6 @@ OpDecorate %363 Location 0
+ OpDecorate %366 BuiltIn PrimitiveTriangleIndicesEXT
+ OpDecorate %369 Location 1
+ OpDecorate %369 PerPrimitiveEXT
+-OpMemberDecorate %6 0 Offset 0
+-OpMemberDecorate %6 1 Offset 16
+-OpMemberDecorate %7 0 Offset 0
+-OpMemberDecorate %7 1 Offset 16
+-OpMemberDecorate %10 0 Offset 0
+-OpMemberDecorate %10 1 Offset 12
+-OpMemberDecorate %10 2 Offset 16
+-OpMemberDecorate %11 0 Offset 0
+-OpDecorate %12 ArrayStride 32
+-OpDecorate %14 ArrayStride 32
+-OpMemberDecorate %16 0 Offset 0
+-OpMemberDecorate %16 1 Offset 96
+-OpMemberDecorate %16 2 Offset 128
+-OpMemberDecorate %16 3 Offset 132
+ OpDecorate %47 BuiltIn LocalInvocationIndex
+ OpDecorate %95 BuiltIn LocalInvocationId
+ OpDecorate %101 BuiltIn LocalInvocationIndex
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-overrides-atomicCompareExchangeWeak.f.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-overrides-atomicCompareExchangeWeak.f.spvasm
+index f32cd756..f910e798 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-overrides-atomicCompareExchangeWeak.f.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-overrides-atomicCompareExchangeWeak.f.spvasm
+@@ -7,8 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %11 "f" %17
+ OpExecutionMode %11 LocalSize 1 1 1
+-OpMemberDecorate %6 0 Offset 0
+-OpMemberDecorate %6 1 Offset 4
+ OpDecorate %17 BuiltIn LocalInvocationIndex
+ %2 = OpTypeVoid
+ %3 = OpTypeInt 32 1
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-overrides-ray-query.main.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-overrides-ray-query.main.spvasm
+index ffca2281..85c2d410 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-overrides-ray-query.main.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-overrides-ray-query.main.spvasm
+@@ -9,12 +9,6 @@ OpExtension "SPV_KHR_ray_query"
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %13 "main" %10
+ OpExecutionMode %13 LocalSize 1 1 1
+-OpMemberDecorate %8 0 Offset 0
+-OpMemberDecorate %8 1 Offset 4
+-OpMemberDecorate %8 2 Offset 8
+-OpMemberDecorate %8 3 Offset 12
+-OpMemberDecorate %8 4 Offset 16
+-OpMemberDecorate %8 5 Offset 32
+ OpDecorate %10 DescriptorSet 0
+ OpDecorate %10 Binding 0
+ %2 = OpTypeVoid
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-per-vertex.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-per-vertex.spvasm
+index 81abac09..9f0b6911 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-per-vertex.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-per-vertex.spvasm
+@@ -9,7 +9,6 @@ OpExtension "SPV_KHR_fragment_shader_barycentric"
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint Fragment %14 "fs_main" %9 %12
+ OpExecutionMode %14 OriginUpperLeft
+-OpDecorate %4 ArrayStride 4
+ OpDecorate %9 Location 0
+ OpDecorate %9 PerVertexKHR
+ OpDecorate %12 Location 0
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-policy-mix.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-policy-mix.spvasm
+index 23f33133..38bf07e0 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-policy-mix.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-policy-mix.spvasm
+@@ -68,9 +68,6 @@ OpDecorate %6 ArrayStride 16
+ OpMemberDecorate %9 0 Offset 0
+ OpDecorate %10 ArrayStride 16
+ OpMemberDecorate %12 0 Offset 0
+-OpDecorate %14 ArrayStride 4
+-OpDecorate %16 ArrayStride 4
+-OpDecorate %20 ArrayStride 16
+ OpDecorate %22 NonWritable
+ OpDecorate %22 DescriptorSet 0
+ OpDecorate %22 Binding 0
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-quad.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-quad.spvasm
+index 307fa304..dafcfbc5 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-quad.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-quad.spvasm
+@@ -64,8 +64,6 @@ OpName %25 "vert_main"
+ OpName %42 "uv"
+ OpName %45 "frag_main"
+ OpName %61 "fs_extra"
+-OpMemberDecorate %7 0 Offset 0
+-OpMemberDecorate %7 1 Offset 16
+ OpDecorate %11 DescriptorSet 0
+ OpDecorate %11 Binding 0
+ OpDecorate %13 DescriptorSet 0
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-ray-query-no-init-tracking.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-ray-query-no-init-tracking.spvasm
+index d6dddf62..4330f0a9 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-ray-query-no-init-tracking.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-ray-query-no-init-tracking.spvasm
+@@ -11,27 +11,8 @@ OpEntryPoint GLCompute %242 "main" %15 %17
+ OpEntryPoint GLCompute %262 "main_candidate" %15
+ OpExecutionMode %242 LocalSize 1 1 1
+ OpExecutionMode %262 LocalSize 1 1 1
+-OpMemberDecorate %10 0 Offset 0
+-OpMemberDecorate %10 1 Offset 4
+-OpMemberDecorate %10 2 Offset 8
+-OpMemberDecorate %10 3 Offset 12
+-OpMemberDecorate %10 4 Offset 16
+-OpMemberDecorate %10 5 Offset 20
+-OpMemberDecorate %10 6 Offset 24
+-OpMemberDecorate %10 7 Offset 28
+-OpMemberDecorate %10 8 Offset 36
+-OpMemberDecorate %10 9 Offset 48
+ OpMemberDecorate %10 9 ColMajor
+-OpMemberDecorate %10 9 MatrixStride 16
+-OpMemberDecorate %10 10 Offset 112
+ OpMemberDecorate %10 10 ColMajor
+-OpMemberDecorate %10 10 MatrixStride 16
+-OpMemberDecorate %12 0 Offset 0
+-OpMemberDecorate %12 1 Offset 4
+-OpMemberDecorate %12 2 Offset 8
+-OpMemberDecorate %12 3 Offset 12
+-OpMemberDecorate %12 4 Offset 16
+-OpMemberDecorate %12 5 Offset 32
+ OpMemberDecorate %13 0 Offset 0
+ OpMemberDecorate %13 1 Offset 16
+ OpDecorate %15 DescriptorSet 0
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-ray-query.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-ray-query.spvasm
+index d6dddf62..4330f0a9 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-ray-query.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-ray-query.spvasm
+@@ -11,27 +11,8 @@ OpEntryPoint GLCompute %242 "main" %15 %17
+ OpEntryPoint GLCompute %262 "main_candidate" %15
+ OpExecutionMode %242 LocalSize 1 1 1
+ OpExecutionMode %262 LocalSize 1 1 1
+-OpMemberDecorate %10 0 Offset 0
+-OpMemberDecorate %10 1 Offset 4
+-OpMemberDecorate %10 2 Offset 8
+-OpMemberDecorate %10 3 Offset 12
+-OpMemberDecorate %10 4 Offset 16
+-OpMemberDecorate %10 5 Offset 20
+-OpMemberDecorate %10 6 Offset 24
+-OpMemberDecorate %10 7 Offset 28
+-OpMemberDecorate %10 8 Offset 36
+-OpMemberDecorate %10 9 Offset 48
+ OpMemberDecorate %10 9 ColMajor
+-OpMemberDecorate %10 9 MatrixStride 16
+-OpMemberDecorate %10 10 Offset 112
+ OpMemberDecorate %10 10 ColMajor
+-OpMemberDecorate %10 10 MatrixStride 16
+-OpMemberDecorate %12 0 Offset 0
+-OpMemberDecorate %12 1 Offset 4
+-OpMemberDecorate %12 2 Offset 8
+-OpMemberDecorate %12 3 Offset 12
+-OpMemberDecorate %12 4 Offset 16
+-OpMemberDecorate %12 5 Offset 32
+ OpMemberDecorate %13 0 Offset 0
+ OpMemberDecorate %13 1 Offset 16
+ OpDecorate %15 DescriptorSet 0
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-ray-tracing-pipeline.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-ray-tracing-pipeline.spvasm
+index 5bd8acdc..ef972421 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-ray-tracing-pipeline.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-ray-tracing-pipeline.spvasm
+@@ -11,14 +11,6 @@ OpEntryPoint RayGenerationKHR %23 "ray_gen_main" %18 %21
+ OpEntryPoint MissKHR %138 "miss" %130 %133 %135
+ OpEntryPoint AnyHitKHR %150 "any_hit_main" %141 %144 %146 %148
+ OpEntryPoint ClosestHitKHR %168 "closest_hit_main" %159 %161 %163 %166
+-OpMemberDecorate %4 0 Offset 0
+-OpMemberDecorate %4 1 Offset 4
+-OpMemberDecorate %9 0 Offset 0
+-OpMemberDecorate %9 1 Offset 4
+-OpMemberDecorate %9 2 Offset 8
+-OpMemberDecorate %9 3 Offset 12
+-OpMemberDecorate %9 4 Offset 16
+-OpMemberDecorate %9 5 Offset 32
+ OpDecorate %13 DescriptorSet 0
+ OpDecorate %13 Binding 0
+ OpDecorate %18 BuiltIn LaunchIdKHR
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-shadow.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-shadow.spvasm
+index a5b29c4f..6a8a3a73 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-shadow.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-shadow.spvasm
+@@ -184,9 +184,6 @@ OpMemberDecorate %10 0 Offset 0
+ OpMemberDecorate %10 0 ColMajor
+ OpMemberDecorate %10 0 MatrixStride 16
+ OpMemberDecorate %10 1 Offset 64
+-OpMemberDecorate %12 0 Offset 0
+-OpMemberDecorate %12 1 Offset 16
+-OpMemberDecorate %12 2 Offset 32
+ OpMemberDecorate %16 0 Offset 0
+ OpMemberDecorate %16 0 ColMajor
+ OpMemberDecorate %16 0 MatrixStride 16
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-skybox.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-skybox.spvasm
+index f3e4be2c..7e79ebf7 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-skybox.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-skybox.spvasm
+@@ -8,8 +8,6 @@ OpMemoryModel Logical GLSL450
+ OpEntryPoint Vertex %46 "vs_main" %39 %42 %44
+ OpEntryPoint Fragment %106 "fs_main" %99 %102 %105
+ OpExecutionMode %106 OriginUpperLeft
+-OpMemberDecorate %6 0 Offset 0
+-OpMemberDecorate %6 1 Offset 16
+ OpMemberDecorate %8 0 Offset 0
+ OpMemberDecorate %8 0 ColMajor
+ OpMemberDecorate %8 0 MatrixStride 16
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-subgroup-operations.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-subgroup-operations.spvasm
+index 4b5e3f49..57887728 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-subgroup-operations.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-subgroup-operations.spvasm
+@@ -14,8 +14,6 @@ OpCapability GroupNonUniformQuad
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %17 "main" %8 %11 %13 %15
+ OpExecutionMode %17 LocalSize 1 1 1
+-OpMemberDecorate %4 0 Offset 0
+-OpMemberDecorate %4 1 Offset 4
+ OpDecorate %8 BuiltIn NumSubgroups
+ OpDecorate %11 BuiltIn SubgroupSize
+ OpDecorate %13 BuiltIn SubgroupId
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-workgroup-uniform-load-atomic.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-workgroup-uniform-load-atomic.spvasm
+index 2d88d2f0..541ee0c4 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-workgroup-uniform-load-atomic.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-workgroup-uniform-load-atomic.spvasm
+@@ -7,9 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %22 "test_atomic_workgroup_uniform_load" %17 %20 %42
+ OpExecutionMode %22 LocalSize 64 1 1
+-OpDecorate %5 ArrayStride 4
+-OpMemberDecorate %7 0 Offset 0
+-OpMemberDecorate %7 1 Offset 4
+ OpDecorate %17 BuiltIn WorkgroupId
+ OpDecorate %20 BuiltIn LocalInvocationId
+ OpDecorate %42 BuiltIn LocalInvocationIndex
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-workgroup-uniform-load.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-workgroup-uniform-load.spvasm
+index e82a9a70..a850b4b7 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-workgroup-uniform-load.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-workgroup-uniform-load.spvasm
+@@ -7,7 +7,6 @@ OpCapability Shader
+ OpMemoryModel Logical GLSL450
+ OpEntryPoint GLCompute %14 "test_workgroupUniformLoad" %11 %19
+ OpExecutionMode %14 LocalSize 4 1 1
+-OpDecorate %5 ArrayStride 4
+ OpDecorate %11 BuiltIn WorkgroupId
+ OpDecorate %19 BuiltIn LocalInvocationIndex
+ %2 = OpTypeVoid
+diff --git b/vendor/wgpu/naga/tests/out/spv/wgsl-workgroup-var-init.spvasm a/vendor/wgpu/naga/tests/out/spv/wgsl-workgroup-var-init.spvasm
+index 801ad15e..50cba420 100644
+--- b/vendor/wgpu/naga/tests/out/spv/wgsl-workgroup-var-init.spvasm
++++ a/vendor/wgpu/naga/tests/out/spv/wgsl-workgroup-var-init.spvasm
+@@ -32,11 +32,6 @@ OpName %12 "w_mem"
+ OpName %14 "output"
+ OpName %18 "main"
+ OpDecorate %5 ArrayStride 4
+-OpDecorate %8 ArrayStride 4
+-OpDecorate %10 ArrayStride 32
+-OpMemberDecorate %11 0 Offset 0
+-OpMemberDecorate %11 1 Offset 2048
+-OpMemberDecorate %11 2 Offset 2052
+ OpDecorate %14 DescriptorSet 0
+ OpDecorate %14 Binding 0
+ OpDecorate %15 Block

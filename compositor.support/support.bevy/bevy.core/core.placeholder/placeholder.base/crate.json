@@ -1,5 +1,7 @@
 {
   "deps": [
+    "compositor_kernel_graphic_format_catalog_base",
+    "compositor_support_bevy_core_import_base",
     "bevy"
   ]
 }

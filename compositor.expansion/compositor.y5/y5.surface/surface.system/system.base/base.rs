@@ -152,7 +152,7 @@ pub fn ensure_engine(kernel: &mut Storage) {
         &wgpu.adapter,
         Arc::new(wgpu.device.clone()),
         Arc::new(wgpu.queue.clone()),
-        compositor_monitor_runtime_surface_base::TEXTURE_FORMAT,
+        compositor_monitor_runtime_surface_base::texture_format(&wgpu.formats),
         EngineSettings::default(),
     ));
     let worker = compositor_monitor_compositor_iced_base::worker::spawn_shared(&wgpu);

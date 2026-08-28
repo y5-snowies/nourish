@@ -15,9 +15,16 @@ pub trait LoopWindow {
     fn activation(&self) -> Option<ActivationDetails>;
 
     /// The `xdg_session_management_v1` identity the client declared for this
-    /// toplevel: present before the first commit and identical on every future
-    /// run, so it identifies the window rather than the launch.
+    /// toplevel: present before the first commit, so it identifies the window
+    /// rather than the launch. This is the CURRENT name — the one a placeholder should
+    /// record, because it is what the client will restore under next run.
     fn session(&self) -> Option<SessionKey>;
+
+    /// Every session key this window has declared this run, for MATCHING a placeholder.
+    /// See the implementation: a client may retire the name it restored under
+    /// before the window maps, in which case the placeholder is filed under the retired
+    /// one and [`session`](Self::session) alone cannot find it.
+    fn session_keys(&self) -> Vec<SessionKey>;
 
     fn uuid(&self) -> Option<Uuid>;
 
@@ -102,6 +109,28 @@ impl LoopWindow for Window {
         let surface = self.toplevel()?.wl_surface().clone();
         compositor_support_smithay_state_session_store::store::identity(&surface)
             .map(|i| SessionKey { session_id: i.session_id, name: i.name })
+    }
+
+    /// Every session key this window has declared: the name it RESTORED under
+    /// first, then the name it currently holds. Both are needed to match a placeholder
+    /// — a client may retire the restored name before the window maps (Chrome
+    /// does, every run), and the placeholder is filed under whichever name that client
+    /// last used. `session()` remains the CURRENT key, which is what a placeholder
+    /// records so the chain rolls forward to the next run.
+    fn session_keys(&self) -> Vec<SessionKey> {
+        let Some(toplevel) = self.toplevel() else { return vec![] };
+        let surface = toplevel.wl_surface().clone();
+        let Some(identity) =
+            compositor_support_smithay_state_session_store::store::identity(&surface)
+        else {
+            return vec![];
+        };
+        let mut keys = vec![];
+        if let Some(restored) = identity.restored_from.filter(|r| *r != identity.name) {
+            keys.push(SessionKey { session_id: identity.session_id.clone(), name: restored });
+        }
+        keys.push(SessionKey { session_id: identity.session_id, name: identity.name });
+        keys
     }
 
     fn activation(&self) -> Option<ActivationDetails> {

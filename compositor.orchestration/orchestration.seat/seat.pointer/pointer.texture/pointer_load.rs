@@ -135,9 +135,12 @@ fn image_to_frame(img: &Image) -> CursorFrame {
     let height = img.height as i32;
     // let stride = width * 4;
 
+    // XCursor pixels are ARGB by specification; the layer states it so this crate
+    // does not have to name a format.
+    let (cursor_fourcc, _) = compositor_kernel_graphic_format_answer_base::answer::constant(compositor_kernel_graphic_format_answer_base::answer::Consumer::CursorImage);
     let buffer = MemoryRenderBuffer::from_slice(
         &img.pixels_rgba,
-        Fourcc::Argb8888,
+        cursor_fourcc,
         Size::from((width, height)),
         1, // scale: 1 for non-HiDPI cursors
         Transform::Normal,

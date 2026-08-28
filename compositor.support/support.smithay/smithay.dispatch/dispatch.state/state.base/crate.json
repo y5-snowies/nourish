@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_support_smithay_state_redraw_schedule",
     "compositor_support_smithay_state_tearing_gate",
     "compositor_support_smithay_dispatch_wire_tearing",
     "compositor_support_smithay_state_tearing_pacer",

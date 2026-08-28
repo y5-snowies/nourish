@@ -12,10 +12,9 @@
 pub fn filter_legacy(
     formats: smithay::backend::allocator::format::FormatSet,
 ) -> smithay::backend::allocator::format::FormatSet {
-    use smithay::backend::allocator::Modifier;
     let filtered: Vec<_> = formats
         .iter()
-        .filter(|f| matches!(f.modifier, Modifier::Linear | Modifier::Invalid))
+        .filter(|f| compositor_kernel_graphic_format_rule_base::rule::legacy(f.modifier))
         .copied()
         .collect();
     warn!(

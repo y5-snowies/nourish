@@ -35,7 +35,7 @@ pub fn allocate(
     let dmabuf = compositor_kernel_vulkan_memory_export_base::export::export(dev, &img)
         .map_err(|e| format!("export: {e:?}"))?;
     // What the DRIVER picked out of `mods`, which is the only interesting half.
-    compositor_kernel_graphic_bridge_negotiate_report::report::allocation(
+    compositor_kernel_graphic_format_audit_base::audit::allocation(
         "background worker", phd.name(), fourcc, mods.len(),
         smithay::backend::allocator::Buffer::format(&dmabuf).modifier,
     );

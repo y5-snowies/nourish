@@ -35,14 +35,42 @@ use smithay::wayland::compositor::with_states;
 pub struct SessionIdentity {
     pub session_id: String,
     pub name: String,
+    /// The name the client RESTORED under, when it did.
+    ///
+    /// Chrome retires a name the moment it uses it: it calls `restore_toplevel`
+    /// with the name the placeholder is filed under, then — still before the first
+    /// buffered commit — destroys that handle and `add_toplevel`s the SAME
+    /// `xdg_toplevel` under a freshly generated name. `name` therefore holds a
+    /// name the placeholder has never seen by the time the window maps, and
+    /// matching on it alone can never hit.
+    ///
+    /// Kept separate rather than blocking the overwrite: `name` must keep
+    /// tracking the newest value, because that is the one the client will
+    /// restore under NEXT time and so the one the placeholder has to store.
+    pub restored_from: Option<String>,
 }
 
-/// Stamp (or overwrite, for `rename`) a toplevel's session identity.
-pub fn set_identity(surface: &WlSurface, identity: SessionIdentity) {
+/// Stamp a toplevel's session identity.
+///
+/// `restored` marks the `restore_toplevel` path — the client telling us which
+/// stored toplevel this is. That name is preserved in `restored_from` across
+/// any later re-stamp of the same surface, so the map-time matcher can still
+/// see it after the client has moved on to a new name.
+pub fn set_identity(surface: &WlSurface, identity: SessionIdentity, restored: bool) {
     with_states(surface, |states| {
+        let mut identity = identity;
+        if restored {
+            identity.restored_from = Some(identity.name.clone());
+        }
         states.data_map.insert_if_missing_threadsafe(|| Mutex::new(identity.clone()));
         if let Some(cell) = states.data_map.get::<Mutex<SessionIdentity>>() {
-            *cell.lock().unwrap_or_else(|e| e.into_inner()) = identity;
+            let mut slot = cell.lock().unwrap_or_else(|e| e.into_inner());
+            // Carry an earlier restore name forward — this re-stamp is exactly
+            // the `add_toplevel` that would otherwise erase it.
+            if identity.restored_from.is_none() {
+                identity.restored_from = slot.restored_from.clone();
+            }
+            *slot = identity;
         }
     });
 }
@@ -59,7 +87,7 @@ pub fn identity(surface: &WlSurface) -> Option<SessionIdentity> {
 
 /// Why a toplevel could not be filed under a session. Each maps to a protocol
 /// error in both namespaces.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GrantError {
     /// Another LIVE toplevel already holds this name in this session.
     NameInUse,
@@ -165,10 +193,35 @@ impl SessionStore {
 
     /// A toplevel-session object died: release its live grant but KEEP the
     /// remembered name, which is exactly what makes the next run restorable.
-    pub fn release(&mut self, session_id: &str, name: &str) {
-        if let Some(toplevel) = self.granted.remove(&(session_id.to_string(), name.to_string())) {
-            self.added.remove(&(session_id.to_string(), toplevel));
+    ///
+    /// Holder-checked: after a takeover (`release_session`) the name may have
+    /// been re-granted to the NEW client's toplevel, and the displaced handle's
+    /// destructor must not free that one.
+    pub fn release(&mut self, session_id: &str, name: &str, holder: u32) {
+        let key = (session_id.to_string(), name.to_string());
+        if self.granted.get(&key).is_some_and(|held| *held == holder) {
+            self.granted.remove(&key);
+            self.added.remove(&(session_id.to_string(), holder));
         }
+    }
+
+    /// The `xdg_toplevel` itself died. Its grants go with it — a name is "in
+    /// use" only while a LIVE toplevel holds it. Without this the claim outlives
+    /// the window whenever the client destroys the toplevel but not its
+    /// toplevel-session handle (Firefox), and the same name on the next window
+    /// is a fatal `name_in_use` for a holder that no longer exists.
+    pub fn release_toplevel(&mut self, toplevel: u32) {
+        self.granted.retain(|_, held| *held != toplevel);
+        self.added.retain(|(_, t)| *t != toplevel);
+    }
+
+    /// A different client took the session over (`replaced` sent to the
+    /// incumbent): every live grant under it belonged to the displaced client's
+    /// toplevels and is no longer "in use". Remembered names stay — the new
+    /// holder is exactly the one about to restore them.
+    pub fn release_session(&mut self, session_id: &str) {
+        self.granted.retain(|(s, _), _| s != session_id);
+        self.added.retain(|(s, _)| s != session_id);
     }
 
     /// `remove` (destructor): drop the session and everything under it.

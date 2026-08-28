@@ -236,7 +236,7 @@ struct Subject {
     /// Kept alive for the lifetime of the toplevel — see [`SessionObjects`].
     _session_obj: SessionObjects,
     /// Ignore stdin EOF. Set by `--detached`, which the placeholder replays —
-    /// a subject relaunched from a tile has no controller pipe, and a compositor
+    /// a subject relaunched from a placeholder has no controller pipe, and a compositor
     /// with no stdin would otherwise kill it the moment it started.
     detached: bool,
 
@@ -512,7 +512,7 @@ fn main() {
     info!("tearing_control global: {}", tearing_mgr.is_some());
 
     // --- session identity -------------------------------------------------------------
-    // Always ask with NULL: the subject is launched from a placeholder tile with
+    // Always ask with NULL: the subject is launched from a placeholder with
     // no state of its own beyond the store file, and it has no way to know WHICH
     // of several stored ids is "its own". The compositor does — it knows which
     // placeholder spawned this pid — so we let it choose and then look our value
@@ -1522,7 +1522,7 @@ impl Subject {
                 if self.icon_mgr.is_some() { "yes" } else { "NO" },
                 self.icon_sizes
             ),
-            // The restoration check: after a relaunch from a placeholder tile
+            // The restoration check: after a relaunch from a placeholder
             // this must read RESTORED with the SAME value as before the close.
             self.session.overlay(),
         ];

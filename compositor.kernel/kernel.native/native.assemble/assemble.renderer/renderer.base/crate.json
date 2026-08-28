@@ -1,6 +1,9 @@
 {
   "deps": [
-    "compositor_kernel_graphic_bridge_negotiate_compositor",
+    "compositor_kernel_graphic_format_catalog_base",
+    "compositor_kernel_graphic_format_registrar_base",
+    "compositor_kernel_graphic_format_role_base",
+    "compositor_kernel_graphic_format_answer_base",
     "compositor_model_debug_instance_record",
     "compositor_model_environment_config_base",
     "smithay",
@@ -18,7 +21,7 @@
     "compositor_orchestration_draw_scene_element",
     "compositor_orchestration_core_state_base",
     // Diagnostics registry (developer Statistics tab) — direct cross-workspace path dep.
-    "compositor_kernel_graphic_bridge_negotiate_classify",
+    "compositor_kernel_graphic_format_rule_base",
     "compositor_model_stats_registry_base",
     "compositor_kernel_vulkan_instance_factory_base",
     "compositor_kernel_vulkan_instance_physical_base",

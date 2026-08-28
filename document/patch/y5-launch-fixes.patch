@@ -1,0 +1,1106 @@
+From 621c325bfbda1b72b256999c1995a04c0176a23a Mon Sep 17 00:00:00 2001
+From: Yarden Apelker <yardengpsys@gmail.com>
+Date: Thu, 20 Aug 2026 12:39:09 +0000
+Subject: [PATCH 1/2] placeholder launch fix
+
+---
+ .../launch.dispatch/dispatch.rs               | 32 ++++++++++++++++--
+ .../launch.execute/crate.json                 |  1 +
+ .../launch.execute/execute.rs                 | 23 ++++++++-----
+ .../execution.launch/launch.reap/reap.rs      | 33 +++++++++++++++++--
+ 4 files changed, 75 insertions(+), 14 deletions(-)
+
+diff --git a/compositor.introspection/introspection.execution/execution.launch/launch.dispatch/dispatch.rs b/compositor.introspection/introspection.execution/execution.launch/launch.dispatch/dispatch.rs
+index b4a7ee6f..c717ecfc 100644
+--- a/compositor.introspection/introspection.execution/execution.launch/launch.dispatch/dispatch.rs
++++ b/compositor.introspection/introspection.execution/execution.launch/launch.dispatch/dispatch.rs
+@@ -1,5 +1,6 @@
+ //! `LaunchWorker`: the handle held in the executor for off-thread launches.
+ 
++use std::panic::{catch_unwind, AssertUnwindSafe};
+ use std::sync::mpsc;
+ use std::thread;
+ 
+@@ -28,15 +29,40 @@ impl LaunchWorker {
+         Self { tx }
+     }
+ 
+-    /// Queue a launch. Dropped silently if the worker thread is gone.
++    /// Queue a launch. A gone worker is REPORTED, not swallowed: this thread is
++    /// the only consumer of the queue, so its absence means nothing will ever
++    /// spawn again — indistinguishable, from the user's side, from an app that
++    /// declined to open a window.
+     pub fn submit(&self, req: LaunchRequest) {
+-        let _ = self.tx.send(req);
++        if let Err(dropped) = self.tx.send(req) {
++            error!(
++                "launch worker gone; launch dropped: {:?}",
++                dropped.0.argv.first()
++            );
++        }
+     }
+ }
+ 
+ fn run(rx: mpsc::Receiver<LaunchRequest>, outcomes: CalloopSender<LaunchOutcome>, scope: bool) {
+     while let Ok(req) = rx.recv() {
+-        let outcome = execute(&req, scope);
++        // One launch may not take the queue down with it. `execute` spawns, and
++        // std's spawn asserts (rather than errors) if the child it reaps on an
++        // exec failure has already been collected — the exact panic that used to
++        // kill this thread and silently disable every launch for the rest of the
++        // session. `reap::spawn_guard` closes that race; this keeps ANY future
++        // panic in the spawn path costing one launch instead of all of them.
++        let outcome = match catch_unwind(AssertUnwindSafe(|| execute(&req, scope))) {
++            Ok(outcome) => outcome,
++            Err(_) => {
++                error!("launch panicked: {:?}", req.argv.first());
++                LaunchOutcome {
++                    correlation: req.correlation,
++                    token: req.token.clone(),
++                    pid: None,
++                    result: Err("launch panicked".into()),
++                }
++            }
++        };
+         if outcomes.send(outcome).is_err() {
+             break; // calloop receiver dropped → the loop is shutting down.
+         }
+diff --git a/compositor.introspection/introspection.execution/execution.launch/launch.execute/crate.json b/compositor.introspection/introspection.execution/execution.launch/launch.execute/crate.json
+index ad9fb8c7..3aea49d0 100644
+--- a/compositor.introspection/introspection.execution/execution.launch/launch.execute/crate.json
++++ b/compositor.introspection/introspection.execution/execution.launch/launch.execute/crate.json
+@@ -3,6 +3,7 @@
+     "compositor_introspection_execution_launch_types",
+     "compositor_support_library_process_child_hygiene",
+     "compositor_introspection_execution_launch_scope",
++    "compositor_introspection_execution_launch_reap",
+     "compositor_model_debug_instance_record"
+   ]
+ }
+diff --git a/compositor.introspection/introspection.execution/execution.launch/launch.execute/execute.rs b/compositor.introspection/introspection.execution/execution.launch/launch.execute/execute.rs
+index d8b038ef..9de8c7fc 100644
+--- a/compositor.introspection/introspection.execution/execution.launch/launch.execute/execute.rs
++++ b/compositor.introspection/introspection.execution/execution.launch/launch.execute/execute.rs
+@@ -34,15 +34,22 @@ pub fn execute(req: &LaunchRequest, scope: bool) -> LaunchOutcome {
+     cmd.stderr(Stdio::inherit());
+ 
+ 
+-    let pid = match cmd.spawn() {
+-        Ok(child) => {
+-            let pid = child.id();
+-            // std's Child does not wait on drop, so dropping here cannot race
+-            // the SIGCHLD reaper; it merely releases our handle.
+-            drop(child);
+-            pid
++    // Interlocked against the reaper for the whole spawn: on an exec failure std
++    // reaps the forked child itself and ASSERTS the wait succeeded, so a
++    // `waitpid(-1)` that gets there first panics this thread — see
++    // `reap::spawn_guard`. The guard is dropped as soon as the spawn returns.
++    let pid = {
++        let _spawning = compositor_introspection_execution_launch_reap::reap::spawn_guard();
++        match cmd.spawn() {
++            Ok(child) => {
++                let pid = child.id();
++                // std's Child does not wait on drop, so dropping here cannot race
++                // the SIGCHLD reaper; it merely releases our handle.
++                drop(child);
++                pid
++            }
++            Err(e) => return fail(req, format!("spawn failed: {e}")),
+         }
+-        Err(e) => return fail(req, format!("spawn failed: {e}")),
+     };
+ 
+     if scope {
+diff --git a/compositor.introspection/introspection.execution/execution.launch/launch.reap/reap.rs b/compositor.introspection/introspection.execution/execution.launch/launch.reap/reap.rs
+index e0f681c1..35783d87 100644
+--- a/compositor.introspection/introspection.execution/execution.launch/launch.reap/reap.rs
++++ b/compositor.introspection/introspection.execution/execution.launch/launch.reap/reap.rs
+@@ -1,13 +1,40 @@
+ //! Non-blocking drain of exited children.
+ 
++use std::sync::{Mutex, MutexGuard};
++
++/// Held across a `Command::spawn`, and for the whole of [`reap_zombies`], so the
++/// two can never run at once.
++///
++/// The spawn path is not free to avoid `wait` — std does it for us. When `exec`
++/// fails in the forked child (a plan pointing at a binary that isn't installed,
++/// say), `Command::spawn` reads the failure off the CLOEXEC pipe and then reaps
++/// that child itself, under an assertion: `assert!(p.wait().is_ok(), "wait()
++/// should either return Ok or panic")`. Our `waitpid(-1)` collects ANY child, so
++/// winning that race leaves std's `wait` with `ECHILD` and the assert PANICS —
++/// on whatever thread was spawning, which is the single `y5-launch` worker. Its
++/// death is silent and permanent: `LaunchWorker::submit` drops into a channel
++/// nobody reads, so from then on every launch — placeholder tile and Super+N
++/// launcher alike — spawns nothing at all.
++///
++/// So the interlock is on the reaper's side, where the choice actually exists.
++/// It is held for microseconds (a `fork` plus the exec handshake), and reaping
++/// is not latency-sensitive.
++static SPAWNING: Mutex<()> = Mutex::new(());
++
++/// Take the spawn/reap interlock for the duration of one spawn. See [`SPAWNING`].
++pub fn spawn_guard() -> MutexGuard<'static, ()> {
++    SPAWNING.lock().unwrap_or_else(|e| e.into_inner())
++}
++
+ /// Reap every child that has exited since the last call, returning their pids
+-/// (for logging / restoration cleanup). Never blocks: `WNOHANG` makes
++/// (for logging / restoration cleanup). Never blocks on a child: `WNOHANG` makes
+ /// `waitpid` return 0 once no more children have exited.
+ ///
+ /// We intentionally `waitpid(-1, …)` for ANY child rather than tracking a set,
+-/// so re-parented grandchildren are collected too. Because this owns reaping,
+-/// the spawn path must never call `Child::wait` itself (it would race to ECHILD).
++/// so re-parented grandchildren are collected too. That is also why it has to
++/// take [`SPAWNING`]: a spawn in flight owns a child we must not collect.
+ pub fn reap_zombies() -> Vec<u32> {
++    let _spawning = spawn_guard();
+     let mut reaped = Vec::new();
+     let mut status: libc::c_int = 0;
+     loop {
+-- 
+2.55.0
+
+
+From 65f20f1ab06ef9d7b263f1e4ecd68cc41bc34011 Mon Sep 17 00:00:00 2001
+From: Yarden Apelker <yardengpsys@gmail.com>
+Date: Thu, 20 Aug 2026 13:35:56 +0000
+Subject: [PATCH 2/2] spawn reaper fix
+
+---
+ .../graphic.capture/capture.encode/crate.json |  1 +
+ .../capture.encode/reencode.rs                | 73 +++++++-------
+ .../graphic.capture/capture.encode/video.rs   |  4 +-
+ .../overlay.interface/crate.json              |  1 +
+ .../overlay.interface/interface.rs            |  3 +-
+ .../launch.dispatch/crate.json                |  1 +
+ .../launch.dispatch/dispatch.rs               | 77 ++++++++++-----
+ .../launch.execute/crate.json                 |  2 +-
+ .../launch.execute/execute.rs                 | 33 ++++---
+ .../execution.launch/launch.reap/crate.json   |  3 +-
+ .../execution.launch/launch.reap/reap.rs      | 49 ++++-----
+ .../window.hints.container.query/crate.json   |  2 +
+ .../window.hints.container.query/query.rs     | 14 +--
+ .../executor.install/install.rs               | 22 ++++-
+ .../execute.base/activation_env.rs            |  3 +-
+ .../main.execute/execute.base/crate.json      |  1 +
+ .../interface.lifecycle/crate.json            |  1 +
+ .../interface.lifecycle/lifecycle.rs          |  9 +-
+ .../debug.client/client.base/base.rs          |  5 +-
+ .../debug.client/client.base/crate.json       |  1 +
+ .../pam.worker/worker.user/crate.json         |  1 +
+ .../pam.worker/worker.user/user.rs            |  7 +-
+ .../process.child/child.spawn/crate.json      |  3 +
+ .../process.child/child.spawn/lib.rs          |  6 ++
+ .../process.child/child.spawn/spawn.rs        | 99 +++++++++++++++++++
+ .../text.input.launch/crate.json              |  1 +
+ .../text.input.launch/launch.rs               |  9 +-
+ 27 files changed, 289 insertions(+), 142 deletions(-)
+ create mode 100644 compositor.support/support.library/library.process/process.child/child.spawn/crate.json
+ create mode 100644 compositor.support/support.library/library.process/process.child/child.spawn/lib.rs
+ create mode 100644 compositor.support/support.library/library.process/process.child/child.spawn/spawn.rs
+
+diff --git a/compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.encode/crate.json b/compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.encode/crate.json
+index fce9c1eb..268b5fbe 100644
+--- a/compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.encode/crate.json
++++ b/compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.encode/crate.json
+@@ -1,6 +1,7 @@
+ {
+   "deps": [
+     "compositor_support_library_process_child_hygiene",
++    "compositor_support_library_process_child_spawn",
+     "wgpu",
+     "compositor_support_bevy_core_runtime_base",
+     "zbus",
+diff --git a/compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.encode/reencode.rs b/compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.encode/reencode.rs
+index 0d4872c8..46b984a1 100644
+--- a/compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.encode/reencode.rs
++++ b/compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.encode/reencode.rs
+@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
+ use std::process::{Child, Stdio};
+ 
+ use compositor_support_library_process_child_hygiene::hygiene::command;
++use compositor_support_library_process_child_spawn::spawn as child_spawn;
+ use std::sync::Arc;
+ use std::sync::atomic::{AtomicU32, Ordering};
+ use std::thread::JoinHandle;
+@@ -99,8 +100,7 @@ impl ReencodeJob {
+             .stdout(Stdio::piped())
+             .stderr(Stdio::null());
+ 
+-        let mut child = cmd
+-            .spawn()
++        let mut child = child_spawn::spawn(&mut cmd)
+             .map_err(|e| warn!("reencode: ffmpeg spawn failed: {e}"))
+             .ok()?;
+ 
+@@ -260,7 +260,7 @@ fn run_blocking(
+         .stdin(Stdio::null())
+         .stdout(Stdio::null())
+         .stderr(Stdio::null());
+-    let status = cmd.status();
++    let status = child_spawn::status(&mut cmd);
+     matches!(status, Ok(s) if s.success())
+         && std::fs::metadata(output).map(|m| m.len() > 0).unwrap_or(false)
+ }
+@@ -294,8 +294,8 @@ fn snap_fps(avg: f64) -> u32 {
+ 
+ /// Probe a file's average frame rate via `ffprobe`. `None` if unavailable.
+ fn probe_avg_fps(input: &Path) -> Option<f64> {
+-    let out = command("ffprobe")
+-        .args([
++    let mut cmd = command("ffprobe");
++    cmd.args([
+             "-v",
+             "error",
+             "-select_streams",
+@@ -305,9 +305,8 @@ fn probe_avg_fps(input: &Path) -> Option<f64> {
+             "-of",
+             "default=nw=1:nk=1",
+         ])
+-        .arg(input)
+-        .output()
+-        .ok()?;
++        .arg(input);
++    let out = child_spawn::output(&mut cmd).ok()?;
+     let s = String::from_utf8_lossy(&out.stdout);
+     let (n, d) = s.trim().split_once('/')?;
+     let n: f64 = n.trim().parse().ok()?;
+@@ -347,20 +346,19 @@ fn input_decode_args(input: &Path, render_node: &str) -> Vec<String> {
+ 
+ /// The input stream's codec name (e.g. `h264`, `hevc`, `av1`) via `ffprobe`.
+ fn probe_codec_name(input: &Path) -> Option<String> {
+-    let out = command("ffprobe")
+-        .args([
+-            "-v",
+-            "error",
+-            "-select_streams",
+-            "v:0",
+-            "-show_entries",
+-            "stream=codec_name",
+-            "-of",
+-            "default=nw=1:nk=1",
+-        ])
+-        .arg(input)
+-        .output()
+-        .ok()?;
++    let mut cmd = command("ffprobe");
++    cmd.args([
++        "-v",
++        "error",
++        "-select_streams",
++        "v:0",
++        "-show_entries",
++        "stream=codec_name",
++        "-of",
++        "default=nw=1:nk=1",
++    ])
++    .arg(input);
++    let out = child_spawn::output(&mut cmd).ok()?;
+     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+     if s.is_empty() { None } else { Some(s) }
+ }
+@@ -370,11 +368,9 @@ fn probe_codec_name(input: &Path) -> Option<String> {
+ /// token is surrounded by spaces). Defaults to `true` if the probe itself fails
+ /// (can't tell → assume software decode and let ffmpeg try).
+ fn software_decoder_available(codec: &str) -> bool {
+-    let Ok(out) = command("ffmpeg")
+-        .args(["-hide_banner", "-decoders"])
+-        .stderr(Stdio::null())
+-        .output()
+-    else {
++    let mut cmd = command("ffmpeg");
++    cmd.args(["-hide_banner", "-decoders"]);
++    let Ok(out) = child_spawn::output(&mut cmd) else {
+         return true;
+     };
+     let needle = format!(" {codec} ");
+@@ -386,18 +382,17 @@ fn software_decoder_available(codec: &str) -> bool {
+ /// Probe a media file's duration in microseconds via `ffprobe`. `None` if
+ /// unavailable (progress then stays best-effort 0).
+ fn probe_duration_us(input: &Path) -> Option<i64> {
+-    let out = command("ffprobe")
+-        .args([
+-            "-v",
+-            "error",
+-            "-show_entries",
+-            "format=duration",
+-            "-of",
+-            "default=nw=1:nk=1",
+-        ])
+-        .arg(input)
+-        .output()
+-        .ok()?;
++    let mut cmd = command("ffprobe");
++    cmd.args([
++        "-v",
++        "error",
++        "-show_entries",
++        "format=duration",
++        "-of",
++        "default=nw=1:nk=1",
++    ])
++    .arg(input);
++    let out = child_spawn::output(&mut cmd).ok()?;
+     let secs: f64 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
+     Some((secs * 1_000_000.0) as i64)
+ }
+diff --git a/compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.encode/video.rs b/compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.encode/video.rs
+index 914e2c55..04e81837 100644
+--- a/compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.encode/video.rs
++++ b/compositor.expansion/compositor.y5/y5.graphic/graphic.capture/capture.encode/video.rs
+@@ -11,6 +11,7 @@ use std::path::PathBuf;
+ use std::process::{Child, Stdio};
+ 
+ use compositor_support_library_process_child_hygiene::hygiene::command;
++use compositor_support_library_process_child_spawn::spawn as child_spawn;
+ use std::sync::mpsc::{Sender, channel};
+ use std::thread::JoinHandle;
+ 
+@@ -61,8 +62,7 @@ impl VideoEncoder {
+         .stdin(Stdio::piped())
+         .stdout(Stdio::null())
+         .stderr(Stdio::null());
+-        let mut child = cmd
+-            .spawn()
++        let mut child = child_spawn::spawn(&mut cmd)
+             .map_err(|e| warn!("ffmpeg spawn failed (video disabled): {e}"))
+             .ok()?;
+ 
+diff --git a/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/crate.json b/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/crate.json
+index 33d973e2..996e70a7 100644
+--- a/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/crate.json
++++ b/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/crate.json
+@@ -1,6 +1,7 @@
+ {
+   "deps": [
+     "compositor_support_library_process_child_hygiene",
++    "compositor_support_library_process_child_spawn",
+     "smithay",
+     "uuid",
+     "compositor_orchestration_core_state_base",
+diff --git a/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/interface.rs b/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/interface.rs
+index be40d684..44522b86 100644
+--- a/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/interface.rs
++++ b/compositor.expansion/compositor.y5/y5.select/select.overlay/overlay.interface/interface.rs
+@@ -20,6 +20,7 @@ use std::process::Command;
+ use std::sync::Once;
+ 
+ use compositor_support_library_process_child_hygiene::hygiene::install as child_hygiene;
++use compositor_support_library_process_child_spawn::spawn as child_spawn;
+ 
+ use smithay::backend::renderer::gles::GlesRenderer;
+ use smithay::desktop::Window;
+@@ -482,7 +483,7 @@ fn user_scope_of(pid: i32) -> Option<String> {
+ /// Spawn a killer command and detach; failures are logged, never fatal.
+ fn spawn_detached(cmd: &mut Command) {
+     // Even a one-shot `kill` must not inherit our fds or CPU-priority boost.
+-    if let Err(e) = child_hygiene(cmd).spawn() {
++    if let Err(e) = child_spawn::spawn(child_hygiene(cmd)) {
+         warn!("close: failed to spawn killer: {e}");
+     }
+ }
+diff --git a/compositor.introspection/introspection.execution/execution.launch/launch.dispatch/crate.json b/compositor.introspection/introspection.execution/execution.launch/launch.dispatch/crate.json
+index a75603b7..12657f59 100644
+--- a/compositor.introspection/introspection.execution/execution.launch/launch.dispatch/crate.json
++++ b/compositor.introspection/introspection.execution/execution.launch/launch.dispatch/crate.json
+@@ -3,6 +3,7 @@
+     // calloop via smithay's reexport so the Sender type unifies with the loop.
+     "smithay",
+     "compositor_introspection_execution_launch_execute",
++    "compositor_introspection_execution_launch_reap",
+     "compositor_introspection_execution_launch_types",
+     "compositor_model_debug_instance_record"
+   ]
+diff --git a/compositor.introspection/introspection.execution/execution.launch/launch.dispatch/dispatch.rs b/compositor.introspection/introspection.execution/execution.launch/launch.dispatch/dispatch.rs
+index c717ecfc..d11598b3 100644
+--- a/compositor.introspection/introspection.execution/execution.launch/launch.dispatch/dispatch.rs
++++ b/compositor.introspection/introspection.execution/execution.launch/launch.dispatch/dispatch.rs
+@@ -3,25 +3,40 @@
+ use std::panic::{catch_unwind, AssertUnwindSafe};
+ use std::sync::mpsc;
+ use std::thread;
++use std::time::Duration;
+ 
+ use smithay::reexports::calloop::channel::Sender as CalloopSender;
+ 
+ use compositor_introspection_execution_launch_execute::execute::execute;
++use compositor_introspection_execution_launch_reap::reap::reap_zombies;
+ use compositor_introspection_execution_launch_types::types::{LaunchOutcome, LaunchRequest};
+ 
++/// How hard a reap tries for the spawn interlock. A spawn holds it for a fork
++/// plus an exec handshake, so losing it means another thread is mid-spawn.
++const REAP_ATTEMPTS: usize = 8;
++const REAP_BACKOFF: Duration = Duration::from_millis(2);
++
++/// What the worker thread does. Reaping rides the same queue BECAUSE the two
++/// must not overlap: one thread doing both serialises them by construction, and
++/// keeps the calloop thread out of the interlock — it posts and returns.
++enum Job {
++    Launch(LaunchRequest),
++    Reap,
++}
++
+ /// Submit launches off the calloop thread. Cloneable; the worker thread lives
+ /// for the process lifetime. `scope` (whether to adopt into a systemd scope) is
+ /// fixed at spawn — it depends only on systemd availability, not per-launch.
+ #[derive(Clone)]
+ pub struct LaunchWorker {
+-    tx: mpsc::Sender<LaunchRequest>,
++    tx: mpsc::Sender<Job>,
+ }
+ 
+ impl LaunchWorker {
+     /// Spawn the worker thread. `outcomes` is the calloop side; the caller must
+     /// insert its receiver as a loop source and dispatch each outcome.
+     pub fn spawn(outcomes: CalloopSender<LaunchOutcome>, scope: bool) -> Self {
+-        let (tx, rx) = mpsc::channel::<LaunchRequest>();
++        let (tx, rx) = mpsc::channel::<Job>();
+         thread::Builder::new()
+             .name("y5-launch".into())
+             .spawn(move || run(rx, outcomes, scope))
+@@ -30,37 +45,51 @@ impl LaunchWorker {
+     }
+ 
+     /// Queue a launch. A gone worker is REPORTED, not swallowed: this thread is
+-    /// the only consumer of the queue, so its absence means nothing will ever
+-    /// spawn again — indistinguishable, from the user's side, from an app that
+-    /// declined to open a window.
++    /// the queue's only consumer, so its absence means nothing will ever spawn
++    /// again — which looks exactly like an app declining to open a window.
+     pub fn submit(&self, req: LaunchRequest) {
+-        if let Err(dropped) = self.tx.send(req) {
+-            error!(
+-                "launch worker gone; launch dropped: {:?}",
+-                dropped.0.argv.first()
+-            );
++        let program = req.argv.first().cloned();
++        if self.tx.send(Job::Launch(req)).is_err() {
++            error!("launch worker gone; launch dropped: {program:?}");
+         }
+     }
++
++    /// Queue a reap (the SIGCHLD source's whole job). Silent on a gone worker:
++    /// `submit` already reports that, and one report is enough.
++    pub fn reap(&self) {
++        let _ = self.tx.send(Job::Reap);
++    }
+ }
+ 
+-fn run(rx: mpsc::Receiver<LaunchRequest>, outcomes: CalloopSender<LaunchOutcome>, scope: bool) {
+-    while let Ok(req) = rx.recv() {
+-        // One launch may not take the queue down with it. `execute` spawns, and
+-        // std's spawn asserts (rather than errors) if the child it reaps on an
+-        // exec failure has already been collected — the exact panic that used to
+-        // kill this thread and silently disable every launch for the rest of the
+-        // session. `reap::spawn_guard` closes that race; this keeps ANY future
+-        // panic in the spawn path costing one launch instead of all of them.
++fn run(rx: mpsc::Receiver<Job>, outcomes: CalloopSender<LaunchOutcome>, scope: bool) {
++    while let Ok(job) = rx.recv() {
++        let req = match job {
++            // Retry briefly while another thread's spawn holds the interlock.
++            // Sleeping here is free: this thread's only deadline is the next
++            // launch, and one queued behind this is one nobody has asked for yet.
++            Job::Reap => {
++                for attempt in 0..REAP_ATTEMPTS {
++                    if reap_zombies().is_some() {
++                        break;
++                    }
++                    if attempt + 1 < REAP_ATTEMPTS {
++                        thread::sleep(REAP_BACKOFF);
++                    }
++                }
++                continue;
++            }
++            Job::Launch(req) => req,
++        };
++        // One launch may not take the queue down with it. The interlock closes the
++        // spawn/reap race that used to panic this thread — silently disabling every
++        // launch for the rest of the session; this keeps ANY future panic in the
++        // spawn path costing one launch rather than all of them.
+         let outcome = match catch_unwind(AssertUnwindSafe(|| execute(&req, scope))) {
+             Ok(outcome) => outcome,
+             Err(_) => {
+                 error!("launch panicked: {:?}", req.argv.first());
+-                LaunchOutcome {
+-                    correlation: req.correlation,
+-                    token: req.token.clone(),
+-                    pid: None,
+-                    result: Err("launch panicked".into()),
+-                }
++                let result = Err(String::from("launch panicked"));
++                LaunchOutcome { correlation: req.correlation, token: req.token.clone(), pid: None, result }
+             }
+         };
+         if outcomes.send(outcome).is_err() {
+diff --git a/compositor.introspection/introspection.execution/execution.launch/launch.execute/crate.json b/compositor.introspection/introspection.execution/execution.launch/launch.execute/crate.json
+index 3aea49d0..df64a3d7 100644
+--- a/compositor.introspection/introspection.execution/execution.launch/launch.execute/crate.json
++++ b/compositor.introspection/introspection.execution/execution.launch/launch.execute/crate.json
+@@ -3,7 +3,7 @@
+     "compositor_introspection_execution_launch_types",
+     "compositor_support_library_process_child_hygiene",
+     "compositor_introspection_execution_launch_scope",
+-    "compositor_introspection_execution_launch_reap",
++    "compositor_support_library_process_child_spawn",
+     "compositor_model_debug_instance_record"
+   ]
+ }
+diff --git a/compositor.introspection/introspection.execution/execution.launch/launch.execute/execute.rs b/compositor.introspection/introspection.execution/execution.launch/launch.execute/execute.rs
+index 9de8c7fc..df772be4 100644
+--- a/compositor.introspection/introspection.execution/execution.launch/launch.execute/execute.rs
++++ b/compositor.introspection/introspection.execution/execution.launch/launch.execute/execute.rs
+@@ -4,6 +4,7 @@ use std::process::Stdio;
+ 
+ use compositor_introspection_execution_launch_scope::scope::adopt_into_scope;
+ use compositor_support_library_process_child_hygiene::hygiene::command;
++use compositor_support_library_process_child_spawn::spawn::spawn;
+ use compositor_introspection_execution_launch_types::types::{LaunchOutcome, LaunchRequest};
+ 
+ /// Spawn `req` and return its outcome. The PID is always `Child::id()` — we
+@@ -34,22 +35,19 @@ pub fn execute(req: &LaunchRequest, scope: bool) -> LaunchOutcome {
+     cmd.stderr(Stdio::inherit());
+ 
+ 
+-    // Interlocked against the reaper for the whole spawn: on an exec failure std
+-    // reaps the forked child itself and ASSERTS the wait succeeded, so a
+-    // `waitpid(-1)` that gets there first panics this thread — see
+-    // `reap::spawn_guard`. The guard is dropped as soon as the spawn returns.
+-    let pid = {
+-        let _spawning = compositor_introspection_execution_launch_reap::reap::spawn_guard();
+-        match cmd.spawn() {
+-            Ok(child) => {
+-                let pid = child.id();
+-                // std's Child does not wait on drop, so dropping here cannot race
+-                // the SIGCHLD reaper; it merely releases our handle.
+-                drop(child);
+-                pid
+-            }
+-            Err(e) => return fail(req, format!("spawn failed: {e}")),
++    // `child.spawn`, never `Command::spawn` directly: it refuses a program that
++    // could not be resolved (the ordinary failure — a plan naming a binary that
++    // isn't installed) BEFORE forking, and holds the reaper off for the fork+exec
++    // window so std's own wait on a failed exec cannot lose the race.
++    let pid = match spawn(&mut cmd) {
++        Ok(child) => {
++            let pid = child.id();
++            // std's Child does not wait on drop, so dropping here cannot race
++            // the SIGCHLD reaper; it merely releases our handle.
++            drop(child);
++            pid
+         }
++        Err(e) => return fail(req, format!("spawn failed: {e}")),
+     };
+ 
+     if scope {
+@@ -62,6 +60,9 @@ pub fn execute(req: &LaunchRequest, scope: bool) -> LaunchOutcome {
+ }
+ 
+ fn fail(req: &LaunchRequest, reason: String) -> LaunchOutcome {
+-    warn!("launch failed: {reason}");
++    // Name BOTH resolvable inputs. `spawn` reports a failed `chdir` and a failed
++    // `exec` with the same bare ENOENT, so a message carrying neither path sends
++    // you looking at the binary when the pinned working directory is what moved.
++    warn!("launch failed: {reason} (argv={:?} cwd={:?})", req.argv, req.working_dir);
+     LaunchOutcome { correlation: req.correlation, token: req.token.clone(), pid: None, result: Err(reason) }
+ }
+diff --git a/compositor.introspection/introspection.execution/execution.launch/launch.reap/crate.json b/compositor.introspection/introspection.execution/execution.launch/launch.reap/crate.json
+index be83c311..8212de91 100644
+--- a/compositor.introspection/introspection.execution/execution.launch/launch.reap/crate.json
++++ b/compositor.introspection/introspection.execution/execution.launch/launch.reap/crate.json
+@@ -1,5 +1,6 @@
+ {
+   "deps": [
+-    "libc"
++    "libc",
++    "compositor_support_library_process_child_spawn"
+   ]
+ }
+diff --git a/compositor.introspection/introspection.execution/execution.launch/launch.reap/reap.rs b/compositor.introspection/introspection.execution/execution.launch/launch.reap/reap.rs
+index 35783d87..1dcefd01 100644
+--- a/compositor.introspection/introspection.execution/execution.launch/launch.reap/reap.rs
++++ b/compositor.introspection/introspection.execution/execution.launch/launch.reap/reap.rs
+@@ -1,40 +1,25 @@
+ //! Non-blocking drain of exited children.
+ 
+-use std::sync::{Mutex, MutexGuard};
+-
+-/// Held across a `Command::spawn`, and for the whole of [`reap_zombies`], so the
+-/// two can never run at once.
+-///
+-/// The spawn path is not free to avoid `wait` — std does it for us. When `exec`
+-/// fails in the forked child (a plan pointing at a binary that isn't installed,
+-/// say), `Command::spawn` reads the failure off the CLOEXEC pipe and then reaps
+-/// that child itself, under an assertion: `assert!(p.wait().is_ok(), "wait()
+-/// should either return Ok or panic")`. Our `waitpid(-1)` collects ANY child, so
+-/// winning that race leaves std's `wait` with `ECHILD` and the assert PANICS —
+-/// on whatever thread was spawning, which is the single `y5-launch` worker. Its
+-/// death is silent and permanent: `LaunchWorker::submit` drops into a channel
+-/// nobody reads, so from then on every launch — placeholder tile and Super+N
+-/// launcher alike — spawns nothing at all.
+-///
+-/// So the interlock is on the reaper's side, where the choice actually exists.
+-/// It is held for microseconds (a `fork` plus the exec handshake), and reaping
+-/// is not latency-sensitive.
+-static SPAWNING: Mutex<()> = Mutex::new(());
+-
+-/// Take the spawn/reap interlock for the duration of one spawn. See [`SPAWNING`].
+-pub fn spawn_guard() -> MutexGuard<'static, ()> {
+-    SPAWNING.lock().unwrap_or_else(|e| e.into_inner())
+-}
++use compositor_support_library_process_child_spawn::spawn::try_reap_guard;
+ 
+ /// Reap every child that has exited since the last call, returning their pids
+-/// (for logging / restoration cleanup). Never blocks on a child: `WNOHANG` makes
+-/// `waitpid` return 0 once no more children have exited.
++/// (for logging / restoration cleanup). Never blocks: `WNOHANG` makes `waitpid`
++/// return 0 once no more children have exited, and the interlock below is
++/// ASKED for rather than waited on.
++///
++/// `None` means a spawn held the interlock and nothing was reaped. That is a
++/// safe answer, not a failure: zombies stay collectable, and the next child to
++/// exit raises SIGCHLD again. Whether to retry is the caller's to decide,
++/// because only the caller knows what thread it is on — the launch worker can
++/// afford to wait a few milliseconds; the calloop thread cannot.
+ ///
+ /// We intentionally `waitpid(-1, …)` for ANY child rather than tracking a set,
+-/// so re-parented grandchildren are collected too. That is also why it has to
+-/// take [`SPAWNING`]: a spawn in flight owns a child we must not collect.
+-pub fn reap_zombies() -> Vec<u32> {
+-    let _spawning = spawn_guard();
++/// so re-parented grandchildren are collected too. That is also why the
++/// interlock exists at all: a spawn in flight owns a child std itself will wait
++/// on, and collecting that one panics the spawning thread (see
++/// `child.spawn::try_reap_guard`).
++pub fn reap_zombies() -> Option<Vec<u32>> {
++    let _spawning = try_reap_guard()?;
+     let mut reaped = Vec::new();
+     let mut status: libc::c_int = 0;
+     loop {
+@@ -46,5 +31,5 @@ pub fn reap_zombies() -> Vec<u32> {
+         }
+         reaped.push(pid as u32);
+     }
+-    reaped
++    Some(reaped)
+ }
+diff --git a/compositor.introspection/introspection.extraction/extraction.window/window.hints.container.query/crate.json b/compositor.introspection/introspection.extraction/extraction.window/window.hints.container.query/crate.json
+index c303375f..c0432c37 100644
+--- a/compositor.introspection/introspection.extraction/extraction.window/window.hints.container.query/crate.json
++++ b/compositor.introspection/introspection.extraction/extraction.window/window.hints.container.query/crate.json
+@@ -1,5 +1,7 @@
+ {
+   "deps": [
++    "compositor_support_library_process_child_spawn",
++    "compositor_support_library_process_child_hygiene",
+     "compositor_model_debug_instance_record"
+   ]
+ }
+diff --git a/compositor.introspection/introspection.extraction/extraction.window/window.hints.container.query/query.rs b/compositor.introspection/introspection.extraction/extraction.window/window.hints.container.query/query.rs
+index 1a7c1f2a..7876760b 100644
+--- a/compositor.introspection/introspection.extraction/extraction.window/window.hints.container.query/query.rs
++++ b/compositor.introspection/introspection.extraction/extraction.window/window.hints.container.query/query.rs
+@@ -19,11 +19,14 @@
+ 
+ use std::collections::HashMap;
+ use std::io::Read;
+-use std::process::{Command, Stdio};
++use std::process::Stdio;
+ use std::sync::atomic::{AtomicBool, Ordering};
+ use std::sync::{Mutex, OnceLock};
+ use std::time::{Duration, Instant};
+ 
++use compositor_support_library_process_child_hygiene::hygiene::command;
++use compositor_support_library_process_child_spawn::spawn as child_spawn;
++
+ /// How long a cached table is served before [`name_for`] triggers a refresh.
+ const TTL: Duration = Duration::from_secs(30);
+ 
+@@ -156,12 +159,9 @@ fn list() -> Option<Vec<Entry>> {
+ /// `None` on a non-zero exit, a spawn failure, or the timeout — all of which the
+ /// callers read as "unknown" rather than as an answer.
+ fn probe(args: &[&str]) -> Option<String> {
+-    let mut child = Command::new("podman")
+-        .args(args)
+-        .stdout(Stdio::piped())
+-        .stderr(Stdio::null())
+-        .spawn()
+-        .ok()?;
++    let mut cmd = command("podman");
++    cmd.args(args).stdout(Stdio::piped()).stderr(Stdio::null());
++    let mut child = child_spawn::spawn(&mut cmd).ok()?;
+     // Spawned and polled rather than `output()`, which waits without a bound —
+     // see `PROBE_TIMEOUT` for why an unbounded wait here freezes the compositor.
+     let deadline = Instant::now() + PROBE_TIMEOUT;
+diff --git a/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.install/install.rs b/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.install/install.rs
+index 2c9abc77..4bcffb7d 100644
+--- a/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.install/install.rs
++++ b/compositor.kernel/kernel.execution/execution.driver/driver.executor/executor.install/install.rs
+@@ -40,6 +40,9 @@ pub fn install(state: &mut Loop, handle: &LoopHandle<'static, Loop>) {
+     let (tx, rx) = channel::<LaunchOutcome>();
+     let worker = matches!(LAUNCH_DISPATCH, LaunchDispatch::OffThread)
+         .then(|| LaunchWorker::spawn(tx.clone(), scope));
++    // The reaper's handle onto the same worker: reaping and spawning must not
++    // overlap, and one thread doing both is what guarantees it.
++    let reaper = worker.clone();
+     // Register the driver slot (insert — the slot doesn't exist yet; get_mut would
+     // panic on an unregistered slot, like the other driver slots in Orchestrator::new).
+     state.inner.kernel.insert(&EXECUTOR, Some(Executor::new(worker, tx, base_env, scope)));
+@@ -57,7 +60,7 @@ pub fn install(state: &mut Loop, handle: &LoopHandle<'static, Loop>) {
+         })
+         .unwrap_or_else(|e| abort!("register launch outcome source: {e:?}"));
+ 
+-    install_reaper(handle);
++    install_reaper(handle, reaper);
+ }
+ 
+ /// systemd as the init system? Mirrors libsystemd's `sd_booted()`:
+@@ -93,7 +96,15 @@ fn base_env(state: &Loop) -> BaseEnv {
+ 
+ /// signalfd(SIGCHLD) wrapped in a Generic source — calloop's `signals` feature
+ /// isn't enabled in the smithay reexport. Gated on a reaped backend.
+-fn install_reaper(handle: &LoopHandle<'static, Loop>) {
++///
++/// The handler does no reaping itself. `waitpid(-1)` has to be interlocked
++/// against every in-flight spawn (`child.spawn`), and this is the CALLOOP
++/// thread: making it wait on another thread's `exec` would stall input and
++/// rendering behind, say, a binary on a hung mount. So it posts to the launch
++/// worker, which owns both sides of that pair and can afford to wait. Without a
++/// worker (inline dispatch) spawns happen on this thread anyway, so reaping here
++/// cannot race one — a single non-blocking attempt, and the next SIGCHLD retries.
++fn install_reaper(handle: &LoopHandle<'static, Loop>, worker: Option<LaunchWorker>) {
+     if matches!(LAUNCH_BACKEND, LaunchBackend::Direct) {
+         return;
+     }
+@@ -111,7 +122,7 @@ fn install_reaper(handle: &LoopHandle<'static, Loop>) {
+     // SAFETY: signalfd returned a fresh owned fd.
+     let owned = unsafe { OwnedFd::from_raw_fd(sfd) };
+     handle
+-        .insert_source(Generic::new(owned, Interest::READ, Mode::Level), |_readiness, fd, _state: &mut Loop| {
++        .insert_source(Generic::new(owned, Interest::READ, Mode::Level), move |_readiness, fd, _state: &mut Loop| {
+             // Drain queued siginfo (level-triggered) so the fd quiesces.
+             let mut buf = [0u8; 128]; // size_of::<signalfd_siginfo>()
+             loop {
+@@ -120,7 +131,10 @@ fn install_reaper(handle: &LoopHandle<'static, Loop>) {
+                     break;
+                 }
+             }
+-            let _ = reap_zombies();
++            match &worker {
++                Some(worker) => worker.reap(),
++                None => drop(reap_zombies()),
++            }
+             Ok(PostAction::Continue)
+         })
+         .unwrap_or_else(|e| abort!("register SIGCHLD reaper: {e:?}"));
+diff --git a/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/activation_env.rs b/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/activation_env.rs
+index c48020c2..d2e2403a 100644
+--- a/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/activation_env.rs
++++ b/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/activation_env.rs
+@@ -14,6 +14,7 @@ use std::io;
+ 
+ // Every spawn goes through the hygiene wrapper — see `process.child`.
+ use compositor_support_library_process_child_hygiene::hygiene::command;
++use compositor_support_library_process_child_spawn::spawn as child_spawn;
+ 
+ /// Update the session and user-manager activation environments with
+ /// `KEY=VALUE` pairs, so subsequent `systemd-run --user` and
+@@ -39,7 +40,7 @@ pub fn push_session_env(pairs: &[(&str, &str)]) -> io::Result<()> {
+         cmd.arg(format!("{k}={v}"));
+     }
+ 
+-    let status = cmd.status()?;
++    let status = child_spawn::status(&mut cmd)?;
+     if !status.success() {
+         return Err(io::Error::new(
+             io::ErrorKind::Other,
+diff --git a/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/crate.json b/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/crate.json
+index 7dbdb611..7210bc36 100644
+--- a/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/crate.json
++++ b/compositor.kernel/kernel.loader/loader.main/main.execute/execute.base/crate.json
+@@ -2,6 +2,7 @@
+   "deps": [
+     "compositor_pipeline_world_system_base",
+     "compositor_support_library_process_child_hygiene",
++    "compositor_support_library_process_child_spawn",
+     "compositor_background_three_system_prewarm",
+     "compositor_orchestration_driver_capture_base",
+     "compositor_y5_graphic_capture_registry",
+diff --git a/compositor.orchestration/orchestration.environment/environment.interface/interface.lifecycle/crate.json b/compositor.orchestration/orchestration.environment/environment.interface/interface.lifecycle/crate.json
+index 0d0dbad5..874ff5d9 100644
+--- a/compositor.orchestration/orchestration.environment/environment.interface/interface.lifecycle/crate.json
++++ b/compositor.orchestration/orchestration.environment/environment.interface/interface.lifecycle/crate.json
+@@ -1,6 +1,7 @@
+ {
+   "deps": [
+     "compositor_support_library_process_child_hygiene",
++    "compositor_support_library_process_child_spawn",
+     "compositor_model_debug_instance_record"
+   ]
+ }
+diff --git a/compositor.orchestration/orchestration.environment/environment.interface/interface.lifecycle/lifecycle.rs b/compositor.orchestration/orchestration.environment/environment.interface/interface.lifecycle/lifecycle.rs
+index 4dbb4fd7..e570d05d 100644
+--- a/compositor.orchestration/orchestration.environment/environment.interface/interface.lifecycle/lifecycle.rs
++++ b/compositor.orchestration/orchestration.environment/environment.interface/interface.lifecycle/lifecycle.rs
+@@ -1,5 +1,6 @@
+ // Every spawn goes through the hygiene wrapper — see `process.child`.
+ use compositor_support_library_process_child_hygiene::hygiene::command;
++use compositor_support_library_process_child_spawn::spawn as child_spawn;
+ 
+ /// Name advertised to portals — must match `DesktopNames=` in the .desktop
+ /// and `XDG_CURRENT_DESKTOP` in the wrapper.
+@@ -19,12 +20,12 @@ pub fn announce_session(wayland_socket: &str, desktop_name: &str) {
+     // WAYLAND_DISPLAY is passed as NAME=VALUE so we don't depend on it being
+     // present in our own process env. The desktop name and session type are
+     // passed explicitly too, so this works regardless of what the wrapper set.
+-    let result = command("dbus-update-activation-environment")
+-        .arg("--systemd")
++    let mut cmd = command("dbus-update-activation-environment");
++    cmd.arg("--systemd")
+         .arg(format!("WAYLAND_DISPLAY={wayland_socket}"))
+         .arg(format!("XDG_CURRENT_DESKTOP={desktop_name}"))
+-        .arg("XDG_SESSION_TYPE=wayland")
+-        .status();
++        .arg("XDG_SESSION_TYPE=wayland");
++    let result = child_spawn::status(&mut cmd);
+ 
+     match result {
+         Ok(s) if s.success() => {
+diff --git a/compositor.support/support.library/library.debug/debug.client/client.base/base.rs b/compositor.support/support.library/library.debug/debug.client/client.base/base.rs
+index 42ee1e97..49f6a5af 100644
+--- a/compositor.support/support.library/library.debug/debug.client/client.base/base.rs
++++ b/compositor.support/support.library/library.debug/debug.client/client.base/base.rs
+@@ -1,5 +1,6 @@
+ // Every spawn goes through the hygiene wrapper — see `process.child`.
+ use compositor_support_library_process_child_hygiene::hygiene;
++use compositor_support_library_process_child_spawn::spawn as child_spawn;
+ 
+ pub fn init_logging() {
+     if let Ok(env_filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
+@@ -16,10 +17,10 @@ pub fn spawn_client() {
+ 
+     match (flag.as_deref(), arg) {
+         (Some("-c") | Some("--command"), Some(program)) => {
+-            hygiene::command(program).spawn().ok();
++            child_spawn::spawn(&mut hygiene::command(program)).ok();
+         }
+         _ => {
+-            hygiene::command("foot").spawn().ok();        }
++            child_spawn::spawn(&mut hygiene::command("foot")).ok();        }
+         // std::process::Command::new("weston-terminal").spawn().ok();        }
+     }
+ }
+diff --git a/compositor.support/support.library/library.debug/debug.client/client.base/crate.json b/compositor.support/support.library/library.debug/debug.client/client.base/crate.json
+index 5c3fbbee..d475a0a1 100644
+--- a/compositor.support/support.library/library.debug/debug.client/client.base/crate.json
++++ b/compositor.support/support.library/library.debug/debug.client/client.base/crate.json
+@@ -1,6 +1,7 @@
+ {
+   "deps": [
+     "compositor_support_library_process_child_hygiene",
++    "compositor_support_library_process_child_spawn",
+     "tracing-subscriber"
+   ]
+ }
+diff --git a/compositor.support/support.library/library.pam/pam.worker/worker.user/crate.json b/compositor.support/support.library/library.pam/pam.worker/worker.user/crate.json
+index c8e94637..2644d065 100644
+--- a/compositor.support/support.library/library.pam/pam.worker/worker.user/crate.json
++++ b/compositor.support/support.library/library.pam/pam.worker/worker.user/crate.json
+@@ -1,5 +1,6 @@
+ {
+   "deps": [
++    "compositor_support_library_process_child_spawn",
+     "compositor_support_library_process_child_hygiene"
+   ]
+ }
+diff --git a/compositor.support/support.library/library.pam/pam.worker/worker.user/user.rs b/compositor.support/support.library/library.pam/pam.worker/worker.user/user.rs
+index e7c5bea4..ba550f57 100644
+--- a/compositor.support/support.library/library.pam/pam.worker/worker.user/user.rs
++++ b/compositor.support/support.library/library.pam/pam.worker/worker.user/user.rs
+@@ -11,10 +11,9 @@ pub fn current_username() -> Option<String> {
+             return Some(u);
+         }
+     }
+-    let output = compositor_support_library_process_child_hygiene::hygiene::command("id")
+-        .arg("-un")
+-        .output()
+-        .ok()?;
++    let mut cmd = compositor_support_library_process_child_hygiene::hygiene::command("id");
++    cmd.arg("-un");
++    let output = compositor_support_library_process_child_spawn::spawn::output(&mut cmd).ok()?;
+     if !output.status.success() {
+         return None;
+     }
+diff --git a/compositor.support/support.library/library.process/process.child/child.spawn/crate.json b/compositor.support/support.library/library.process/process.child/child.spawn/crate.json
+new file mode 100644
+index 00000000..364a4a8a
+--- /dev/null
++++ b/compositor.support/support.library/library.process/process.child/child.spawn/crate.json
+@@ -0,0 +1,3 @@
++{
++  "deps": []
++}
+diff --git a/compositor.support/support.library/library.process/process.child/child.spawn/lib.rs b/compositor.support/support.library/library.process/process.child/child.spawn/lib.rs
+new file mode 100644
+index 00000000..d1e51cfc
+--- /dev/null
++++ b/compositor.support/support.library/library.process/process.child/child.spawn/lib.rs
+@@ -0,0 +1,6 @@
++//! The spawn door: the one place a `Command` is turned into a process, so the
++//! two things every spawn owes the SIGCHLD reaper — resolving the program
++//! before forking, and excluding the reaper for the fork+exec window — are
++//! stated once instead of at each call site.
++
++pub mod spawn;
+diff --git a/compositor.support/support.library/library.process/process.child/child.spawn/spawn.rs b/compositor.support/support.library/library.process/process.child/child.spawn/spawn.rs
+new file mode 100644
+index 00000000..5fea9ac9
+--- /dev/null
++++ b/compositor.support/support.library/library.process/process.child/child.spawn/spawn.rs
+@@ -0,0 +1,99 @@
++//! `spawn()` / `status()` / `output()` — every spawn goes through one of them.
++//!
++//! Both hazards handled here follow from the SIGCHLD reaper
++//! (`execution.launch/launch.reap`) collecting ANY child with `waitpid(-1)`:
++//!
++//! 1. **std reaps for us, under an assert.** When `exec` fails in the forked
++//!    child, `Command::spawn` reads the failure off the CLOEXEC pipe and then
++//!    waits on that child — `assert!(p.wait().is_ok(), "wait() should either
++//!    return Ok or panic")`. A reaper that gets there first leaves that wait
++//!    with `ECHILD`, and the assert PANICS on whatever thread was spawning.
++//!    [`try_reap_guard`] and the lock [`spawn`] takes make the two exclusive.
++//! 2. **The usual way to reach (1) need not fork at all.** A launch plan naming
++//!    a binary that isn't installed is the ordinary case, so [`resolve`] answers
++//!    it before the fork: a returned error instead of a race.
++
++use std::ffi::OsString;
++use std::io;
++use std::os::unix::fs::PermissionsExt;
++use std::path::PathBuf;
++use std::process::{Child, Command, ExitStatus, Output, Stdio};
++use std::sync::{Mutex, MutexGuard, TryLockError};
++
++/// Held across every spawn below, and by the reaper for its whole drain, so a
++/// spawn in flight cannot have its child collected out from under it. Held for
++/// microseconds: a `fork` plus the exec handshake.
++static SPAWNING: Mutex<()> = Mutex::new(());
++
++/// The reaper's side of [`SPAWNING`]: `None` while a spawn holds it, so the
++/// caller retries instead of blocking. Reaping has no latency requirement and
++/// must never be what waits on a slow `exec` — a binary on a hung mount would
++/// otherwise stall whichever thread reaps. A poisoned lock is taken anyway: the
++/// data is `()`, and never reaping again is worse than anything a panicking
++/// spawner could have left behind.
++pub fn try_reap_guard() -> Option<MutexGuard<'static, ()>> {
++    match SPAWNING.try_lock() {
++        Ok(guard) => Some(guard),
++        Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
++        Err(TryLockError::WouldBlock) => None,
++    }
++}
++
++/// Spawn `cmd`, refusing a program `exec` could not have resolved.
++pub fn spawn(cmd: &mut Command) -> io::Result<Child> {
++    if resolve(cmd).is_none() {
++        return Err(io::Error::new(
++            io::ErrorKind::NotFound,
++            format!("program not found or not executable: {}", cmd.get_program().to_string_lossy()),
++        ));
++    }
++    let _spawning = SPAWNING.lock().unwrap_or_else(|e| e.into_inner());
++    cmd.spawn()
++}
++
++/// [`spawn`] then wait, replacing `Command::status` (which spawns unguarded).
++pub fn status(cmd: &mut Command) -> io::Result<ExitStatus> {
++    spawn(cmd)?.wait()
++}
++
++/// [`spawn`] then collect, replacing `Command::output`. Stdio is FORCED, where
++/// std's version only fills what the caller left unset — we cannot read a
++/// `Command`'s stdio back to tell. Anything else wants [`spawn`] and a child
++/// driven by hand.
++pub fn output(cmd: &mut Command) -> io::Result<Output> {
++    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
++    spawn(cmd)?.wait_with_output()
++}
++
++/// Where `exec` would find this command's program: the path itself when it
++/// contains a `/`, else the first executable of that name along `PATH` (the
++/// command's own override when it sets one, otherwise ours). Relative paths are
++/// resolved against the command's `current_dir`, exactly as the child will see
++/// them. `None` means nothing would have been executed.
++pub fn resolve(cmd: &Command) -> Option<PathBuf> {
++    let program = cmd.get_program();
++    let at = |candidate: PathBuf| {
++        executable(match cmd.get_current_dir() {
++            Some(dir) if candidate.is_relative() => dir.join(candidate),
++            _ => candidate,
++        })
++    };
++    if program.as_encoded_bytes().contains(&b'/') {
++        return at(PathBuf::from(program));
++    }
++    let path = path_of(cmd).or_else(|| std::env::var_os("PATH"))?;
++    std::env::split_paths(&path).find_map(|dir| at(dir.join(program)))
++}
++
++/// `Some(candidate)` when it is a file we could execute. Approximate by
++/// necessity — a `noexec` mount or an LSM denial still fails at `exec`, which
++/// is the guarded path and no longer a panic.
++fn executable(candidate: PathBuf) -> Option<PathBuf> {
++    let meta = std::fs::metadata(&candidate).ok()?;
++    (meta.is_file() && meta.permissions().mode() & 0o111 != 0).then_some(candidate)
++}
++
++/// The `PATH` this command would exec under, if it overrides ours.
++fn path_of(cmd: &Command) -> Option<OsString> {
++    cmd.get_envs().find_map(|(key, value)| (key == "PATH").then_some(value?.to_os_string()))
++}
+diff --git a/compositor.support/support.smithay/smithay.state/state.text.input/text.input.launch/crate.json b/compositor.support/support.smithay/smithay.state/state.text.input/text.input.launch/crate.json
+index 600f1972..3554575e 100644
+--- a/compositor.support/support.smithay/smithay.state/state.text.input/text.input.launch/crate.json
++++ b/compositor.support/support.smithay/smithay.state/state.text.input/text.input.launch/crate.json
+@@ -1,6 +1,7 @@
+ {
+   "deps": [
+     "compositor_support_library_process_child_hygiene",
++    "compositor_support_library_process_child_spawn",
+     "smithay",
+     // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+     "compositor_model_debug_instance_record",
+diff --git a/compositor.support/support.smithay/smithay.state/state.text.input/text.input.launch/launch.rs b/compositor.support/support.smithay/smithay.state/state.text.input/text.input.launch/launch.rs
+index df061834..14fee1a0 100644
+--- a/compositor.support/support.smithay/smithay.state/state.text.input/text.input.launch/launch.rs
++++ b/compositor.support/support.smithay/smithay.state/state.text.input/text.input.launch/launch.rs
+@@ -13,6 +13,7 @@ use smithay::reexports::wayland_server::{Client, DisplayHandle};
+ 
+ use compositor_model_environment_preference_base::base::Ime;
+ use compositor_support_library_process_child_hygiene::hygiene::command;
++use compositor_support_library_process_child_spawn::spawn as child_spawn;
+ 
+ /// pid (== process-group id) of the launched IME; `0` before launch / if none started.
+ static IME_PGID: AtomicI32 = AtomicI32::new(0);
+@@ -30,13 +31,13 @@ pub fn launch(configured: Option<Ime>) {
+ 
+     // `process_group(0)` → new group with pgid == child pid (covers the IME + any helper it forks).
+     // The IME must NOT daemonize (`-d`), or the connecting process is a reparented grandchild.
+-    let spawned = command(&ime.exec)
+-        .args(&ime.args)
++    let mut cmd = command(&ime.exec);
++    cmd.args(&ime.args)
+         .process_group(0)
+         .stdin(Stdio::null())
+         .stdout(Stdio::null())
+-        .stderr(Stdio::piped())
+-        .spawn();
++        .stderr(Stdio::piped());
++    let spawned = child_spawn::spawn(&mut cmd);
+     let mut child = match spawned {
+         Ok(c) => c,
+         Err(e) => return error!("ime: failed to launch '{}': {e}", ime.exec),
+-- 
+2.55.0
+

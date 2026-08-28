@@ -104,12 +104,11 @@ pub struct Dispatch {
     pub session_live: compositor_support_smithay_dispatch_wire_session::session::SessionLive,
     /// `xdg_toplevel_drag_v1`: which `wl_data_source` owns which drag object.
     pub toplevel_drag: compositor_support_smithay_dispatch_wire_drag::drag::ToplevelDragState,
-    pub needs_redraw: bool,
+    /// Redraw scheduling, per pipe: request epoch, each output's rendered
+    /// epoch and in-flight flag, and the loop wake. The kernel registers pipes
+    /// and reports queue/complete; the handlers here only make requests.
+    pub redraw: compositor_support_smithay_state_redraw_schedule::schedule::Schedule,
 
-    // Additional safety for ping
-    pub render_in_flight: bool,
-
-    pub redraw_ping: Option<calloop::ping::Ping>,
 
     // Protocol outboxes — handlers record here (world-free); the rim drains them
     // after dispatch_clients + applies world effects. document/SMITHAY_DECOUPLING.md
@@ -169,15 +168,8 @@ impl Dispatch {
         if compositor_support_smithay_state_tearing_gate::gate::engaged() {
             return;
         }
-        self.needs_redraw = true;
+        self.redraw.request_silent();
     }
-
-    /// Ungated re-arm for the lost-wakeup guard: a ping consumed the latch while
-    /// a flip was in flight, so that pipe's pending vblank still needs to find
-    /// `needs_redraw` set. Bounded by definition (it only fires with a flip
-    /// actually in flight), so exclusive pacing leaves it alone.
-    #[inline]
-    pub fn rearm_redraw(&mut self) { self.needs_redraw = true; }
     /// Event-driven redraw (input, window lifecycle, popups, OSK, capture …).
     ///
     /// Under exclusive pacing this is silenced: the tagged client is the ONLY
@@ -195,37 +187,22 @@ impl Dispatch {
         if compositor_support_smithay_state_tearing_gate::gate::engaged() { return; }
         self.schedule_redraw_unchecked();
     }
-
     /// The scheduling body, bypassing the exclusive-pacing gate. Used for the
     /// pacer's own commits, which by definition must always be able to drive a
-    /// frame — they are the cadence.
+    /// frame — they are the cadence. Every call wakes the loop if any pipe is
+    /// idle: a wake is idempotent (pings coalesce) and the executor renders only
+    /// pipes behind the epoch, so there is nothing to suppress — and suppressing
+    /// it is how paced commits once went unserviced until the floor watchdog.
     #[inline]
-    pub fn schedule_redraw_unchecked(&mut self) {
-        if self.needs_redraw { return; }
-        self.needs_redraw = true;
-        if !self.render_in_flight {
-            if let Some(p) = &self.redraw_ping { p.ping(); }
-        }
-    }
-    /// Like `schedule_redraw` but ALWAYS fires the redraw ping, even while a frame is
-    /// in flight on another pipe. Needed when a NEW output pipe comes up (hotplug /
-    /// reactivation): it has never flipped, so it gets no per-CRTC vblank and the
-    /// vblank path (`RenderScope::Crtc`) never renders it — only an `All` render (the
-    /// ping) gives it its first frame and starts its own vblank cycle. The ping's
-    /// `execute(All)` skips per-pipe `in_flight` outputs, so forcing it mid-flight only
-    /// renders the idle (new) pipe. Without this the new output stays dark until a full
-    /// resume render (e.g. VT switch).
+    pub fn schedule_redraw_unchecked(&mut self) { self.redraw.request(); }
+    /// Unconditional wake: rescues (watchdogs, rate-cap timer) and hotplug, where
+    /// an idle cycle must restart whatever the in-flight bookkeeping says.
     #[inline]
-    pub fn force_redraw(&mut self) {
-        self.needs_redraw = true;
-        if let Some(p) = &self.redraw_ping { p.ping(); }
-    }
+    pub fn force_redraw(&mut self) { self.redraw.force(); }
+    /// Mark every pipe stale WITHOUT a wake, for callers that invoke the executor
+    /// themselves (session resume, the off-thread publish wake).
     #[inline]
-    pub fn take_needs_redraw(&mut self) -> bool { std::mem::replace(&mut self.needs_redraw, false) }
-    #[inline]
-    pub fn mark_render_queued(&mut self) { self.render_in_flight = true; }
-    #[inline]
-    pub fn mark_vblank_arrived(&mut self) { self.render_in_flight = false; }
+    pub fn bump_redraw_epoch(&mut self) { self.redraw.request_silent(); }
 }
 
 /// Establish a popup's explicit grab. Called INLINE from `XdgShellHandler::grab` (while the
@@ -336,7 +313,7 @@ impl Dispatch {
             self.deactivate_constraint_for(old, pointer);
         }
         if let Some(new_surface) = updated {
-            if self.seat.is_keyboard_focused(new_surface) {
+            if self.seat.is_keyboard_focused(new_surface) && !self.seat.constraints_suspended {
                 with_pointer_constraint(new_surface, pointer, |c| {
                     if let Some(c) = c {
                         if !c.is_active() {
@@ -361,6 +338,28 @@ impl Dispatch {
         // is dropped too: the canvas is not giving the pointer back to a surface.
         self.pending_restoration.clear();
         self.seat.unlock_restoration_location = None;
+    }
+
+    /// The hand tool took the pointer: drop the active constraint and refuse to
+    /// activate another (a game re-requests its lock the instant it is unlocked)
+    /// until [`resume_constraints`](Self::resume_constraints).
+    pub fn suspend_constraints(&mut self, pointer: &smithay::input::pointer::PointerHandle<Dispatch>) {
+        self.seat.constraints_suspended = true;
+        self.abandon_active_constraint(pointer);
+    }
+
+    /// The hand tool is off: honour constraints again, and arm the one under the
+    /// pointer now if its surface also holds the keyboard — the same terms as a
+    /// freshly requested one.
+    pub fn resume_constraints(&mut self, pointer: &smithay::input::pointer::PointerHandle<Dispatch>) {
+        self.seat.constraints_suspended = false;
+        if let Some(surface) = pointer.current_focus() {
+            if self.seat.is_keyboard_focused(&surface) {
+                with_pointer_constraint(&surface, pointer, |c| {
+                    if let Some(c) = c { if !c.is_active() { c.activate(); } }
+                });
+            }
+        }
     }
 }
 
@@ -899,6 +898,8 @@ mod handler_impls {
             let pointer_focused = pointer.current_focus().map(|f| &f == surface).unwrap_or(false);
             if !pointer_focused { return; }
             if !self.seat.is_keyboard_focused(surface) { return; }
+            // Hand tool: the request stays registered but inactive; `resume_constraints` arms it.
+            if self.seat.constraints_suspended { return; }
             with_pointer_constraint(surface, pointer, |c| { if let Some(c) = c { if !c.is_active() { c.activate(); } } });
         }
         /// The ONE place a constraint going away is announced — a client destroying
@@ -1004,6 +1005,8 @@ mod handler_impls {
             self.schedule_redraw();
         }
         fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
+            // A dead toplevel holds no session name (see `SessionStore::release_toplevel`).
+            self.session.release_toplevel(surface.xdg_toplevel().id().protocol_id());
             // Carried right now, or abandoned by a cancel of ours. Consumed on the
             // way past: the verdict belongs to this one destroy.
             let abandoned = self
@@ -1245,6 +1248,10 @@ mod handler_impls {
         });
     }
 
+    /// The surface's commit counter as the pacer last saw it, in its `UserDataMap`:
+    /// a gated commit is admitted only when this advanced (new pixels).
+    struct LastPacedCommit(std::sync::Mutex<Option<smithay::backend::renderer::utils::CommitCounter>>);
+
     impl CompositorHandler for Dispatch {
         fn compositor_state(&mut self) -> &mut CompositorState { &mut self.compositor.state }
         fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
@@ -1294,6 +1301,21 @@ mod handler_impls {
                     // `Focused` admits the focused window whether or not it is
                     // tagged, and `Visible` admits anything the scene drew.
                     //
+                    // The gate's properties belong to the WINDOW, which is the
+                    // tree's root surface: keyboard focus is held by the root, and
+                    // the scene stamps the root as visible. The commit, though, may
+                    // arrive on a SUBSURFACE — native games commonly present their
+                    // swapchain on one under the xdg toplevel, and smithay invokes
+                    // this handler once per surface of a transaction — so a
+                    // subsurface's frame must be judged by its root, or the game
+                    // never passes the gate and the loop runs at the floor.
+                    let root = {
+                        let mut r = surface.clone();
+                        while let Some(p) = compositor::get_parent(&r) {
+                            r = p;
+                        }
+                        r
+                    };
                     // Focus is resolved ONLY for the gates that read it. It costs
                     // a seat lookup plus a focus-target clone, and this runs on
                     // every client commit — thousands a second under tearing —
@@ -1304,23 +1326,59 @@ mod handler_impls {
                             .seat
                             .get_keyboard()
                             .and_then(|kb| kb.current_focus())
-                            .is_some_and(|f| &f == surface);
+                            .is_some_and(|f| f == root);
                     let frame = gate::frame();
-                    let (tagged, visible) = compositor::with_states(surface, |states| {
-                        (
-                            states
-                                .data_map
-                                .get::<pacer::PacerSurface>()
-                                .is_some_and(|t| t.get()),
-                            states
-                                .data_map
-                                .get::<gate::VisibleSurface>()
-                                .is_some_and(|v| v.fresh(frame)),
-                        )
+                    let visible = compositor::with_states(&root, |states| {
+                        states
+                            .data_map
+                            .get::<gate::VisibleSurface>()
+                            .is_some_and(|v| v.fresh(frame))
                     });
+                    // Window-level, like the scene's engagement test: a tag
+                    // anywhere in the tree makes every pixel-carrying commit of
+                    // that window a frame. Otherwise a game's HUD or overlay
+                    // subsurface would engage the gate yet never tick it.
+                    let tagged = {
+                        use smithay::wayland::compositor::{with_surface_tree_downward, TraversalAction};
+                        let mut found = false;
+                        with_surface_tree_downward(
+                            &root,
+                            (),
+                            |_, _, _| TraversalAction::DoChildren(()),
+                            |_, states, _| {
+                                found |= states
+                                    .data_map
+                                    .get::<pacer::PacerSurface>()
+                                    .is_some_and(|t| t.get());
+                            },
+                            |_, _, _| true,
+                        );
+                        found
+                    };
+                    // Only a commit that carries NEW PIXELS is a frame. Smithay's
+                    // per-surface commit counter advances exactly when a commit
+                    // attaches a new buffer with damage; a commit that attaches
+                    // none — a frame-callback request, an input-region or
+                    // cursor-hint update — leaves it where it was. Xwayland (via
+                    // satellite) commits a game's toplevel on every pointer event
+                    // that way, ~1000/s under a wired mouse, and each one used to
+                    // tick the pacer: composites above the client's frame rate,
+                    // every one a tear spent on nothing new.
+                    let advanced = {
+                        use smithay::backend::renderer::utils::with_renderer_surface_state;
+                        let now = with_renderer_surface_state(surface, |s| s.current_commit());
+                        compositor::with_states(surface, |states| {
+                            states.data_map.insert_if_missing(|| LastPacedCommit(std::sync::Mutex::new(None)));
+                            let slot = states.data_map.get::<LastPacedCommit>().unwrap();
+                            let mut last = slot.0.lock().unwrap_or_else(|e| e.into_inner());
+                            let advanced = now.is_some() && now != *last;
+                            *last = now;
+                            advanced
+                        })
+                    };
                     // `_unchecked` because `schedule_redraw` is itself gated while
                     // engaged — this IS the cadence, so it must bypass the gate.
-                    if g.admits(tagged, focused, visible) {
+                    if advanced && g.admits(tagged, focused, visible) {
                         self.schedule_redraw_unchecked();
                     }
                 }
@@ -1441,18 +1499,27 @@ mod handler_impls {
     impl ShmHandler for Dispatch {
         fn shm_state(&self) -> &ShmState { &self.shm.state }
     }
+    /// Decoration requests all arrive BEFORE the initial configure for the clients that
+    /// matter here (Chromium sets its mode ~16ms before we configure). Sending a configure
+    /// from these handlers is what produced the configure→reconfigure pair: the mode
+    /// request emitted sequence #1, the initial configure emitted an identical sequence #2,
+    /// and Chromium's xx-session-management code CHECK-crashes when a second
+    /// `xdg_toplevel.configure` is dispatched before it has acked the first.
+    ///
+    /// So: record the mode only, and let the initial configure carry it. Once the client is
+    /// configured (a mode toggle on a live window) the configure is sent as before.
     impl XdgDecorationHandler for Dispatch {
         fn new_decoration(&mut self, toplevel: ToplevelSurface) {
             toplevel.with_pending_state(|state| { state.decoration_mode = Some(Mode::ServerSide); });
-            toplevel.send_pending_configure();
+            if toplevel.is_initial_configure_sent() { toplevel.send_pending_configure(); }
         }
         fn request_mode(&mut self, toplevel: ToplevelSurface, mode: Mode) {
             toplevel.with_pending_state(|state| { state.decoration_mode = Some(mode); });
-            toplevel.send_pending_configure();
+            if toplevel.is_initial_configure_sent() { toplevel.send_pending_configure(); }
         }
         fn unset_mode(&mut self, toplevel: ToplevelSurface) {
             toplevel.with_pending_state(|state| { state.decoration_mode = Some(Mode::ServerSide); });
-            toplevel.send_pending_configure();
+            if toplevel.is_initial_configure_sent() { toplevel.send_pending_configure(); }
         }
     }
 

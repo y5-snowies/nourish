@@ -17,7 +17,7 @@ pub struct LaunchRequest {
     /// Unit/scope name used when the backend is `SystemdScope`.
     pub unit: String,
     /// Ties the outcome back to an originator (e.g. a placeholder uuid).
-    /// `None` for launches nobody needs to correlate (plain launcher tiles).
+    /// `None` for launches nobody needs to correlate (plain placeholders).
     pub correlation: Option<Uuid>,
     /// Container (name, else id) to run this launch inside; `None` = host.
     ///

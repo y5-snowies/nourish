@@ -34,7 +34,7 @@ pub fn warp_intent(
     previous: &Transform,
     output: &NavigatorOutput,
 ) -> Option<(f64, f64)> {
-    let screen = *cx.kernel.try_get(&kernel_data::SCREEN)?;
+    let screen = cx.kernel.try_get(&kernel_data::SCREEN)?.clone();
     let pointer = cx.kernel.try_get(&kernel_data::POINTER)?;
     let position_world: Point<f64, Logical> = pointer.current_location();
 

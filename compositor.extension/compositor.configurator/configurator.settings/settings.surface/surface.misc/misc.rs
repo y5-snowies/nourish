@@ -14,7 +14,11 @@ fn card<'a>(inner: El<'a>) -> El<'a> {
     container(inner).style(style::card).width(Length::Fill).into()
 }
 
-pub fn build<'a>(protocol_foreign: &'a str, protocol_foreign_all_worlds: bool) -> El<'a> {
+pub fn build<'a>(
+    protocol_foreign: &'a str,
+    protocol_foreign_all_worlds: bool,
+    session_capture: &'a str,
+) -> El<'a> {
     let mut rows: Vec<El<'a>> = vec![
         column![
             text("MISC").size(16).color(style::ACCENT),
@@ -58,6 +62,34 @@ pub fn build<'a>(protocol_foreign: &'a str, protocol_foreign_all_worlds: bool) -
         ]
         .align_y(Alignment::Center).spacing(10).padding(12).into(),
     ));
+
+    // Whether a returning window may reclaim its placeholder by the identity its client
+    // declared over session management, and how far that reach extends. Read live
+    // on the next map, so no restart line here.
+    rows.push(text("TRANSIENT SESSION CAPTURE").size(14).color(style::ACCENT).into());
+    let mks = |label: &'a str, value: &'a str| {
+        let b = button(text(label).size(12))
+            .on_press(SettingsMessage::SetSessionCapture(value.to_string()));
+        if session_capture == value { b.style(control::accent) } else { b.style(control::action) }
+    };
+    rows.push(card(
+        row![
+            text("Reclaim placeholders by session identity").width(Length::Fill),
+            mks("Off", "off"),
+            mks("On", "on"),
+            mks("All worlds", "all_worlds"),
+        ]
+        .align_y(Alignment::Center).spacing(10).padding(12).into(),
+    ));
+    rows.push(
+        column![
+            text("Off — a reopened window never reclaims its placeholder from its declared identity; only the launch that spawned it can.").size(11).color(style::MUTED),
+            text("On — a placeholder in the current world reclaims the window it belongs to, even if you reopened the app yourself.").size(11).color(style::MUTED),
+            text("All worlds — any world's placeholder may reclaim it, and the window is restored into that world, not this one.").size(11).color(style::MUTED),
+        ]
+        .spacing(3)
+        .into(),
+    );
 
     scrollable(Column::with_children(rows).spacing(10)).height(Length::Fill).into()
 }

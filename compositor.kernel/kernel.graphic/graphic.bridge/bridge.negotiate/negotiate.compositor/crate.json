@@ -1,7 +1,0 @@
-{
-  "deps": [
-    "compositor_model_environment_config_base",
-    "smithay",
-    "compositor_kernel_graphic_bridge_negotiate_base"
-  ]
-}

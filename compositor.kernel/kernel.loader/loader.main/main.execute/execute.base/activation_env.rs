@@ -14,6 +14,7 @@ use std::io;
 
 // Every spawn goes through the hygiene wrapper — see `process.child`.
 use compositor_support_library_process_child_hygiene::hygiene::command;
+use compositor_support_library_process_child_spawn::spawn as child_spawn;
 
 /// Update the session and user-manager activation environments with
 /// `KEY=VALUE` pairs, so subsequent `systemd-run --user` and
@@ -39,7 +40,7 @@ pub fn push_session_env(pairs: &[(&str, &str)]) -> io::Result<()> {
         cmd.arg(format!("{k}={v}"));
     }
 
-    let status = cmd.status()?;
+    let status = child_spawn::status(&mut cmd)?;
     if !status.success() {
         return Err(io::Error::new(
             io::ErrorKind::Other,

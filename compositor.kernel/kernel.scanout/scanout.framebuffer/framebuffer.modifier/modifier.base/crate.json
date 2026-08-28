@@ -1,5 +1,7 @@
 {
   "deps": [
+    "compositor_kernel_graphic_format_catalog_base",
+    "compositor_kernel_graphic_format_rule_base",
     "compositor_model_debug_instance_record",
     "smithay"
   ]

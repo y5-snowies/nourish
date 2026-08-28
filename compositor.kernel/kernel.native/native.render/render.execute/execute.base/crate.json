@@ -9,6 +9,7 @@
     "compositor_support_smithay_state_tearing_gate",
     "compositor_support_smithay_state_tearing_pacer",
     "compositor_model_environment_tearing_config",
+    "compositor_model_environment_config_base",
     "compositor_y5_graphic_tearing_resolve",
     "compositor_model_environment_tearing_select",
     "compositor_orchestration_driver_capture_base",

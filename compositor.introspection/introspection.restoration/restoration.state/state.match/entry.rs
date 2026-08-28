@@ -44,36 +44,51 @@ use compositor_introspection_restoration_state_registry::registry::MatcherRegist
 /// - `candidate_token`: the activation token the surface received via
 ///   Wayland's xdg-activation protocol (set by the compositor from
 ///   `request_activation`). `None` if the surface didn't carry one.
-/// - `candidate_session`: the session identity the new window's client
+/// - `candidate_sessions`: every session identity the new window's client has
 ///   declared via `xdg_session_management_v1`, read off the toplevel's surface
-///   data. `None` if the client does not speak the protocol (most, today).
+///   data — the name it RESTORED under first, then the name it currently holds.
+///   Empty if the client does not speak the protocol (most, today).
+///
+///   More than one because a client may retire a name between declaring it and
+///   mapping the window: Chrome calls `restore_toplevel` with the name the placeholder
+///   is filed under, then immediately re-files the same toplevel under a fresh
+///   name, all before the buffered commit this match runs on. Matching only the
+///   current name misses every such window and mints a duplicate placeholder per run.
 /// - `matchers`: the per-handler matcher registry.
 pub fn match_window(
     pendings: &[PendingRestoration],
     candidate: &MetaNode,
     candidate_hints: &InferredHints,
     candidate_token: Option<&str>,
-    candidate_session: Option<&SessionKey>,
+    candidate_sessions: &[SessionKey],
     matchers: &MatcherRegistry,
 ) -> Option<Uuid> {
     // PASS 0 (declared session identity): exact, client-declared, and durable
     // across restarts of both sides. Nothing below can be more certain than
     // this, so it sweeps first and alone.
     //
-    // The identity is not unique, though: two tiles can carry the same key — a
-    // session restored twice, or a tile duplicated — and taking the first in
+    // The identity is not unique, though: two placeholders can carry the same key — a
+    // session restored twice, or a placeholder duplicated — and taking the first in
     // iteration order made the winner an artefact of list position. Worse, this
     // pass runs BEFORE the token/pid pass, so an arbitrary session hit could beat
-    // the activation token of the tile the user actually clicked.
+    // the activation token of the placeholder the user actually clicked.
     //
     // Tie-broken by the most recent launch instead. Not by "is launching" alone:
-    // a tile whose launch never produced a window stays in that state, and a
+    // a placeholder whose launch never produced a window stays in that state, and a
     // stale stuck one must not outrank a fresh click. A candidate with no launch
     // at all loses to any that has one, and only an all-tie falls back to order.
-    if let Some(candidate_session) = candidate_session {
-        let claimed = pendings
-            .iter()
-            .filter(|pending| pending.session.as_ref() == Some(candidate_session));
+    //
+    // Any declared key may hit. They are tried as one set rather than in order:
+    // a placeholder is filed under exactly one name, so at most one of the candidate's
+    // keys can be the one it holds, and the launch tie-break below stays the
+    // only thing that decides between placeholders.
+    if !candidate_sessions.is_empty() {
+        let claimed = pendings.iter().filter(|pending| {
+            pending
+                .session
+                .as_ref()
+                .is_some_and(|held| candidate_sessions.contains(held))
+        });
         let best = claimed.max_by(|a, b| match (a.launch_at, b.launch_at) {
             (Some(a), Some(b)) => a.cmp(&b),
             (Some(_), None) => std::cmp::Ordering::Greater,

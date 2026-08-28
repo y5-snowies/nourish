@@ -1,8 +1,15 @@
 use smithay::backend::renderer::element::solid::SolidColorRenderElement;
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
-use smithay::backend::renderer::element::{Id, Kind};
-use smithay::backend::renderer::utils::CommitCounter;
 use smithay::backend::renderer::{ImportAll, ImportMem, Texture};
+use compositor_orchestration_draw_scene_identity::identity::SolidBank;
+
+thread_local! {
+    /// The selection FRAME around already-selected windows: 4 borders then 4
+    /// corner handles, slots 0..8. One frame exists at a time, so one bank.
+    static FRAME: SolidBank = SolidBank::default();
+    /// The drag rectangle being swept out: fill at slot 0, borders at 1..5.
+    static DRAG: SolidBank = SolidBank::default();
+}
 use smithay::desktop::Window;
 use smithay::utils::{Logical, Physical, Point, Rectangle, Size};
 use compositor_y5_camera_transform_translate::transform::Transform;
@@ -100,7 +107,10 @@ where
         )
     });
     let mut elements = Vec::new();
-    let mut push = |rect: Rectangle<i32, Physical>, color: [f32; 4]| {
+    // `slot` is explicit rather than "how many have been pushed": a rect clipped
+    // fully out of the pane returns early, and a positional count would then hand
+    // every later rect a different identity than it had last frame.
+    let mut push = |slot: usize, rect: Rectangle<i32, Physical>, color: [f32; 4]| {
         let rect = match pane {
             Some(p) => match rect.intersection(p) {
                 Some(c) => c,
@@ -108,22 +118,25 @@ where
             },
             None => rect,
         };
-        elements.push(SolidColorRenderElement::new(Id::new(), rect, CommitCounter::default(), color, Kind::Unspecified));
+        elements.push(FRAME.with(|bank| bank.solid(slot, rect, color)));
     };
 
-    push(Rectangle::from_loc_and_size(frame.loc, (frame.size.w, bt)), border_color);
-    push(Rectangle::from_loc_and_size(frame.loc + Point::new(0, frame.size.h - bt), (frame.size.w, bt)), border_color);
-    push(Rectangle::from_loc_and_size(frame.loc, (bt, frame.size.h)), border_color);
-    push(Rectangle::from_loc_and_size(frame.loc + Point::new(frame.size.w - bt, 0), (bt, frame.size.h)), border_color);
+    push(0, Rectangle::from_loc_and_size(frame.loc, (frame.size.w, bt)), border_color);
+    push(1, Rectangle::from_loc_and_size(frame.loc + Point::new(0, frame.size.h - bt), (frame.size.w, bt)), border_color);
+    push(2, Rectangle::from_loc_and_size(frame.loc, (bt, frame.size.h)), border_color);
+    push(3, Rectangle::from_loc_and_size(frame.loc + Point::new(frame.size.w - bt, 0), (bt, frame.size.h)), border_color);
 
     let hs = FRAME_HANDLE;
-    for (hx, hy) in [
+    for (corner, (hx, hy)) in [
         (frame.loc.x, frame.loc.y),
         (frame.loc.x + frame.size.w, frame.loc.y),
         (frame.loc.x, frame.loc.y + frame.size.h),
         (frame.loc.x + frame.size.w, frame.loc.y + frame.size.h),
-    ] {
-        push(Rectangle::from_loc_and_size((hx - hs / 2, hy - hs / 2), (hs, hs)), handle_color);
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        push(4 + corner, Rectangle::from_loc_and_size((hx - hs / 2, hy - hs / 2), (hs, hs)), handle_color);
     }
 
     elements
@@ -212,7 +225,8 @@ where
                 (rt.size_physical.0.round() as i32, rt.size_physical.1.round() as i32),
             )
         });
-        let mut push_solid = |rect: Rectangle<i32, Physical>, color: [f32; 4]| {
+        // Explicit slot, for the same reason as the frame above.
+        let mut push_solid = |slot: usize, rect: Rectangle<i32, Physical>, color: [f32; 4]| {
             let rect = match pane {
                 Some(p) => match rect.intersection(p) {
                     Some(clipped) => clipped,
@@ -220,10 +234,10 @@ where
                 },
                 None => rect,
             };
-            elements.push(SolidColorRenderElement::new(Id::new(), rect, CommitCounter::default(), color, Kind::Unspecified));
+            elements.push(DRAG.with(|bank| bank.solid(slot, rect, color)));
         };
 
-        push_solid(box_geometry, fill_color);
+        push_solid(0, box_geometry, fill_color);
 
         // 2. Draw the borders (Top, Bottom, Left, Right)
         let top_border =
@@ -239,8 +253,8 @@ where
             (border_thickness, box_geometry.size.h),
         );
 
-        for border in [top_border, bottom_border, left_border, right_border] {
-            push_solid(border, border_color);
+        for (edge, border) in [top_border, bottom_border, left_border, right_border].into_iter().enumerate() {
+            push_solid(1 + edge, border, border_color);
         }
     }
 

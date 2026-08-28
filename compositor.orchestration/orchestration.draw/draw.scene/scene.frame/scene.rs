@@ -358,6 +358,8 @@ pub struct PreparedGles {
     pub background_three: Vec<compositor_support_bevy_core_compositor_base::BevyRenderElement>,
     /// The embedded picker globe for the overview's World tab (empty otherwise).
     pub overview_world: compositor_y5_overview_draw_frame::frame::Prepared,
+    /// The notification pill, above everything (`None` while nothing is queued).
+    pub notify: Option<compositor_y5_notify_present_base::base::NotifyFrame>,
 }
 
 /// Per-pane cameras + sub-rects for the current output, matching how the content
@@ -404,8 +406,9 @@ pub fn prepare(
     renderer: &mut GlesRenderer,
     size: Size<i32, Physical>,
 ) -> PreparedGles {
-    // Temporary method of calling binding hooks for external renderers lazily.
-    hooks::hooks(state, renderer, size);
+    // Rim hooks, then the systems tick; the world's plan is bridged below
+    // (parallax) and the notification pill is handed through to `scene()`.
+    let hooks::Ticked { plan: mut frame, notify } = hooks::hooks(state, renderer, size);
 
     // De-alloc feature gate (`release_hidden_surfaces`). Set the flag up front so
     // `process_frame` (inside the surface scene below) sees this frame's value,
@@ -441,28 +444,13 @@ pub fn prepare(
             reg.manage_backings(&gpu, renderer, size.to_f64(), &panes);
         }
     }
-    // Parallax background is now a system (`TwoSystem`): it ticks its animation
-    // in `update()` and emits a renderer-agnostic node from `draw()`. Run the
-    // active world's draw pass, then bridge its `Background2D` node back into the
-    // GLES prepare slot. The continuous-redraw cadence the parallax needs is a
-    // driver concern, applied here while a node is live.
-    let mut background_two = {
-        let mut frame = compositor_support_system_world_frame_base::base::FramePlan::new();
-        let mut platform = unsafe {
-            compositor_orchestration_draw_platform_base::platform::Platform::new(
-                Some(renderer),
-                &mut state.inner.space_state_mut().state,
-            )
-        };
-        let kernel = &state.inner.kernel;
-        state.inner.worlds.active_mut().draw(kernel, &mut frame, Some(&mut platform));
-        drop(platform);
-        frame.sorted().into_iter().find_map(|(_, node)| {
-            node.downcast::<compositor_background_two_draw_element::element::ParallaxBackground>()
-                .ok()
-                .map(|b| *b)
-        })
-    };
+    // Parallax background is a system (`TwoSystem`): it ticks its animation in
+    // `update()` and emits a renderer-agnostic node from `draw()`; bridge that
+    // `Background2D` node back into the GLES prepare slot. The continuous-redraw
+    // cadence the parallax needs is a driver concern, applied here while a node
+    // is live.
+    let mut background_two =
+        frame.take::<compositor_background_two_draw_element::element::ParallaxBackground>();
     // An overlay world (e.g. lock) carries no parallax of its own, so the active
     // world's draw yields none — fall back to the focused session world's
     // (spawn_target). This keeps the real desktop background in the frame that the
@@ -526,6 +514,7 @@ pub fn prepare(
         background_two,
         background_three,
         overview_world,
+        notify,
     }
 }
 
@@ -601,6 +590,12 @@ where
         None => draw_screen,
         Some(tag) => render_key.as_deref().map_or(true, |k| k == tag.as_str()),
     };
+    // The notification pill, above the pointer and the fades alike. Per OUTPUT
+    // (the presenter keeps one per monitor and hands back this pass's), so it is
+    // not gated on `draw_screen` like the unbound screen iced.
+    if let Some(n) = prepared.notify {
+        plan.extend(layer::NOTIFY, n.elements.into_iter().map(DrawNode::Iced));
+    }
     if draw_screen {
         // Picker entry, FIRST half: the world being left ramps to black before the
         // switch (the picker's scene clears the same overlay on the far side).

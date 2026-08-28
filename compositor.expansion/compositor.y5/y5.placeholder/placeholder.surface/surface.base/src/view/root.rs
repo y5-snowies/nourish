@@ -22,9 +22,9 @@ const SESSION_GLYPH: &str = "◈";
 /// Top-level view.
 ///
 /// The body is built inside a [`responsive`] so the layout can pick a
-/// [`Breakpoint`] from the space the compositor actually gave the tile — a
+/// [`Breakpoint`] from the space the compositor actually gave the placeholder — a
 /// placeholder is dragged to arbitrary sizes and the roomy layout does not
-/// fit a short tile at all. The responsive sits OUTSIDE any Scrollable on
+/// fit a short placeholder at all. The responsive sits OUTSIDE any Scrollable on
 /// purpose: a scrollable hands its content an unbounded axis, so measuring
 /// inside one would report infinite height and always resolve to
 /// [`Breakpoint::Full`].
@@ -35,7 +35,7 @@ const SESSION_GLYPH: &str = "◈";
 ///
 /// - **Settings** is an arbitrarily long form: always vertically scrollable.
 /// - **View** is designed to fit its step exactly, so it gets NO scrollable
-///   and centers properly. The one exception is a tile below
+///   and centers properly. The one exception is a placeholder below
 ///   [`breakpoint::MIN_W`]/[`breakpoint::MIN_H`] — the placeholder state
 ///   clamps geometry to that floor, so this only happens to a record written
 ///   before the clamp existed, or to a surface the compositor crops. There a
@@ -97,7 +97,7 @@ pub fn root_view(ui: &PlaceholderUi) -> Element<'_, PlaceholderMessage, Theme, R
         // siblings of the scrollable rather than children of it is what keeps
         // them still while the body scrolls.
         //
-        // Built as a Vec because the two markers are independent: a tile can be
+        // Built as a Vec because the two markers are independent: a placeholder can be
         // containerised, session-bearing, or both, and `stack!` needs a fixed
         // arity. The badges sit in opposite top corners so both are legible when
         // both apply.
@@ -141,7 +141,7 @@ pub fn root_view(ui: &PlaceholderUi) -> Element<'_, PlaceholderMessage, Theme, R
 }
 
 /// Corner badge marking the placeholder as containerised. Drawn at every
-/// breakpoint — a tile at the layout floor is exactly where you most need to
+/// breakpoint — a placeholder at the layout floor is exactly where you most need to
 /// know the app is not on the host.
 fn container_badge<'a>(step: Breakpoint) -> Element<'a, PlaceholderMessage, Theme, Renderer> {
     container(
@@ -157,7 +157,7 @@ fn container_badge<'a>(step: Breakpoint) -> Element<'a, PlaceholderMessage, Them
     .into()
 }
 
-/// The session marker, top LEFT — opposite the container badge, so a tile that
+/// The session marker, top LEFT — opposite the container badge, so a placeholder that
 /// is both shows both without either overlapping the other.
 fn session_badge<'a>(step: Breakpoint) -> Element<'a, PlaceholderMessage, Theme, Renderer> {
     container(

@@ -1,8 +1,14 @@
 use smithay::backend::renderer::element::solid::SolidColorRenderElement;
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
-use smithay::backend::renderer::element::{Id, Kind};
-use smithay::backend::renderer::utils::CommitCounter;
 use smithay::backend::renderer::{ImportAll, ImportMem, Texture};
+use compositor_orchestration_draw_scene_identity::identity::SolidBank;
+
+/// Per-window slot bank for the four border edges. A NEWTYPE, not a bare
+/// `SolidBank`: `UserDataMap` is keyed by type, so storing the unwrapped bank
+/// would silently share slot indices with any other crate that stored one on the
+/// same window (the letterbox bars in `window.draw/draw.frame` do exactly that).
+#[derive(Default)]
+struct Border(SolidBank);
 use smithay::desktop::Window;
 use smithay::utils::{Physical, Point, Rectangle, Size};
 use compositor_y5_camera_transform_translate::transform::Transform;
@@ -156,7 +162,14 @@ where
     });
 
     // 3. Create and push elements
-    for rect in [top_rect, left_rect, right_rect, bottom_rect] {
+    //
+    // The bank hangs off THIS window's user data, so each window's four edges keep
+    // their own identities for as long as the window lives and never inherit
+    // another window's. `enumerate` before the clip, not after: the slot index has
+    // to mean "the left edge" every frame, and an edge clipped fully out of the
+    // pane `continue`s, which would otherwise shift every later edge's slot.
+    let borders = window.user_data().get_or_insert(Border::default);
+    for (slot, rect) in [top_rect, left_rect, right_rect, bottom_rect].into_iter().enumerate() {
         let rect = match pane {
             Some(p) => match rect.intersection(p) {
                 Some(clipped) => clipped,
@@ -164,13 +177,7 @@ where
             },
             None => rect,
         };
-        elements.push(SolidColorRenderElement::new(
-            Id::new(),
-            rect,
-            CommitCounter::default(),
-            color,
-            Kind::Unspecified,
-        ));
+        elements.push(borders.0.solid(slot, rect, color));
     }
 
     // // Create a logical bounding box for the trigger zone (sitting right on top of the window)

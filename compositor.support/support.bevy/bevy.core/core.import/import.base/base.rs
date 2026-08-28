@@ -7,9 +7,13 @@ use smithay::backend::allocator::dmabuf::Dmabuf;
 use wgpu::TextureUses;
 use wgpu::hal::{MemoryFlags, TextureDescriptor as HalTextureDescriptor};
 
-/// Canonical format for our DMABUF round-trip. gbm's ARGB8888 maps to BGRA
-/// in API endianness, sRGB so Bevy's content looks right.
-pub const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
+/// The wgpu format our DMABUF round-trip is seen through, DERIVED from the fourcc
+/// the format layer gives this producer. See the iced twin in
+/// `runtime.surface/wgpu_import.rs`; the mapping itself is in
+/// `format.catalog::wgpu_format`.
+pub fn texture_format(formats: &compositor_kernel_graphic_format_registrar_base::registrar::Registrar) -> wgpu::TextureFormat {
+    compositor_kernel_graphic_format_catalog_base::catalog::wgpu_format(compositor_kernel_graphic_format_answer_base::answer::producer_formats(formats, compositor_kernel_graphic_format_answer_base::answer::Consumer::BevyInline).0)
+}
 
 /// Usage: render attachment (Bevy draws into), texture binding (sampling),
 /// copy src (readback snapshots) + copy dst (fill a frozen snapshot via copy).
@@ -50,7 +54,7 @@ pub fn import_dmabuf_to_wgpu(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: TEXTURE_FORMAT,
+        format: texture_format(&ctx.formats),
         usage: TextureUses::COLOR_TARGET | TextureUses::RESOURCE | TextureUses::COPY_SRC | TextureUses::COPY_DST,
         memory_flags: MemoryFlags::empty(),
         view_formats: vec![],
@@ -90,7 +94,7 @@ pub fn import_dmabuf_to_wgpu(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: TEXTURE_FORMAT,
+        format: texture_format(&ctx.formats),
         usage: TEXTURE_USAGE,
         view_formats: &[],
     };

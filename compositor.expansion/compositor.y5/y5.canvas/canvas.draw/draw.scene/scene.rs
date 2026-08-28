@@ -177,7 +177,7 @@ where
     // sets `suppressed`, which makes `covers` false on its own.
     // ONE token read for both answers: whether a bundle is running at all, and
     // whether it composites windows itself.
-    let (active, covered) = {
+    let (active, bundle_owned) = {
         let w = state.inner.worlds.spawn_target();
         match state.inner.worlds.contains(w) {
             false => (false, false),
@@ -192,7 +192,7 @@ where
     let mut top_taken = false;
     let mut draw_window = |state: &mut Loop, renderer: &mut R, window: &Window, content: &mut Vec<ContentItem<R>>, visible: &mut Visible, occ: &mut Occluders| {
         if !placed(window) { return; }
-        let (elems, drawn) = compositor_y5_window_draw_frame::scene::scene(state, renderer, size, window, &canvas_context, occ, covered);
+        let (elems, drawn) = compositor_y5_window_draw_frame::scene::scene(state, renderer, size, window, &canvas_context, occ, bundle_owned);
         visible.note(window, &drawn);
         occ.extend(&drawn.opaque);
         if elems.is_empty() { return; }
