@@ -100,7 +100,7 @@ impl ReencodeJob {
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
 
-        let mut child = child_spawn::spawn(&mut cmd)
+        let mut child = child_spawn::spawn_awaited(&mut cmd)
             .map_err(|e| warn!("reencode: ffmpeg spawn failed: {e}"))
             .ok()?;
 

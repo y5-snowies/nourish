@@ -27,6 +27,9 @@
     "compositor_support_smithay_dispatch_wire_tablet",
     "compositor_model_environment_preference_base",
     "compositor_orchestration_seat_pointer_publish",
-    "compositor_pipeline_abi_clock_base"
+    "compositor_pipeline_abi_clock_base",
+    "compositor_support_smithay_state_window_find",
+    "compositor_support_smithay_state_window_ident",
+    "compositor_support_smithay_state_window_shell"
   ]
 }

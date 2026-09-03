@@ -20,6 +20,7 @@
     "compositor_y5_lock_state_base",
     "compositor_y5_navigator_interface_base",
     "smithay",
-    "compositor_orchestration_core_state_base"
+    "compositor_orchestration_core_state_base",
+    "compositor_support_smithay_state_window_shell"
   ]
 }

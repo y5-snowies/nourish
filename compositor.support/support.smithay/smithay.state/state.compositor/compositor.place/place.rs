@@ -59,7 +59,8 @@ pub fn reassert_size_if_diverged(window: &Window) -> Option<Size<i32, Logical>> 
     let mut guard = p.0.lock().unwrap();
     let g = guard.as_mut()?;
     if Instant::now() >= g.deadline { *guard = None; return None; }
-    let cur = window.geometry().size;
+    // `shell::configured_size`, not `geometry()`: it documents why they differ for X11.
+    let cur = compositor_support_smithay_state_window_shell::shell::configured_size(window);
     if cur == g.last_seen { return None; }
     g.last_seen = cur;
     if g.nudged {
@@ -91,6 +92,9 @@ pub fn handle_commit(
                 }
             }
             PopupKind::InputMethod(ref _input_method) => {}
+            // Nothing to hand shake: an X11 popup is a window the client already sized
+            // and placed for itself before it was presented as one.
+            PopupKind::X11(_) => {}
         }
     }
 }

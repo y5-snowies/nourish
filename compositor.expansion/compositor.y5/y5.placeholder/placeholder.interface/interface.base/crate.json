@@ -35,6 +35,7 @@
     // owns the iced registry that minted its handle, and the notice slot the
     // screen-space presenter reads lives with the placeholder state.
     "compositor_y5_surface_system_base",
-    "compositor_y5_placeholder_state_base"
+    "compositor_support_smithay_state_window_ident",
+    "compositor_support_smithay_state_window_shell"
   ]
 }

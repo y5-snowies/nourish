@@ -24,5 +24,6 @@ pub use compositor_installer_process_layout_compute_stage::{
     Action, Source, Stage, home, is_root, settings_exists, settings_path,
 };
 pub use compositor_installer_process_layout_compute_units::{
-    devtool_actions, maintenance_actions, mx_actions, polkit_actions, xwayland_actions,
+    devtool_actions, maintenance_actions, mx_actions, polkit_actions,
 };
+pub use compositor_installer_process_layout_compute_retire::retire::xwayland_retire_actions;

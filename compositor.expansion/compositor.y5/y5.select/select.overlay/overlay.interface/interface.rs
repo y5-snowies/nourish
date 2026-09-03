@@ -47,6 +47,8 @@ use compositor_y5_surface_protocol_base::protocol::{
 };
 use compositor_remote_message_client_base::bind::selection;
 use compositor_orchestration_seat_gesture_touch::touch::TouchMode;
+use compositor_support_smithay_state_window_shell::shell;
+use compositor_support_smithay_state_window_ident::ident;
 
 /// The active toolbar placement. Touch's Select mode pins the bar SCREEN
 /// bottom-centre (reachable by thumb, zoom-independent); every other case keeps
@@ -396,7 +398,8 @@ pub fn handle(state: &mut Loop, _renderer: &mut GlesRenderer, forward: Selection
 /// The signal paths target the exact pid that owns the window (resolved from the
 /// surface credentials) — never the command line, so other instances of the same
 /// app are left alone. All killers are spawned and detached (never waited on) so
-/// the render loop is not blocked — the compositor's SIGCHLD reaper collects them.
+/// the render loop is not blocked; each one's exit descriptor goes to the loop, which
+/// collects it (`child.pidfd`).
 fn close_selected(state: &mut Loop, mode: CloseMode) {
     use compositor_y5_window_interface_record::data::DiscardPlaceholder;
     use compositor_y5_window_interface_record::window::LoopWindow;
@@ -411,20 +414,27 @@ fn close_selected(state: &mut Loop, mode: CloseMode) {
             let persistent = window.uuid().is_some_and(|uuid| {
                 state.inner.placeholder().map.get(&uuid).is_some_and(|ph| ph.borrow().persistent)
             });
-            if !persistent && let Some(surface) = window.wl_surface() {
-                smithay::wayland::compositor::with_states(surface.as_ref(), |states| {
-                    states.data_map.insert_if_missing_threadsafe(|| DiscardPlaceholder);
-                });
+            if !persistent {
+                // Both homes, for the reason `mark::mark_window` documents: an X11
+                // window's surface association is torn down by the same event that
+                // queues its destroy, so a mark left only there is never read back.
+                if let Some(surface) = window.wl_surface() {
+                    smithay::wayland::compositor::with_states(surface.as_ref(), |states| {
+                        states.data_map.insert_if_missing_threadsafe(|| DiscardPlaceholder);
+                    });
+                }
+                window.user_data().insert_if_missing_threadsafe(|| DiscardPlaceholder);
             }
         }
         // Polite per-surface close: ask the client to dismiss just this window.
         if matches!(mode, CloseMode::Request | CloseMode::Discard) {
-            if let Some(toplevel) = window.toplevel() {
-                toplevel.send_close();
+            if shell::close(window) {
                 continue;
             }
-            // No xdg toplevel (XWayland): no close event — fall through to a
-            // graceful SIGTERM on the owning pid.
+            // Nothing was asked — the X connection failed — so fall through to a
+            // graceful SIGTERM on the owning pid. (An X11 window that does not offer
+            // `WM_DELETE_WINDOW` is NOT this case: `close` destroys it outright, and
+            // escalating on top of that would take the whole process with it.)
         }
         let Some(pid) = window_pid(window, &display_handle) else {
             warn!("close: selected window has no client pid; skipping");
@@ -438,11 +448,14 @@ fn close_selected(state: &mut Loop, mode: CloseMode) {
     }
 }
 
-/// The pid of a window's Wayland client, via the toplevel surface credentials.
+/// The pid of the process that owns a window.
+///
+/// Via `window.ident`, which is what keeps this safe for X11: every X11 window's
+/// wl_surface belongs to the one Xwayland client, so surface credentials here would
+/// name the X SERVER — and these callers SIGTERM or SIGKILL what they are given,
+/// taking down every other X11 app with it.
 fn window_pid(window: &Window, display_handle: &DisplayHandle) -> Option<i32> {
-    let surface = window.wl_surface()?;
-    let client = surface.client()?;
-    client.get_credentials(display_handle).ok().map(|c| c.pid)
+    ident::pid(window, display_handle).map(|pid| pid as i32)
 }
 
 /// SIGKILL the exact pid that owns the window.
@@ -483,7 +496,11 @@ fn user_scope_of(pid: i32) -> Option<String> {
 /// Spawn a killer command and detach; failures are logged, never fatal.
 fn spawn_detached(cmd: &mut Command) {
     // Even a one-shot `kill` must not inherit our fds or CPU-priority boost.
-    if let Err(e) = child_spawn::spawn(child_hygiene(cmd)) {
+    //
+    // `spawn_detached`: nothing waits on these, so each registers its child's exit
+    // descriptor with the loop. Without that they stay zombies for the session, one per
+    // window closed — which is what the wait-on-any-child reaper used to hide.
+    if let Err(e) = child_spawn::spawn_detached(child_hygiene(cmd)) {
         warn!("close: failed to spawn killer: {e}");
     }
 }

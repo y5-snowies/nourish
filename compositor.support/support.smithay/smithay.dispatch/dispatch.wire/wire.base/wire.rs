@@ -11,6 +11,12 @@ use std::sync::Mutex;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::drm::DrmDeviceFd;
 use smithay::desktop::PopupKind;
+use smithay::xwayland::{X11Surface, xwm::X11Window};
+use compositor_support_smithay_state_window_find::find;
+use compositor_support_smithay_state_window_ident::ident;
+use compositor_support_smithay_state_window_shell::shell;
+use compositor_support_smithay_dispatch_state_deferred::deferred::Deferred;
+use compositor_support_smithay_dispatch_state_deferred::deferred;
 use smithay::input::dnd::{DndGrabHandler, GrabType, Source};
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::input::pointer::{MotionEvent, PointerHandle};
@@ -150,18 +156,15 @@ pub fn new_dispatch(
         session_live: Default::default(),
         toplevel_drag: Default::default(),
         redraw: compositor_support_smithay_state_redraw_schedule::schedule::Schedule::new(),
+        xwayland: compositor_support_smithay_state_xwayland_factory::factory::new::<Dispatch>(display_handle),
+        protocol_pending: false,
         committed: vec![],
-        new_toplevels: vec![],
-        destroyed_toplevels: vec![],
-        fullscreen_requests: vec![],
-        new_layers: vec![],
-        destroyed_layers: vec![],
+        deferred: vec![],
         pending_dmabuf: vec![],
         geometries: std::collections::HashMap::new(),
         outputs_snapshot: vec![],
         in_popup_grab: false,
         pending_constraint_activation: None,
-        pending_restoration: vec![],
         pending_blockers: vec![],
     }
 }
@@ -178,9 +181,6 @@ impl<A: WireTrait + 'static> Wire<A> {
     #[inline] pub fn bump_redraw_epoch(&mut self) { self.state.bump_redraw_epoch(); }
     #[inline] pub fn schedule_redraw(&mut self) { self.state.schedule_redraw(); }
     #[inline] pub fn force_redraw(&mut self) { self.state.force_redraw(); }
-    pub fn window_for_toplevel(&self, surface: &ToplevelSurface) -> Option<smithay::desktop::Window> {
-        rd::window_for_toplevel(&self.inner.host_space().state, surface.wl_surface())
-    }
     /// Apply a control request a dock sent through wlr-foreign-toplevel-management.
     /// `close` asks the client to close; `fullscreen` routes through the world; `activate`
     /// queues a view+activate (see `request_activation`). maximize/minimize have no y5 model
@@ -199,7 +199,7 @@ impl<A: WireTrait + 'static> Wire<A> {
             .all_world_spaces()
             .iter()
             .flat_map(|s| s.state.elements())
-            .find(|w| w.toplevel().map(|t| *t.wl_surface() == surface).unwrap_or(false))
+            .find(|w| find::is_surface(w, &surface))
             .cloned()
         else {
             return;
@@ -207,9 +207,7 @@ impl<A: WireTrait + 'static> Wire<A> {
 
         match request {
             ForeignRequest::Close => {
-                if let Some(t) = window.toplevel() {
-                    t.send_close();
-                }
+                shell::close(&window);
             }
             ForeignRequest::Fullscreen(fs) => {
                 self.inner.fullscreen_request(window, fs);
@@ -311,6 +309,7 @@ impl<A: WireTrait + 'static> Wire<A> {
         // The settle keeps the window's placeholder at the position the carry left
         // it at, for a client that holds on to the window.
         self.state.toplevel_drag.settled.push(carried.clone());
+        self.state.arm_drain();
         // The abandon verdict is for a client that does the usual thing instead
         // and deletes the toplevel: the destroy then arrives after the carry has
         // ended, too late to ask whether it was being carried.
@@ -387,10 +386,259 @@ impl<A: WireTrait + 'static> Wire<A> {
     /// This is the bridge that lets the wayland handlers stay world-free —
     /// document/SMITHAY_DECOUPLING.md.
     pub fn drain_protocol(&mut self) {
-        // New toplevels first: initialize data + map so commits can find them.
-        for window in std::mem::take(&mut self.state.new_toplevels) {
+        // Consumed, not merely read: whoever drains satisfies the marker, so the loop's
+        // end-of-iteration drain skips an iteration the syncobj flush already emptied.
+        self.state.protocol_pending = false;
+        // Deferred world effects, in ARRIVAL order — one pass, not one loop per kind.
+        //
+        // Placed here, ahead of `committed` below, because that is the one ordering
+        // this queue cannot express: a commit has to find its window already mapped,
+        // and the two live in different queues. Everything WITHIN this pass is ordered
+        // by when it happened rather than by which arm was written first.
+        //
+        // Still ahead of `foreign_reconcile` further down, which is what keeps a
+        // destroyed window out of the dock in the same frame it died.
+        for event in std::mem::take(&mut self.state.deferred) {
+            match event {
+        // A window asked to be mapped. X11 windows arrive here too
+        // (`XwmHandler::map_window_request` and `mapped_override_redirect_window`), so
+        // this one arm gives all three kinds their uuid, their Space slot and
+        // everything keyed off those.
+        Deferred::WindowMapped(mapped) => {
+            // Resolve the window's IDENTITY before anything else touches it. For X11 that
+            // means asking the Space, which is the authority: an `X11Surface` may be
+            // reported as mapped more than once (see `Mapped`), and constructing here
+            // would mint a second identity for a window already on the canvas. An
+            // already-mapped window is not an error — its placement, uuid and slot are
+            // already correct, so there is nothing further to apply. A re-map after an
+            // unmap is exactly this case: the unmap kept the element
+            // (`XwmHandler::unmapped_window`), so the window resumes its slot, uuid and
+            // position with a fresh surface, as an xdg toplevel does.
+            //
+            // Across every world, because the unmap left the element in its own — a
+            // host-only lookup would mint a second identity for a remap off-screen.
+            //
+            // A tracked POPUP is not a Space element, so the Space cannot answer for it;
+            // its surface can. Without this, a map and its association arriving in the
+            // same drain minted a second popup node for one menu.
+            let window = match mapped {
+                deferred::Mapped::Xdg(window) => window,
+                deferred::Mapped::X11(x11) => match self.inner.owning_x11_window(&x11) {
+                    // Already a live Space element: a second entry for one map, or a
+                    // window that mapped anyway. Its placement, uuid and slot are correct.
+                    Some((_, window)) if self.inner.is_space_element(&window) => continue,
+                    // WITHDRAWN and mapping again. Put it back where it left, under the
+                    // uuid it left with, and retire the placeholder that stood in for it.
+                    // This is the case that makes a Wine/SDL fullscreen toggle and a
+                    // GTK/Qt hide()/show() land where they were instead of coming back as
+                    // a new window in the middle of the camera.
+                    Some((_, window)) => {
+                        self.inner.readmit_x11(window);
+                        continue;
+                    }
+                    None => {
+                        let tracked = x11
+                            .wl_surface()
+                            .is_some_and(|s| self.state.popup.state.find_popup(&s).is_some());
+                        if tracked {
+                            continue;
+                        }
+                        smithay::desktop::Window::new_x11_window(x11)
+                    }
+                },
+            };
+            // An EPHEMERAL X11 window that names a parent is a menu, tooltip or drag
+            // icon, and becomes a popup rather than a window — see `child::as_popup`.
+            // Tracked and nothing else: it gets no uuid, no Space slot, no decoration
+            // and no placeholder, and is drawn and hit-tested through the paths that
+            // already walk `popups_for_surface`. Anything that does not qualify falls
+            // through to the window path below, which is still the right answer for a
+            // transient dialog and the only one available to a menu that sets no
+            // `WM_TRANSIENT_FOR`.
+            // HELD until Xwayland associates a wl_surface. `child::as_popup` cannot answer
+            // without one — a `PopupKind` carries the popup's surface and its parent's —
+            // and Xwayland associates only after the map request, so asking here would
+            // answer `None` for EVERY X11 window and no menu, tooltip or dropdown could
+            // ever be a popup. Only CANDIDATES wait; an ordinary window maps immediately,
+            // which the placement below depends on. The map handlers skip a candidate
+            // that has no surface yet (`queue_x11_map`) and `surface_associated` queues
+            // it once it does; this check is the safety net for a surface that vanished
+            // in between, and the identity resolution above makes a second entry safe.
+            if window.is_x11()
+                && window.wl_surface().is_none()
+                && ident::is_popup_x11(&window)
+            {
+                continue;
+            }
+            if window.is_x11() {
+                // Every world's windows, not the focused one's. The parent mapped into
+                // whichever world was focused when IT mapped, and this child maps into
+                // whichever is focused now — so an app that opens a menu while the user
+                // is looking elsewhere resolved no parent, and the failure is not a
+                // misplacement but a change of KIND: the menu became a window, with a
+                // uuid, a Space slot, a decoration and a placeholder.
+                //
+                // Widening cannot mis-resolve: `parent_offset` matches on `window_id()`,
+                // which is unique across the X server, so more candidates can only find
+                // the right parent or none. And a popup needs no world of its own —
+                // `PopupManager` is world-free and the draw and hit paths reach it by
+                // walking `popups_for_surface` from the parent, so one whose parent is in
+                // another world is tracked once and drawn there.
+                //
+                // Same shape as `Deferred::WindowFullscreen` below, for the same reason.
+                let mapped: Vec<smithay::desktop::Window> = self
+                    .inner
+                    .all_world_spaces()
+                    .iter()
+                    .flat_map(|s| s.state.elements())
+                    .cloned()
+                    .collect();
+                // The fallback parent for a menu that names none: the window the user was
+                // last pointing at, then the last focused one.
+                let fallback = self
+                    .state
+                    .xwayland
+                    .map_position_parent_hover
+                    .or(self.state.xwayland.map_position_parent_focus);
+                // The popup registry is the SECOND place a parent can live, and the only
+                // one that can answer for a submenu: its parent is the menu, which y5
+                // deliberately keeps out of the Space.
+                let popups = &self.state.popup.state;
+                if let Some(popup) = compositor_support_smithay_state_window_child::child::as_popup(
+                    mapped.iter(),
+                    &window,
+                    fallback,
+                    self.state.outputs_snapshot.iter().map(|(_, geometry)| geometry.size),
+                    |id| popups.find_x11_popup(id),
+                ) {
+                    match self.state.popup.state.track_popup(popup) {
+                        Ok(()) => {
+                            self.state.schedule_redraw();
+                            continue;
+                        }
+                        // The parent died between the map request and this drain. Fall
+                        // through: as a window it is at least reachable and closable,
+                        // where an untracked popup would be neither drawn nor destroyed.
+                        Err(err) => warn!("x11 popup track failed, mapping as a window: {err:?}"),
+                    }
+                } else if ident::is_popup_x11(&window)
+                    && !ident::states(&window).fullscreen
+                {
+                    // `as_popup` declines for more than `is_popup_x11` can see: fullscreen,
+                    // an output-sized override-redirect window that names no parent, a
+                    // parent that resolves to nothing, and a `wl_surface` missing on either
+                    // side. Only the last two are worth hearing about — the window path
+                    // then centres the thing on the CAMERA, so a menu lands mid-view
+                    // instead of beside its owner.
+                    //
+                    // Fullscreen is filtered out here because it is the COMMON path, not a
+                    // problem: a fullscreen game is override-redirect, so `is_popup_x11`
+                    // says yes and the size guard in `as_popup` says no. Reporting that as
+                    // a parenting failure warned on every game launch.
+                    warn!("x11 popup candidate has no resolvable parent, mapping as a window");
+                }
+            }
             self.inner.initialize_surface_data(window.clone());
-            self.inner.host_space_mut().state.map_element(window, (0, 0), false);
+            self.inner.host_space_mut().state.map_element(window.clone(), (0, 0), false);
+            // ...but the commit-driven initial placement below cannot serve an X11
+            // window. An X client sizes itself BEFORE asking to be mapped, and the
+            // wl_surface Xwayland backs it with may have been committing since before
+            // this `Window` existed — so waiting for "the first commit that finds a
+            // window with a non-degenerate geometry" can wait forever. The geometry is
+            // already final here, so place it now and mark it placed.
+            if window.is_x11() {
+                let mut geometry = window.geometry();
+                geometry.size = shell::configured_size(&window);
+                window
+                    .user_data()
+                    .insert_if_missing(|| compositor_support_smithay_state_compositor_place::WindowPlacedMarker);
+                self.inner.place_window(window, geometry);
+            }
+        }
+        Deferred::WindowFullscreen { window, on } => {
+            let spaces: Vec<smithay::desktop::Window> =
+                self.inner.all_world_spaces().iter().flat_map(|s| s.state.elements()).cloned().collect();
+            if let Some(w) = find::window_of(spaces.iter(), &window) {
+                self.inner.fullscreen_request(w, on);
+            }
+        }
+        // Layer shell map / unmap. A NULL-output surface goes to the monitor the
+        // user is on (active_output), not always the first output.
+        Deferred::LayerMapped { surface, output, layer, namespace } => {
+            let current_output = self.inner.active_output();
+            compositor_support_smithay_state_layershell_dispatch::wire::new_layer_surface(
+                self.inner.host_space(), surface, output, layer, namespace, current_output,
+            );
+        }
+        Deferred::LayerDestroyed(surface) => {
+            compositor_support_smithay_state_layershell_dispatch::wire::layer_destroyed(
+                self.inner.host_space(), surface,
+            );
+        }
+        // The two teardowns differ in shape, not in timing: an xdg toplevel is keyed by
+        // its surface (the uuid lives in that surface's data map), while an X11 window
+        // is keyed by the window itself — its surface association may already be gone by
+        // the time the X server says it died — and has to be unmapped from its Space
+        // here, which the xdg path leaves to `refresh_alive`.
+        // Out of the Space, identity kept. The Space is the truth about what windows
+        // exist, and a withdrawn window is not one of them — it has no surface, is not
+        // drawn and is not hit. What survives is the record `withdraw_x11` parks, so a
+        // remap resolves the same uuid, world and position.
+        Deferred::WindowWithdrawn(surface) => {
+            if let Some((world, window)) = self.inner.owning_x11_window(&surface) {
+                // Guard against a second withdrawal for one window: the record already
+                // holds it, so `owning_x11_window` answered from there and the Space has
+                // nothing left to unmap.
+                if self.inner.is_space_element(&window) {
+                    // NOT unmapped first: `withdraw_x11` reads the window's location out
+                    // of the Space to park it, and an element that has already been
+                    // unmapped has no location to read — it came back at (0,0), which in
+                    // centre-anchored world coordinates is nowhere near where it left.
+                    // The window remapped correctly and landed off-camera, which reads as
+                    // "it never came back".
+                    //
+                    // An EPHEMERAL window is RETIRED, not withdrawn: no record, so a
+                    // re-show is a fresh map that resolves its parent again.
+                    //
+                    // Identity across a hide is for windows the user arranged — a Wine
+                    // fullscreen toggle, a GTK hide()/show() — where coming back anywhere
+                    // else is the bug. A menu is the opposite: its position belongs to
+                    // whatever it is opening off, and restoring the slot it had last time
+                    // makes the stored location a CACHE. Unity's submenus showed it —
+                    // hover away, hover back, and the submenu reappeared where it was
+                    // rather than beside the item that opened it.
+                    if compositor_support_smithay_state_window_ident::ident::is_ephemeral_x11(&window) {
+                        self.inner.space_of_world_mut(world).state.unmap_elem(&window);
+                        self.inner.destroy_x11_data(window);
+                    } else {
+                        // Takes the location, then unmaps, in that order.
+                        self.inner.withdraw_x11(world, window);
+                    }
+                }
+            }
+        }
+        Deferred::WindowDestroyed { window, drag_discard } => match window {
+            find::Shell::Xdg(surface) => self.inner.destroy_surface_data(surface, drag_discard),
+            find::Shell::X11(surface) => {
+                if let Some((world, window)) = self.inner.owning_x11_window(&surface) {
+                    // A window that WITHDREW first is already out of the Space and has
+                    // already left its placeholder, so the teardown would run twice.
+                    // Dropping its record is the whole job: the placeholder stops being
+                    // one a remap could reclaim and becomes an ordinary launch
+                    // placeholder, which is exactly what a destroy means.
+                    if self.inner.is_space_element(&window) {
+                        self.inner.space_of_world_mut(world).state.unmap_elem(&window);
+                        self.inner.destroy_x11_data(window);
+                    }
+                    self.inner.forget_withdrawn_x11(&surface);
+                }
+            }
+        },
+        // Pointer-constraint restorations (seat warp + space read).
+        Deferred::PointerRestore { surface, at } => {
+            self.apply_constraint_restoration((surface, at));
+        }
+            }
         }
         // Commits: on_commit, initial configure + placement, resize.
         let committed = std::mem::take(&mut self.state.committed);
@@ -407,13 +655,13 @@ impl<A: WireTrait + 'static> Wire<A> {
             // placeholders. Resolved BEFORE the mutable space borrow: the
             // placeholder that answers lives in the world slot.
             use compositor_support_smithay_state_compositor_dispatch::wire as commit;
-            let toplevel = commit::toplevel_window(&self.inner.owning_space(surface).state, surface);
-            let initial = toplevel.is_some() && commit::awaits_initial_configure(surface);
+            let committed = find::in_space(&self.inner.owning_space(surface).state, surface);
+            let initial = committed.is_some() && commit::awaits_initial_configure(surface);
             let restore_size = initial.then(|| self.inner.session_restore_size(surface)).flatten();
             if let Some((window, geometry)) = commit::apply_commit(
                 &mut self.inner.owning_space_mut(surface).state,
                 surface,
-                toplevel,
+                committed,
                 initial,
                 restore_size,
             )
@@ -435,25 +683,6 @@ impl<A: WireTrait + 'static> Wire<A> {
         }
         if layer_relayout {
             self.state.schedule_redraw();
-        }
-        // (un)fullscreen.
-        for (toplevel, fullscreen) in std::mem::take(&mut self.state.fullscreen_requests) {
-            if let Some(w) = self.window_for_toplevel(&toplevel) {
-                self.inner.fullscreen_request(w, fullscreen);
-            }
-        }
-        // Layer shell map / unmap. A NULL-output surface goes to the monitor the
-        // user is on (active_output), not always the first output.
-        for (surface, output, layer, namespace) in std::mem::take(&mut self.state.new_layers) {
-            let current_output = self.inner.active_output();
-            compositor_support_smithay_state_layershell_dispatch::wire::new_layer_surface(
-                self.inner.host_space(), surface, output, layer, namespace, current_output,
-            );
-        }
-        for surface in std::mem::take(&mut self.state.destroyed_layers) {
-            compositor_support_smithay_state_layershell_dispatch::wire::layer_destroyed(
-                self.inner.host_space(), surface,
-            );
         }
         // Mirror the current outputs (+ logical geometry) for the world-free layer
         // popup constrain (see `Dispatch::outputs_snapshot`). Cheap; a step behind by
@@ -482,10 +711,15 @@ impl<A: WireTrait + 'static> Wire<A> {
                 }
             }
         }
-        // Destroyed toplevels.
-        for (surface, drag_discard) in std::mem::take(&mut self.state.destroyed_toplevels) {
-            self.inner.destroy_surface_data(surface, drag_discard);
-        }
+        // Destroyed windows, xdg and X11 in the order they arrived — and BEFORE
+        // `foreign_reconcile` below, so the dock mirror publishes this frame's removals
+        // rather than last frame's.
+        //
+        // The two teardowns differ in shape, not in timing: an xdg toplevel is keyed by
+        // its surface (the uuid lives in that surface's data map), while an X11 window
+        // is keyed by the window itself — its surface association may already be gone by
+        // the time the X server says it died — and has to be unmapped from its Space
+        // here, which the xdg path leaves to `refresh_alive`.
         // wlr foreign-toplevel-management: reconcile the dock-facing mirror against
         // the now-updated Space(s) (announce new toplevels, close gone ones, push
         // title/app_id/state deltas), then apply any control requests docks queued.
@@ -519,11 +753,18 @@ impl<A: WireTrait + 'static> Wire<A> {
                 // `blocker_cleared` re-applies the held commit (CompositorHandler::
                 // commit pushes the surface into `committed`), but only
                 // `drain_protocol` turns a commit into its world effects (initial
-                // placement → InitialMap → map). The wayland source isn't firing
-                // here — the client was blocked on its own render fence and has sent
-                // nothing more — so we must drain now, or an explicit-sync client's
-                // first buffer (e.g. GTK4 / gnome-calculator) stays unmapped until
-                // some unrelated dispatch happens to drain it.
+                // placement → InitialMap → map).
+                //
+                // Flushed here rather than left to the loop's end-of-iteration drain,
+                // which now runs unconditionally and would reach it in this same
+                // iteration anyway. What is left is ordering WITHIN the iteration: a
+                // render is ping-driven and a ping raised earlier can be dispatched
+                // after this source, so leaving the map to the tail can hand that render
+                // pre-drain state and cost the client's first buffer a frame. Doing it
+                // here puts the map ahead of anything else this dispatch runs.
+                //
+                // Ordering between queues is unaffected: this takes whatever is queued
+                // so far, in arrival order, and the end-of-iteration drain takes the rest.
                 wire.drain_protocol();
                 wire.state.schedule_redraw();
                 Ok(())
@@ -544,10 +785,6 @@ impl<A: WireTrait + 'static> Wire<A> {
             &self.loop_handle,
             |wire: &mut Wire<A>| &mut wire.state,
         );
-        // Pointer-constraint restorations (seat warp + space read).
-        for token in std::mem::take(&mut self.state.pending_restoration) {
-            self.apply_constraint_restoration(token);
-        }
         // `xdg_toplevel_drag_v1` drops: queue the placeholder re-sync so it lands
         // ORDERED behind this same drain's `InitialMap`. A tab torn off and dropped
         // inside one frame produces both, and the record the settle needs does not
@@ -559,10 +796,15 @@ impl<A: WireTrait + 'static> Wire<A> {
         for surface in std::mem::take(&mut self.state.toplevel_drag.settled) {
             self.inner.settle_toplevel_drag(surface);
         }
+        // No X11 stacking sync. It used to publish y5's canvas order here every drain,
+        // and that is precisely what undid `Dispatch::raise_x11_for_pointer` within a
+        // frame — the X stack is not a mirror of the canvas, it is the mechanism that
+        // decides which X client an ungrabbed pointer event reaches, and the pointer is
+        // the only thing entitled to move it.
         // Refresh the geometry mirror for synchronous handler reads.
         let geoms: Vec<(WlSurface, smithay::utils::Rectangle<i32, smithay::utils::Logical>)> =
             self.inner.host_space().state.elements()
-                .filter_map(|w| w.toplevel().map(|t| (t.wl_surface().clone(), w.geometry())))
+                .filter_map(|w| ident::surface(w).map(|s| (s, w.geometry())))
                 .collect();
         self.state.geometries = geoms.into_iter().collect();
     }

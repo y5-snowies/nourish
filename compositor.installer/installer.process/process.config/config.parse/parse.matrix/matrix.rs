@@ -21,8 +21,6 @@ pub fn default_presets(base: &BaseConfig, capture_encoder: &str) -> Vec<Preset> 
         log_level: base.log_level.clone(),
         vk_diag: String::new(),
         capture_encoder: capture_encoder.to_string(),
-        window_client_size_fallback: false,
-        window_subsurface_shrinks: false,
     };
     vec![Preset {
         id: "default".into(),

@@ -25,7 +25,10 @@ use compositor_support_smithay_state_clipboard_worker::worker::Worker;
 use smithay::reexports::calloop::ping::make_ping;
 use smithay::reexports::calloop::LoopHandle;
 use smithay::reexports::rustix;
-use smithay::wayland::selection::data_device::request_data_device_client_selection;
+use compositor_support_smithay_dispatch_state_base::state::xwm_impls::X11_SELECTION;
+use smithay::wayland::selection::data_device::{
+    current_data_device_selection_userdata, request_data_device_client_selection,
+};
 
 /// Run one pass: take what the worker finished, hand it the next copy, serve queued pastes.
 ///
@@ -87,7 +90,20 @@ fn start_worker<W: 'static>(
     state.clipboard.worker = Worker::start(ping);
 }
 
-/// Hand the worker every flavor of the selection the client just set.
+/// Hand the worker every flavor of the selection that was just set.
+///
+/// Two owners, one path. A wayland client is asked through
+/// `request_data_device_client_selection`; an X11 owner through
+/// `X11Wm::send_selection`, which converts the X selection and writes it to the fd
+/// asynchronously over the X connection. Everything either side of that one call —
+/// budget, generation, pipe widening, the worker — is deliberately identical, because
+/// the whole point is that a clipboard copied in an X app survives that app exiting
+/// exactly as one copied in a wayland app does.
+///
+/// Which owner is asked is read off the SEAT rather than recorded alongside it, the same
+/// discriminator `XwmHandler::cleared_selection` uses: the selection's user data already
+/// says who owns the clipboard, exactly once, and a second copy of that fact could only
+/// ever agree with it or be a silent bug.
 fn arm<W: 'static>(
     state: &mut Dispatch,
     handle: &LoopHandle<'static, W>,
@@ -100,15 +116,18 @@ fn arm<W: 'static>(
         return;
     }
     start_worker(state, handle, project);
-    let Some(worker) = state.clipboard.worker.as_ref() else {
+    if state.clipboard.worker.is_none() {
         return;
+    }
+    let x11_owned = {
+        let held = current_data_device_selection_userdata::<Dispatch>(&state.seat.seat);
+        held.is_some_and(|user_data| *user_data == X11_SELECTION)
     };
-    // Re-armed here even though `new_selection` already did it: on the very first copy the
-    // worker did not exist yet when that hook ran, and a `Read` for a generation the worker
-    // has not been armed with is dropped. Arming is idempotent.
-    worker.arm(generation);
     let seat = state.seat.seat.clone();
-    let mut armed = 0usize;
+    // The requests are dispatched first and handed to the worker after, because asking
+    // the X owner needs `&mut state` (the `X11Wm` lives there) while the worker is
+    // reached through a shared borrow of the same state.
+    let mut handed: Vec<(usize, String, std::os::fd::OwnedFd, usize)> = Vec::new();
     for (order, mime) in mime_types {
         let pipe = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC);
         let Ok((read, write)) = pipe else {
@@ -118,7 +137,9 @@ fn arm<W: 'static>(
         // ONLY our end is non-blocking. The client's end stays blocking on purpose: it
         // is what makes "the client exited cleanly" imply "the client finished writing"
         // (anything past the pipe buffer blocks it until we consume), and naive clients
-        // do not handle EAGAIN.
+        // do not handle EAGAIN. (An X11 owner is not held to that: smithay sets the fd
+        // it is handed non-blocking itself, and the X side is a conversion it drives
+        // rather than a client writing at its own pace.)
         let nonblock = rustix::fs::fcntl_setfl(
             &read,
             rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NONBLOCK,
@@ -128,17 +149,37 @@ fn arm<W: 'static>(
             continue;
         }
         let chunk = widen(&read);
-        // Hands `write` to the client and drops it, leaving the client as the pipe's
+        // Either call hands `write` away and drops it, leaving the owner as the pipe's
         // only writer — without that it would never reach EOF.
-        if let Err(err) = request_data_device_client_selection::<Dispatch>(&seat, mime.clone(), write)
-        {
-            trace!("clipboard capture: selection unavailable mime={mime} err={err:?}");
+        let requested = if x11_owned {
+            match state.xwayland.xwm.as_mut() {
+                Some(xwm) => xwm
+                    .send_selection(smithay::wayland::selection::SelectionTarget::Clipboard, mime.clone(), write)
+                    .map_err(|err| format!("{err:?}")),
+                None => Err("no x11 window manager".to_string()),
+            }
+        } else {
+            request_data_device_client_selection::<Dispatch>(&seat, mime.clone(), write)
+                .map_err(|err| format!("{err:?}"))
+        };
+        if let Err(err) = requested {
+            trace!("clipboard capture: selection unavailable mime={mime} err={err}");
             continue;
         }
-        worker.read(generation, order, mime, read, chunk);
-        armed += 1;
+        handed.push((order, mime, read, chunk));
     }
-    trace!("clipboard capture armed generation={generation} flavors={armed}");
+    let Some(worker) = state.clipboard.worker.as_ref() else {
+        return;
+    };
+    // Re-armed here even though `new_selection` already did it: on the very first copy the
+    // worker did not exist yet when that hook ran, and a `Read` for a generation the worker
+    // has not been armed with is dropped. Arming is idempotent.
+    worker.arm(generation);
+    let armed = handed.len();
+    for (order, mime, read, chunk) in handed {
+        worker.read(generation, order, mime, read, chunk);
+    }
+    trace!("clipboard capture armed generation={generation} flavors={armed} x11={x11_owned}");
 }
 
 /// Widen OUR capture pipe as far as this machine allows, and report the capacity one read

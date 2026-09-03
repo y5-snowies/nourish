@@ -1,6 +1,7 @@
 {
   "deps": [
     "smithay",
-    "compositor_support_smithay_state_grab_resize_surface"
+    "compositor_support_smithay_state_grab_resize_surface",
+    "compositor_support_smithay_state_window_find"
   ]
 }

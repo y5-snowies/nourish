@@ -1,11 +1,12 @@
 use smithay::desktop::Window;
 use smithay::input::pointer::{MotionEvent, PointerInnerHandle};
-use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::utils::{Logical, Point, Rectangle, Size};
 use smithay::wayland::compositor;
+use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 use compositor_support_smithay_dispatch_state_base::state::DispatchWire;
 use compositor_support_smithay_state_grab_resize_surface::ResizeEdge;
+use compositor_support_smithay_state_window_shell::shell;
 
 #[allow(clippy::too_many_arguments)]
 pub fn on_motion<WireObject: DispatchWire>(
@@ -33,12 +34,18 @@ pub fn on_motion<WireObject: DispatchWire>(
         new_window_height = (initial_rect.size.h as f64 + delta.y) as i32;
     }
 
-    let (min_size, max_size) =
-        compositor::with_states(window.toplevel().unwrap().wl_surface(), |states| {
-            let mut guard = states.cached_state.get::<SurfaceCachedState>();
-            let data = guard.current();
-            (data.min_size, data.max_size)
-        });
+    // Size hints are a wl_surface cached state, so they read the same for either
+    // shell; a window with no surface yet simply has no hints to clamp against.
+    let (min_size, max_size) = window
+        .wl_surface()
+        .map(|surface| {
+            compositor::with_states(&surface, |states| {
+                let mut guard = states.cached_state.get::<SurfaceCachedState>();
+                let data = guard.current();
+                (data.min_size, data.max_size)
+            })
+        })
+        .unwrap_or_default();
 
     let min_width = min_size.w.max(1);
     let min_height = min_size.h.max(1);
@@ -50,10 +57,6 @@ pub fn on_motion<WireObject: DispatchWire>(
         new_window_height.max(min_height).min(max_height),
     ));
 
-    let xdg = window.toplevel().unwrap();
-    xdg.with_pending_state(|state| {
-        state.states.set(xdg_toplevel::State::Resizing);
-        state.size = Some(*last_window_size);
-    });
-    xdg.send_pending_configure();
+    shell::stage(window, *last_window_size, true);
+    shell::send_pending(window);
 }

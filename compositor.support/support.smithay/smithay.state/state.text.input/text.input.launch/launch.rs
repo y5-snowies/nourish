@@ -37,7 +37,7 @@ pub fn launch(configured: Option<Ime>) {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
-    let spawned = child_spawn::spawn(&mut cmd);
+    let spawned = child_spawn::spawn_detached(&mut cmd);
     let mut child = match spawned {
         Ok(c) => c,
         Err(e) => return error!("ime: failed to launch '{}': {e}", ime.exec),
@@ -49,8 +49,8 @@ pub fn launch(configured: Option<Ime>) {
     IME_PGID.store(pid, Ordering::SeqCst);
     info!("ime: launched '{}' (pid/pgid {pid})", ime.exec);
 
-    // Detached (std `Child` never kills on drop; the global SIGCHLD reaper collects it); its stderr
-    // surfaces on the console as errors.
+    // Detached: std `Child` never kills on drop, and `spawn_detached` registered its exit
+    // descriptor with the loop, which collects it. Its stderr surfaces as errors.
     if let Some(stderr) = child.stderr.take() {
         std::thread::spawn(move || {
             for line in std::io::BufReader::new(stderr).lines().map_while(Result::ok) {

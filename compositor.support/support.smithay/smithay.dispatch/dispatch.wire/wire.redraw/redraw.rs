@@ -1,22 +1,20 @@
 use smithay::desktop::{Space, Window};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
-use smithay::wayland::seat::WaylandFocus;
 use smithay::utils::{Rectangle, Logical};
 use smithay::wayland::{compositor, fractional_scale};
 use smithay::wayland::compositor::{send_surface_state, with_states};
 use compositor_support_smithay_state_fractional_base::state::NestedCompositorSurface;
+use compositor_support_smithay_state_window_find::find;
 
-pub fn window_for_toplevel(space: &Space<Window>, surface: &WlSurface) -> Option<Window> {
-    space.elements()
-        .find(|w| w.toplevel().map(|t| t.wl_surface() == surface).unwrap_or(false))
-        .cloned()
-}
-
+/// The parent window's rect in `space` — its location and its own geometry size.
+///
+/// Single-world by construction: the caller chooses the Space. Everything on the commit
+/// path wants `owning_space`, not the focused one — a commit belongs to its window's
+/// world, which is not necessarily the world the user is looking at.
 pub fn parent_geometry(space: &Space<Window>, parent: &WlSurface) -> Rectangle<i32, Logical> {
-    space.elements()
-        .find(|w| w.wl_surface().map(|s| s.as_ref() == parent).unwrap_or(false))
+    find::in_space(space, parent)
         .map(|w| {
-            let loc = space.element_location(w).unwrap_or_default();
+            let loc = space.element_location(&w).unwrap_or_default();
             Rectangle::from_loc_and_size(loc, w.geometry().size)
         })
         .unwrap_or_default()

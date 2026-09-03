@@ -14,6 +14,8 @@
     "compositor_y5_navigator_travel_machine",
     "compositor_support_action_camera_find_base",
     "compositor_support_action_camera_find_origin",
-    "compositor_support_action_camera_find_window"
+    "compositor_support_action_camera_find_window",
+    "compositor_support_smithay_state_window_find",
+    "compositor_support_smithay_state_window_ident"
   ]
 }

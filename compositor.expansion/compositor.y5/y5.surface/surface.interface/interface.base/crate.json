@@ -5,6 +5,7 @@
     "smithay",
     "compositor_orchestration_core_state_base",
     "compositor_monitor_compositor_iced_base",
-    "compositor_y5_camera_transform_translate"
+    "compositor_y5_camera_transform_translate",
+    "compositor_support_smithay_state_window_ident"
   ]
 }

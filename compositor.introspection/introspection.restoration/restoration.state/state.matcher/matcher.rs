@@ -38,6 +38,6 @@ pub trait RestorationMatcher: Send + Sync {
         pending: &PendingRestoration,
         candidate: &MetaNode,
         candidate_hints: &InferredHints,
-        candidate_token: Option<&str>,
+        candidate_tokens: &[&str],
     ) -> MatchResult;
 }

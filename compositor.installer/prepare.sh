@@ -15,7 +15,7 @@
 #
 # Usage: ./prepare.sh [options]
 #   --debug            build the installer in debug (faster) instead of release
-#   --skip=a,b,...     skip components: compositor,devtool,settings,installer,polkit,mx,xwayland
+#   --skip=a,b,...     skip components: compositor,devtool,settings,installer,polkit,mx
 #   --out=DIR          output dir (default: compositor.installer/dist)
 #   -h, --help         this help
 #
@@ -52,7 +52,7 @@ STAGE="$OUT/stage"
 BIN="$STAGE/binaries"
 TPL="$STAGE/templates"
 rm -rf "$STAGE"
-mkdir -p "$BIN" "$TPL/pam" "$TPL/mx" "$TPL/xwayland"
+mkdir -p "$BIN" "$TPL/pam" "$TPL/mx"
 
 log() { printf '\n>> %s\n' "$1" >&2; }
 
@@ -110,15 +110,11 @@ else
     install -m644 "$HERE/component/mx-gesture-daemon/mx-gesture-daemon.service" "$TPL/mx/mx-gesture-daemon.service"
 fi
 
-# 5) Patched xwayland-satellite (X11-app compatibility) + its user service.
-if skipped xwayland; then
-    log "skip: xwayland"
-else
-    log "building xwayland-satellite"
-    ( cd "$HERE/component/xwayland-satellite/xwayland-fixes" && cargo build --release )
-    install -m755 "$(cargo_target "$HERE/component/xwayland-satellite/xwayland-fixes")/release/xwayland-satellite" "$BIN/xwayland-satellite"
-    install -m644 "$HERE/component/xwayland-satellite/xwayland-fixes/xwayland.service" "$TPL/xwayland/xwayland.service"
-fi
+# 5) (X11 support has no component to stage.) The compositor runs Xwayland itself —
+#    `XWayland::spawn` execs the `Xwayland` binary from PATH and acts as its X11 window
+#    manager in-process — so there is no satellite to build and no user service to
+#    install. All that is needed is the server package, which the `xwayland` package
+#    group installs (`xorg-x11-server-Xwayland` / `xwayland` / `xorg-xwayland`).
 
 # 5b) Settings tool — installed to /usr/bin/y5.compositor.settings, the only supported
 #     way to author ~/.config/y5.compositor/settings.json (the session wrappers no longer
@@ -235,7 +231,6 @@ Contents
                                      y5.compositor.monitor, + app-launcher entry)
   binaries/y5-polkit-agent           polkit authentication agent
   binaries/mx-gesture-daemon         MX Master gesture daemon
-  binaries/xwayland-satellite        patched Xwayland satellite (X11 app support)
   templates/                         PAM, udev and config templates
 
 Note: the compositor reads all of its configuration from a single settings file,

@@ -161,7 +161,7 @@ fn list() -> Option<Vec<Entry>> {
 fn probe(args: &[&str]) -> Option<String> {
     let mut cmd = command("podman");
     cmd.args(args).stdout(Stdio::piped()).stderr(Stdio::null());
-    let mut child = child_spawn::spawn(&mut cmd).ok()?;
+    let mut child = child_spawn::spawn_awaited(&mut cmd).ok()?;
     // Spawned and polled rather than `output()`, which waits without a bound —
     // see `PROBE_TIMEOUT` for why an unbounded wait here freezes the compositor.
     let deadline = Instant::now() + PROBE_TIMEOUT;

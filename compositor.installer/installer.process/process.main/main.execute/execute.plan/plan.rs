@@ -14,7 +14,6 @@ pub fn build_and_apply(stage: &layout::Stage, presets: &[cfg::Preset], dry_run: 
     let want_pam = prompt::yes_no("pam-lock", "Install the PAM lock policy (/etc/pam.d/y5-lock)", true);
     let want_mx = prompt::yes_no("mx-daemon", "Install the MX Master gesture daemon", false);
     let want_polkit = prompt::yes_no("polkit", "Install the polkit authentication agent (systemd service)", true);
-    let want_xwayland = prompt::yes_no("xwayland", "Install Xwayland support (run X11 apps — patched xwayland-satellite)", true);
 
     let mut plan: Vec<layout::Action> = Vec::new();
     plan.extend(layout::binary_actions(stage, presets));
@@ -51,9 +50,11 @@ pub fn build_and_apply(stage: &layout::Stage, presets: &[cfg::Preset], dry_run: 
     if want_polkit {
         plan.extend(layout::polkit_actions(stage));
     }
-    if want_xwayland {
-        plan.extend(layout::xwayland_actions(stage));
-    }
+    // X11 support is no longer a component to opt into — the compositor runs Xwayland
+    // itself — so there is nothing to prompt for. What remains is retiring the
+    // satellite a previous install left running; that is unconditional, and emits
+    // nothing on a machine that never had it.
+    plan.extend(layout::xwayland_retire_actions());
     // Re-scan units once everything is placed.
     plan.push(layout::Action::SystemctlUser(vec!["daemon-reload".into()]));
 

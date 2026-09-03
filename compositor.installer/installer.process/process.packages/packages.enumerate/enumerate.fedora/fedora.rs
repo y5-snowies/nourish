@@ -71,7 +71,7 @@ pub fn groups(_release: Option<&str>) -> Vec<PackageGroup> {
                 "libxkbcommon-devel", "pixman-devel", "systemd-devel",
                 "wayland-devel", "wayland-protocols-devel", "mesa-libgbm-devel",
                 "vulkan-loader-devel", "mesa-libEGL-devel", "mesa-libGL-devel",
-                "libglvnd-devel", "libX11-devel", "libxcb-devel", "xcb-util-cursor-devel",
+                "libglvnd-devel", "libX11-devel",
                 "protobuf", "protobuf-devel", "protobuf-compiler",
                 "dbus-devel", "pulseaudio-libs-devel", "openssl-devel",
                 "ffmpeg-free-devel",

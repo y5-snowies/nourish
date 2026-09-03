@@ -270,6 +270,189 @@ Two known mislabels to keep in mind: `PointerState::motion` is typed `Logical` b
 holds **physical** pixels, and `Camera::position_previous` sits beside a `Logical`-typed
 `transform.position` while holding physical too.
 
+## XWayland
+
+X11 clients run on y5's **own** Xwayland server — there is no `xwayland-satellite`
+proxy any more. The compositor spawns the `Xwayland` binary and is that server's X11
+window manager in-process (smithay's `xwayland` feature). Three consequences shape the
+code:
+
+- **`XwmHandler` is implemented on `Dispatch`, not on `Loop`.** That is forced, not
+  chosen: smithay's surface-association hook (`XWaylandShellState::new::<D>`) is a
+  wayland PRE-COMMIT hook, so its `D` is the wayland dispatch state. It fits the
+  existing split anyway — the X11 handlers are world-free and record onto outboxes
+  (`Dispatch::xwayland`) that `Wire::drain_protocol` applies against the Space, exactly
+  like every other protocol handler. Those outboxes are the SHARED ones —
+  `new_toplevels`, `destroyed_toplevels`, `fullscreen_requests`, tagged with
+  `find::Shell` — never X11-only lists, and there is exactly **one drain point**:
+  `event_loop.run`'s per-iteration callback in the loader, after every source has
+  dispatched. Wayland and X11 arrive on two different calloop sources, so draining per
+  source would make the order a frame's events are applied in a function of which fd
+  calloop polled first. Sources only set `Dispatch::protocol_pending`; the loop drains
+  if it is set, which also keeps the drain off vblank-only wakes — its tail
+  (`foreign_reconcile`, the geometry mirror) allocates per window. The X11 event source
+  lives on a NESTED calloop loop (data = `Dispatch`) that the outer loop polls and
+  pumps; see `compositor.kernel/kernel.loader/…/execute.base/xwayland.rs`. That pump is
+  also what NOTICES the server dying: smithay's `XWayland` source reports only a
+  *startup* failure (it disables itself after `Ready`), so `xwayland::died` — reached on
+  a nested-loop dispatch error or the Xwayland wayland client vanishing — retires the
+  X11 windows through the ordinary `destroyed_toplevels` path, drops the `X11Wm`,
+  retracts `DISPLAY` and removes the pump. It does not respawn.
+- **`smithay::desktop::Window` now has two shapes.** `window.toplevel()` is `None` for
+  an X11 window, so anything above the wire layer goes through the facade crates rather
+  than branching on its own: **`state.window/window.shell`** for talking to a window
+  (`stage`/`send`/`send_pending`/`close`/`set_fullscreen`/`set_suspended`/
+  `configured_size`/`pending_size`/`has_parent`), **`state.window/window.ident`** for
+  who it belongs to (`pid`/`credentials`/`names`/`states`/`surface`), and
+  **`state.window/window.find`** for keying a window by surface. The rule is
+  mechanical, not a matter of judgement — **no `.toplevel()` and no `x11_surface()`
+  outside `state.window/*`**, and two greps hold it:
+
+  ```bash
+  grep -rn "\.toplevel()" --include=*.rs compositor.* | grep -v state.window/window.
+  grep -rn "x11_surface()" --include=*.rs compositor.expansion compositor.orchestration compositor.introspection
+  ```
+
+  Note the two surface accessors are NOT interchangeable: `ident::surface` is the
+  window's surface for protocol-agnostic work (an X11 window has one; `None` only
+  means Xwayland has not associated it yet), while `ident::xdg_surface` is the surface
+  an xdg-only protocol lives on (`None` for X11 by design). Picking the wrong one is
+  how a guard silently widens.
+- **An X11 window is configured by ONE call carrying position and size together**, so
+  `shell::stage` records the size and puts the window on a dirty list that ONE per-frame
+  pass (`Orchestrator::flush_x11_configures`, run from `present.callbacks::housekeeping`)
+  drains through `shell::take_staged` — nothing walks the Space for it, and a frame with
+  nothing staged costs nothing. Callers never supply a position, and neither does the
+  flush: **a configure only ever RESIZES**. A toplevel is always told `shell::X11_ORIGIN`;
+  a child (`WM_TRANSIENT_FOR` or override-redirect) keeps the position its client chose,
+  which is why `XwmHandler::configure_request` honours x/y for a transient and refuses
+  them for a toplevel. `flush_pending` diffs against smithay's own `last_configure`, the
+  rect the server was last given by ANY route (the client's granted ConfigureRequest
+  included) — a private "last sent" cell went stale on exactly that route.
+
+  **An X11 unmap is a HIDE, not a destroy.** `unmapped_window` keeps the `Window` in its
+  Space with no `wl_surface` — not drawn, not hit — exactly as an xdg toplevel that
+  commits a null buffer keeps its element; a remap resolves to the same element by
+  identity in the drain, and only `DestroyNotify` (or the X server dying) retires it.
+  Treating the unmap as a destroy made every Wine/SDL fullscreen toggle and GTK
+  hide()/show() leave a placeholder and remap camera-centred under a new uuid.
+
+  **y5 never moves an X11 window across X space.** X keeps its own layout: every
+  toplevel at the origin, every child where its client put it.
+
+  There is no honest position to send. A `Space` location is centre-anchored, unbounded
+  y5-world; the X screen is corner-anchored and output-sized. Both attempts failed on
+  hardware: world coordinates put every window off the X screen (pointer events clamp to
+  an edge — X11 apps typed but could not be clicked), and projecting to SCREEN churned on
+  every pan and sent the client's own child placements back in a space the compositor
+  reads as world.
+
+  **So the X STACK decides which client an ungrabbed pointer event reaches.** Xwayland
+  turns a `wl_pointer` event into "window position + surface-local" and the X server
+  hit-tests its own tree at the result; where X windows overlap — and they do, since X's
+  layout owes nothing to the canvas — stacking is the answer. It is the ONLY lever:
+  `XSendEvent` is flagged synthetic and toolkits ignore it, XTEST re-enters the same test.
+  So:
+
+  - `Dispatch::raise_x11_for_pointer` raises the window the pointer is entering, called
+    from the rim **before** `PointerHandle::motion` (and from touch `down`). The ordering
+    is load-bearing: raising after the enter leaves the first events of a crossing
+    hit-tested against the old stack. The raise is WRITTEN AND FLUSHED, never waited for:
+    a checked round trip parks the compositor's one thread on the X server, which a
+    foreign `XGrabServer` or an Xwayland roundtrip on y5's own socket turns into a stall
+    or a deadlock (`X11Wm::raise_window` explains).
+  - `Dispatch::lower_new_x11` maps every new window at the BOTTOM, so it cannot take
+    events from whatever the pointer is already on before the pointer reaches it.
+  - **Nothing may publish a competing order.** `Wire::sync_x11_stacking` used to push
+    y5's canvas order every drain and undid the raise within a frame; it is gone. The X
+    stack is not a mirror of the canvas.
+
+  This is xwayland-satellite's mechanism, verified in its source: `raise_to_top` in the
+  `wl_pointer.enter` handler (`server/event.rs`), `StackMode::Below` on `MapRequest`.
+  satellite is one compositor for the whole Xwayland instance, not one per window.
+
+  Rejected, so they are not re-derived: world coordinates; screen projection; parking all
+  but the pointer-focused window (a TRANSITION, so windows the pointer never visited kept
+  the client's position — events over Firefox landed in xterm); and invented
+  non-overlapping SLOTS, which worked but cannot scale — X window coordinates are `INT16`,
+  so that space ends at 32767 a side while the canvas does not end at all, and a
+  full-width window cut it in half after two clients.
+
+  **What crosses instead is a DIFFERENCE**, and it is the recorded intent — never a live
+  read of two slots, which would be an artefact of the allocation rather than anything the
+  client said. `X11Popup` takes its offset as a constructor argument for the same reason.
+  That is how xwayland-satellite did it (`create_popup` feeds `child.x - parent.x` into an
+  `xdg_positioner` and never the absolutes).
+
+**Every xdg protocol y5 reads has an X11 route.** `ident::xdg_surface` returning
+`None` means "not the xdg one", never "X11 cannot answer" — the equivalents are
+`_NET_STARTUP_ID` (activation), `WM_WINDOW_ROLE` + `WM_CLASS` (session identity) and
+`_NET_WM_ICON` (icon). If a new caller appears, find the X11 property before
+concluding the feature does not apply.
+
+Three more facts that are easy to get wrong:
+
+- **Never compare `X11Surface` with `==`.** Its `PartialEq` is
+  `xwm == xwm && window == window && self_alive && other_alive` — a dead surface equals
+  nothing, not even itself — and every teardown path holds a surface smithay has
+  already marked dead. Compare `window_id()`. `find::by_x11` does.
+
+- Every X11 window's `wl_surface` belongs to the **one** Xwayland client, so surface
+  credentials name the X SERVER, not the app. The pid comes from `_NET_WM_PID` via
+  `ident::pid` — which is what keeps the kill paths in `select.overlay` from taking
+  down the X server, and what makes the Steam/tearing attribution in
+  `graphic.tearing` work for X11 games at all.
+- **An X11 window can declare itself ephemeral**, and `ident::is_ephemeral_x11` is that
+  test: `_NET_WM_WINDOW_TYPE` (menu, tooltip, notification, splash, dnd, dock, …),
+  `_NET_WM_STATE_MODAL`, or override-redirect. It is the X11 counterpart to the
+  `xdg_wm_dialog_v1` hint, and it feeds the same ephemeral mark, so such a window
+  leaves no placeholder. Both that mark and `DiscardPlaceholder` are written to the
+  WINDOW as well as the surface: smithay clears an X11 window's surface association
+  inside `unmapped_window`, the same event that queues its destroy, so a mark left only
+  on the surface is unreadable by the time the drain applies it.
+- **An EPHEMERAL X11 window that names a parent is a POPUP, not a window.**
+  `window.child::as_popup` decides — `ident::is_ephemeral_x11` (override-redirect,
+  `_NET_WM_STATE_MODAL`, or a menu/tooltip/dnd/splash `_NET_WM_WINDOW_TYPE`) plus a
+  resolvable `WM_TRANSIENT_FOR` — and the drain tracks it in the `PopupManager` instead
+  of mapping it: no uuid, no Space slot, no decoration, no placeholder, nothing in the
+  dock or navigator. Draw and hit reach it through the paths that already walk
+  `popups_for_surface`.
+
+  The vendored `PopupKind::X11(X11Popup)` carries BOTH surfaces and both `X11Surface`s,
+  because its `location()` is `child.last_configure().loc - parent.last_configure().loc`
+  — a DIFFERENCE, the only geometric fact that crosses from the X server's coordinate
+  space into the compositor's. That is precisely what xwayland-satellite's `create_popup`
+  fed an `xdg_positioner`. `X11Popup::new` also mirrors the link onto the popup's own
+  surface (`X11PopupLink`), because `find_popup_root_surface` and
+  `get_popup_toplevel_coords` recognise a parent chain by the xdg_popup ROLE, which an
+  Xwayland surface never has — without it a submenu resolves its root to the menu above
+  it and gets a zero offset.
+
+  An X11 popup refuses a popup GRAB (`PopupGrabError::InvalidGrab`): X clients grab
+  through the X server and are already holding one. Presenting them as popups is about
+  placement and lifetime, not about taking input.
+
+  A window that is NOT presented as a popup still gets parent-relative placement when it
+  declares a parent (`window.child::parent_offset`, applied in `on_window_map_initial`),
+  for the same reason and by the same difference.
+
+  A FULLSCREEN game is never a popup, and `as_popup` needs two tests to see one: smithay
+  reads `_NET_WM_STATE_FULLSCREEN` in its MapRequest arm, which an override-redirect
+  window never takes, so an override-redirect window that names NO parent and covers an
+  output (the logical output sizes are passed in) is taken as a window on size alone.
+  satellite has no such guard.
+
+  Two places the override-redirect distinction still survives, both vendored guards:
+  `set_mapped` must never be sent to such a window (enforced in `unmapped_window`), and
+  `X11Surface::configure` refuses them, so `shell::flush_pending` routes them through
+  `configure_override_redirect`.
+
+  **What still falls through to the window path**, deliberately: a transient DIALOG (not
+  ephemeral — a window the user arranged and may return to), and a menu that sets no
+  `WM_TRANSIENT_FOR`, which X11 does not require. The latter is the remaining gap;
+  satellite's `guess_is_popup` has more signals (Motif hints, skip-taskbar without
+  `WM_DELETE_WINDOW`) if it needs closing.
+
 ## Logging
 
 y5 has its **own** tracing-free structured logging system. **All logging uses the macros from

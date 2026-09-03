@@ -57,6 +57,7 @@ pub fn root_view(ui: &PlaceholderUi) -> Element<'_, PlaceholderMessage, Theme, R
     // `xdg-session-management-v1` and lives on the placeholder record, not in
     // anything the launch plan describes.
     let in_session = ui.has_session_identity;
+    let from_x11 = ui.from_x11;
 
     // iced master infers `responsive`'s closure return less eagerly; name the type.
     let body = responsive(move |size| -> Element<'_, PlaceholderMessage, Theme, Renderer> {
@@ -117,12 +118,20 @@ pub fn root_view(ui: &PlaceholderUi) -> Element<'_, PlaceholderMessage, Theme, R
         .height(Length::Fill)
         .style(move |_theme| container::Style {
             // Four states, each its own tone — see `style::BG_CONTAINER_SESSION`
-            // for why "both" is not a blend of the two singles.
-            background: Some(iced_core::Background::Color(match (in_container, in_session) {
-                (true, true) => style::BG_CONTAINER_SESSION,
-                (true, false) => style::BG_CONTAINER,
-                (false, true) => style::BG_SESSION,
-                (false, false) => style::BG,
+            // for why "both" is not a blend of the two singles. X11 is a fifth,
+            // INDEPENDENT fact, so it warms whichever of the four applies rather
+            // than adding tones of its own (see `style::with_x11_tint`).
+            background: Some(iced_core::Background::Color({
+                let base = match (in_container, in_session) {
+                    (true, true) => style::BG_CONTAINER_SESSION,
+                    (true, false) => style::BG_CONTAINER,
+                    (false, true) => style::BG_SESSION,
+                    (false, false) => style::BG,
+                };
+                match from_x11 {
+                    true => style::with_x11_tint(base),
+                    false => base,
+                }
             })),
             text_color: Some(style::TEXT),
             border: iced_core::Border {

@@ -37,9 +37,11 @@ sudo dnf install -y \
     webkit2gtk4.1-devel libsoup3-devel gtk3-devel \
     librsvg2-devel libappindicator-gtk3-devel
 
-# xwayland-satellite (X11/XCB)
+# X11 — smithay's `xwayland` feature builds the in-process X11 window manager against
+# x11rb, which is pure Rust and links no C library. Only the Xwayland SERVER itself has
+# to be installed, to run X11 clients at all.
 sudo dnf install -y \
-    libxcb-devel xcb-util-cursor-devel
+    xorg-x11-server-Xwayland
 
 
 # --- Workspace tooling ------------------------------------------------------

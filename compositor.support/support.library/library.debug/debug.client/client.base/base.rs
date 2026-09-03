@@ -17,10 +17,10 @@ pub fn spawn_client() {
 
     match (flag.as_deref(), arg) {
         (Some("-c") | Some("--command"), Some(program)) => {
-            child_spawn::spawn(&mut hygiene::command(program)).ok();
+            child_spawn::spawn_detached(&mut hygiene::command(program)).ok();
         }
         _ => {
-            child_spawn::spawn(&mut hygiene::command("foot")).ok();        }
+            child_spawn::spawn_detached(&mut hygiene::command("foot")).ok();        }
         // std::process::Command::new("weston-terminal").spawn().ok();        }
     }
 }

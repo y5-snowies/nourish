@@ -36,6 +36,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 use crate::base::{CanvasCmd, CANVAS, CANVAS_BUF};
 use crate::snap;
+use compositor_support_smithay_state_window_shell::shell;
+use compositor_support_smithay_state_window_ident::ident;
 
 /// A pressable content target (mirrors the rim's `PressCandidate`).
 enum PressCandidate {
@@ -268,9 +270,7 @@ fn finalize_non_hand(cx: &mut SystemCx, button: u32) {
     {
         for window in platform.space().elements() {
             window.set_activated(false);
-            if let Some(toplevel) = window.toplevel() {
-                toplevel.send_pending_configure();
-            }
+            shell::send_pending(window);
         }
     }
 
@@ -318,17 +318,16 @@ fn raise_focus_window(cx: &mut SystemCx, window: &Window) {
         platform.space().raise_element(window, true);
         for w in platform.space().elements() {
             w.set_activated(w == window);
-            if let Some(toplevel) = w.toplevel() {
-                toplevel.send_pending_configure();
-            }
+            shell::send_pending(w);
         }
     }
 
     // Draw-order authority — the actual visual top-level (buffer phase).
     cx.write(&CANVAS_BUF, CanvasCmd::RaiseDrawable(uuid));
 
-    // Keyboard focus on the window's toplevel surface.
-    if let Some(surface) = window.toplevel().map(|t| t.wl_surface().clone()) {
+    // Keyboard focus on the window's surface (an X11 window has one too, once
+    // Xwayland has associated it).
+    if let Some(surface) = ident::surface(window) {
         if let Some(dispatch) = cx.seat.as_deref_mut().and_then(|s| s.downcast_mut::<Dispatch>()) {
             if let Some(keyboard) = dispatch.seat.seat.get_keyboard() {
                 let serial = SERIAL_COUNTER.next_serial();
@@ -710,6 +709,13 @@ fn build_snap_map(cx: &mut SystemCx, exclude: &HashSet<Uuid>) -> SnapMap {
 
     let windows: Vec<Window> = space.elements().cloned().collect();
     for window in &windows {
+        // A hidden window is not an edge to snap to. An X11 unmap is a HIDE — the
+        // element keeps its location and geometry with its `wl_surface` cleared — so
+        // without this a GTK hide() or a Wine fullscreen toggle leaves a magnet on
+        // empty canvas. The viewport cull below cannot see it: the rect is still there.
+        if !ident::is_drawn(window) {
+            continue;
+        }
         if window.uuid().map(|u| exclude.contains(&u)).unwrap_or(false) {
             continue;
         }

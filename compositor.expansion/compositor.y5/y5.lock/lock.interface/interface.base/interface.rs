@@ -172,7 +172,7 @@ fn deactivate_scene(_loop: &mut Loop) {
 
     _loop.inner.space_state().state.elements().for_each(|window| {
         window.set_activated(false);
-        window.toplevel().unwrap().send_pending_configure();
+        compositor_support_smithay_state_window_shell::shell::send_pending(window);
     });
 
     // CHECK: Ice Registry should be per scene, as well as space, etc.

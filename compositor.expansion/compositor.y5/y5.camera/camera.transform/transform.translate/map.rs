@@ -89,7 +89,7 @@ pub fn surface_map(space: &Space<Window>, surface: &WlSurface) -> Option<Surface
         Some(slot_size) => {
             let dst = view_dst(&root).unwrap_or(geom.size);
             let stretch = slot::resize_stretching(&window, geom.size);
-            let f = window_fit(elem_loc, geom, dst, window.bbox(), slot_size, cfg.window_subsurface_shrinks, stretch);
+            let f = window_fit(elem_loc, geom, dst, slot_size, stretch);
             (f.fit_surf, f.fit_sx, f.fit_sy)
         }
     };

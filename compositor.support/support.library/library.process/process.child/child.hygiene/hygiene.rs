@@ -30,10 +30,13 @@ pub fn install(cmd: &mut Command) -> &mut Command {
 /// survives step (2).
 pub fn apply() -> std::io::Result<()> {
     unsafe {
-        // (1) Reset the signal mask. We block SIGCHLD process-wide for the
-        // reaper's signalfd and `execve` preserves the mask — so without this
-        // children inherit a blocked SIGCHLD and ones that rely on it (e.g.
-        // alacritty detecting its shell exiting) never close.
+        // (1) Reset the signal mask. `execve` preserves it, and the compositor blocks
+        // SIGTERM and SIGINT process-wide so its shutdown signalfd is their only
+        // consumer (`loader::shutdown`) — so without this every launched app inherits a
+        // blocked SIGTERM and ignores every request to quit, including the one systemd
+        // sends at logout. Emptying the whole set rather than unblocking named signals
+        // is deliberate: what matters is that the child starts from a clean mask,
+        // whatever the compositor happens to block next.
         let mut set: libc::sigset_t = std::mem::zeroed();
         libc::sigemptyset(&mut set);
         libc::pthread_sigmask(libc::SIG_SETMASK, &set, std::ptr::null_mut());

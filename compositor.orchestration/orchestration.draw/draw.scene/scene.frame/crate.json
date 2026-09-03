@@ -51,6 +51,7 @@
     "compositor_support_bevy_core_compositor_base",
     "compositor_background_two_draw_element",
     "compositor_support_system_persist_mark_base",
-    "compositor_support_system_persist_flush_base"
+    "compositor_support_system_persist_flush_base",
+    "compositor_support_smithay_state_window_shell"
   ]
 }

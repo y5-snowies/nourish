@@ -192,5 +192,80 @@ fn launch(_loop: &mut Loop, uuid: uuid::Uuid, start_container: bool) {
             placeholder.restoration = Some(t);
         }
     });
+
+    // Retire every token no placeholder can still name. Runs AFTER the write
+    // above, so the token just minted is already reachable and survives.
+    //
+    // REACHABILITY, not age. A token correlates a window only by appearing in some
+    // placeholder's `restoration` — that is the sole source of the `activation_env`
+    // the matcher compares against (`interface::on_window_map_initial`). So an unheld
+    // token can never match again, however recently it was minted, and a held one can,
+    // however old. This retires the previous launch's token (this placeholder's
+    // `restoration` was just overwritten) and any orphaned by a placeholder erased
+    // before it relaunched, in one rule instead of two.
+    //
+    // A TIMED sweep was wrong here, not merely coarse: the launch grace bounds only the
+    // matcher's `is_launching` arm, and a capture-armed or session-bearing placeholder
+    // keeps offering its token with no time limit at all — so an age cutoff retired
+    // tokens still in play.
+    //
+    // Every world, because a placeholder keeps its launch across a world switch and the
+    // click running this may be in another world entirely.
+    //
+    // Note what "reachable" costs: `restoration` is never CLEARED on a record — only set,
+    // by this function and by the executor's outcome stamp — so a placeholder that
+    // launched once pins that token for as long as it is visible. That is the intended
+    // answer rather than a leak. It is one token per launched placeholder, replaced (not
+    // accumulated) on relaunch, and it stays matchable the whole time: a capture-armed or
+    // session-bearing placeholder offers its token with no time bound, so a launch that
+    // has not produced its window yet must not have the token taken away, however long it
+    // has been. The two cases that DO free one are the two that end reachability — the
+    // placeholder is erased when it captures a window (`interface.rs:302`), and a
+    // relaunch overwrites the field.
+    //
+    // EVERY token, including the ones a CLIENT minted through `get_activation_token`.
+    // They are not exempt because they cannot correlate anything: `token_matches`
+    // compares the surface's tokens against `pending.activation_env`, which only ever
+    // holds what `create_external_token` minted above — so a client's own token is
+    // unmatchable by construction, not by policy.
+    //
+    // Dropping one is unobservable. smithay silently ignores an `activate` naming a
+    // token it no longer knows, so `request_activation` never fires and the token never
+    // reaches the surface's `ActivationLog`; the only readers of that log are
+    // `token_matches` (which could not have matched it) and the two retire loops (which
+    // then have nothing to retire). y5 does not follow through on an activation at all —
+    // `request_activation` records and returns, as the protocol explicitly permits.
+    //
+    // That is what makes this sweep a real BOUND rather than a tidy-up: one token per
+    // launched visible placeholder, replaced on relaunch, freed when the placeholder
+    // captures its window or is erased. Nothing accumulates outside that.
+    //
+    // It holds only while y5 ignores activation requests. If the in-process notification
+    // daemon ever makes y5 honour `activate`, a client-minted token becomes load-bearing
+    // between mint and use and has to be exempted again — and then with a grace period
+    // rather than plain liveness, since a launcher may hand its token to a child and exit
+    // before the child ever connects.
+    let referenced: std::collections::HashSet<String> = _loop
+        .inner
+        .worlds
+        .ids()
+        .into_iter()
+        .filter_map(|world| {
+            _loop
+                .inner
+                .worlds
+                .get(world)
+                .storage()
+                .try_get(&compositor_y5_placeholder_system_base::base::PLACEHOLDER)
+        })
+        .flat_map(|store| store.visible.iter())
+        .filter_map(|(ph, _)| ph.restoration.as_ref().map(|r| r.token.clone()))
+        .collect();
+    _loop
+        .state
+        .xdg_activation
+        .xdg_activation
+        .retain_tokens(|token, _| referenced.contains(token.as_str()));
+
     info!("Launch!");
 }

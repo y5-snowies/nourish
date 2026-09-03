@@ -7,6 +7,7 @@ use compositor_orchestration_core_state_base::state::{CoordinateTrait, Orchestra
 use compositor_y5_surface_interface_base::hit::SurfaceHit;
 use compositor_y5_surface_interface_base::hit::{self, surface_under_filtered};
 use compositor_y5_window_interface_draw::visible::DrawWindow;
+use compositor_support_smithay_state_window_find::find;
 
 pub fn dispatch(
     _loop: &mut Loop,
@@ -30,7 +31,7 @@ pub fn dispatch(
             return false;
         }
         if let (Some(carried), Some(window)) = (carried.as_ref(), hit.window()) {
-            if window.toplevel().is_some_and(|t| t.wl_surface() == carried) {
+            if find::is_surface(window, carried) {
                 return false;
             }
         }
@@ -112,6 +113,23 @@ pub fn dispatch(
     // same shape as a compositor grab, and consistent with the withheld button
     // and relative motion. Compositor iced above keeps its hover.
     let hand = crate::constraint::hand_active(_loop);
+    // BEFORE the enter goes out. If the surface the pointer is moving onto belongs to an
+    // X11 window, that window has to be top of the X STACK first: the X server hit-tests
+    // its own tree at the coordinate Xwayland derives, so a raise that lands after the
+    // enter leaves the first events of a crossing routed against the old order — which is
+    // how this failed when it was tried on the focus-change branch below. See
+    // `Dispatch::raise_x11_for_pointer`; xwayland-satellite raises in the same breath as
+    // its enter for the same reason. Passed as a plain surface — whether it is X11 at all
+    // is not the rim's business — and a no-op for wayland windows.
+    //
+    // Only on a CROSSING, not every motion. The raise is a request written and flushed on
+    // the X socket (never waited for — see `X11Wm::raise_window` for why a round trip
+    // here would be a hang), and re-issuing it for every motion event would put one on
+    // the input path at pointer frequency to re-assert something already true.
+    let entering = under_hit.as_ref().map(|(surface, _)| surface.clone());
+    if !hand && entering != prev_focus {
+        _loop.state.raise_x11_for_pointer(entering.as_ref());
+    }
     if !was_constrain_locked {
         pointer.motion(
             &mut _loop.state,

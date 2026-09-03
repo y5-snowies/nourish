@@ -235,44 +235,71 @@ impl AtomicDrmDevice {
     }
 }
 
-impl Drop for AtomicDrmDevice {
-    fn drop(&mut self) {
-        if self.active.load(Ordering::SeqCst) {
-            let _guard = self.span.enter();
+impl AtomicDrmDevice {
+    /// Restore the card/tty to the state captured when this device was created.
+    ///
+    /// Split out of `Drop` so a compositor can perform its ONE restoring commit at a
+    /// moment it chooses. Reaching this through `Drop` alone requires every strong
+    /// reference to the device to be gone — the surfaces, the `DrmDeviceNotifier`, and
+    /// whatever the compositor's own event sources hold — and an event loop that keeps
+    /// its sources alive (a reference cycle through a captured loop handle is the usual
+    /// way) turns that into "the console is never restored", with no error anywhere.
+    ///
+    /// Takes `&self`, so it is callable through the `Arc<DrmDeviceInternal>` every
+    /// `DrmDevice` holds. See [`DrmDevice::restore_state`].
+    ///
+    /// Guarded on `active`, and CLEARS it on success. That makes the restore
+    /// exactly-once whether it is reached from here or from `Drop`, and makes it the
+    /// LAST word: a `DrmSurface` dropped afterwards skips its own disabling commit
+    /// (which is guarded on the same flag) instead of blanking what was just restored.
+    pub(super) fn restore_state(&self) {
+        if !self.active.load(Ordering::SeqCst) {
+            return;
+        }
+        let _guard = self.span.enter();
 
-            // Here we restore the card/tty's to it's previous state.
-            // In case e.g. getty was running on the tty sets the correct framebuffer again,
-            // so that getty will be visible.
-            // We do exit correctly if this fails, but the user will be presented with
-            // a black screen if no display handler takes control again.
+        // Here we restore the card/tty's to it's previous state.
+        // In case e.g. getty was running on the tty sets the correct framebuffer again,
+        // so that getty will be visible.
+        // We do exit correctly if this fails, but the user will be presented with
+        // a black screen if no display handler takes control again.
 
-            // create an atomic mode request consisting of all properties we captured on creation.
-            // TODO, check current connector status and remove deactivated connectors from this req.
+        // create an atomic mode request consisting of all properties we captured on creation.
+        // TODO, check current connector status and remove deactivated connectors from this req.
 
-            debug!("Device still active, trying to restore previous state");
-            let mut req = AtomicModeReq::new();
-            fn add_multiple_props<T: ResourceHandle>(
-                req: &mut AtomicModeReq,
-                old_state: &[(T, PropertyValueSet)],
-            ) {
-                for (handle, set) in old_state {
-                    let (prop_handles, values) = set.as_props_and_values();
-                    for (&prop_handle, &val) in prop_handles.iter().zip(values.iter()) {
-                        req.add_raw_property((*handle).into(), prop_handle, val);
-                    }
+        debug!("Device still active, trying to restore previous state");
+        let mut req = AtomicModeReq::new();
+        fn add_multiple_props<T: ResourceHandle>(
+            req: &mut AtomicModeReq,
+            old_state: &[(T, PropertyValueSet)],
+        ) {
+            for (handle, set) in old_state {
+                let (prop_handles, values) = set.as_props_and_values();
+                for (&prop_handle, &val) in prop_handles.iter().zip(values.iter()) {
+                    req.add_raw_property((*handle).into(), prop_handle, val);
                 }
             }
-
-            add_multiple_props(&mut req, &self.old_state.0);
-            add_multiple_props(&mut req, &self.old_state.1);
-            add_multiple_props(&mut req, &self.old_state.2);
-            add_multiple_props(&mut req, &self.old_state.3);
-
-            trace!("Previous state: {:?}", req);
-            if let Err(err) = self.fd.atomic_commit(AtomicCommitFlags::ALLOW_MODESET, req) {
-                error!("Failed to restore previous state. Error: {}", err);
-            }
         }
+
+        add_multiple_props(&mut req, &self.old_state.0);
+        add_multiple_props(&mut req, &self.old_state.1);
+        add_multiple_props(&mut req, &self.old_state.2);
+        add_multiple_props(&mut req, &self.old_state.3);
+
+        trace!("Previous state: {:?}", req);
+        if let Err(err) = self.fd.atomic_commit(AtomicCommitFlags::ALLOW_MODESET, req) {
+            error!("Failed to restore previous state. Error: {}", err);
+            return;
+        }
+        // Only on success: a failed commit leaves the console still needing a restore,
+        // and a later attempt (the `Drop` below, a resumed session) should still try.
+        self.active.store(false, Ordering::SeqCst);
+    }
+}
+
+impl Drop for AtomicDrmDevice {
+    fn drop(&mut self) {
+        self.restore_state();
     }
 }
 

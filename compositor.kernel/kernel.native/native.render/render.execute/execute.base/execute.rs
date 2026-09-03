@@ -1405,29 +1405,37 @@ fn present(
         use compositor_model_environment_tearing_select::select::{Exclusivity, Scene};
         use smithay::wayland::seat::WaylandFocus;
 
-        // The tag lives on the SURFACE — both `wp_tearing_control_v1` and the
-        // exec heuristic write it there — so it is the single source of truth.
-        // The tag is looked for on the whole surface TREE: Mesa attaches
-        // `wp_tearing_control` to the surface it presents to, which for many
-        // native games is a subsurface under the toplevel, not the toplevel.
+        // Both halves of the tag live on the SURFACE, and both are gathered over the
+        // whole surface TREE: Mesa attaches `wp_tearing_control` to the surface it
+        // presents to, which for many native games is a subsurface under the toplevel
+        // while the heuristic stamped the toplevel. `Verdict::is_target` then resolves
+        // the two ONCE, at the window — the client's statement wherever it spoke, the
+        // heuristic only for the silence.
+        //
+        // One tag for both sections: pacing is another configurable layer over the same
+        // "does this window own the cadence" question, not a separate claim. What keeps
+        // an explicit setting above a client is `Selector::Always`, which ignores the
+        // tag entirely.
+        //
+        // Xwayland is not offered the protocol (`wire.tearing::can_view`), so the hint
+        // is always absent for an X11 window and none here is ever second-hand.
         let tagged = |w: &smithay::desktop::Window| {
             use smithay::wayland::compositor::{with_surface_tree_downward, TraversalAction};
-            let mut found = false;
+            let mut verdict = pacer::Verdict::default();
             if let Some(s) = w.wl_surface() {
                 with_surface_tree_downward(
                     s.as_ref(),
                     (),
                     |_, _, _| TraversalAction::DoChildren(()),
                     |_, states, _| {
-                        found |= states
-                            .data_map
-                            .get::<pacer::PacerSurface>()
-                            .is_some_and(|tag| tag.get());
+                        if let Some(tag) = states.data_map.get::<pacer::TearingTag>() {
+                            verdict.absorb(tag);
+                        }
                     },
                     |_, _, _| true,
                 );
             }
-            found
+            verdict.is_target()
         };
         let focus = state.state.seat.seat.get_keyboard().and_then(|kb| kb.current_focus());
         // The overview overlay owns the whole content band, so the windows in
@@ -1634,5 +1642,6 @@ fn present(
         &window_visible,
     );
     compositor_kernel_graphic_draw_present_callbacks::callbacks::send_layer_frames(state, &current_output);
+    compositor_kernel_graphic_draw_present_cursor::cursor::send_frames(state, &current_output);
     true
 }

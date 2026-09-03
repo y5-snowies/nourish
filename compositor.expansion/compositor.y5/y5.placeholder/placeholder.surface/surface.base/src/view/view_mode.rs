@@ -19,6 +19,7 @@ use iced_core::text::{Ellipsis, Wrapping};
 use iced_core::{alignment, Alignment, Background, Border, Color, ContentFit, Element, Length, Padding, Shadow, Theme, Vector};
 use iced_widget::{button, column, container, image, row, svg, text};
 use compositor_introspection_extraction_window_base::attributes::{AppId, DisplayName, ExecArgs, ExecProgram, IconPath};
+use compositor_introspection_extraction_window_base::IconPixels;
 use compositor_support_iced_core_engine_base::Renderer;
 
 use crate::breakpoint::{Action, Breakpoint};
@@ -36,9 +37,21 @@ pub fn render(
     let plan = ui.shown_plan();
     let icon_px = step.icon_px();
 
-    let icon = match plan.current::<IconPath>() {
-        Some(path) => render_icon(path, icon_px),
-        None => fallback_glyph(icon_px),
+    // The window's OWN icon first, then the desktop entry, then the glyph.
+    //
+    // Same order `overview.draw/draw.icon` applies, and for the reason its doc gives:
+    // the protocol icon is live and window-specific, while `IconPath` is an app-level
+    // lookup keyed on `app_id`. Two surfaces showing the same window disagreeing about
+    // its icon is worse than either order.
+    //
+    // It is also the only route a pixel-only icon has. `push_toplevel_icon_hints`
+    // returns on a missing name, and `_NET_WM_ICON` never has one, so before this an X11
+    // window with no desktop entry — a Proton game — showed the fallback glyph while the
+    // overview drew its icon correctly from the same source.
+    let icon = match (&ui.icon_pixels, plan.current::<IconPath>()) {
+        (Some(pixels), _) => render_pixels(pixels, icon_px),
+        (None, Some(path)) => render_icon(path, icon_px),
+        (None, None) => fallback_glyph(icon_px),
     };
     let icon_with_backdrop = icon;
     // let icon_with_backdrop = backdrop(icon, icon_px);
@@ -257,6 +270,27 @@ fn render_icon<'a>(path: PathBuf, icon_px: f32) -> Element<'a, PlaceholderMessag
             .content_fit(ContentFit::Contain)
             .into()
     }
+}
+
+/// Draw decoded RGBA the window committed for itself.
+///
+/// `IconPixels` is already the decoder's chosen image (smallest at least 64 across, else
+/// the largest), straight-alpha RGBA8 — which is what `image::Handle::from_rgba` wants,
+/// so nothing is converted here. The `Arc<Vec<u8>>` is cloned by refcount, not copied.
+fn render_pixels<'a>(
+    pixels: &IconPixels,
+    icon_px: f32,
+) -> Element<'a, PlaceholderMessage, Theme, Renderer> {
+    let handle = image::Handle::from_rgba(
+        pixels.width,
+        pixels.height,
+        pixels.rgba.as_ref().clone(),
+    );
+    image(handle)
+        .width(Length::Fixed(icon_px))
+        .height(Length::Fixed(icon_px))
+        .content_fit(ContentFit::Contain)
+        .into()
 }
 
 fn fallback_glyph<'a>(icon_px: f32) -> Element<'a, PlaceholderMessage, Theme, Renderer> {

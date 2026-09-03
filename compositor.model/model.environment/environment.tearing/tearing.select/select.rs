@@ -13,6 +13,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Scene {
     /// A tagged ("target") window is in the drawn set.
+    ///
+    /// Tagged is not "the heuristic picked it": a client's `wp_tearing_control_v1`
+    /// hint decides wherever the client spoke, and the process heuristic answers only
+    /// for the silence. So a target asking for vsync is NOT tagged, and a non-target
+    /// asking to tear is. Both sections read this one tag — pacing is another
+    /// configurable layer over the same question, not a separate claim.
     pub target_visible: bool,
     /// A tagged window holds keyboard focus.
     pub target_focused: bool,

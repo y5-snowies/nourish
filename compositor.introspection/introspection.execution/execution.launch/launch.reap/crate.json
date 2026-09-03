@@ -1,6 +1,0 @@
-{
-  "deps": [
-    "libc",
-    "compositor_support_library_process_child_spawn"
-  ]
-}

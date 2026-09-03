@@ -38,7 +38,7 @@ use smithay::backend::renderer::utils::{RendererSurfaceStateUserData, SurfaceVie
 use smithay::wayland::compositor::{SurfaceData, with_states};
 use smithay::wayland::seat::WaylandFocus;
 use compositor_y5_camera_transform_translate::slot;
-use compositor_y5_camera_transform_translate::fit::{WindowFit, window_fit};
+use compositor_y5_camera_transform_translate::fit::{self, WindowFit, window_fit};
 use compositor_y5_camera_transform_translate::transform::{
     Context as XformCtx, Transform as Xform,
 };
@@ -55,6 +55,7 @@ fn root_dst(surface: &WlSurface) -> Option<smithay::utils::Size<i32, Logical>> {
 }
 use compositor_monitor_compositor_iced_base::{HandleId, IcedSpace, Transform as IcedTransform};
 use compositor_support_system_storage_slot_base::base::Storage;
+use compositor_support_smithay_state_window_shell::shell;
 
 // ─── Hit context ────────────────────────────────────────────────────
 //
@@ -404,15 +405,7 @@ fn hit_window(
         SurfaceHit::Window { window: window.clone(), surface, position }
     };
 
-    let slot_size = if cfg.window_client_size_fallback {
-        window
-            .toplevel()
-            .and_then(|t| t.with_pending_state(|s| s.size))
-            .filter(|s| s.w > 0 && s.h > 0)
-            .or_else(|| Some(geom.size))
-    } else {
-        slot::expected_size(window)
-    };
+    let slot_size = slot::expected_size(window);
     let root_surface = window.wl_surface().map(|c| c.into_owned());
 
     match slot_size.filter(|s| s.w > 0 && s.h > 0) {
@@ -431,37 +424,45 @@ fn hit_window(
         Some(slot_size) => {
             let view_dst = root_surface.as_ref().and_then(root_dst).unwrap_or(geom.size);
             let stretch = slot::resize_stretching(window, geom.size);
-            let WindowFit { fit_sx, fit_sy, fit_surf, ref_size, cover } = window_fit(
+            let fit = window_fit(
                 elem_loc,
                 geom,
                 view_dst,
-                window.bbox(),
                 slot_size,
-                cfg.window_subsurface_shrinks,
                 stretch,
             );
+            let WindowFit { fit_sx, fit_sy, fit_surf, ref_size, cover: _ } = fit;
             let local = Point::<f64, Logical>::from((
                 (position_world.x - fit_surf.0) / fit_sx,
                 (position_world.y - fit_surf.1) / fit_sy,
             ));
 
-            if cover {
-                if let Some((surface, sub_pos)) =
-                    window.surface_under(local, WindowSurfaceType::POPUP)
-                {
-                    let hit = deliver(surface, sub_pos, local);
-                    if filter(&hit) {
-                        return Some(hit);
-                    }
-                }
-            } else if let Some(root) = &root_surface {
-                let psx = if geom.size.w > 0 { ref_size.w as f64 / geom.size.w as f64 } else { 1.0 };
-                let psy = if geom.size.h > 0 { ref_size.h as f64 / geom.size.h as f64 } else { 1.0 };
+            // Popups, in the SAME fit frame as the content, through the one mapping the
+            // render path also uses (`fit::popup_offset`) — the two must agree or the
+            // pointer lands somewhere the menu is not drawn.
+            //
+            // Walked here rather than through `Window::surface_under(.., POPUP)`, which
+            // cannot see an X11 popup: smithay's X11 arm answers only when the flags
+            // contain `TOPLEVEL`, so a `POPUP`-only ask returns `None` for every X11
+            // window. The hit then fell through to the parent toplevel and delivered
+            // PARENT-local coordinates. The menu still received events, because the X
+            // server routes them into it by root coordinate, but measured through the
+            // wrong mapping: the pointer did not line up with what the menu drew.
+            //
+            // That only ever affected the `cover` regime, which is a per-frame verdict
+            // and not a property of an app (`window_fit` recomputes it from geometry
+            // against slot every frame) — so it was every X11 window whenever its surface
+            // fitted its slot, the ordinary steady state, while the same window
+            // hit-tested its menu correctly the rest of the time. Hence "intermittent".
+            //
+            // `POPUP | SUBSURFACE` so a popup's own subsurfaces are reachable; the
+            // oversized branch this replaces already passed both.
+            if let Some(root) = &root_surface {
                 for (popup, pop_loc) in PopupManager::popups_for_surface(root) {
-                    let pg = popup.geometry().loc;
+                    let off = fit::popup_offset(&fit, geom, pop_loc, popup.geometry().loc);
                     let off = Point::<i32, Logical>::from((
-                        ((pop_loc.x - pg.x) as f64 * psx).round() as i32,
-                        ((pop_loc.y - pg.y) as f64 * psy).round() as i32,
+                        off.x.round() as i32,
+                        off.y.round() as i32,
                     ));
                     if let Some((surface, sub_pos)) = under_from_surface_tree(
                         popup.wl_surface(),
@@ -696,8 +697,29 @@ pub fn surface_under_filtered_cx(
     // iced interleave here by raise, no kind-branching in the driver. Any window
     // not in the order (defensive) is hit-tested at the bottom.
     let order = hcx.drawable_order();
+    // `is_drawn` is a PRECONDITION here, not one of the caller's filters. A Space element
+    // is not automatically something on screen — an X11 unmap is a hide (the `Window`
+    // stays, its `wl_surface` cleared) and an xdg toplevel that commits a null buffer
+    // keeps its element with an empty bbox — while its SLOT survives either way
+    // (`expected_size` is `Decided` from map and nothing clears it). So the letterbox
+    // branch below would find the whole slot outside a zero-sized content rect and answer
+    // `WindowChrome`, swallowing every click over a window that is not there.
+    //
+    // Applied to the map rather than to each caller's closure because every input device
+    // reaches this driver — pointer, touch, tablet, the lock seat and the canvas systems
+    // all call `surface_under_filtered` — and their closures express POLICY (overview
+    // open, the carried window), which this is not. It removes the window's popups with
+    // it, correctly: the render path builds those inside the per-window render, so a
+    // window outside `vis.drawn` has undrawn popups, and hit and render stay in step.
     let by_uuid: std::collections::HashMap<uuid::Uuid, Window> = hcx.space_state().state
-        .elements().filter_map(|w| compositor_y5_window_interface_record::window::LoopWindow::uuid(w).map(|u| (u, w.clone()))).collect();
+        .elements()
+        .filter_map(|w| {
+            if !compositor_support_smithay_state_window_ident::ident::is_drawn(w) {
+                return None;
+            }
+            compositor_y5_window_interface_record::window::LoopWindow::uuid(w).map(|u| (u, w.clone()))
+        })
+        .collect();
     let in_order: std::collections::HashSet<uuid::Uuid> = order.iter().copied().collect();
     for id in &order {
         let drawable = match by_uuid.get(id) {

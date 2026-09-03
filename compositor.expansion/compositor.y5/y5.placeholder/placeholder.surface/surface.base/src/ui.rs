@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use iced_core::{Element, Theme};
 use iced_widget::combo_box;
-use compositor_introspection_extraction_window_base::{HandlerId, HandlerRegistry};
+use compositor_introspection_extraction_window_base::{HandlerId, HandlerRegistry, IconPixels};
 use compositor_introspection_inference_hint_base::AttributeDescriptor;
 use compositor_introspection_launchplan_plan_base::LaunchPlan;
 use compositor_support_iced_core_engine_base::{IcedUi, Renderer};
@@ -36,6 +36,22 @@ pub struct PlaceholderUi {
     /// despite the name. This is what makes the placeholder restorable by identity
     /// rather than by guesswork, which is worth showing.
     pub(crate) has_session_identity: bool,
+    /// Whether the captured window was an X11 (XWayland) client. Display only —
+    /// it warms the panel background so an X11 placeholder is recognisable at a
+    /// glance, which matters because X11 placeholders restore by a different route
+    /// and are the first thing to check when a restore misses.
+    pub(crate) from_x11: bool,
+    /// The icon the captured window committed for itself, if it had one.
+    ///
+    /// Preferred over the plan's `IconPath` when present — the same order
+    /// `overview.draw/draw.icon` already applies, and for the reason its doc gives:
+    /// the protocol icon is live and window-specific, while the entry is an app-level
+    /// lookup keyed on `app_id`. Two surfaces showing the same window must not
+    /// disagree about its icon.
+    ///
+    /// Session-only, so a restored placeholder has `None` here and falls back to the
+    /// entry — see `Placeholder::icon_pixels`.
+    pub(crate) icon_pixels: Option<IconPixels>,
     pub(crate) working: LaunchPlan,
     pub(crate) mode: Mode,
     pub(crate) registry: Arc<HandlerRegistry>,
@@ -57,6 +73,8 @@ impl PlaceholderUi {
         plan: LaunchPlan,
         plan_session: Option<LaunchPlan>,
         has_session_identity: bool,
+        from_x11: bool,
+        icon_pixels: Option<IconPixels>,
         registry: Arc<HandlerRegistry>,
     ) -> Self {
         Self {
@@ -64,6 +82,8 @@ impl PlaceholderUi {
             canonical: plan,
             session: plan_session,
             has_session_identity,
+            from_x11,
+            icon_pixels,
             mode: Mode::View,
             registry,
             combo_active: None,

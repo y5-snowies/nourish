@@ -96,10 +96,6 @@ pub struct Environment {
     /// weaker settings exist for hand-editing a machine that misbehaves under
     /// SCHED_RR, not as a choice to put in front of someone installing.
     pub priority: String,
-    /// `false` = compositor-tracked window sizing; `true` = client xdg geometry.
-    pub window_client_size_fallback: bool,
-    /// `false` = fit only the root toplevel; `true` = fit the whole surface tree.
-    pub window_subsurface_shrinks: bool,
     // NOTE: live user preferences (cursor sensitivity, touchpad natural-scroll,
     // per-EDID output modes) intentionally do NOT live here. They are not
     // reboot-bound, so they live in `environment.preference` (preferences.json),
@@ -108,7 +104,7 @@ pub struct Environment {
 
 /// Current settings-schema version. Bump when adding fields, and teach
 /// [`migrate`] to fill the new fields' defaults for older files.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 /// The stored [`Environment::renderer_sync`] for a fresh install. `"infence"`
 /// is the historical spelling and stays the canonical stored form;
@@ -203,6 +199,19 @@ pub fn migrate(root: &mut serde_json::Value) -> bool {
         // exactly as it did before the field existed.
         obj.entry("scanout_node")
             .or_insert_with(|| serde_json::Value::String(String::new()));
+    }
+    if version < 5 {
+        // v4 → v5: `window_client_size_fallback` and `window_subsurface_shrinks`
+        // REMOVED. Both were experiments in letting the client's own geometry override
+        // the compositor's slot, and both shipped `false`; the code paths behind them
+        // are gone, so the fields describe nothing.
+        //
+        // A REMOVAL step, which no other version needed — `Environment` is
+        // `deny_unknown_fields`, so a file still carrying either key fails to parse
+        // outright rather than degrading. Dropping the keys here is what lets an
+        // existing settings.json load at all.
+        obj.remove("window_client_size_fallback");
+        obj.remove("window_subsurface_shrinks");
     }
     obj.insert("version".into(), serde_json::Value::from(SCHEMA_VERSION));
     true
@@ -303,8 +312,6 @@ pub fn default_settings() -> Environment {
         capture_nvenc_allow_readback_fallback: false,
         capture_variable_frame_rate: false,
         priority: PRIORITY_DEFAULT.to_string(),
-        window_client_size_fallback: false,
-        window_subsurface_shrinks: false,
     }
 }
 

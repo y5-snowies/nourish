@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_support_smithay_state_window_ident",
     "compositor_y5_window_interface_record",
     "uuid",
     "compositor_y5_camera_state_base",
@@ -18,6 +19,7 @@
     "compositor_support_world_host_space_base",
     "compositor_support_world_order_track_base",
     "compositor_y5_select_state_base",
-    "compositor_y5_surface_state_base"
+    "compositor_y5_surface_state_base",
+    "compositor_support_smithay_state_window_shell"
   ]
 }

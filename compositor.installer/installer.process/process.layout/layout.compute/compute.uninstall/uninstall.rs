@@ -11,6 +11,10 @@ use compositor_installer_process_config_parse_base::Preset;
 /// User configuration is KEPT unless `--purge`. An uninstall is usually a step in
 /// reinstalling, and destroying a tuned `settings.json` (or the persisted world state
 /// beside it) is not recoverable.
+///
+/// **Rootless.** It elevates itself (`$SUDO`) for the system files; the rest is
+/// user-scoped and under `sudo` would address root — disabling units in root's manager,
+/// deleting nothing of the user's, and reporting success. Hence the guard it emits.
 pub fn uninstall_script(p: &Preset) -> String {
     format!(
         "#!/bin/bash\n\
@@ -29,17 +33,29 @@ pub fn uninstall_script(p: &Preset) -> String {
          \x20   *) echo \"unknown argument: $1\" >&2; exit 2 ;;\n\
          esac\n\
          \n\
-         SUDO=\"\"\n\
-         [ \"$(id -u)\" -ne 0 ] && SUDO=sudo\n\
+         if [ \"$(id -u)\" -eq 0 ]; then\n\
+         \x20   echo \"y5.compositor.uninstall: do not run as root or with sudo.\" >&2\n\
+         \x20   echo \'Run it as your normal user — it sudos for system files; the rest is yours.\' >&2\n\
+         \x20   exit 1\n\
+         fi\n\
+         SUDO=sudo\n\
          CFG=\"${{XDG_CONFIG_HOME:-$HOME/.config}}\"\n\
          UD=\"$CFG/systemd/user\"\n\
          \n\
          echo \":: stopping and disabling user units\"\n\
-         for unit in {service} xwayland.service mx-gesture-daemon.service \\\n\
-         \x20           y5-polkit-agent.service; do\n\
+         for unit in {service} mx-gesture-daemon.service y5-polkit-agent.service; do\n\
          \x20   systemctl --user disable --now \"$unit\" >/dev/null 2>&1 || true\n\
          done\n\
-         rm -f \"$UD/{service}\" \"$UD/{shutdown}\" \"$UD/xwayland.service\" \\\n\
+         # xwayland.service is a name anyone could have used, and y5 no longer\n\
+         # installs one at all (the compositor runs Xwayland in-process). Only touch\n\
+         # it if the Description names y5 -- same single marker the installer uses.\n\
+         # The satellite BINARY is left alone: it may be the distro's or the user's.\n\
+         if grep -q '^Description=X Wayland Satellite (y5' \\\n\
+         \x20      \"$UD/xwayland.service\" 2>/dev/null; then\n\
+         \x20   systemctl --user disable --now xwayland.service >/dev/null 2>&1 || true\n\
+         \x20   rm -f \"$UD/xwayland.service\"\n\
+         fi\n\
+         rm -f \"$UD/{service}\" \"$UD/{shutdown}\" \\\n\
          \x20      \"$UD/mx-gesture-daemon.service\" \"$UD/y5-polkit-agent.service\"\n\
          systemctl --user daemon-reload >/dev/null 2>&1 || true\n\
          \n\
@@ -51,7 +67,7 @@ pub fn uninstall_script(p: &Preset) -> String {
          echo \":: removing system files (sudo)\"\n\
          $SUDO rm -f /usr/bin/{binary} /usr/bin/{wrapper} \\\n\
          \x20   /usr/bin/y5.compositor.settings /usr/bin/y5.compositor.monitor \\\n\
-         \x20   /usr/bin/xwayland-satellite /usr/local/bin/y5-polkit-agent \\\n\
+         \x20   /usr/local/bin/y5-polkit-agent \\\n\
          \x20   /usr/share/wayland-sessions/{session} \\\n\
          \x20   /usr/share/applications/y5.compositor.monitor.desktop \\\n\
          \x20   /etc/pam.d/y5-lock /etc/udev/rules.d/42-logitech-hidpp.rules \\\n\

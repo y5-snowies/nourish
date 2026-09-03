@@ -7,6 +7,7 @@ edition.workspace = true
 compositor_installer_process_config_parse_base = { workspace = true }
 compositor_installer_process_layout_compute_apply = { path = "../compute.apply" }
 compositor_installer_process_layout_compute_plan = { path = "../compute.plan" }
+compositor_installer_process_layout_compute_retire = { path = "../compute.retire" }
 compositor_installer_process_layout_compute_policy = { path = "../compute.policy" }
 compositor_installer_process_layout_compute_session = { path = "../compute.session" }
 compositor_installer_process_layout_compute_stage = { path = "../compute.stage" }

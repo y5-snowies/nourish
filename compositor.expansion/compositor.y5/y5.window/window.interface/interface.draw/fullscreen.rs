@@ -5,6 +5,8 @@ use compositor_y5_camera_transform_translate::slot;
 use compositor_orchestration_core_state_base::Loop;
 use compositor_y5_window_interface_record::data::WindowFullscreen;
 use compositor_y5_window_interface_record::window::LoopWindow;
+use compositor_support_smithay_state_window_find::find;
+use compositor_support_smithay_state_window_shell::shell;
 
 /// Apply (or clear) fullscreen on a window.
 ///
@@ -21,10 +23,6 @@ use compositor_y5_window_interface_record::window::LoopWindow;
 /// and captures input within its bounds. Pre-fullscreen geometry is stored so
 /// it can be restored on un-fullscreen.
 pub fn fullscreen_set(_loop: &mut Loop, window: Window, fullscreen: bool) {
-    let Some(toplevel) = window.toplevel() else {
-        return;
-    };
-
     if fullscreen {
         if window.is_fullscreen() {
             return;
@@ -63,11 +61,9 @@ pub fn fullscreen_set(_loop: &mut Loop, window: Window, fullscreen: bool) {
         // the restore rect (above), so it doesn't feed back off this new slot.
         slot::set_expected_size(&window, target_size);
 
-        toplevel.with_pending_state(|state| {
-            state.states.set(xdg_toplevel::State::Fullscreen);
-            state.size = Some(target_size);
-        });
-        toplevel.send_configure();
+        shell::set_fullscreen(&window, true);
+        shell::stage(&window, target_size, false);
+        shell::send(&window);
     } else {
         let Some(restore) = window.fullscreen() else {
             return;
@@ -110,11 +106,9 @@ pub fn fullscreen_set(_loop: &mut Loop, window: Window, fullscreen: bool) {
 
         slot::set_expected_size(&window, size);
 
-        toplevel.with_pending_state(|state| {
-            state.states.unset(xdg_toplevel::State::Fullscreen);
-            state.size = Some(size);
-        });
-        toplevel.send_configure();
+        shell::set_fullscreen(&window, false);
+        shell::stage(&window, size, false);
+        shell::send(&window);
     }
 
     // Geometry changed; refresh the owning group's bounding box overlay.
@@ -190,10 +184,6 @@ fn focused_window(_loop: &Loop) -> Option<Window> {
         .inner.space_state()
         .state
         .elements()
-        .find(|w| {
-            w.toplevel()
-                .map(|t| t.wl_surface() == &focus)
-                .unwrap_or(false)
-        })
+        .find(|w| find::is_surface(w, &focus))
         .cloned()
 }

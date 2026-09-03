@@ -1,68 +1,85 @@
 //! `spawn()` / `status()` / `output()` — every spawn goes through one of them.
 //!
-//! Both hazards handled here follow from the SIGCHLD reaper
-//! (`execution.launch/launch.reap`) collecting ANY child with `waitpid(-1)`:
+//! [`resolve`] is what these add over `Command`'s own methods: a launch plan naming a
+//! binary that isn't installed is the ordinary failure, and answering it BEFORE the fork
+//! turns it into a returned error instead of an `exec` that fails in the child.
 //!
-//! 1. **std reaps for us, under an assert.** When `exec` fails in the forked
-//!    child, `Command::spawn` reads the failure off the CLOEXEC pipe and then
-//!    waits on that child — `assert!(p.wait().is_ok(), "wait() should either
-//!    return Ok or panic")`. A reaper that gets there first leaves that wait
-//!    with `ECHILD`, and the assert PANICS on whatever thread was spawning.
-//!    [`try_reap_guard`] and the lock [`spawn`] takes make the two exclusive.
-//! 2. **The usual way to reach (1) need not fork at all.** A launch plan naming
-//!    a binary that isn't installed is the ordinary case, so [`resolve`] answers
-//!    it before the fork: a returned error instead of a race.
+//! There used to be a second job here, a mutex held across every spawn. It existed
+//! because the launch reaper collected ANY child with `waitpid(-1)`, and `Command::spawn`
+//! waits on its own child after a failed `exec` under an assertion — so a reaper that got
+//! there first left that wait with `ECHILD` and PANICKED the spawning thread. The same
+//! indiscriminate wait could take a child out from under [`status`] and [`output`] after
+//! their spawn returned, which the lock never covered, and out from under smithay's
+//! Xwayland reaper, which it could not cover.
+//!
+//! None of that exists now: a launched child is named by its own exit descriptor and
+//! waited on by name (`child.pidfd`), so nothing in this process collects a child it does
+//! not own, and there is nothing left to serialise.
 
 use std::ffi::OsString;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
-use std::sync::{Mutex, MutexGuard, TryLockError};
 
-/// Held across every spawn below, and by the reaper for its whole drain, so a
-/// spawn in flight cannot have its child collected out from under it. Held for
-/// microseconds: a `fork` plus the exec handshake.
-static SPAWNING: Mutex<()> = Mutex::new(());
-
-/// The reaper's side of [`SPAWNING`]: `None` while a spawn holds it, so the
-/// caller retries instead of blocking. Reaping has no latency requirement and
-/// must never be what waits on a slow `exec` — a binary on a hung mount would
-/// otherwise stall whichever thread reaps. A poisoned lock is taken anyway: the
-/// data is `()`, and never reaping again is worse than anything a panicking
-/// spawner could have left behind.
-pub fn try_reap_guard() -> Option<MutexGuard<'static, ()>> {
-    match SPAWNING.try_lock() {
-        Ok(guard) => Some(guard),
-        Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
-        Err(TryLockError::WouldBlock) => None,
-    }
-}
+use compositor_support_library_process_child_pidfd::pidfd;
 
 /// Spawn `cmd`, refusing a program `exec` could not have resolved.
-pub fn spawn(cmd: &mut Command) -> io::Result<Child> {
+///
+/// PRIVATE, so that no caller can spawn without answering the question the two public
+/// entry points differ on: who waits on this child. There is no neutral `spawn` on
+/// purpose — the version that existed was the one every leak went through, because
+/// forgetting to wait looks exactly like deciding not to.
+fn spawn_inner(cmd: &mut Command) -> io::Result<Child> {
     if resolve(cmd).is_none() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
             format!("program not found or not executable: {}", cmd.get_program().to_string_lossy()),
         ));
     }
-    let _spawning = SPAWNING.lock().unwrap_or_else(|e| e.into_inner());
     cmd.spawn()
 }
 
-/// [`spawn`] then wait, replacing `Command::status` (which spawns unguarded).
-pub fn status(cmd: &mut Command) -> io::Result<ExitStatus> {
-    spawn(cmd)?.wait()
+/// Spawn a child NOBODY will wait on, and arrange for it to be reaped anyway.
+///
+/// The variant for a caller that spawns and forgets: a one-shot `kill`, the input method,
+/// a terminal. Those children still become zombies when they exit, and the difference
+/// between them and the ones below is only who does the waiting — so the choice is made
+/// HERE, at the call site, rather than by a reaper guessing from a distance. That guess
+/// is what `waitpid(-1)` used to be, and what made it collide with every caller that did
+/// wait on its own child.
+///
+/// The `Child` is returned so a caller can still take its stdio; dropping it changes
+/// nothing, because the exit is collected through the descriptor rather than the handle.
+pub fn spawn_detached(cmd: &mut Command) -> io::Result<Child> {
+    let child = spawn_inner(cmd)?;
+    pidfd::watch(child.id());
+    Ok(child)
 }
 
-/// [`spawn`] then collect, replacing `Command::output`. Stdio is FORCED, where
-/// std's version only fills what the caller left unset — we cannot read a
-/// `Command`'s stdio back to tell. Anything else wants [`spawn`] and a child
-/// driven by hand.
+/// Spawn a child the CALLER will wait on, and hand back the handle.
+///
+/// The counterpart of [`spawn_detached`], and the promise in the name is the whole
+/// contract: nothing else will collect this child, so a caller that returns without
+/// waiting leaks a zombie for the life of the session. Take its stdio, drive it, and
+/// `wait`, `try_wait` or `kill` it.
+///
+/// Use [`spawn_detached`] instead the moment the answer becomes "nobody waits".
+pub fn spawn_awaited(cmd: &mut Command) -> io::Result<Child> {
+    spawn_inner(cmd)
+}
+
+/// [`spawn_awaited`] then wait, replacing `Command::status` (which spawns unguarded).
+pub fn status(cmd: &mut Command) -> io::Result<ExitStatus> {
+    spawn_inner(cmd)?.wait()
+}
+
+/// [`spawn_awaited`] then collect, replacing `Command::output`. Stdio is FORCED, where
+/// std's version only fills what the caller left unset — we cannot read a `Command`'s
+/// stdio back to tell. Anything else wants [`spawn_awaited`] and a child driven by hand.
 pub fn output(cmd: &mut Command) -> io::Result<Output> {
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    spawn(cmd)?.wait_with_output()
+    spawn_inner(cmd)?.wait_with_output()
 }
 
 /// Where `exec` would find this command's program: the path itself when it

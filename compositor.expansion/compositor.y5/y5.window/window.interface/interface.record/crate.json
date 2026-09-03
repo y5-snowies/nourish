@@ -8,6 +8,7 @@
     "compositor_introspection_inference_hint_base",
     "compositor_support_smithay_state_xdg_activation_dispatch",
     "compositor_support_smithay_state_session_store",
-    "compositor_introspection_restoration_state_pending"
+    "compositor_introspection_restoration_state_pending",
+    "compositor_support_smithay_state_window_ident"
   ]
 }

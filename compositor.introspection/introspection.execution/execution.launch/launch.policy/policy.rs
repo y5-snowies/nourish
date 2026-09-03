@@ -1,19 +1,23 @@
-//! The launch toggles. All compile-time `const` so dead branches drop out and
-//! the `Direct` + `Inline` default lowers to exactly the historical path.
+//! The launch toggles. All compile-time `const`, so the branches not selected drop out
+//! of the build entirely.
 
 /// Which mechanism manages the lifecycle of a launched process.
+///
+/// REAPING IS NO LONGER ONE OF THE AXES. Every launch opens an exit descriptor for its
+/// child and the loop collects that one child when it fires (`child.pidfd`), whichever
+/// variant is selected, so none of these can leak a zombie any more. What is left to
+/// choose is only whether the process is placed in a systemd scope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LaunchBackend {
-    /// Byte-identical to the historical path: `Command::spawn`, the child is
-    /// detached, nothing reaps it. Zombies accumulate and PIDs recycle — kept
-    /// only as the bisection baseline.
+    /// `Command::spawn` and nothing further: no scope, no cgroup of its own. Kept as the
+    /// bisection baseline.
     Direct,
-    /// Self-spawn (so the PID is `Child::id()`, always reliable) plus a SIGCHLD
-    /// reaper wired into calloop.
+    /// Identical to [`Self::Direct`] today. It named the difference back when reaping was
+    /// a SIGCHLD handler this variant opted into.
     DirectReaped,
-    /// Self-spawn, then adopt the live PID into a transient systemd `.scope`
-    /// over the session bus. Still reaped — a scope keeps us as the parent and
-    /// does NOT delegate reaping to systemd.
+    /// Self-spawn, then adopt the live PID into a transient systemd `.scope` over the
+    /// session bus. A scope keeps us as the parent, so it changes the cgroup and nothing
+    /// about who waits on the child.
     SystemdScope,
 }
 
@@ -27,7 +31,7 @@ pub enum LaunchDispatch {
     OffThread,
 }
 
-/// Active process backend. `Direct` reproduces today's behaviour exactly.
+/// Active process backend.
 pub const LAUNCH_BACKEND: LaunchBackend = LaunchBackend::SystemdScope;
 
 /// Active dispatch location.

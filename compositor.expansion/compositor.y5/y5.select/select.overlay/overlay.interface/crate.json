@@ -18,6 +18,8 @@
     "compositor_remote_message_client_base",
     "compositor_remote_client_handle_selection",
     "compositor_remote_client_handle_aspect",
-    "compositor_model_debug_instance_record"
+    "compositor_model_debug_instance_record",
+    "compositor_support_smithay_state_window_ident",
+    "compositor_support_smithay_state_window_shell"
   ]
 }

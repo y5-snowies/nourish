@@ -62,15 +62,3 @@ pub fn devtool_actions(stage: &Stage) -> Vec<Action> {
         place(PathBuf::from("/usr/share/applications/y5.compositor.monitor.desktop"), Source::Text(policy::devtool_desktop_entry()), 0o644, true),
     ]
 }
-
-/// Install + enable the patched xwayland-satellite (X11-app compatibility): the binary
-/// at the path its service expects, plus the user systemd service. Pairs with the
-/// default-on `xwayland` package group (the `xorg-x11-server-Xwayland` it drives).
-pub fn xwayland_actions(stage: &Stage) -> Vec<Action> {
-    vec![
-        place(PathBuf::from("/usr/bin/xwayland-satellite"), Source::Copy(stage.binary("xwayland-satellite")), 0o755, true),
-        place(user_systemd_dir().join("xwayland.service"), Source::Copy(stage.template("xwayland/xwayland.service")), 0o644, false),
-        Action::SystemctlUser(vec!["daemon-reload".into()]),
-        Action::SystemctlUser(vec!["enable".into(), "xwayland.service".into()]),
-    ]
-}

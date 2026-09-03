@@ -12,6 +12,8 @@ use compositor_orchestration_core_state_base::Loop;
 use compositor_y5_navigator_travel_machine::view::view;
 use compositor_y5_navigator_travel_state::state::{Target, Travel};
 use compositor_y5_window_lifecycle_interface::interface::TransformUpdate;
+use compositor_support_smithay_state_window_find::find;
+use compositor_support_smithay_state_window_ident::ident;
 
 pub fn move_direction(s: &mut Loop, direction: Direction, alternative: bool) {
     let result = compositor_y5_navigator_travel_machine::view_directional::view_directional(
@@ -282,14 +284,14 @@ pub fn fit_window(state: &mut Loop) {
     travel(state, result.position, result.zoom);
 }
 
-/// Four-finger pinch OUT: zoom out to an overview framing every (toplevel) window.
+/// Four-finger pinch OUT: zoom out to an overview framing every DRAWN window.
 /// Zoom is capped at 1.0 so the view never zooms IN past the viewport — the most
 /// zoomed-out floor is the screen itself (the user's "minimum zoom out").
 pub fn fit_all(state: &mut Loop) {
     let windows: Vec<Window> = state
         .inner.space_state().state
         .elements()
-        .filter(|w| w.toplevel().is_some())
+        .filter(|w| ident::is_drawn(w))
         .cloned()
         .collect();
     if windows.is_empty() {
@@ -333,7 +335,7 @@ fn most_centered(state: &mut Loop) -> Option<Window> {
     let windows: Vec<Window> = state
         .inner.space_state().state
         .elements()
-        .filter(|w| w.toplevel().is_some())
+        .filter(|w| ident::is_drawn(w))
         .cloned()
         .collect();
     windows
@@ -356,12 +358,12 @@ fn focused(state: &mut Loop) -> Option<Window> {
             .get_keyboard()
             .and_then(|kb| kb.current_focus())
             .and_then(|focus_surface| {
-                state.inner.space_state().state.elements().find(|w| {
-                    w.toplevel()
-                        .and_then(|t| Some(t.wl_surface()))
-                        .map(|s| s == &focus_surface)
-                        .unwrap_or(false)
-                })
+                state
+                    .inner
+                    .space_state()
+                    .state
+                    .elements()
+                    .find(|w| find::is_surface(w, &focus_surface))
             })
             .map_or(None, |w| Some(w))
     };
@@ -371,7 +373,12 @@ fn focused(state: &mut Loop) -> Option<Window> {
 /// Sets the navigator into lock mode - not accepting further state.
 pub fn lock(state: &mut Loop) {
     let view_result = {
-        let windows: Vec<Window> = state.inner.space_state().state.elements().cloned().collect();
+        let windows: Vec<Window> = state
+            .inner.space_state().state
+            .elements()
+            .filter(|w| ident::is_drawn(w))
+            .cloned()
+            .collect();
 
         // 2. Create the vector of references pointing to your local copy, NOT to `state`
         let windows: Vec<&Window> = windows.iter().collect();

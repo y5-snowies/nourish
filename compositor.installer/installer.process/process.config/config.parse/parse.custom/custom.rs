@@ -46,7 +46,5 @@ pub fn prompt_custom_env(base: &BaseConfig) -> Env {
         log_level,
         vk_diag,
         capture_encoder: "nvenc".to_string(),
-        window_client_size_fallback: false,
-        window_subsurface_shrinks: false,
     }
 }

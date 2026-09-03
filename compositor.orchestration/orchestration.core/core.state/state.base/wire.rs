@@ -13,6 +13,9 @@ use compositor_y5_camera_transform_translate::transform::Transform;
 use compositor_support_smithay_dispatch_state_base::state::Dispatch;
 use compositor_support_smithay_dispatch_wire_base::wire::Wire;
 use compositor_support_smithay_dispatch_wire_trait::wire_trait::{ActivationOrigin, WireTrait};
+use smithay::xwayland::X11Surface;
+use compositor_support_smithay_state_window_find::find;
+use compositor_support_smithay_state_window_ident::ident;
 use compositor_support_smithay_state_xdg_activation_dispatch::wire::ActivationDetails;
 use compositor_y5_window_interface_record::data::{DiscardPlaceholder, WindowData};
 use compositor_y5_window_lifecycle_event::event::WindowLifecycleEvent;
@@ -59,7 +62,7 @@ impl WireTrait for Orchestrator {
             .all_world_spaces()
             .iter()
             .flat_map(|s| s.state.elements())
-            .find(|w| w.toplevel().map(|t| t.wl_surface() == surface).unwrap_or(false))
+            .find(|w| find::is_surface(w, surface))
             .cloned();
         if let Some(window) = focused {
             if let Some(world) = self.world_of_window(&window) {
@@ -80,7 +83,7 @@ impl WireTrait for Orchestrator {
         match restore {
             Some(window) => {
                 self.set_activated_exclusive(Some(&window));
-                window.toplevel().map(|t| t.wl_surface().clone())
+                ident::surface(&window)
             }
             None => {
                 self.world_focus_memory.remove(&target);
@@ -189,9 +192,18 @@ impl WireTrait for Orchestrator {
             .insert_if_missing_threadsafe(|| WindowData { UUID: uuid });
 
         // Place the uuid into surface as well. required for ondestroy.
-        let surface = window.toplevel().unwrap_or_else(|| abort!("toplevels only")).wl_surface();
+        //
+        // An X11 window may have no wl_surface yet — Xwayland associates one only once
+        // the client's serial round-trip completes, which can land after the map
+        // request. Nothing is lost: the uuid was stamped on the window's own user data
+        // above, and the destroy path reads it back from there rather than off the
+        // surface.
+        let Some(surface) = ident::surface(&window) else {
+            info!("initialize_surface_data (x11, unassociated): {:?}", uuid);
+            return;
+        };
         info!("initialize_surface_Data: {:?}", uuid);
-        with_states(surface, |states| {
+        with_states(&surface, |states| {
             let inserted = states
                 .data_map
                 .insert_if_missing_threadsafe(|| Mutex::new(WindowData { UUID: uuid }));
@@ -224,9 +236,8 @@ impl WireTrait for Orchestrator {
     }
 
     fn destroy_surface_data(&mut self, surface: ToplevelSurface, drag_discard: bool) {
-        let activation_details = with_states(surface.wl_surface(), |states| {
-            states.data_map.get::<ActivationDetails>().cloned()
-        });
+        let activation_details =
+            compositor_support_smithay_state_xdg_activation_dispatch::wire::activations(surface.wl_surface());
 
         info!("destroy_surface_data...");
         with_states(surface.wl_surface(), |states| {
@@ -256,6 +267,118 @@ impl WireTrait for Orchestrator {
                 .incoming
                 .push(WindowLifecycleEvent::Destroyed(data, activation_details, discard_placeholder));
         });
+    }
+
+    // Every world, not `host_space`: an X11 window unmaps and dies in the world it
+    // lives in, which is not necessarily the one on screen. See the trait doc.
+    fn owning_x11_window(&self, surface: &X11Surface) -> Option<(uuid::Uuid, Window)> {
+        // The withdrawn record first, and it is cheap: one hash lookup against a map that
+        // is empty in the ordinary case, versus a walk of every world's elements. A
+        // window is in exactly one of the two, so order is a matter of cost only.
+        if let Some((world, window, _)) = self.withdrawn_x11.get(&surface.window_id()) {
+            return Some((*world, window.clone()));
+        }
+        self.worlds.ids().into_iter().find_map(|id| {
+            let found = self
+                .worlds
+                .get(id)
+                .storage()
+                .try_get(&compositor_support_world_host_space_base::base::SPACE)?
+                .inner
+                .state
+                .elements();
+            let found = find::by_x11(found, surface)?;
+            Some((id, found))
+        })
+    }
+
+    fn space_of_world_mut(
+        &mut self,
+        world: uuid::Uuid,
+    ) -> &mut compositor_support_smithay_state_space_base::state::SpaceState {
+        self.space_of_mut(world)
+    }
+
+    fn destroy_x11_data(&mut self, window: Window) {
+        use compositor_y5_window_interface_record::window::LoopWindow;
+        let Some(uuid) = window.uuid() else { return };
+
+        // An X11 window carries no xdg-activation token (that is a wayland protocol),
+        // so there is nothing to retire alongside it.
+        //
+        // Both verdicts are read off the WINDOW, never the surface. smithay clears the
+        // wl_surface association inside `unmapped_window` — the very event that queued
+        // this destroy — so by the time the drain runs there is no surface left, and a
+        // mark read from there would be unconditionally absent: every ephemeral X11
+        // window would leave a placeholder, and Shift-close would never discard one.
+        let discard_placeholder = window.user_data().get::<DiscardPlaceholder>().is_some()
+            || compositor_support_smithay_state_ephemeral_mark::mark::is_window_marked(&window);
+        self.window_lifecycle_mut()
+            .incoming
+            .push(WindowLifecycleEvent::Destroyed(uuid, Vec::new(), discard_placeholder));
+    }
+
+    fn withdraw_x11(&mut self, world: uuid::Uuid, window: Window) {
+        use compositor_y5_window_interface_record::window::LoopWindow;
+        let Some(uuid) = window.uuid() else { return };
+        // WHERE it sat, taken before the caller unmaps it — `element_location` answers
+        // from the Space, so this is the last moment the position exists anywhere.
+        let at = self
+            .space_of_mut(world)
+            .state
+            .element_location(&window)
+            .unwrap_or_default();
+        if let Some(x11) = window.x11_surface() {
+            self.withdrawn_x11.insert(x11.window_id(), (world, window.clone(), at));
+        }
+        // Out of the Space only NOW: the location above had to be read while it was still
+        // an element, and `element_location` answers from the Space.
+        self.space_of_mut(world).state.unmap_elem(&window);
+        // Then the WITHDRAW teardown, which is not the destroy one. Both leave a
+        // placeholder — X11 cannot tell a hide from a close, so both must — but a destroy
+        // moves the window's record into the placeholder while a withdrawal copies it and
+        // leaves the original in place. That is what keeps the invariant a remap depends
+        // on: the window still has its own record when it comes back.
+        //
+        // The verdicts are read off the WINDOW, as at destroy: smithay clears the surface
+        // association inside `unmapped_window`, so a mark read from there is gone by now.
+        let discard = window.user_data().get::<DiscardPlaceholder>().is_some()
+            || compositor_support_smithay_state_ephemeral_mark::mark::is_window_marked(&window);
+        self.window_lifecycle_mut()
+            .incoming
+            .push(WindowLifecycleEvent::Withdrawn(uuid, discard));
+    }
+
+    fn readmit_x11(&mut self, window: Window) {
+        use compositor_y5_window_interface_record::window::LoopWindow;
+        let Some(uuid) = window.uuid() else { return };
+        let Some(x11) = window.x11_surface().map(|s| s.window_id()) else { return };
+        let Some((world, _, at)) = self.withdrawn_x11.remove(&x11) else { return };
+        // Back in its own world at its own position — not `host_space`, and not centred.
+        // A window that hid while the user was elsewhere returns where it left.
+        self.space_of_mut(world).state.map_element(window, at, false);
+        // The draw-order slot, which `_withdraw` dropped: the window was not drawn while
+        // hidden, and `raise_drawable` both re-registers an unknown id and puts it back on
+        // top, which is what a window reappearing should do.
+        self.raise_drawable(uuid);
+        // The placeholder the withdrawal left is KEPT — it is a placeholder in its own
+        // right, with its own uuid, standing for a close that X11 could not distinguish
+        // from a hide. The window's OWN record never moved, so the invariant every
+        // `modify` caller relies on holds without anyone guarding it.
+    }
+
+    fn forget_withdrawn_x11(&mut self, surface: &X11Surface) {
+        self.withdrawn_x11.remove(&surface.window_id());
+    }
+
+    fn is_space_element(&self, window: &Window) -> bool {
+        self.worlds.ids().into_iter().any(|id| {
+            self.worlds
+                .get(id)
+                .storage()
+                .try_get(&compositor_support_world_host_space_base::base::SPACE)
+                .is_some_and(|w| w.inner.state.elements().any(|e| e == window))
+        })
     }
 
     fn place_window(&mut self, window: Window, geometry: Rectangle<i32, Logical>) {

@@ -4,6 +4,7 @@
     "compositor_introspection_extraction_window_meta_proc_tree",
     "compositor_introspection_extraction_window_meta_types",
     "compositor_introspection_extraction_window_meta_wayland_surface",
-    "smithay"
+    "smithay",
+    "compositor_support_smithay_state_window_ident"
   ]
 }

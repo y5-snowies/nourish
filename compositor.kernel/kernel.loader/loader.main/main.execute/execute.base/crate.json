@@ -1,11 +1,11 @@
 {
   "deps": [
+    "compositor_orchestration_storage_state_base",
+    "compositor_support_smithay_state_xwayland_base",
     "compositor_y5_notify_system_base",
     "compositor_y5_graphic_display_advertise",
     "compositor_kernel_graphic_format_registrar_base",
     "compositor_pipeline_world_system_base",
-    "compositor_support_library_process_child_hygiene",
-    "compositor_support_library_process_child_spawn",
     "compositor_background_three_system_prewarm",
     "compositor_orchestration_driver_capture_base",
     "compositor_y5_graphic_capture_registry",
@@ -71,6 +71,13 @@
     "compositor_y5_picker_world_restore",
     // App-launch executor wiring (kernel.execution driver) — main() calls
     // block_sigchld() + install() and nothing else from the launch subsystem.
-    "compositor_kernel_execution_driver_executor_install"
+    "compositor_kernel_execution_driver_executor_install",
+    "compositor_support_smithay_state_xwayland_display",
+    // `shutdown`: signalfd + pthread_sigmask for the SIGTERM/SIGINT exit path, and the
+    // per-session slice that takes launched apps down with the session.
+    "libc",
+    "compositor_introspection_execution_launch_scope",
+    "compositor_support_smithay_state_window_find",
+    "compositor_support_smithay_dispatch_state_deferred"
   ]
 }

@@ -17,6 +17,7 @@
     "compositor_pipeline_abi_descriptor_base",
     "compositor_pipeline_abi_clock_base",
     "compositor_y5_window_draw_moment",
-    "compositor_y5_canvas_input_state"
+    "compositor_y5_canvas_input_state",
+    "compositor_support_smithay_state_window_find"
   ]
 }

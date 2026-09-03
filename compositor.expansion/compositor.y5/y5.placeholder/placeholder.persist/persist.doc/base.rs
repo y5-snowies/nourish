@@ -37,6 +37,7 @@ impl Document for PlaceholderDoc {
             let record = PlaceholderRecord {
                 position: p.position, size: p.size, persistent: p.persistent, launch,
                 session: p.session.as_ref().map(to_persisted_session),
+                from_x11: p.from_x11,
             };
             (id.to_string(), Vec::new(), record)
         });
@@ -45,6 +46,7 @@ impl Document for PlaceholderDoc {
                 position: v.position, size: v.size, persistent: true,
                 launch: to_persisted(&v.launch),
                 session: v.session.as_ref().map(to_persisted_session),
+                from_x11: v.from_x11,
             };
             (v.uuid.to_string(), Vec::new(), record)
         });
@@ -53,6 +55,7 @@ impl Document for PlaceholderDoc {
             let record = PlaceholderRecord {
                 position: p.position, size: p.size, persistent: p.persistent, launch,
                 session: p.session.as_ref().map(to_persisted_session),
+                from_x11: p.from_x11,
             };
             (p.uuid.to_string(), Vec::new(), record)
         });
@@ -80,6 +83,11 @@ impl Document for PlaceholderDoc {
             session_time: Instant::now(),
             persistent: rec.persistent,
             session: rec.session.as_ref().map(to_session_key),
+            from_x11: rec.from_x11,
+            // Never persisted — see `Placeholder::icon_pixels`. A restored placeholder
+            // resolves its icon from the desktop entry until it captures a window again,
+            // which is exactly what it did before pixels existed.
+            icon_pixels: None,
         });
     }
 }

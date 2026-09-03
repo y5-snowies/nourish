@@ -22,8 +22,8 @@ pub struct Executor {
 /// Produces the faithful base env for ONE launch.
 ///
 /// A closure rather than a cached `Vec` deliberately. Every value in it is
-/// y5's own — the socket we created, the desktop name we run under, the
-/// deliberate blanking of `DISPLAY` — so it must be derived from y5's
+/// y5's own — the socket we created, the desktop name we run under, the X
+/// display of the Xwayland server we started — so it must be derived from y5's
 /// authoritative state, never read back out of the process or session
 /// environment. Reading the session back would mean FOLLOWING anything that
 /// trampled `WAYLAND_DISPLAY` (a stray `systemctl --user import-environment`
@@ -31,10 +31,10 @@ pub struct Executor {
 /// which is the same class of bug the replay filter exists to prevent.
 ///
 /// Recomputing per launch rather than snapshotting at install costs one
-/// settings read on a user click. Every input happens to be immutable today,
-/// but the list is designed to grow — `DISPLAY` becomes real the moment
-/// XWayland runs under y5 — and a snapshot would go stale then with nothing
-/// to signal it.
+/// settings read on a user click, and it is what makes `DISPLAY` correct: y5's own
+/// Xwayland picks its display number asynchronously, long after this closure is
+/// built, so a snapshot taken at install would pin the empty value forever with
+/// nothing to signal it.
 pub type BaseEnv = Box<dyn Fn() -> Vec<(String, String)> + Send + Sync>;
 
 impl Executor {

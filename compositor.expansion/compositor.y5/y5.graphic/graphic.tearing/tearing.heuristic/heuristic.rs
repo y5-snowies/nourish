@@ -6,10 +6,10 @@
 //! user saying so, always honoured) and Steam attribution (`steam_app_*`, the
 //! `SteamAppId`/compat-tool environment, or an executable inside a library).
 //!
-//! Mind the asymmetry the X11 proxy creates: xwayland-satellite is one process
-//! for every X11 title, so such a window's `/proc` data is the SATELLITE's.
-//! `tearing.tag` dumps the whole ancestor chain at trace level precisely so that
-//! shape can be checked against a live window rather than assumed.
+//! X11 titles resolve like any other, which is a property of running XWayland
+//! natively rather than behind a proxy: an X11 window's pid is its own
+//! `_NET_WM_PID` (see `window.ident`), not the surface credentials that would name
+//! the single X server for every X11 title on screen.
 
 use compositor_introspection_extraction_window_meta_types::types::{Meta, MetaNode};
 use std::path::Path;
@@ -73,8 +73,8 @@ fn steam(m: &Meta) -> bool {
         || m.exe.as_deref().is_some_and(library)
 }
 
-/// Steam's own windows. They arrive through the same proxy, from the same root,
-/// with the same environment as the games, so they have to be named out.
+/// Steam's own windows. They come from the same root, with the same environment
+/// as the games, so they have to be named out.
 fn client(m: &Meta) -> bool {
     m.app_id.as_deref().is_some_and(|id| {
         let id = id.to_lowercase();
@@ -82,17 +82,31 @@ fn client(m: &Meta) -> bool {
     })
 }
 
-/// Does this window want to tear? `steam_enabled` gates only the Steam
-/// heuristic — `Y5_TEARING` is honoured even on a window Steam attribution
-/// excludes, since there it is the user overriding, not a guess.
-pub fn is_target(node: &MetaNode, steam_enabled: bool) -> bool {
+/// Why a window is a target — and how firmly. The two rank on opposite sides of the
+/// client's own hint; `pacer::Verdict::is_target` holds the ladder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    /// `Y5_TEARING=1` on the process or an ancestor — the user, about this exact process.
+    Forced,
+    /// Steam attribution — a guess the client may contradict.
+    Steam,
+}
+
+/// Does this window want to tear, and on whose authority? `steam_enabled` gates only the
+/// Steam guess — `Y5_TEARING` is honoured even on a window Steam attribution excludes,
+/// since there it is the user overriding. `Forced` wins anywhere in the chain, so the
+/// walk cannot return on the first match: a Steam-attributed parent must not mask a
+/// `Y5_TEARING` set further up.
+pub fn classify(node: &MetaNode, steam_enabled: bool) -> Option<Source> {
     let by_steam = steam_enabled && !client(&node.meta);
+    let mut by_guess = false;
     let mut at = Some(node);
     while let Some(n) = at {
-        if explicit(&n.meta) || (by_steam && steam(&n.meta)) {
-            return true;
+        if explicit(&n.meta) {
+            return Some(Source::Forced);
         }
+        by_guess |= by_steam && steam(&n.meta);
         at = n.parent.as_deref();
     }
-    false
+    by_guess.then_some(Source::Steam)
 }

@@ -134,8 +134,6 @@ pub fn interactive(base: Environment) -> Environment {
             base.capture_variable_frame_rate,
         ),
         // Experimental window-sizing flags — always disabled, never prompted.
-        window_client_size_fallback: false,
-        window_subsurface_shrinks: false,
     };
     env.scanout_node = select_scanout_node(&base.scanout_node, &env.render_node);
     env

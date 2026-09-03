@@ -41,6 +41,7 @@ use compositor_y5_window_draw_occlude::occlude::{Drawn, Occluders};
 use compositor_y5_window_interface_draw::visible::DrawWindow;
 use compositor_y5_window_interface_record::window::LoopWindow;
 use compositor_orchestration_draw_scene_identity::identity::SolidBank;
+use compositor_support_smithay_state_window_shell::shell;
 
 /// Per-window slot bank for the letterbox bars. A NEWTYPE, not a bare
 /// `SolidBank`: `UserDataMap` is keyed by type, and the decoration crate stores
@@ -141,15 +142,7 @@ enum Placed {
 /// fallback — content rendered at the client's own location with no crop. So the
 /// caller treats it as `Unsized` and culls nothing: there is no bound to rely on.
 fn slot_size_of(window: &Window) -> Option<Size<i32, Logical>> {
-    if compositor_model_environment_config_base::base::get().window_client_size_fallback {
-        window
-            .toplevel()
-            .and_then(|t| t.with_pending_state(|s| s.size))
-            .filter(|s| s.w > 0 && s.h > 0)
-            .or_else(|| Some(window.geometry().size))
-    } else {
-        slot::expected_size(window)
-    }
+    slot::expected_size(window)
 }
 
 fn placed_on(state: &mut Loop, window: &Window, size: Size<i32, Physical>) -> Placed {
@@ -409,15 +402,14 @@ where
     // A resize is in flight → stretch the geometry to fill the slot until the client commits the
     // new size, so the window follows the cursor continuously (identity once it catches up).
     let stretch = slot::resize_stretching(window, window.geometry().size);
-    let WindowFit { fit_sx, fit_sy, fit_surf, ref_size, cover } = window_fit(
+    let fit = window_fit(
         elem_loc,
         window.geometry(),
         root_view.dst,
-        window.bbox(),
         slot_size,
-        cfg.window_subsurface_shrinks,
         stretch,
     );
+    let WindowFit { fit_sx, fit_sy, fit_surf, ref_size, cover: _ } = fit;
     let (fit_surf_x, fit_surf_y) = fit_surf;
 
     let rescale = Scale::from((fit_sx * zoom, fit_sy * zoom));
@@ -430,25 +422,20 @@ where
     let crop_slot = crop_slot.intersection(crop_output).unwrap_or_default();
 
     // Popups (front): positioned in the SAME fit frame as the content so they stick to the
-    // rendered window content, not the raw slot. A popup's `location` is geometry-relative, but
-    // when the client's declared geometry is smaller than what's actually rendered (`ref_size` =
-    // the fitted reference: VP DEST's viewport `view.dst`, BUF DELTA's oversized buffer), a
-    // geometry-relative anchor would land inside the visible content. So map the popup's
-    // geometry-relative offset PROPORTIONALLY onto the visible content by `ref_size / geom`
-    // (identity for well-behaved windows). The popup's own size is NOT scaled by this (only by
-    // `fit_s` via `fit_wrap`), so a corner-anchored popup lands within ~one popup-size of the
-    // corner — accepted tradeoff. Cropped to the **output** so a popup may extend past the
-    // window. Popups never resize the toplevel. `hit.rs` mirrors this exact mapping.
-    let geom_size = window.geometry().size;
-    // margin regime → smithay's standard offset (`gloc + location − pg`); cursor-anchored menus
-    // (real apps) land on the cursor. oversized regime → proportional pin to the visible content.
-    let psx = if cover || geom_size.w <= 0 { 1.0 } else { ref_size.w as f64 / geom_size.w as f64 };
-    let psy = if cover || geom_size.h <= 0 { 1.0 } else { ref_size.h as f64 / geom_size.h as f64 };
-    let gbase = if cover { gloc } else { Point::from((0, 0)) };
+    // rendered window content, not the raw slot. The mapping itself lives in
+    // `fit::popup_offset` — ONE definition, because `hit.rs` must resolve a pointer through
+    // exactly the same frame or a click lands where the menu is not drawn. Cropped to the
+    // **output** so a popup may extend past the window; popups never resize the toplevel.
+    let geom_rect = window.geometry();
     for (popup, location) in PopupManager::popups_for_surface(&root_surface) {
-        let pg = popup.geometry().loc;
-        let off_x = (gbase.x as f64 + (location.x - pg.x) as f64 * psx) * ctx.scale;
-        let off_y = (gbase.y as f64 + (location.y - pg.y) as f64 * psy) * ctx.scale;
+        let off = compositor_y5_camera_transform_translate::fit::popup_offset(
+            &fit,
+            geom_rect,
+            location,
+            popup.geometry().loc,
+        );
+        let off_x = off.x * ctx.scale;
+        let off_y = off.y * ctx.scale;
         if matches!(&popup, PopupKind::InputMethod(_)) {
             // IME candidate popups: the anchor POSITION still tracks the caret through the camera
             // (`reloc + off*rescale`, so it follows pan/zoom), but the SIZE is held constant —
@@ -592,11 +579,7 @@ where
     // Losing the deposit costs at most a redundant draw (see the module docs); the
     // bars are still painted, they simply stop culling.
     drawn.opaque = if bundle_owned { Vec::new() } else { bars };
-    // `subsurface_shrinks` fits the whole TREE (`bbox`), so the content rect can
-    // reach past the root surface and `surface_opaque` would not be speaking for
-    // all of it. Only the bars are claimed under that flag.
     if !bundle_owned
-        && !cfg.window_subsurface_shrinks
         && surface_opaque(&root_surface)
         && let Some(opaque_content) = content.intersection(crop_slot)
     {

@@ -15,6 +15,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use compositor_orchestration_core_state_base::state::StatusSession;
 use compositor_orchestration_core_state_base::Loop;
+use compositor_orchestration_environment_interface_lifecycle::lifecycle;
 
 pub fn register(
     event_loop: &mut EventLoop<'static, Loop>,
@@ -233,6 +234,38 @@ pub fn register(
                     // carrying itself. No known failure here — this just keeps
                     // frames coming for a few seconds past that point.
                     compositor_kernel_native_wire_watchdog_settle::settle::arm(&session_loop_handle);
+
+                    // Take back the SHARED session environment, last, because it forks.
+                    //
+                    // `dbus-update-activation-environment` writes a per-USER environment
+                    // that every y5 this user has on every VT shares, so whichever session
+                    // pushed most recently owns `WAYLAND_DISPLAY` and `DISPLAY` for
+                    // D-Bus- and systemd-activated launches. Re-pushing on activation
+                    // makes that the session the user is actually looking at, which is the
+                    // only reading of a per-user variable that can be right. It is also
+                    // what makes deferring safe elsewhere: `push_session_env_if_active`
+                    // drops a publish from a background session precisely because this
+                    // will redo the whole set when that session comes forward.
+                    //
+                    // Values come from y5's own state, never read back from the session —
+                    // following whatever last trampled these is the bug being fixed. Both
+                    // are per-process and unambiguous: `loader.socket_name` is the socket
+                    // this process created, `display::get()` the number its own Xwayland
+                    // reported. Directly-spawned launches were never affected; they read
+                    // the same two through `executor.install::base_env`.
+                    let wayland_display = state.inner.loader.socket_name.to_string_lossy().into_owned();
+                    let x_display = compositor_support_smithay_state_xwayland_display::display::get()
+                        .unwrap_or_default();
+                    if let Err(err) = lifecycle::push_session_env(&[
+                        ("WAYLAND_DISPLAY", wayland_display.as_str()),
+                        ("DISPLAY", x_display.as_str()),
+                    ]) {
+                        warn!("could not re-publish the session environment on activation: {err:?}");
+                    } else {
+                        info!(
+                            "session activated: republished WAYLAND_DISPLAY={wayland_display:?} DISPLAY={x_display:?}"
+                        );
+                    }
                 }
             }
         })

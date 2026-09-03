@@ -7,6 +7,9 @@
     "compositor_orchestration_core_state_base",
     "compositor_support_action_camera_find_base",
     "compositor_support_action_camera_fit_element",
-    "compositor_y5_window_interface_record"
+    "compositor_y5_window_interface_record",
+    "compositor_support_smithay_state_window_find",
+    "compositor_support_smithay_state_window_ident",
+    "compositor_support_smithay_state_window_shell"
   ]
 }

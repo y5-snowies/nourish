@@ -1,6 +1,7 @@
 {
   "deps": [
     "compositor_support_smithay_state_compositor_session",
-    "compositor_support_smithay_state_compositor_place"
+    "compositor_support_smithay_state_compositor_place",
+    "compositor_support_smithay_state_compositor_client"
   ]
 }
