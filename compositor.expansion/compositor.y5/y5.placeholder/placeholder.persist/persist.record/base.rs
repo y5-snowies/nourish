@@ -64,6 +64,11 @@ pub struct PlaceholderRecord {
     /// `default` so configs written before session support load cleanly.
     #[serde(default)]
     pub session: Option<PersistedSession>,
+    /// The captured window was an X11 client. `default` for the same reason: a
+    /// record written before native XWayland loads as `false`, which is the right
+    /// answer for a session that had no X11 windows to distinguish.
+    #[serde(default)]
+    pub from_x11: bool,
 }
 
 /// Round-trip the session identity between its matcher form and its stored form.

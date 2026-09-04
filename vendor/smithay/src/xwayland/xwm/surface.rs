@@ -60,7 +60,40 @@ use x11rb::{
     x11_utils::X11Error,
 };
 
-use super::{X11Wm, XwmId, send_configure_notify};
+use super::{Atoms, X11Wm, XwmId, send_configure_notify};
+
+/// One entry of [`X11Surface::set_allowed_actions`] — a user operation a window manager
+/// may or may not perform for a window (`_NET_WM_ACTION_*`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WmAllowedAction {
+    Move,
+    Resize,
+    Minimize,
+    Shade,
+    Stick,
+    MaximizeHorz,
+    MaximizeVert,
+    Fullscreen,
+    ChangeDesktop,
+    Close,
+}
+
+impl WmAllowedAction {
+    fn atom(self, atoms: &Atoms) -> Atom {
+        match self {
+            Self::Move => atoms._NET_WM_ACTION_MOVE,
+            Self::Resize => atoms._NET_WM_ACTION_RESIZE,
+            Self::Minimize => atoms._NET_WM_ACTION_MINIMIZE,
+            Self::Shade => atoms._NET_WM_ACTION_SHADE,
+            Self::Stick => atoms._NET_WM_ACTION_STICK,
+            Self::MaximizeHorz => atoms._NET_WM_ACTION_MAXIMIZE_HORZ,
+            Self::MaximizeVert => atoms._NET_WM_ACTION_MAXIMIZE_VERT,
+            Self::Fullscreen => atoms._NET_WM_ACTION_FULLSCREEN,
+            Self::ChangeDesktop => atoms._NET_WM_ACTION_CHANGE_DESKTOP,
+            Self::Close => atoms._NET_WM_ACTION_CLOSE,
+        }
+    }
+}
 
 /// X11 window managed by an [`X11Wm`](super::X11Wm)
 #[derive(Debug, Clone)]
@@ -273,6 +306,15 @@ pub enum WmWindowType {
     Tooltip,
     Utility,
 }
+
+/// Ceiling on the size of a `_NET_WM_ICON` read, in 32-bit words.
+///
+/// 2 MiB of words (8 MiB of data), which comfortably holds a 1024×1024 image
+/// (1024² + 2 header words) plus the whole pyramid of smaller sizes beneath it. The
+/// property is client-controlled and read synchronously when a window maps, so it needs
+/// SOME ceiling; this one is chosen to be well above any icon a real application ships
+/// rather than to be tight.
+pub const MAX_ICON_WORDS: u32 = 2 * 1024 * 1024;
 
 /// Window properties of [`X11Surface`]s
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -514,6 +556,41 @@ impl X11Surface {
 
             Ok(())
         }
+    }
+
+    /// Configure the window **even if it is override-redirect**.
+    ///
+    /// [`X11Surface::configure`] refuses this, and by convention it is right to: an
+    /// override-redirect window has told the X server that no window manager may
+    /// position or size it, and a WM that does so anyway is fighting the client.
+    ///
+    /// A compositor may nonetheless want to, and this is the explicit way to say so.
+    /// y5 does: it maps override-redirect surfaces as ordinary windows so they get
+    /// the same placement, resize and scale treatment as everything else on its
+    /// canvas, rather than being special-cased as chrome at every consumer. The
+    /// convention is being broken deliberately, so it is broken through a method that
+    /// says as much rather than by relaxing the guard on the ordinary path.
+    ///
+    /// Identical to [`X11Surface::configure`] in every other respect. Note the
+    /// mechanism is unremarkable — `override_redirect` only governs whether the
+    /// server routes the client's OWN requests through the window manager; it has
+    /// never stopped anyone holding the window id from configuring it.
+    pub fn configure_override_redirect(
+        &self,
+        rect: impl Into<Option<Rectangle<i32, Logical>>>,
+    ) -> Result<(), X11SurfaceError> {
+        let mut state = self.state.lock().unwrap();
+        let rect = rect.into().or(state.pending_configure);
+
+        if state.pending_sync_wait_value.is_some() {
+            self.finish_pending_sync(&mut state);
+        }
+        state.buffered_configure = None;
+
+        let new_geometry = self.send_configure(&mut state, rect)?;
+        state.last_configure = new_geometry;
+
+        Ok(())
     }
 
     /// Configure the window, syncing with the client's repaint.
@@ -1096,6 +1173,50 @@ impl X11Surface {
         self.state.lock().unwrap().pid
     }
 
+    /// The pid of this window's client as the X SERVER sees it, via the X-Resource
+    /// extension (`XResQueryClientIds`, `LOCAL_CLIENT_PID`).
+    ///
+    /// **Prefer this to [`pid`](X11Surface::pid) whenever the answer will be used to look
+    /// the process up.** `_NET_WM_PID`, which `pid` returns, is a number the client wrote
+    /// with its own `getpid()`, so it is the pid *in the client's PID namespace*. A client
+    /// in a sandbox — Steam's pressure-vessel, Flatpak, any `bwrap` — therefore advertises
+    /// a pid that on the host is either unused or belongs to an unrelated process, which
+    /// is worse than none: introspection comes back empty and attribution can land on a
+    /// stranger.
+    ///
+    /// This asks the X server instead, which answers from `SO_PEERCRED` on the client's
+    /// connection — and peer credentials are translated by the KERNEL into the reading
+    /// process's namespace. Xwayland runs wherever the compositor spawned it, so the pid
+    /// comes back in that namespace, sandbox or not. It is the same property that makes
+    /// wayland's `get_credentials` trustworthy and `_NET_WM_PID` not.
+    ///
+    /// Costs a round trip, and the answer cannot change for the life of the window (a
+    /// client cannot re-parent its own connection), so a caller that asks repeatedly
+    /// should cache it.
+    pub fn client_pid(&self) -> Option<u32> {
+        use x11rb::protocol::res::{ClientIdMask, ClientIdSpec, ConnectionExt as _};
+        let conn = self.conn.upgrade()?;
+        let spec = ClientIdSpec {
+            client: self.window,
+            mask: ClientIdMask::LOCAL_CLIENT_PID,
+        };
+        let reply = match conn.res_query_client_ids(&[spec]).ok()?.reply() {
+            Ok(reply) => reply,
+            Err(err) => {
+                // Not fatal: the extension may be absent, and a window dying mid-query is
+                // ordinary. The caller falls back to `_NET_WM_PID`.
+                warn!("Unable to query the X client pid for ({:?}): {}", self.window, err);
+                return None;
+            }
+        };
+        reply
+            .ids
+            .iter()
+            .find(|id| id.spec.mask == ClientIdMask::LOCAL_CLIENT_PID)
+            .and_then(|id| id.value.first().copied())
+            .filter(|pid| *pid != 0)
+    }
+
     /// Returns the opacity of the underlying X11 window
     pub fn opacity(&self) -> Option<u32> {
         self.state.lock().unwrap().opacity
@@ -1182,6 +1303,20 @@ impl X11Surface {
             .map(|s| s.to_f64().to_logical(client_scale).to_i32_round());
         std::mem::drop(state);
         res.or_else(|| self.min_size())
+    }
+
+    /// Does this window register `WM_DELETE_WINDOW`?
+    ///
+    /// A window that asks to be told before it is closed is an independent, closeable
+    /// TOPLEVEL. Genuine menus, tooltips, dropdowns and drag icons never request it — they
+    /// are dismissed, not closed — so this is a reliable negative signal when classifying
+    /// a window that gives no explicit `_NET_WM_WINDOW_TYPE`.
+    pub fn supports_delete_window(&self) -> bool {
+        self.state
+            .lock()
+            .unwrap()
+            .protocols
+            .contains(&WMProtocol::DeleteWindow)
     }
 
     /// Returns if the window is in the maximized state
@@ -1335,9 +1470,60 @@ impl X11Surface {
         Ok(())
     }
 
+    /// Declare which user operations the window manager will perform for this window
+    /// (`_NET_WM_ALLOWED_ACTIONS`).
+    ///
+    /// EWMH: "A list of atoms indicating user operations that the Window Manager supports
+    /// for this window. Clients should grey out or hide items in their GUI accordingly."
+    /// It is the per-window counterpart to `_NET_SUPPORTED`, and the only way to tell a
+    /// client that a request it is about to make will be declined — silence is otherwise
+    /// indistinguishable from a lost message.
+    ///
+    /// Set once the window is managed; the list is a policy decision and therefore the
+    /// compositor's, not smithay's.
+    pub fn set_allowed_actions(&self, actions: &[WmAllowedAction]) -> Result<(), ConnectionError> {
+        let Some(conn) = self.conn.upgrade() else {
+            return Err(ConnectionError::UnknownError);
+        };
+        let atoms: Vec<Atom> = actions.iter().map(|a| a.atom(&self.atoms)).collect();
+        conn.change_property32(
+            PropMode::REPLACE,
+            self.window,
+            self.atoms._NET_WM_ALLOWED_ACTIONS,
+            AtomEnum::ATOM,
+            &atoms,
+        )?;
+        conn.flush()?;
+        Ok(())
+    }
+
+    /// Sets the `_NET_WM_STATE_HIDDEN` hint WITHOUT touching `WM_STATE`.
+    ///
+    /// [`set_hidden`](Self::set_hidden) states two different things at once: the EWMH
+    /// hint, which tells pagers the window is not on screen, and `WM_STATE = Iconic`,
+    /// which is ICCCM for MINIMIZED. Toolkits act on the second — GTK raises
+    /// `GDK_WINDOW_STATE_ICONIFIED`, Qt sets `Qt::WindowMinimized` — and games commonly
+    /// pause or stop rendering entirely and do not come back until told otherwise.
+    ///
+    /// That is far more than `xdg_toplevel.suspended`, whose whole point is to say "you
+    /// are not being presented, you may stop painting" without any claim about the
+    /// window's lifecycle. A compositor mirroring `suspended` onto X11 wants this half
+    /// only; y5's `window.shell::set_suspended` calls it for exactly that reason.
+    pub fn set_hidden_hint(&self, suspended: bool) -> Result<(), ConnectionError> {
+        if suspended {
+            self.change_net_state(&[self.atoms._NET_WM_STATE_HIDDEN], &[])?;
+        } else {
+            self.change_net_state(&[], &[self.atoms._NET_WM_STATE_HIDDEN])?;
+        }
+        Ok(())
+    }
+
     /// Sets the window as hidden or not.
     ///
     /// Allows the client to e.g. stop rendering.
+    ///
+    /// Also writes `WM_STATE = Iconic`, i.e. declares the window MINIMIZED — see
+    /// [`set_hidden_hint`](Self::set_hidden_hint) for the half that does not.
     pub fn set_hidden(&self, suspended: bool) -> Result<(), ConnectionError> {
         if suspended {
             self.change_net_state(&[self.atoms._NET_WM_STATE_HIDDEN], &[])?;
@@ -1387,6 +1573,72 @@ impl X11Surface {
             self.change_net_state(&[], &[self.atoms._NET_WM_STATE_MODAL])?;
         }
         Ok(())
+    }
+
+    /// Take or release the X11 KEYBOARD FOCUS for this window.
+    ///
+    /// This is the X11 half of focusing an XWayland window — `SetInputFocus` and
+    /// `WM_TAKE_FOCUS`, honouring the window's ICCCM input model — and nothing
+    /// else. The wayland half still reaches the client through the window's
+    /// `wl_surface` on the seat, exactly as for any other client.
+    ///
+    /// [`KeyboardTarget`](crate::input::keyboard::KeyboardTarget) does both halves
+    /// at once, which is what a compositor whose
+    /// [`SeatHandler::KeyboardFocus`](crate::input::SeatHandler::KeyboardFocus) is
+    /// an enum with an `X11Surface` variant gets for free. A compositor whose focus
+    /// target is the plain `WlSurface` never reaches that impl, so without calling
+    /// this the X server is never told which window holds the input focus and X
+    /// clients receive no keyboard input at all. Call it from wherever keyboard
+    /// focus moves, for the window losing focus and the window gaining it.
+    ///
+    /// This IS the X11 half that `KeyboardTarget::enter`/`leave` perform — they
+    /// delegate here — so the two ways of focusing an X11 window cannot drift apart.
+    /// The one thing they add on top is the `wl_surface` enter/leave, plus honouring
+    /// `WmInputModel::None` as "never give this window the keyboard at all", which
+    /// governs the wayland half as well and so stays their decision, not this one's.
+    ///
+    /// Releasing is DEFERRED (the same debounce `KeyboardTarget::leave` uses):
+    /// focus routinely moves between two X11 windows, and dropping the X focus to
+    /// `None` in between makes clients see a spurious unfocus.
+    pub fn set_input_focus(&self, focused: bool) {
+        let (set_input_focus, send_take_focus) = match self.input_model() {
+            WmInputModel::None => return,
+            WmInputModel::Passive => (true, false),
+            WmInputModel::LocallyActive => (true, true),
+            WmInputModel::GloballyActive => (false, true),
+        };
+
+        if !focused {
+            if let Some(release) = &self.focus_release {
+                release.schedule();
+            }
+            return;
+        }
+
+        if let Some(release) = &self.focus_release {
+            release.cancel();
+        }
+        let Some(conn) = self.conn.upgrade() else { return };
+        if set_input_focus {
+            if let Err(err) = conn.set_input_focus(InputFocus::NONE, self.window, x11rb::CURRENT_TIME) {
+                warn!("Unable to set focus for X11Surface ({:?}): {}", self.window, err);
+            }
+        }
+        if send_take_focus {
+            let event = ClientMessageEvent::new(
+                32,
+                self.window,
+                self.atoms.WM_PROTOCOLS,
+                [self.atoms.WM_TAKE_FOCUS, x11rb::CURRENT_TIME, 0, 0, 0],
+            );
+            if let Err(err) = conn.send_event(false, self.window, EventMask::NO_EVENT, event) {
+                warn!(
+                    "Unable to send take focus event for X11Surface ({:?}): {}",
+                    self.window, err
+                );
+            }
+        }
+        let _ = conn.flush();
     }
 
     /// Sets the window as above (always on top) or not.
@@ -1942,6 +2194,87 @@ impl X11Surface {
         Ok(None)
     }
 
+    /// The window's `_NET_WM_ICON`, as the raw CARD32 array the property holds.
+    ///
+    /// EWMH packs one or more images end to end, each `width, height, width*height`
+    /// ARGB pixels with A in the high byte. Returned unparsed on purpose: which of the
+    /// images a compositor wants is its own decision, and the property is large enough
+    /// (a 256×256 image alone is 256 KiB) that caching it on every window the way
+    /// `title`/`class`/`startup_id` are cached would be a poor trade for something read
+    /// once when a window maps.
+    ///
+    /// Read on demand, so this costs one round trip. `None` when the window sets no
+    /// icon, which is the common case for anything that ships a desktop entry instead.
+    ///
+    /// Capped at [`MAX_ICON_WORDS`]: the property is client-controlled and unbounded in
+    /// principle, and this is read on the compositor thread when a window maps. A
+    /// property longer than the cap is TRUNCATED rather than refused — a decoder walking
+    /// the images in order still gets every complete one that fits, and simply stops at
+    /// the partial tail.
+    pub fn icon(&self) -> Option<Vec<u32>> {
+        match self.read_window_property_u32_array(self.atoms._NET_WM_ICON, MAX_ICON_WORDS) {
+            Ok(value) => value,
+            Err(err) => {
+                warn!("Unable to read _NET_WM_ICON for X11Surface ({:?}): {}", self.window, err);
+                None
+            }
+        }
+    }
+
+    /// The window's `WM_WINDOW_ROLE`.
+    ///
+    /// ICCCM's per-window identity: a name the client chooses that is meant to be the
+    /// SAME across runs for the same logical window, so a session manager can put the
+    /// right window back. It is the X11 analogue of the name half of
+    /// `xdg_session_management_v1`, and the only stable per-window identifier X11
+    /// offers — `WM_CLASS` names the application, not the window.
+    pub fn window_role(&self) -> Option<String> {
+        match self.read_window_property_string(self.atoms.WM_WINDOW_ROLE) {
+            Ok(value) => value.filter(|s| !s.is_empty()),
+            Err(err) => {
+                warn!("Unable to read WM_WINDOW_ROLE for X11Surface ({:?}): {}", self.window, err);
+                None
+            }
+        }
+    }
+
+    /// Read a whole CARDINAL array property.
+    ///
+    /// `read_window_property_u32` takes only the first element; `_NET_WM_ICON` is an
+    /// array whose length is not known in advance, so the length is asked for first and
+    /// the value fetched in one further request rather than guessed at.
+    fn read_window_property_u32_array(
+        &self,
+        atom: impl Into<Atom> + Copy,
+        max_words: u32,
+    ) -> Result<Option<Vec<u32>>, ConnectionError> {
+        let conn = self.conn.upgrade().ok_or(ConnectionError::UnknownError)?;
+        // `length = 0` returns no value but reports `bytes_after`, which is the whole
+        // size of the property.
+        let probe = match conn
+            .get_property(false, self.window, atom, AtomEnum::CARDINAL, 0, 0)?
+            .reply_unchecked()
+        {
+            Ok(Some(reply)) => reply,
+            Ok(None) | Err(ConnectionError::ParseError(_)) => return Ok(None),
+            Err(err) => return Err(err),
+        };
+        // `bytes_after` is in bytes; the request length is in 32-bit words.
+        let words = probe.bytes_after.div_ceil(4).min(max_words);
+        if words == 0 {
+            return Ok(None);
+        }
+        let reply = match conn
+            .get_property(false, self.window, atom, AtomEnum::CARDINAL, 0, words)?
+            .reply_unchecked()
+        {
+            Ok(Some(reply)) => reply,
+            Ok(None) | Err(ConnectionError::ParseError(_)) => return Ok(None),
+            Err(err) => return Err(err),
+        };
+        Ok(reply.value32().map(|value| value.collect()))
+    }
+
     /// Retrieve user_data associated with this X11 window
     pub fn user_data(&self) -> &UserDataMap {
         &self.user_data
@@ -2142,42 +2475,21 @@ impl IsAlive for X11Surface {
 
 impl<D: SeatHandler + 'static> KeyboardTarget<D> for X11Surface {
     fn enter(&self, seat: &Seat<D>, data: &mut D, keys: Vec<KeysymHandle<'_>>, serial: Serial) {
-        let (set_input_focus, send_take_focus) = match self.input_model() {
-            WmInputModel::None => return,
-            WmInputModel::Passive => (true, false),
-            WmInputModel::LocallyActive => (true, true),
-            WmInputModel::GloballyActive => (false, true),
-        };
-
-        if let Some(release) = &self.focus_release {
-            release.cancel();
+        // Checked HERE as well as inside `set_input_focus`, because `None` governs the
+        // WAYLAND half too: a client with that input model is never given the keyboard
+        // at all, so the enter below must not happen either.
+        if self.input_model() == WmInputModel::None {
+            return;
         }
 
-        if let Some(conn) = self.conn.upgrade() {
-            if set_input_focus {
-                if let Err(err) = conn.set_input_focus(InputFocus::NONE, self.window, x11rb::CURRENT_TIME) {
-                    warn!("Unable to set focus for X11Surface ({:?}): {}", self.window, err);
-                }
-            }
-
-            if send_take_focus {
-                let event = ClientMessageEvent::new(
-                    32,
-                    self.window,
-                    self.atoms.WM_PROTOCOLS,
-                    [self.atoms.WM_TAKE_FOCUS, x11rb::CURRENT_TIME, 0, 0, 0],
-                );
-                if let Err(err) = conn.send_event(false, self.window, EventMask::NO_EVENT, event) {
-                    warn!(
-                        "Unable to send take focus event for X11Surface ({:?}): {}",
-                        self.window, err
-                    );
-                }
-                let _ = conn.flush();
-            }
-
-            let _ = conn.flush();
-        }
+        // The X11 half — `SetInputFocus` and/or `WM_TAKE_FOCUS` per the input model,
+        // and cancelling any pending deferred release. Shared with
+        // [`X11Surface::set_input_focus`] rather than repeated: a compositor whose
+        // `SeatHandler::KeyboardFocus` is an enum reaches it through this impl, while
+        // one whose focus target is the plain `WlSurface` never reaches this impl and
+        // calls that method directly. Two copies of a focus protocol that drift apart
+        // would give those two compositors different X11 behaviour.
+        self.set_input_focus(true);
 
         let mut state = self.state.lock().unwrap();
         if let Some(surface) = state.wl_surface.as_ref() {
@@ -2197,9 +2509,10 @@ impl<D: SeatHandler + 'static> KeyboardTarget<D> for X11Surface {
             return;
         }
 
-        if let Some(release) = &self.focus_release {
-            release.schedule();
-        }
+        // Schedules the deferred release rather than dropping the X focus now; see
+        // [`X11Surface::set_input_focus`], which this shares with the compositors that
+        // drive focus by hand.
+        self.set_input_focus(false);
 
         let mut state = self.state.lock().unwrap();
         let _ = state.pending_enter.take();

@@ -1,6 +1,8 @@
 {
   "deps": [
     "compositor_introspection_execution_launch_types",
+    "compositor_support_library_process_child_journal",
+    "compositor_support_library_process_child_pidfd",
     "compositor_support_library_process_child_hygiene",
     "compositor_introspection_execution_launch_scope",
     "compositor_support_library_process_child_spawn",

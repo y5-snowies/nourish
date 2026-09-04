@@ -69,7 +69,7 @@ pub fn groups(release: Option<&str>) -> Vec<PackageGroup> {
                 "libdbus-1-dev", "libpulse-dev", "libdisplay-info-dev",
                 "libwebkit2gtk-4.1-dev", "libsoup-3.0-dev", "libgtk-3-dev",
                 "librsvg2-dev", "libayatana-appindicator3-dev",
-                "libxcb1-dev", "libxcb-cursor-dev", "patchelf",
+                "patchelf",
             ],
             default_on: false,
         },

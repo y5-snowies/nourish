@@ -1,4 +1,20 @@
 {
+  "compositor.expansion/compositor.y5/y5.graphic/graphic.tearing/tearing.heuristic": {
+    "allow": ["size"],
+    "reason": "A policy crate: nearly every line is a documented match rule (Steam library/compat-tool path shapes, the client-binary exclusions, the Y5_TEARING-over-Steam precedence) or the doc explaining why that shape was chosen. Splitting it would separate a rule from its reason, and the small helpers (root, in_library, explicit) are the readable form of exactly those rules."
+  },
+  "compositor.support/support.smithay/smithay.state/state.xwayland/xwayland.base": {
+    "allow": ["size"],
+    "reason": "A state struct where every field carries a non-obvious LIFETIME rule, and the rules are the content: `xwm` is None before ready and after death, `client` is a liveness handle that must be cleared, the filter static is a OnceLock that must NOT be (ClientId serials make a stale entry self-invalidating), and the two map-position parents are consumed once at map and are not focus state. Each rule was a bug or a near-bug during review. Splitting to fit the ceiling separates a field from the rule that makes it correct; the struct is ~20 lines of code and the rest is that reasoning."
+  },
+  "compositor.support/support.library/library.process/process.child/child.spawn": {
+    "allow": ["size"],
+    "reason": "The spawn door: the one place a Command becomes a process. The code is ~45 lines; the rest states the two things a caller must settle and which cannot be said anywhere else — whether the program resolves before the fork, and WHO WAITS on the child. The second is why there is no neutral `spawn` here, only `spawn_detached` and `spawn_awaited`: an indiscriminate reaper collides with std's own wait after a failed exec, with these wrappers, and with smithay's Xwayland thread, so the choice has to be forced at the door rather than left implicit at each call site."
+  },
+  "compositor.orchestration/orchestration.environment/environment.interface/interface.lifecycle": {
+    "allow": ["size"],
+    "reason": "Two subprocess publishers, the rule for reading their outcome, and the retraction that unpublishes on exit. The code is ~85 lines; the rest is why there are two publishers (systemd's user manager serves user units, systemd-run and — via SystemdService= delegation — the portals, while the D-Bus activation env serves directly-activated services), why systemd runs first, why a partial success is still success, and why retraction decides ownership by comparing the value back rather than by the active flag that gates publishing. Splitting separates the calls from the reasons they are not interchangeable, which is the only thing here anyone will need to re-derive."
+  },
   "compositor.support/support.smithay/smithay.dispatch/dispatch.wire/wire.trait": {
     "allow": ["size"],
     "reason": "The neutral Wire's one seam to the world side: it grows a method per world capability the smithay handlers need (space, focus, pointer warp, surface-to-world mapping), and splitting the trait would split a single contract across crates."
@@ -379,6 +395,18 @@
   "compositor.orchestration/orchestration.seat/seat.pointer/pointer.texture": [
     "size"
   ],
+  "compositor.expansion/compositor.y5/y5.placeholder/placeholder.record/record.base": {
+    "allow": ["size"],
+    "reason": "Three plain structs and one conversion; the length is the field notes, and each one records a fact that cannot be recovered from the type. `session` is durable while `restoration` is per-launch, `from_x11` is re-stamped from the live window because the same placeholder can capture either protocol on different runs, `launch_at`/`launch_started_container` exist to break ties the matcher cannot, and `icon_pixels` is session-only because a record outlives its window and decoded pixels have no name to re-resolve from. A reader who trims these writes the bug back."
+  },
+  "compositor.introspection/introspection.execution/execution.launch/launch.scope": {
+    "allow": ["size"],
+    "reason": "~60 lines of code; the rest is why systemd is reached two different ways. The slice name is the single source of truth two callers must agree on and nothing else records, the pid discrimination is what keeps one session from killing another session's apps, and the transport split is the load-bearing part: the bus call needs a session bus while `systemctl --user` falls back to the user manager's private socket, which is exactly the difference at logout when the bus goes first. `adopt_into_scope` has no CLI fallback because systemd exposes none, and that has to be written down or the next reader adds a broken one."
+  },
+  "compositor.introspection/introspection.restoration/restoration.state/state.handoff": {
+    "allow": ["size"],
+    "reason": "~45 lines of code; the rest is the evidence for the weakest rule in the restoration system. It claims a window on 'same app, moments ago, spawned process already gone', so what it cannot claim, what it still can, why every stronger signal is structurally absent after a single-instance forward (token minted by the client not forwarded, environ belonging to the first process, pid tree unrelated, session name legitimately different), and why it is a pass rather than a per-handler matcher all have to be written down or the next reader tightens it blind."
+  },
   "compositor.introspection/introspection.restoration/restoration.state/state.match": [
     "size"
   ],
@@ -738,6 +766,18 @@
       "size"
     ],
     "reason": "31 orphan-rule-bound smithay handler/Dispatch impls must live in the crate defining Wire<S>; helper code already extracted to wire.color/wire.colorsurf/wire.redraw (floor ~397 LOC)"
+  },
+  "compositor.support/support.smithay/smithay.state/state.window/window.shell": {
+    "allow": ["size"],
+    "reason": "One facade: how to SAY something to a window whose shell is xdg or X11. Every function is one half of that split and they all turn on the same two invariants — xdg is double-buffered while X11 configures immediately with position AND size, and `last_configure` speaks the full X rect while `geometry` has `_GTK_FRAME_EXTENTS` subtracted — both stated once in the module doc. Splitting to fit the ceiling takes three crates and separates each operation from the invariant that makes it correct; the crate is 121 lines of code, the rest is that reasoning."
+  },
+  "compositor.support/support.smithay/smithay.state/state.window/window.child": {
+    "allow": ["size"],
+    "reason": "The third window facade, beside `window.shell` and `window.ident`: where a CHILD goes, expressed the only way that crosses the X boundary — a parent-relative DIFFERENCE, never an absolute. `parent_offset` and `as_popup` are the two halves of that one rule (placement and presentation), and the fullscreen guard in `as_popup` exists because the ephemerality tests it shares with the rest cannot see an output-sized override-redirect game. Splitting them separates the popup decision from the offset it is decided on; the crate is well under the ceiling in code, the rest is the reasoning."
+  },
+  "compositor.support/support.smithay/smithay.state/state.window/window.ident": {
+    "allow": ["size"],
+    "reason": "One facade: who a window belongs to and what it calls itself. It exists to state ONCE that an X11 window's identity is `_NET_WM_PID`/`WM_CLASS`/`WM_NAME` and never the surface credentials — which name the single Xwayland client for every X11 window, and would have the kill paths take down the X server. Every function is an instance of that one correction; 86 lines of code, the rest is why."
   },
   "compositor.support/support.smithay/smithay.state/state.foreign/foreign.base": {
     "allow": [

@@ -14,6 +14,9 @@ use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_orchestration_core_state_base::{Loop, Transform};
 use compositor_y5_window_interface_record::window::LoopWindow;
 use compositor_y5_window_lifecycle_event::event::WindowLifecycleEvent;
+use compositor_support_smithay_state_window_find::find;
+use compositor_support_smithay_state_window_ident::ident;
+use compositor_support_smithay_state_window_shell::shell;
 /// Activate `window` on behalf of an external request (e.g. a dock via wlr foreign-toplevel
 /// `activate`): ease the camera to frame it (navigator `view`), then raise + activate + give
 /// it keyboard focus. Mirrors the keybinding "view window" path.
@@ -54,7 +57,23 @@ fn activate_window(_loop: &mut Loop, window: Window) {
     // (when `all_worlds`), so that stale flag makes the target's re-activation a no-op
     // diff and sfwbar never sees it become focused.
     _loop.inner.set_activated_exclusive(Some(&window));
-    let surface = window.toplevel().map(|t| t.wl_surface().clone());
+    // The `Option` is passed STRAIGHT THROUGH, and `None` clearing the keyboard focus
+    // is the point rather than an oversight — do not "fix" this into an `if let`.
+    //
+    // `set_activated_exclusive` above has just deactivated every other window across
+    // every world. Skipping the focus call when there is no surface would leave the
+    // PREVIOUS window holding the keyboard while the UI paints this one as active:
+    // keystrokes would go to a window the user has just been shown as inactive, which
+    // is the one outcome worth ruling out. Clearing keeps the two in step — nobody is
+    // shown active without the keyboard, and nobody receives it while shown inactive.
+    //
+    // Reachable now, where it was not before: every Space element used to be an xdg
+    // toplevel, whose surface is always present. An X11 window has none until Xwayland
+    // associates one, which can still be pending when a dock activates a window that
+    // has only just mapped. Such a window ends up activated with no keyboard focus
+    // until the user clicks it — correct, if unhelpful; a deferred re-focus on
+    // `surface_associated` is the improvement, not skipping.
+    let surface = ident::surface(&window);
     if let Some(keyboard) = _loop.state.seat.seat.get_keyboard() {
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
         keyboard.set_focus(&mut _loop.state, surface, serial);
@@ -89,6 +108,9 @@ pub fn hook(_loop: &mut Loop, renderer: &mut GlesRenderer) {
                 compositor_y5_window_draw_moment::moment::born(&window);
                 _initial_mapped(_loop, window);
             }
+            WindowLifecycleEvent::Withdrawn(uuid, discard_placeholder) => {
+                _withdraw(_loop, uuid, renderer, discard_placeholder);
+            }
             WindowLifecycleEvent::Fullscreen(window, fullscreen) => {
                 compositor_y5_window_interface_draw::fullscreen::fullscreen_set(
                     _loop, window, fullscreen,
@@ -104,15 +126,17 @@ pub fn hook(_loop: &mut Loop, renderer: &mut GlesRenderer) {
                 _destroy(_loop, uuid, renderer, discard_placeholder);
 
                 // CHECK: Token is cleared on surface deletion. if a splash screen uses this token, it will be removed and no longer valid.
-                if let Some(activation) = activation {
-                    // Clear token
-                    let token_cleared = _loop
+                //
+                // Every token the surface was named by, not just one: a window that
+                // presented several (a launch token, then a later self-activation) would
+                // otherwise leave the rest behind, and no placeholder holds them so the
+                // reachability sweep in `placeholder.interface::handler` cannot either.
+                for activation in &activation {
+                    _loop
                         .state
                         .xdg_activation
                         .xdg_activation
                         .remove_token(&activation.token);
-
-                    info!("Token cleared: {:?}", token_cleared)
                 }
             }
         }
@@ -193,6 +217,20 @@ fn _settled_toplevel_drag(state: &mut Loop, surface: WlSurface) {
 }
 
 fn _initial_mapped(state: &mut Loop, window: Window) {
+    // The window may already be GONE, and mapping it now would RESURRECT it.
+    //
+    // `InitialMap` is queued when the window is placed and applied later, so a destroy
+    // can land in between — routine for X11, where a client maps at one size, unmaps and
+    // re-maps at another within milliseconds. The drain removes the element from the
+    // Space immediately; this event's tail would put it straight back, and nothing would
+    // remove it again, since the matching `Destroyed` only tears down the placeholder.
+    //
+    // Tested by presence in the Space: the drain maps the window before queueing this, so
+    // "still an element" is exactly "not torn down since".
+    if state.inner.space_state().state.element_location(&window).is_none() {
+        warn!("initial map for a window no longer in the Space; dropping it");
+        return;
+    }
     // Resolve the tearing target tag here and nowhere else: this is the one
     // moment the window's process can be introspected off the commit path.
     compositor_y5_graphic_tearing_tag::tag::tag(state, &window);
@@ -212,7 +250,7 @@ fn _initial_mapped(state: &mut Loop, window: Window) {
         .state
         .toplevel_drag
         .carried_with_offset()
-        .filter(|(surface, _)| window.toplevel().is_some_and(|t| t.wl_surface() == surface))
+        .filter(|(surface, _)| find::is_surface(&window, surface))
         .and_then(|(_, offset)| {
             let pointer = state.state.seat.seat.get_pointer()?;
             let at = pointer.current_location() - offset.to_f64();
@@ -237,38 +275,76 @@ fn _initial_mapped(state: &mut Loop, window: Window) {
         return;
     }
 
-    let geometry = window.geometry();
+    // The slot we lock the window to. For X11 this is its CONFIGURE size, not its
+    // `geometry`: smithay subtracts `_GTK_FRAME_EXTENTS` from the latter, so locking
+    // that would hand a CSD client a configure one shadow smaller than it asked for.
+    let mut geometry = window.geometry();
+    geometry.size = shell::configured_size(&window);
 
-    // Center on the ACTIVE monitor's camera (the output under the cursor), NOT
-    // `camera_mut()`. This hook drains the InitialMap queue from inside the
-    // per-output render loop, so `render_output` is pinned to whichever output is
-    // being drawn (normally the primary) — `camera_mut()`/`current_output_key()`
-    // would resolve THAT output's camera and spawn the window on the wrong monitor.
-    // `active_camera()` ignores `render_output` and follows the user's screen.
-    let (x, y) = carried.unwrap_or_else(|| {
-        let cam = state.inner.active_camera().transform.position();
-        (
-            cam.x - geometry.size.w as f64 / 2.0,
-            cam.y - geometry.size.h as f64 / 2.0,
-        )
-    });
+    // An X11 CHILD is placed against its parent, not against the camera.
+    //
+    // A menu, tooltip or dialog is positioned by its client in X space — a space y5 knows
+    // nothing about and must not read as a canvas location. What carries across is the
+    // DIFFERENCE from its parent (`child::parent_offset`), so the child lands beside the
+    // window it belongs to wherever that window is on the canvas. Both sides are storage
+    // coordinates, so nothing here converts between spaces.
+    //
+    // `carried` wins: a window being dragged tracks the cursor, which is a stronger
+    // statement about where it goes than its parentage.
+    //
+    // The fallback parent — the last hovered or focused X11 window — is offered ONLY to
+    // an ephemeral window. An X11 top-level that declares no `WM_TRANSIENT_FOR` is not a
+    // child of anything, and anchoring one to whatever the pointer last touched opens a
+    // freshly launched app beside it instead of on the camera. A menu that
+    // `is_popup_x11` declines still needs the anchor, and X11 does not require it to name
+    // a parent either.
+    let fallback = ident::is_ephemeral_x11(&window)
+        .then(|| state.state.xwayland.map_position_parent_hover.or(state.state.xwayland.map_position_parent_focus))
+        .flatten();
+    let parented = carried.is_none().then(|| {
+        let space = &state.inner.space_state().state;
+        let (parent, offset) = compositor_support_smithay_state_window_child::child::parent_offset(
+            space.elements(),
+            &window,
+            fallback,
+        )?;
+        space.element_location(&parent).map(|at| at + offset)
+    }).flatten();
+
+    // ONE position, resolved before the `Transform` is built: the map location and the
+    // placeholder record below must not be derived separately, or a parented window opens
+    // in one place and its placeholder stands in another. Storage coordinates are what
+    // `Transform::pos` holds, so a parented point converts exactly.
+    //
+    // The unparented case centres on the ACTIVE monitor's camera (the output under the
+    // cursor), NOT `camera_mut()`. This hook drains the InitialMap queue from inside the
+    // per-output render loop, so `render_output` is pinned to whichever output is being
+    // drawn — `camera_mut()`/`current_output_key()` would resolve THAT output's camera and
+    // spawn the window on the wrong monitor.
+    let (x, y) = carried
+        .or_else(|| parented.map(|p| (p.x as f64, p.y as f64)))
+        .unwrap_or_else(|| {
+            let cam = state.inner.active_camera().transform.position();
+            (
+                cam.x - geometry.size.w as f64 / 2.0,
+                cam.y - geometry.size.h as f64 / 2.0,
+            )
+        });
 
     let t: Transform = ((x, y), state.size_ctx_all()).into();
+    let at = t.into_storage_point();
 
-    state
-        .inner.space_state_mut()
-        .state
-        .map_element(window.clone(), t.into_storage_point(), false);
+    state.inner.space_state_mut().state.map_element(window.clone(), at, false);
 
-    // Dialog/child toplevels (a set `parent`, e.g. nautilus's merge-conflict window) size themselves — leave them `Auto`; lock+grace the rest to the mapped size.
-    if window.toplevel().and_then(|t| t.parent()).is_some() {
+    // Dialog/child windows (a set xdg `parent` / X11 `WM_TRANSIENT_FOR`, e.g.
+    // nautilus's merge-conflict window) size themselves — leave them `Auto`; lock+grace
+    // the rest to the mapped size.
+    if shell::has_parent(&window) {
         slot::set_expected_auto(&window);
     } else {
         slot::set_expected_size(&window, geometry.size);
-        if let Some(toplevel) = window.toplevel() {
-            toplevel.with_pending_state(|s| s.size = Some(geometry.size));
-            toplevel.send_configure();
-        }
+        shell::stage(&window, geometry.size, false);
+        shell::send(&window);
         compositor_support_smithay_state_compositor_place::arm_size_propagation(&window, geometry.size);
     }
 
@@ -298,11 +374,40 @@ fn _initial_mapped(state: &mut Loop, window: Window) {
 
     compositor_y5_placeholder_interface_base::interface::set(
         state,
-        window,
+        window.clone(),
         // CHECK: Still needs upscale if not already handled in ice.
         geometry.and_then(|w| Some(w.size)),
         Some(Point::new(storage_point.loc.x, storage_point.loc.y)),
     );
+
+    // A window may map ALREADY fullscreen, and nothing else notices.
+    //
+    // `fullscreen_request` is a REQUEST — an xdg `set_fullscreen`, or an X11
+    // `_NET_WM_STATE` client message — sent about a window that already exists. A client
+    // that wants to START fullscreen sets the state BEFORE mapping, which smithay reads
+    // into `net_state` while handling the MapRequest, so no request ever arrives.
+    //
+    // Last, after placement and the slot: `fullscreen_set` reads `element_location` and
+    // `slot::expected_size` to record what to restore to. Idempotent for the request path.
+    if ident::states(&window).fullscreen {
+        compositor_y5_window_interface_draw::fullscreen::fullscreen_set(state, window, true);
+    }
+}
+
+/// A window withdrew: it is out of the Space, so it stops being drawn and selectable —
+/// but it is NOT gone.
+///
+/// Deliberately less than [`_destroy`]. The group membership and the introspection
+/// registration are kept, because the process is still running and the window may map
+/// again; only the two things that are meaningless for something not on the canvas are
+/// dropped. The draw-order slot comes back on the remap (`readmit_x11` re-registers it),
+/// which is also how the placeholder hands it over in the meantime.
+fn _withdraw(state: &mut Loop, uuid: Uuid, renderer: &mut GlesRenderer, discard_placeholder: bool) {
+    compositor_y5_placeholder_interface_base::interface::on_window_withdraw(
+        state, uuid, renderer, discard_placeholder,
+    );
+    compositor_y5_select_interface_base::remove(state, uuid);
+    state.inner.remove_drawable(uuid);
 }
 
 fn _destroy(state: &mut Loop, uuid: Uuid, renderer: &mut GlesRenderer, discard_placeholder: bool) {
@@ -356,14 +461,6 @@ fn _reform(state: &mut Loop, window: Window, transform_update: TransformUpdate, 
     }
 
     if let Some(size) = transform_update.size {
-        // Does it expect it to be topleve?
-        //yes
-        let toplevel = window.toplevel().unwrap_or_else(|| abort!("reform expects toplevels only."));
-        toplevel.with_pending_state(|state| {
-            state.states.set(xdg_toplevel::State::Resizing);
-            state.size = Some(size);
-        });
-
         // The compositor's new decided size — the window is enforced at this until the next
         // reform. This is the authority the render/input fit uses.
         slot::set_expected_size(&window, size);
@@ -373,14 +470,23 @@ fn _reform(state: &mut Loop, window: Window, transform_update: TransformUpdate, 
             // — one client commit per pointer motion is what stutters — and arm the stretch so the
             // window follows the cursor between commits. The final size + settle happen on release
             // (`finish_resize`). `note_resize` returns whether a configure is due now.
-            if slot::note_resize(&window, size) {
-                toplevel.send_configure();
+            //
+            //
+            // `stage_drag` keeps the two shells apart: the xdg pending state is written on
+            // EVERY motion (a focus change mid-drag emits it, and must not emit a stale
+            // size), while for X11 staging IS the emit — the per-frame flush sends whatever
+            // is staged — so its stage is gated with the send.
+            let due = slot::note_resize(&window, size);
+            shell::stage_drag(&window, size, due);
+            if due {
+                shell::send(&window);
             }
         } else {
+            shell::stage(&window, size, true);
             // One-off resize (navigator maximize, tiling, etc.): send immediately, no throttle and
             // no stretch — there's no drag/release to settle it, so arming the stretch would leave
             // the window stuck stretching and re-sending configures forever.
-            toplevel.send_configure();
+            shell::send(&window);
         }
     }
 

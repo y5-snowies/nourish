@@ -1,31 +1,15 @@
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
 
-use smithay::reexports::calloop::channel::{channel, Event};
+use smithay::reexports::calloop::channel::{channel, Channel, Event};
 use smithay::reexports::calloop::generic::Generic;
 use smithay::reexports::calloop::{Interest, LoopHandle, Mode, PostAction};
 
 use compositor_orchestration_core_state_base::Loop;
 use compositor_introspection_execution_launch_policy::policy::{LaunchBackend, LaunchDispatch, LAUNCH_BACKEND, LAUNCH_DISPATCH};
 use compositor_introspection_execution_launch_dispatch::dispatch::LaunchWorker;
-use compositor_introspection_execution_launch_reap::reap::reap_zombies;
 use compositor_introspection_execution_launch_types::types::LaunchOutcome;
 use compositor_kernel_execution_driver_executor_base::executor::{BaseEnv, Executor, EXECUTOR};
-
-/// Block SIGCHLD process-wide before any thread is spawned, so the reaper's
-/// signalfd is the sole consumer. Call at the very top of `main()`. No-op under
-/// the `Direct` backend.
-pub fn block_sigchld() {
-    if matches!(LAUNCH_BACKEND, LaunchBackend::Direct) {
-        return;
-    }
-    // SAFETY: standard signal-mask setup; this is the only thread so far.
-    unsafe {
-        let mut set: libc::sigset_t = std::mem::zeroed();
-        libc::sigemptyset(&mut set);
-        libc::sigaddset(&mut set, libc::SIGCHLD);
-        libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
-    }
-}
+use compositor_support_library_process_child_pidfd::pidfd;
 
 /// Build the Executor driver, store it in kernel storage, and wire its calloop
 /// sources. After this the rim reads `EXECUTOR` to launch apps.
@@ -38,11 +22,16 @@ pub fn install(state: &mut Loop, handle: &LoopHandle<'static, Loop>) {
     let scope = matches!(LAUNCH_BACKEND, LaunchBackend::SystemdScope) && systemd_booted();
 
     let (tx, rx) = channel::<LaunchOutcome>();
+    // Where EVERY detached spawn in the process sends its child's exit descriptor, not
+    // just launches: the kill helpers, the input method and the debug terminal all reach
+    // it through `spawn_detached`. Installed once, here, because this is where the loop
+    // that reaps is already being wired.
+    let (watch_tx, watch_rx) = channel::<OwnedFd>();
+    pidfd::install(move |watch| {
+        let _ = watch_tx.send(watch);
+    });
     let worker = matches!(LAUNCH_DISPATCH, LaunchDispatch::OffThread)
         .then(|| LaunchWorker::spawn(tx.clone(), scope));
-    // The reaper's handle onto the same worker: reaping and spawning must not
-    // overlap, and one thread doing both is what guarantees it.
-    let reaper = worker.clone();
     // Register the driver slot (insert — the slot doesn't exist yet; get_mut would
     // panic on an unregistered slot, like the other driver slots in Orchestrator::new).
     state.inner.kernel.insert(&EXECUTOR, Some(Executor::new(worker, tx, base_env, scope)));
@@ -60,7 +49,7 @@ pub fn install(state: &mut Loop, handle: &LoopHandle<'static, Loop>) {
         })
         .unwrap_or_else(|e| abort!("register launch outcome source: {e:?}"));
 
-    install_reaper(handle, reaper);
+    install_reaper(handle, watch_rx);
 }
 
 /// systemd as the init system? Mirrors libsystemd's `sd_booted()`:
@@ -82,11 +71,22 @@ fn base_env(state: &Loop) -> BaseEnv {
         let desktop = compositor_orchestration_environment_type_base::base::Get().DesktopName;
         vec![
             ("WAYLAND_DISPLAY".into(), wayland_display.clone()),
-            // Deliberately EMPTY: keeps apps off the X11 fallback. A real
-            // display here would make Electron/SDL/Java and some Qt configs
-            // PREFER X11 over Wayland, so the satellite's `:12` belongs only on
-            // the launches that are actually X11 apps — not on every child.
-            ("DISPLAY".into(), String::new()),
+            // The X display, once y5's own XWayland server is up — read live, which is
+            // the whole reason this is a closure: the server picks its display
+            // asynchronously, long after the executor was built.
+            //
+            // Empty until then, and empty forever if XWayland never starts. An empty
+            // `DISPLAY` is what keeps apps off the X11 fallback; a real one makes some
+            // Electron/SDL/Java and Qt configurations PREFER X11 over Wayland. That
+            // cost is accepted now that the X server is ours: an X11-only app cannot
+            // run at all without it, and every other compositor exports it. Apps that
+            // must be forced back onto Wayland can say so in their own desktop entry
+            // (`Exec=env GDK_BACKEND=wayland …`), as they already do for the toolkit
+            // hints y5 deliberately does not set.
+            (
+                "DISPLAY".into(),
+                compositor_support_smithay_state_xwayland_display::display::get().unwrap_or_default(),
+            ),
             ("XDG_SESSION_TYPE".into(), "wayland".into()),
             ("XDG_CURRENT_DESKTOP".into(), desktop.clone()),
             ("XDG_SESSION_DESKTOP".into(), desktop),
@@ -94,48 +94,42 @@ fn base_env(state: &Loop) -> BaseEnv {
     })
 }
 
-/// signalfd(SIGCHLD) wrapped in a Generic source — calloop's `signals` feature
-/// isn't enabled in the smithay reexport. Gated on a reaped backend.
+/// Reap each detached child when its exit descriptor reports readable.
 ///
-/// The handler does no reaping itself. `waitpid(-1)` has to be interlocked
-/// against every in-flight spawn (`child.spawn`), and this is the CALLOOP
-/// thread: making it wait on another thread's `exec` would stall input and
-/// rendering behind, say, a binary on a hung mount. So it posts to the launch
-/// worker, which owns both sides of that pair and can afford to wait. Without a
-/// worker (inline dispatch) spawns happen on this thread anyway, so reaping here
-/// cannot race one — a single non-blocking attempt, and the next SIGCHLD retries.
-fn install_reaper(handle: &LoopHandle<'static, Loop>, worker: Option<LaunchWorker>) {
-    if matches!(LAUNCH_BACKEND, LaunchBackend::Direct) {
-        return;
-    }
-    // SAFETY: SIGCHLD already blocked (block_sigchld); signalfd is sole consumer.
-    let sfd = unsafe {
-        let mut set: libc::sigset_t = std::mem::zeroed();
-        libc::sigemptyset(&mut set);
-        libc::sigaddset(&mut set, libc::SIGCHLD);
-        libc::signalfd(-1, &set, libc::SFD_NONBLOCK | libc::SFD_CLOEXEC)
-    };
-    if sfd < 0 {
-        warn!("signalfd(SIGCHLD) failed; launch reaper disabled");
-        return;
-    }
-    // SAFETY: signalfd returned a fresh owned fd.
-    let owned = unsafe { OwnedFd::from_raw_fd(sfd) };
+/// `watches` carries one descriptor per detached spawn anywhere in the process; this
+/// registers each as its own source and removes it once the child is collected, so the
+/// set of watched processes is exactly the set still running.
+///
+/// It replaced a SIGCHLD `signalfd` that answered by waiting on ANY child, which is why
+/// there used to be a mutex around every spawn in the process, a retry loop behind it,
+/// and a worker thread to absorb the wait. Waiting on a child by NAME collides with
+/// nothing — not with `Command::spawn`'s own wait after a failed exec, which asserts and
+/// would panic the spawning thread; not with the `status` / `output` wrappers, which
+/// would otherwise report a subprocess failure that never happened; and not with
+/// smithay's Xwayland reaper. See `child.pidfd`.
+///
+/// Reaping runs HERE, on the loop, rather than on the launch worker. The wait is
+/// non-blocking and the descriptor only wakes once the process has already exited, so
+/// there is nothing left to stall on — which was the whole reason it lived off-thread.
+fn install_reaper(handle: &LoopHandle<'static, Loop>, watches: Channel<OwnedFd>) {
     handle
-        .insert_source(Generic::new(owned, Interest::READ, Mode::Level), move |_readiness, fd, _state: &mut Loop| {
-            // Drain queued siginfo (level-triggered) so the fd quiesces.
-            let mut buf = [0u8; 128]; // size_of::<signalfd_siginfo>()
-            loop {
-                let n = unsafe { libc::read(fd.as_raw_fd(), buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
-                if n <= 0 {
-                    break;
-                }
+        .insert_source(watches, |event, _, state: &mut Loop| {
+            let Event::Msg(watch) = event else { return };
+            // Registered from inside a callback, which calloop allows. The handle comes
+            // off the state rather than being captured, so this closure does not pin the
+            // loop it is registered on.
+            let inserted = state.loop_handle.insert_source(
+                Generic::new(watch, Interest::READ, Mode::Level),
+                |_readiness, watch, _state: &mut Loop| {
+                    // One shot: the process has exited, so once collected there is
+                    // nothing further this descriptor can report.
+                    pidfd::reap(watch);
+                    Ok(PostAction::Remove)
+                },
+            );
+            if let Err(e) = inserted {
+                warn!("could not watch a launched child for exit: {e:?}");
             }
-            match &worker {
-                Some(worker) => worker.reap(),
-                None => drop(reap_zombies()),
-            }
-            Ok(PostAction::Continue)
         })
-        .unwrap_or_else(|e| abort!("register SIGCHLD reaper: {e:?}"));
+        .unwrap_or_else(|e| abort!("register launch reaper: {e:?}"));
 }

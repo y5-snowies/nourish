@@ -445,6 +445,7 @@ fn handle_outcome(
                         state, &output, &visible,
                     );
                     compositor_kernel_graphic_draw_present_callbacks::callbacks::send_layer_frames(state, &output);
+                    compositor_kernel_graphic_draw_present_cursor::cursor::send_frames(state, &output);
                 },
             );
             *slot = Some(token);

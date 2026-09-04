@@ -15,8 +15,6 @@ pub struct Env {
     pub log_level: String,
     pub vk_diag: String,
     pub capture_encoder: String,
-    pub window_client_size_fallback: bool,
-    pub window_subsurface_shrinks: bool,
 }
 
 /// Values prompted once for the default Y5 Desktop. Most propagate unchanged into

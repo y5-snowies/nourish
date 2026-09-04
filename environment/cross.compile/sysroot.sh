@@ -40,8 +40,6 @@ PKGS=(
     ffmpeg-free-devel libva-devel
     # system integration
     systemd-devel dbus-devel pam-devel pulseaudio-libs-devel
-    # xwayland-satellite / xcb
-    libxcb-devel xcb-util-cursor-devel
 )
 
 mkdir -p "$SYSROOT" "$CACHE"

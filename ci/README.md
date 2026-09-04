@@ -30,7 +30,7 @@ coverage, packaging and report-generation are identical on both.
 | `doc-suggest.sh` | PR/MR-only: `claude -p` reviews the diff, posts doc/README suggestions as a comment (advisory, never commits) |
 | `gen-report.sh` | compose the markdown promotion "deployment notes" (tests/coverage/lint/drift/doc) |
 | `open-promotion-pr.sh` | open/update the upstream-integration→upstream PR/MR with the report (never merges) |
-| `package-installer.sh` | **the CD bundle builder** — delegates to `compositor.installer/prepare.sh` to build the full install bundle (installer + compositor/dev/polkit/mx/xwayland binaries + components) → `dist/package.tar.gz` + `SHA256SUMS`. Served at `/release/latest/fedora44/` (what `get.sh` fetches) and attached to Releases |
+| `package-installer.sh` | **the CD bundle builder** — delegates to `compositor.installer/prepare.sh` to build the full install bundle (installer + compositor/dev/polkit/mx binaries + components) → `dist/package.tar.gz` + `SHA256SUMS`. Served at `/release/latest/fedora44/` (what `get.sh` fetches) and attached to Releases |
 | `package-release.sh` | manual/raw: build just the udev+winit compositor binaries as a tarball (not used by the automated CD path — `package-installer.sh` is) |
 
 All scripts work locally too: `Y5_REPO_ROOT=$(pwd) ci/scripts/discover-workspaces.sh`.

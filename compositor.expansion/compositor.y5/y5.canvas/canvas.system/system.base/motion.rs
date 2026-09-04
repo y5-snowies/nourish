@@ -38,6 +38,7 @@ use compositor_y5_window_interface_record::window::LoopWindow;
 use compositor_y5_placeholder_surface_base::breakpoint::{MIN_H as PH_MIN_H, MIN_W as PH_MIN_W};
 use crate::base::{CanvasCmd, CANVAS, CANVAS_BUF};
 use crate::snap;
+use compositor_support_smithay_state_window_shell::shell;
 
 /// A pending window/placeholder geometry change (mirrors the rim `TransformUpdate`).
 #[derive(Clone, Copy)]
@@ -359,18 +360,27 @@ fn reform_force(cx: &mut SystemCx, window: Window, update: Update) {
     }
 
     if let Some(size) = update.size {
-        let Some(toplevel) = window.toplevel() else { return };
-        toplevel.with_pending_state(|state| {
-            state.states.set(xdg_toplevel::State::Resizing);
-            state.size = Some(size);
-        });
+        // Nothing to configure means nothing to decide: bail before recording a slot
+        // size and arming the throttle, exactly as the `toplevel()` early-return here
+        // used to — except that guard also refused X11 windows, which is the whole
+        // reason they could not be resized.
+        if !shell::can_stage(&window) {
+            return;
+        }
         // The compositor's new decided size (render/input fit authority).
         slot::set_expected_size(&window, size);
-        // Interactive drag: throttle the configure (one client commit per motion
-        // stutters) and arm the stretch so the window follows between commits.
-        // The final size + settle happen on release (`finish_resize`).
-        if slot::note_resize(&window, size) {
-            toplevel.send_configure();
+        // Interactive drag: throttle the configure (one client commit per pointer motion
+        // is what stutters) and arm the stretch so the window follows the cursor between
+        // commits. The final size + settle happen on release (`finish_resize`).
+        //
+        // `stage_drag` keeps the two shells apart: the xdg pending state is written on
+        // EVERY motion (a focus change mid-drag emits it, and must not emit a stale
+        // size), while for X11 staging IS the emit — the per-frame flush sends whatever
+        // is staged — so its stage is gated with the send.
+        let due = slot::note_resize(&window, size);
+        shell::stage_drag(&window, size, due);
+        if due {
+            shell::send(&window);
         }
     }
 }

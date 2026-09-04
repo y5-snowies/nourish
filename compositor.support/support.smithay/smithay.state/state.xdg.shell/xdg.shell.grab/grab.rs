@@ -8,6 +8,7 @@ use compositor_support_smithay_dispatch_state_base::state::{Dispatch, DispatchWi
 use compositor_support_smithay_state_grab_base::movement::state::GrabMovement;
 use compositor_support_smithay_state_grab_base::resize::state::GrabResize;
 use compositor_support_smithay_state_grab_dispatch::dispatch::check_grab;
+use compositor_support_smithay_state_window_find::find;
 
 pub fn move_request_prepare<WireObject: DispatchWire>(
     space: &compositor_support_smithay_state_space_base::state::SpaceState,
@@ -19,12 +20,7 @@ pub fn move_request_prepare<WireObject: DispatchWire>(
     let wl_surface = surface.wl_surface();
     if let Some(start_data) = check_grab(&seat, wl_surface, serial) {
         let pointer = seat.get_pointer().unwrap();
-        let window = space
-            .state
-            .elements()
-            .find(|w| w.toplevel().unwrap().wl_surface() == wl_surface)
-            .unwrap()
-            .clone();
+        let window = find::in_space(&space.state, wl_surface)?;
         let initial_window_location = space.state.element_location(&window).unwrap();
         let grab = GrabMovement { start_data, window, initial_window_location };
         return Some((pointer, grab, serial, Focus::Clear));
@@ -51,12 +47,7 @@ pub fn resize_request_prepare<WireObject: DispatchWire>(
     let wl_surface = surface.wl_surface();
     if let Some(start_data) = check_grab(&seat, wl_surface, serial) {
         let pointer = seat.get_pointer().unwrap();
-        let window = space
-            .state
-            .elements()
-            .find(|w| w.toplevel().unwrap().wl_surface() == wl_surface)
-            .unwrap()
-            .clone();
+        let window = find::in_space(&space.state, wl_surface)?;
         let initial_window_location = space.state.element_location(&window).unwrap();
         let initial_window_size = window.geometry().size;
         surface.with_pending_state(|state| {

@@ -18,7 +18,11 @@ pub enum Active {
     Default,
 }
 
-/// Tearing first, then pacing, then the compositor's default.
+/// Tearing first, then pacing, then the compositor's default. Nothing here inspects
+/// the client's `wp_tearing_control_v1` hint: it has already decided whether the window
+/// is a target at all (`Scene::target_visible`), so a client asking for vsync simply is
+/// not one, for either section. What outranks a client is an explicit setting —
+/// `Selector::Always` matches without consulting the tag.
 pub fn active(cfg: &Config, scene: Scene) -> Active {
     if cfg.tearing.selector.matches(scene) {
         Active::Tear(cfg.tearing)

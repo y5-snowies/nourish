@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CD: build the full end-user INSTALL BUNDLE — the compositor (udev + dev binaries),
-# the developer-tool window, the polkit agent, the MX gesture daemon, the patched
-# xwayland-satellite, and the interactive `y5-install` — by delegating to
+# the developer-tool window, the polkit agent, the MX gesture daemon and the
+# interactive `y5-install` — by delegating to
 # compositor.installer/prepare.sh. Leaves the bundle in dist/ for the publish jobs:
 #   - GitHub/GitLab Pages, served at /release/latest/fedora44/ (what get.sh fetches)
 #   - GitHub/GitLab Release assets (manual download)

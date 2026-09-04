@@ -20,6 +20,8 @@ use compositor_y5_placeholder_protocol_base::message::PlaceholderAction::Launch;
 use compositor_y5_placeholder_record_base::placeholder::{Placeholder, PlaceholderVisible};
 use compositor_y5_placeholder_surface_base::breakpoint::clamp_size;
 use compositor_y5_placeholder_surface_base::{PlaceholderMessage, PlaceholderUi};
+use compositor_support_smithay_state_window_shell::shell;
+use compositor_support_smithay_state_window_ident::ident;
 
 // Whenever a new window is created it must be attached to a placeholder.
 //
@@ -41,7 +43,7 @@ use compositor_y5_placeholder_surface_base::{PlaceholderMessage, PlaceholderUi};
 /// crash, a splash that never maps) leaves the placeholder armed indefinitely. Long
 /// enough to cover a cold start; short enough that the next unrelated window does
 /// not get adopted by it.
-const LAUNCH_GRACE: std::time::Duration = std::time::Duration::from_secs(30);
+pub(crate) const LAUNCH_GRACE: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The same, for a launch that had to START its container first.
 ///
@@ -58,10 +60,6 @@ const LAUNCH_GRACE: std::time::Duration = std::time::Duration::from_secs(30);
 const CONTAINER_LAUNCH_GRACE: std::time::Duration = std::time::Duration::from_secs(120);
 
 pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) -> bool {
-    if window.toplevel().is_none() {
-        return false;
-    }
-
     let window_data_0 =
         window.application(&state.inner.space_state().state, &state.inner.loader.display_handle);
 
@@ -87,8 +85,17 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
             data.meta.meta.app_id,
             data.has::<compositor_introspection_extraction_window_base::attributes::DesktopEntryPath>()
         );
-        if no_display && let Some(toplevel) = window.toplevel() {
-            compositor_support_smithay_state_ephemeral_mark::mark::mark(toplevel.wl_surface());
+        // `NoDisplay` is protocol-agnostic — it comes from the desktop entry the
+        // window's process resolves to — and now applies to X11 windows too, since
+        // `_NET_WM_PID` gives them a real process to resolve. X11 adds a second
+        // source the wayland side has no equivalent for: the window's own
+        // `_NET_WM_WINDOW_TYPE` / modal / override-redirect declaration
+        // (`ident::is_ephemeral_x11`), which is how a menu, tooltip, notification, splash
+        // or drag icon says what it is.
+        if no_display || ident::is_ephemeral_x11(&window) {
+            // Marks both homes; see `mark::mark_window` for why a caller holding a
+            // `Window` must not choose between them.
+            compositor_support_smithay_state_ephemeral_mark::mark::mark_window(&window);
         }
         if let Some(uuid) = window.uuid() {
             if let Some(sampler) = state.inner.kernel.get(&compositor_orchestration_driver_introspection_base::base::SAMPLER) {
@@ -124,7 +131,7 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
 
     if let Some(window_data_0) = window_data_0 {
         // On first-commit:
-        let candidate_token = window.activation();
+        let candidate_activations = window.activations();
         // The client-declared `xdg_session_management_v1` identity, if any. Read
         // here rather than inferred later: `restore_toplevel` had to precede the
         // first commit, so it is already on the surface by now.
@@ -144,11 +151,8 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
             .clone()
             .or_else(|| window_data_0.meta.meta.title.clone());
 
-        let candidate_token_string = if let Some(candi) = &candidate_token {
-            Some(candi.token.as_str())
-        } else {
-            None
-        };
+        let candidate_token_strings: Vec<&str> =
+            candidate_activations.iter().map(|a| a.token.as_str()).collect();
 
         let mut pending_restoration: Vec<PendingRestoration> = vec![];
         for (ph, _) in &state.inner.placeholder_mut().visible {
@@ -252,7 +256,7 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
                     pending_restoration.as_slice(),
                     &window_data_0.meta.clone(),
                     &window_data_0.hints.clone(),
-                    candidate_token_string,
+                    &candidate_token_strings,
                     candidate_session_keys.as_slice(),
                     &state.inner.placeholder_mut().restoration_registry,
                 )
@@ -266,12 +270,18 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
             compositor_support_smithay_state_session_claim::claim::release(placeholder_id);
             // CHECK: Update placeholder state to retain placeholder_id.
             // Remove token from registry.
-            if let Some(candidate_token) = candidate_token {
+            // ALL of them: a window may be named by more than one token — which is the
+            // whole point for a single-instance app, whose second window arrives through
+            // a token its own process never had in its environment — and the launch one
+            // is not necessarily the newest. Leaving the others behind strands exactly
+            // what the reachability sweep cannot collect, since a client-minted token is
+            // exempt there by design.
+            for activation in &candidate_activations {
                 state
                     .state
                     .xdg_activation
                     .xdg_activation
-                    .remove_token(&candidate_token.token);
+                    .remove_token(&activation.token);
             }
         }
 
@@ -351,14 +361,12 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
         }
 
         let restored_size = Size::new(restored_ph.size.0, restored_ph.size.1);
-        let toplevel = window.toplevel().unwrap_or_else(|| abort!("reform expects toplevels only."));
-        toplevel.with_pending_state(|state| {
-            state.states.set(xdg_toplevel::State::Resizing);
-            state.size = Some(restored_size);
-        });
+        shell::stage(&window, restored_size, true);
 
-        // Dialog/child toplevels (a set `parent`) size themselves — leave them `Auto`; lock+grace the rest to the restored size (mirrors `_initial_mapped`).
-        if toplevel.parent().is_some() {
+        // Dialog/child windows (a set xdg `parent` / X11 `WM_TRANSIENT_FOR`) size
+        // themselves — leave them `Auto`; lock+grace the rest to the restored size
+        // (mirrors `_initial_mapped`).
+        if shell::has_parent(&window) {
             compositor_y5_camera_transform_translate::slot::set_expected_auto(&window);
         } else {
             compositor_y5_camera_transform_translate::slot::set_expected_size(&window, restored_size);
@@ -369,7 +377,7 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
         // Check order.
         // Slight 'flicker' possible because it maps it already. This lifecycle event should act as the initial mapping.
 
-        toplevel.send_configure();
+        shell::send(&window);
 
         // Destory handle
         // Now- Keeps UUID
@@ -385,6 +393,14 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
             // `xdg_toplevel_session_v1.rename` is allowed to re-key a toplevel,
             // and re-declaring is the only way we learn about it.
             session: candidate_session.clone().or(restored_ph.session),
+            // Re-stamped from the LIVE window, not carried from the restored
+            // record: the same placeholder can capture an X11 window one run and a
+            // wayland one the next (a toolkit switching backends is the ordinary
+            // case), and the tint has to say what is in front of the user now.
+            from_x11: window.is_x11(),
+            // Live too, and for the same reason. A restored record carries none —
+            // pixels are not persisted — so this is the only moment it can be taken.
+            icon_pixels: window_icon_pixels(&window),
         }
     } else {
         // Otherwise, create a placeholder and attach to the window
@@ -402,6 +418,8 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
             // identity we record it now: that is what makes the NEXT close /
             // reopen cycle an exact match instead of a guess.
             session: candidate_session.clone(),
+            from_x11: window.is_x11(),
+            icon_pixels: window_icon_pixels(&window),
         };
         placeholder
     };
@@ -441,6 +459,57 @@ pub fn on_window_map_initial(state: &mut Loop, window: Window, restore: bool) ->
 
     return false;
     // The window is initially mapped, and the placeholder should track the data
+}
+
+/// A window WITHDREW: leave a placeholder for it, and leave the window's record alone.
+///
+/// The difference from [`on_window_destroy`] is the whole point. A destroy MOVES the
+/// record out of `map` and into `visible`, uuid and all, which is what makes a window and
+/// its placeholder mutually exclusive — and what lets `PlaceholderState::modify` abort on
+/// a missing record rather than skip. A withdrawn X11 window is still alive and may map
+/// again, so its record has to stay where it is, and the placeholder has to be a SECOND
+/// thing with an identity of its own.
+///
+/// So the record is COPIED and the copy gets a fresh uuid. Nothing is re-keyed: the
+/// window keeps the uuid it has had since it mapped, and persistence sees a new row
+/// rather than a renamed one — which matters, because a rename is not a thing the
+/// placeholder document can express.
+///
+/// The consequence, and it is the intended one: each withdrawal leaves its own
+/// placeholder. A client that hides and shows repeatedly leaves one per cycle, exactly as
+/// a client that closed and reopened a window would.
+pub fn on_window_withdraw(
+    state: &mut Loop,
+    uuid: Uuid,
+    renderer: &mut GlesRenderer,
+    discard_placeholder: bool,
+) {
+    // NOT unregistered from the sampler, unlike a destroy: the process is still running
+    // and the window may come back, so introspection has something to sample.
+    let Some(world) = state.inner.world_of_placeholder(uuid) else {
+        return;
+    };
+    let Some(mut ph) = state.inner.placeholder_of_mut(world).clone_record(&uuid) else {
+        return;
+    };
+    info!("Withdraw PH, Window UUID: {:?}", uuid);
+    // The same two refusals a destroy makes, read off the COPY before it is re-keyed.
+    if discard_placeholder {
+        return;
+    }
+    if !ph.persistent && ph.session_time.elapsed().lt(&Duration::from_secs(10)) {
+        return;
+    }
+    ph.uuid = Uuid::now_v7();
+    let hosted = world == state.inner.worlds.spawn_target();
+    compositor_support_system_persist_mark_base::base::mark_world(world, true);
+    if !hosted {
+        state.inner.placeholder_of_mut(world).pending_restore.push(ph);
+        return;
+    }
+    // `predecessor` is still the WINDOW's uuid: the placeholder inherits its draw-order
+    // slot, which the window gives up while it is hidden and takes back on a remap.
+    spawn_visible(state, renderer, ph, Some(uuid));
 }
 
 pub fn on_window_destroy(
@@ -547,6 +616,8 @@ pub fn spawn_visible(
             plan,
             ph.launch_session.clone(),
             ph.session.is_some(),
+            ph.from_x11,
+            ph.icon_pixels.clone(),
             application_registry,
         ),
         t.into_storage_rect_physical(),
@@ -722,9 +793,16 @@ pub fn on_window_sample(state: &mut Loop, sample: &SampleBatch) {
         if let Some(icon) = window_icon(state, item.uuid) {
             push_toplevel_icon_hints(&icon, &mut data.hints);
         }
+        // The pixel half, onto the RECORD rather than the hints — see
+        // `Placeholder::icon_pixels`. Refreshed here as well as at capture because a
+        // client may set its icon after mapping, and this is the pass that notices.
+        let pixels = window_of(state, item.uuid).as_ref().and_then(window_icon_pixels);
 
         modified.insert(world);
         modify_in(state, world, &item.uuid, |placeholder| {
+            if pixels.is_some() {
+                placeholder.icon_pixels = pixels.clone();
+            }
             if let Some(ref existing) = placeholder.launch_session {
                 placeholder.launch_session = Some(LaunchPlan {
                     application_data: data.clone(),
@@ -801,6 +879,19 @@ fn window_of(state: &Loop, uuid: Uuid) -> Option<Window> {
         }
     }
     None
+}
+
+/// The pixel half of a window's own icon, for the placeholder record.
+///
+/// Split from [`window_icon`] rather than folded into it because the two halves go to
+/// different places for different reasons: the NAME is a hint, so it is persisted and
+/// re-resolved against the icon theme, while the pixels are session state the record
+/// holds directly. `read` is the same call for both shells — `xdg_toplevel_icon_v1`
+/// buffers for wayland, `_NET_WM_ICON` for X11 — so nothing here branches on protocol.
+fn window_icon_pixels(
+    window: &Window,
+) -> Option<compositor_introspection_extraction_window_base::IconPixels> {
+    compositor_y5_window_interface_record::window::LoopWindow::toplevel_icon(window)?.pixels
 }
 
 /// The live toplevel icon of the window carrying `uuid`, NAMED half only.

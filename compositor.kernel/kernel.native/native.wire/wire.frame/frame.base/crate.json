@@ -14,6 +14,7 @@
     "compositor_kernel_scanout_flip_feedback_base",
     "compositor_kernel_scanout_timing_vblank_base",
     "compositor_kernel_graphic_draw_present_callbacks",
+    "compositor_kernel_graphic_draw_present_cursor",
     "compositor_orchestration_core_state_base",
     "compositor_model_stats_registry_base",
     "compositor_kernel_native_wire_watchdog_settle",

@@ -6,6 +6,8 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::multigpu::GpuManager;
 use smithay::backend::renderer::multigpu::gbm::GbmGlesBackend;
 use smithay::desktop::{Window, layer_map_for_output};
+use compositor_support_smithay_state_window_find::find;
+use compositor_support_smithay_state_window_shell::shell;
 use compositor_y5_graphic_capture_registry::CaptureRegistry;
 use compositor_y5_lock_state_base::state::LockState;
 
@@ -108,6 +110,21 @@ pub struct Orchestrator {
     /// published", and the surface's own state answers a different one: it lags by a
     /// configure round-trip, so a window would be re-set on every frame until it acked.
     pub suspended: std::collections::HashSet<uuid::Uuid>,
+    /// X11 windows that WITHDREW: unmapped, out of the Space, but still alive in the X
+    /// server and able to map again. Keyed by X window id, holding the world they left
+    /// and where in it they sat.
+    ///
+    /// The Space cannot hold them, because membership there means "exists and can be
+    /// shown". But their identity has to survive, or a Wine/SDL fullscreen toggle and a
+    /// GTK/Qt hide()/show() come back as brand-new windows, camera-centred under a fresh
+    /// uuid — this record is the whole reason those still land where they left.
+    ///
+    /// Bounded by one entry per withdrawn window, and emptied from three sides: a remap
+    /// takes its entry, a `DestroyNotify` drops it, and `xwayland::died` clears the lot.
+    pub withdrawn_x11: std::collections::HashMap<
+        u32,
+        (uuid::Uuid, smithay::desktop::Window, smithay::utils::Point<i32, smithay::utils::Logical>),
+    >,
     /// Active per-region render override (see [`RenderTarget`]). Set only inside
     /// the `scene.frame` region loop.
     pub render_target: Option<RenderTarget>,
@@ -347,6 +364,7 @@ impl Orchestrator {
 
         Self {
             environment,
+            withdrawn_x11: std::collections::HashMap::new(),
             render_target: None,
             render_output: None,
             frame_serial: Default::default(),
@@ -557,7 +575,7 @@ impl Orchestrator {
                 .storage()
                 .try_get(&compositor_support_world_host_space_base::base::SPACE)
                 .is_some_and(|w| {
-                    w.inner.state.elements().any(|e| e.toplevel().is_some_and(|t| t.wl_surface() == &root))
+                    w.inner.state.elements().any(|e| find::is_surface(e, &root))
                 })
         })
     }
@@ -628,6 +646,7 @@ impl Orchestrator {
         }
     }
 
+
     /// Publish `xdg_toplevel.suspended` across every world, from the per-pane `on_pane_awake`
     /// marker every monitor filled this frame.
     ///
@@ -657,7 +676,6 @@ impl Orchestrator {
     /// Edge-triggered against [`Self::suspended`], so steady state is one set lookup per
     /// window and no protocol work at all.
     pub fn refresh_suspended(&mut self) {
-        use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
         let now = compositor_pipeline_abi_clock_base::base::now();
         let on_pane_awake: std::collections::HashSet<uuid::Uuid> = self
             .output_views()
@@ -684,7 +702,6 @@ impl Orchestrator {
                 use compositor_y5_window_interface_record::window::LoopWindow;
                 let Some(uuid) = w.uuid() else { continue };
                 live.insert(uuid);
-                let Some(toplevel) = w.toplevel() else { continue };
                 // A window nothing has ever stamped counts its absence from now, so one
                 // spawned into a parked world or a collapsed group suspends on the same
                 // terms as one that scrolled away rather than instantly.
@@ -699,13 +716,11 @@ impl Orchestrator {
                 if suspend == self.suspended.contains(&uuid) {
                     continue;
                 }
-                toplevel.with_pending_state(|s| match suspend {
-                    true => s.states.set(xdg_toplevel::State::Suspended),
-                    false => s.states.unset(xdg_toplevel::State::Suspended),
-                });
-                // Clients below xdg_wm_base v6 never see the state — smithay filters it
-                // per client version (`into_filtered_states`) — so nothing to gate here.
-                toplevel.send_pending_configure();
+                // X11 spells the same statement `_NET_WM_STATE_HIDDEN`: a property, so
+                // `set_suspended` writes it immediately and the configure below is the
+                // xdg half only.
+                shell::set_suspended(w, suspend);
+                shell::send_pending(w);
                 match suspend {
                     true => self.suspended.insert(uuid),
                     false => self.suspended.remove(&uuid),
@@ -739,11 +754,39 @@ impl Orchestrator {
                 continue;
             };
             for w in world.inner.state.elements() {
+                // `Window::set_activated` already writes `_NET_WM_STATE_FOCUSED` for an
+                // X11 window (immediately — nothing to send afterwards), so only the xdg
+                // half needs the configure.
                 w.set_activated(Some(w) == keep);
-                if let Some(toplevel) = w.toplevel() {
-                    toplevel.send_pending_configure();
-                }
+                shell::send_pending(w);
             }
+        }
+    }
+
+    /// Emit the X11 configures staged since the last frame.
+    ///
+    /// **The camera is not an input here, and neither is the canvas.** Panning and zooming
+    /// are y5's business and none of an X client's; neither appears below, so neither can
+    /// change what is sent, so neither sends an X client anything at all — by construction
+    /// rather than by a threshold. Nor does a window's Space location: X space is not a map
+    /// of the canvas (see `shell::X11_ORIGIN`), so moving a window across the canvas
+    /// configures nothing either.
+    ///
+    /// What is left is the SIZE, staged by `shell::stage` from a dozen call sites —
+    /// including the canvas drag, which is Loop-free — onto the dirty list
+    /// `shell::take_staged` drains. A frame in which nothing was staged costs one empty
+    /// `mem::take`; the previous shape walked every window of every world, five mutex
+    /// locks each, to find that out. Draining here, once per presented frame, is what
+    /// coalesces a drag's motion events into one configure.
+    ///
+    /// Windows from EVERY world land on that list: a cross-world reform resizes a window
+    /// the user is not looking at, and its client must still be told the geometry it now
+    /// has. No per-world distinction is needed — worlds are separate canvases, and X space
+    /// is not a canvas.
+    fn flush_x11_configures(&mut self) {
+        use compositor_support_smithay_state_window_shell::shell;
+        for window in shell::take_staged() {
+            shell::flush_pending(&window);
         }
     }
 
@@ -766,7 +809,6 @@ impl Orchestrator {
         &self,
         surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     ) -> Option<(uuid::Uuid, smithay::desktop::Window)> {
-        use smithay::wayland::seat::WaylandFocus;
         self.worlds.ids().into_iter().find_map(|id| {
             let found = self
                 .worlds
@@ -776,7 +818,7 @@ impl Orchestrator {
                 .inner
                 .state
                 .elements()
-                .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface))
+                .find(|w| find::is_surface(w, surface))
                 .cloned()?;
             Some((id, found))
         })
@@ -1082,7 +1124,12 @@ impl Orchestrator {
     ///   entered, and `output_leave` sends its own leaves — so a parked world is still
     ///   owed nothing.
     pub fn refresh_space(&mut self) {
-        self.for_each_space(|space| space.refresh_alive());
+        self.for_each_space(|space| {
+            space.refresh_alive();
+        });
+        // The X11 configures staged this frame, once per presented frame — see
+        // `flush_x11_configures` for why neither the camera nor the canvas is an input.
+        self.flush_x11_configures();
         let space = &mut self.space_state_mut().state;
         space.refresh_outputs_with(|_window, _output| Some(unclipped()));
         space.refresh_elements();
@@ -1418,6 +1465,7 @@ pub trait CoordinateTrait {
     /// `viewport_context` would otherwise fall back to full-output.
     fn focus_pane_context(&self) -> compositor_y5_camera_transform_translate::transform::Context;
 }
+
 impl CoordinateTrait for Loop {
     fn size_ctx_all(&self) -> compositor_y5_camera_transform_translate::transform::Context {
         let output = self.inner.current_output();
@@ -1564,3 +1612,5 @@ impl CoordinateTrait for Loop {
 
 /// The compositor loop: protocol state (`Dispatch`) + the orchestrator.
 pub type Loop = Wire<Orchestrator>;
+
+

@@ -15,6 +15,7 @@ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::utils::SERIAL_COUNTER;
 use std::any::Any;
 use std::time::{SystemTime, UNIX_EPOCH};
+use compositor_support_smithay_state_window_shell::shell;
 
 /// Max cursor travel (world px) for a select-rect interior press to count as a TAP
 /// (→ toggle selection) rather than a group move.
@@ -218,13 +219,19 @@ impl System for CanvasSystem {
 /// callable from a Pass-1 system; the rim's window.lifecycle copy was the only
 /// other caller and is gone with the rim release branch.
 fn finish_resize(window: Window) {
-    let Some(toplevel) = window.toplevel() else { return };
     let Some(size) = slot::expected_size(&window) else { return };
-    toplevel.with_pending_state(|state| {
-        state.states.unset(xdg_toplevel::State::Resizing);
-        state.size = Some(size);
-    });
+    // Same guard `reform_force` uses, and for the same reason: nothing to configure
+    // means nothing to decide, so the slot bookkeeping below is not entered either.
+    // It replaces a `toplevel().is_none()` early-return that had come to mean "not an
+    // xdg window" — which left an X11 window stretching forever, because the settle
+    // that clears the stretch is on the far side of it.
+    if !shell::stage(&window, size, false) {
+        return;
+    }
+    shell::unstage_resizing(&window);
     let _ = slot::note_resize(&window, size);
     slot::mark_resize_settling(&window);
-    toplevel.send_configure();
+    // X11 emits nothing here: its configure carries a position this Loop-free path
+    // does not have, and the per-frame flush issues it from the Space instead.
+    shell::send(&window);
 }

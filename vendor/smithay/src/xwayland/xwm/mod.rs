@@ -225,9 +225,11 @@ mod atoms {
             WM_TAKE_FOCUS,
             WM_DELETE_WINDOW,
             WM_CHANGE_STATE,
+            WM_WINDOW_ROLE,
             _NET_WM_NAME,
             _NET_WM_MOVERESIZE,
             _NET_WM_PID,
+            _NET_WM_ICON,
             _NET_WM_WINDOW_OPACITY,
             _NET_WM_WINDOW_TYPE,
             _NET_WM_WINDOW_TYPE_COMBO,
@@ -276,6 +278,17 @@ mod atoms {
             _NET_WM_SYNC_REQUEST_COUNTER,
             _NET_SHOWING_DESKTOP,
             _NET_SUPPORTING_WM_CHECK,
+            _NET_WM_ALLOWED_ACTIONS,
+            _NET_WM_ACTION_MOVE,
+            _NET_WM_ACTION_RESIZE,
+            _NET_WM_ACTION_MINIMIZE,
+            _NET_WM_ACTION_SHADE,
+            _NET_WM_ACTION_STICK,
+            _NET_WM_ACTION_MAXIMIZE_HORZ,
+            _NET_WM_ACTION_MAXIMIZE_VERT,
+            _NET_WM_ACTION_FULLSCREEN,
+            _NET_WM_ACTION_CHANGE_DESKTOP,
+            _NET_WM_ACTION_CLOSE,
             _XSETTINGS_SETTINGS,
             _XWAYLAND_ALLOW_COMMITS,
 
@@ -902,26 +915,59 @@ impl X11Wm {
         // Set some EWMH properties
         let net_supported_base = [
             atoms._NET_WM_STATE,
-            atoms._NET_WM_STATE_MAXIMIZED_HORZ,
-            atoms._NET_WM_STATE_MAXIMIZED_VERT,
-            atoms._NET_WM_STATE_HIDDEN,
+            // `_NET_WM_STATE_MAXIMIZED_HORZ`/`_VERT` are deliberately ABSENT. The state is
+            // still understood and reported (`is_maximized`), but a client asking to
+            // change it reaches `XwmHandler::maximize_request`, which y5 does not
+            // implement — and there is nothing to maximize TO: the canvas has no screen
+            // edges. Advertising it put a maximize button on windows that ignore it.
+            // Fullscreen is a separate atom and stays supported.
+            // `_NET_WM_STATE_HIDDEN` is deliberately ABSENT, and it is the one that cost
+            // something. It is EWMH's "iconified", so listing it tells every client that
+            // minimize is a real operation here — while `XwmHandler::minimize_request` is
+            // left at its no-op default and `set_hidden` is never called. A client that
+            // offers the path, asks, and hears nothing commonly unmaps ITSELF as a
+            // fallback, which leaves a window with no surface that nothing can bring
+            // back. It is also the state y5 refuses to represent on purpose: writing
+            // `WM_STATE = Iconic` is what `shell::set_suspended` was made an X11 no-op to
+            // stop doing.
             atoms._NET_WM_STATE_FULLSCREEN,
+            // MODAL and SKIP_TASKBAR stay because they are ACTED ON, even though y5 never
+            // sets either: both feed `ident::is_ephemeral_x11` / `is_popup_x11_surface`,
+            // which is how a menu or dialog avoids becoming a window with a placeholder.
+            // A client that stops declaring them because they look unsupported would make
+            // that classification worse.
             atoms._NET_WM_STATE_MODAL,
+            // Written by `set_activated`, which y5 does call.
             atoms._NET_WM_STATE_FOCUSED,
-            atoms._NET_WM_STATE_ABOVE,
-            atoms._NET_WM_STATE_BELOW,
-            atoms._NET_WM_STATE_SHADED,
+            // `_NET_WM_STATE_ABOVE` / `_BELOW` / `_SHADED` / `_STICKY` / `_SKIP_PAGER` /
+            // `_DEMANDS_ATTENTION` are all ABSENT for one reason: no y5 caller sets any of
+            // them, and there is nothing behind them to set. Draw order is the
+            // compositor's (`DrawOrder`), worlds are not desktops, there is no pager and
+            // nothing shades. Their smithay setters exist and are simply never reached.
             atoms._NET_WM_STATE_SKIP_TASKBAR,
-            atoms._NET_WM_STATE_SKIP_PAGER,
-            atoms._NET_WM_STATE_STICKY,
-            atoms._NET_WM_STATE_DEMANDS_ATTENTION,
             atoms._NET_ACTIVE_WINDOW,
-            atoms._NET_WM_MOVERESIZE,
+            // `_NET_WM_MOVERESIZE` is deliberately ABSENT. A window manager that lists it
+            // is telling clients it will run an interactive move/resize grab on request,
+            // and this one will not: `XwmHandler::move_request`/`resize_request` are
+            // refused by design, exactly as `xdg_toplevel.move`/`.resize` are on the
+            // wayland side. Advertising it anyway left a client sending the message and
+            // hearing nothing back, with no way to know the difference between "declined"
+            // and "lost". `_NET_WM_ALLOWED_ACTIONS` below says the same thing per window.
+            atoms._NET_WM_ALLOWED_ACTIONS,
             atoms._NET_CLIENT_LIST,
             atoms._NET_CLIENT_LIST_STACKING,
-            atoms._NET_SHOWING_DESKTOP,
+            // `_NET_SHOWING_DESKTOP` is ABSENT: the root property is still written as 0,
+            // which is true and costs nothing, but y5 has no show-desktop concept and
+            // acts on no request to enter one.
+            //
+            // `_NET_WM_PING` is ABSENT because pinging is the WM's move and y5 never
+            // makes it — `X11Surface::ping` has no caller. Listing it promises a liveness
+            // check that never happens.
+            //
+            // `_NET_WM_OPAQUE_REGION` stays, and is the one here that does real work:
+            // smithay reads it in a pre-commit hook and applies it to the wl_surface's
+            // opaque region, which is what the occlusion pass reads.
             atoms._NET_WM_OPAQUE_REGION,
-            atoms._NET_WM_PING,
             atoms._GTK_FRAME_EXTENTS,
         ];
         let net_supported = if sync_supported {
@@ -1068,11 +1114,53 @@ impl X11Wm {
         self.id
     }
 
+
+
     /// Whether or not the XSYNC extension is present
     ///
     /// This can be used to tell if the `_NET_WM_SYNC_REQUEST` protocol can be used.
     pub fn sync_supported(&self) -> bool {
         self.servertime_counter.is_some()
+    }
+
+    /// Publish which window the compositor considers ACTIVE: EWMH `_NET_ACTIVE_WINDOW`
+    /// on the root, and `WM_STATE = Normal` on the window itself.
+    ///
+    /// Imperative, and deliberately NOT conditional on the client's input model. smithay
+    /// otherwise maintains `_NET_ACTIVE_WINDOW` only reactively, from the X server's own
+    /// `FocusIn`/`FocusOut` — and those fire only when `X11Surface::set_input_focus`
+    /// issued a `SetInputFocus`, which it does not for every input model:
+    /// `GloballyActive` sends `WM_TAKE_FOCUS` and no focus request, `None` sends nothing
+    /// at all. A client declaring either — which games commonly do, wanting to manage
+    /// focus themselves — is then never told it lost focus, so it goes on behaving as the
+    /// active window and holds its pointer grab.
+    ///
+    /// `None` publishes the "nothing is active" state, which is the half that releases a
+    /// fullscreen client. Both properties are needed: a client that blanks itself on
+    /// deactivation reads `WM_STATE` as well, and without it stays blanked when focus
+    /// returns.
+    ///
+    /// xwayland-satellite does exactly this in its `focus_window`.
+    pub fn set_active_window(&mut self, window: Option<&X11Surface>) -> Result<(), ConnectionError> {
+        let id = window.map(|w| w.window_id()).unwrap_or(x11rb::NONE);
+        self.conn.change_property32(
+            PropMode::REPLACE,
+            self.screen.root,
+            self.atoms._NET_ACTIVE_WINDOW,
+            AtomEnum::WINDOW,
+            &[id],
+        )?;
+        if let Some(window) = window {
+            self.conn.change_property32(
+                PropMode::REPLACE,
+                window.window_id(),
+                self.atoms.WM_STATE,
+                self.atoms.WM_STATE,
+                &[1 /* NormalState */, 0],
+            )?;
+        }
+        self.conn.flush()?;
+        Ok(())
     }
 
     /// Raises a window in the internal X11 state
@@ -1081,10 +1169,61 @@ impl X11Wm {
     /// in sync with the compositor to avoid erroneous behavior.
     pub fn raise_window<'a, W: X11Relatable + 'a>(&mut self, window: &'a W) -> Result<(), ConnectionError> {
         if let Some(elem) = self.windows.iter().find(|s| window.is_window(s)) {
-            if self.client_list_stacking.last() == Some(&elem.window_id()) {
+            // NO "already on top" shortcut. `client_list_stacking` is this WM's own model
+            // of the stack, and the X server's is the one that decides where an event
+            // goes. The two drift: an override-redirect client restacks itself without
+            // asking, map and destroy races reorder things, and nothing reconciles them.
+            // Skipping the request because the MODEL says the window is already topmost
+            // is how a raise silently does not happen, which — with windows that overlap —
+            // means the pointer event goes to whatever actually is on top. The request is
+            // cheap and idempotent; the shortcut is not worth a class of silent failure.
+            // Written and FLUSHED, never waited for, and under no server grab.
+            //
+            // Raising is how a compositor decides which X client an ungrabbed pointer
+            // event reaches — the server hit-tests its own tree, so where windows overlap
+            // the stack is the answer. The restack travels on the window manager's X
+            // connection while the event is generated inside the server from Xwayland's
+            // wayland-side input, and nothing orders the two; a checked request here would
+            // settle that, and it was tried. It parks the compositor's ONE thread on the X
+            // server: any client holding `XGrabServer` (Xt/Motif menus, xdotool, some
+            // games) then stalls every input and every frame until it lets go, and
+            // Xwayland blocked in a roundtrip on the compositor's own socket cannot answer
+            // at all — a deadlock. The cost of not waiting is that the first event of a
+            // crossing may be hit-tested against the old stack for one Xwayland dispatch
+            // pass; a click follows a crossing by milliseconds, so the stack is settled by
+            // the time anything the user does reaches it. A grab buys nothing for a single
+            // request and is the part that turns a foreign grab into a stall.
+            self.conn.configure_window(
+                elem.mapped_window_id().unwrap_or_else(|| elem.window_id()),
+                &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
+            )?;
+            self.client_list_stacking.retain(|e| *e != elem.window_id());
+            self.client_list_stacking.push(elem.window_id());
+            self.conn.change_property32(
+                PropMode::REPLACE,
+                self.screen.root,
+                self.atoms._NET_CLIENT_LIST_STACKING,
+                AtomEnum::WINDOW,
+                &self.client_list_stacking,
+            )?;
+            self.conn.flush()?;
+        }
+        Ok(())
+    }
+
+    /// Lower a window to the bottom of the X stack.
+    ///
+    /// The counterpart of [`X11Wm::raise_window`], and the other half of the only
+    /// mechanism a window manager has for deciding which X client an ungrabbed pointer
+    /// event reaches: the X server hit-tests its own tree at the coordinate Xwayland
+    /// derives, so where windows overlap, the STACK is the answer. Mapping a new window
+    /// at the bottom keeps it from taking events from whatever the pointer is already on
+    /// until the pointer actually reaches it.
+    pub fn lower_window<'a, W: X11Relatable + 'a>(&mut self, window: &'a W) -> Result<(), ConnectionError> {
+        if let Some(elem) = self.windows.iter().find(|s| window.is_window(s)) {
+            if self.client_list_stacking.first() == Some(&elem.window_id()) {
                 return Ok(());
             }
-
             let _guard = scopeguard::guard((), |_| {
                 let _ = self.conn.ungrab_server();
                 let _ = self.conn.flush();
@@ -1092,10 +1231,11 @@ impl X11Wm {
             self.conn.grab_server()?;
             self.conn.configure_window(
                 elem.mapped_window_id().unwrap_or_else(|| elem.window_id()),
-                &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
+                &ConfigureWindowAux::new().stack_mode(StackMode::BELOW),
             )?;
-            self.client_list_stacking.retain(|e| *e != elem.window_id());
-            self.client_list_stacking.push(elem.window_id());
+            let id = elem.window_id();
+            self.client_list_stacking.retain(|e| *e != id);
+            self.client_list_stacking.insert(0, id);
             self.conn.change_property32(
                 PropMode::REPLACE,
                 self.screen.root,
@@ -1726,21 +1866,31 @@ where
                     drop(_guard);
                     state.mapped_override_redirect_window(xwm_id, surface);
                 } else {
-                    xwm.client_list.push(surface.window_id());
-                    xwm.client_list_stacking.push(surface.window_id());
+                    // Append only if absent, and publish the LIST rather than appending
+                    // the id: a window manager that stacks a new window at the bottom
+                    // (`lower_window`) does so from the map REQUEST, before this notify,
+                    // and already holds the id — pushing it again put a duplicate in
+                    // `_NET_CLIENT_LIST_STACKING` and made `lower_window`'s "already at
+                    // the bottom" check answer for the wrong copy.
+                    if !xwm.client_list.contains(&surface.window_id()) {
+                        xwm.client_list.push(surface.window_id());
+                    }
+                    if !xwm.client_list_stacking.contains(&surface.window_id()) {
+                        xwm.client_list_stacking.push(surface.window_id());
+                    }
                     conn.change_property32(
-                        PropMode::APPEND,
+                        PropMode::REPLACE,
                         xwm.screen.root,
                         xwm.atoms._NET_CLIENT_LIST,
                         AtomEnum::WINDOW,
-                        &[surface.window_id()],
+                        &xwm.client_list,
                     )?;
                     conn.change_property32(
-                        PropMode::APPEND,
+                        PropMode::REPLACE,
                         xwm.screen.root,
                         xwm.atoms._NET_CLIENT_LIST_STACKING,
                         AtomEnum::WINDOW,
-                        &[surface.window_id()],
+                        &xwm.client_list_stacking,
                     )?;
                     drop(_guard);
                     state.map_window_notify(xwm_id, surface);

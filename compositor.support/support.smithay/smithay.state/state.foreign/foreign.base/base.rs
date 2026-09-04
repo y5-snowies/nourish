@@ -19,12 +19,12 @@
 use std::collections::HashMap;
 
 use smithay::desktop::{Space, Window};
+use compositor_support_smithay_state_window_ident::ident;
 use smithay::output::Output;
 use smithay::reexports::wayland_protocols::ext::foreign_toplevel_list::v1::server::{
     ext_foreign_toplevel_handle_v1::ExtForeignToplevelHandleV1,
     ext_foreign_toplevel_list_v1::ExtForeignToplevelListV1,
 };
-use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State as XdgState;
 use smithay::reexports::wayland_protocols_wlr::foreign_toplevel::v1::server::{
     zwlr_foreign_toplevel_handle_v1::ZwlrForeignToplevelHandleV1,
     zwlr_foreign_toplevel_manager_v1::ZwlrForeignToplevelManagerV1,
@@ -32,12 +32,10 @@ use smithay::reexports::wayland_protocols_wlr::foreign_toplevel::v1::server::{
 use smithay::reexports::wayland_server::backend::GlobalId;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Dispatch, DisplayHandle, GlobalDispatch, Resource};
-use smithay::wayland::compositor::with_states;
 use smithay::wayland::foreign_toplevel_list::{
     ForeignToplevelHandle, ForeignToplevelListGlobalData, ForeignToplevelListHandler,
     ForeignToplevelListState,
 };
-use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 
 /// wlr `state` enum values (fixed by the protocol — see the XML `enum "state"`).
 const STATE_MAXIMIZED: u32 = 0;
@@ -252,11 +250,20 @@ impl ForeignToplevel {
             .flat_map(|&space| {
                 let outputs = outputs_for(space);
                 space.elements().filter_map(move |window| {
-                    let toplevel = window.toplevel()?;
-                    let surface = toplevel.wl_surface().clone();
-                    let (title, app_id) = title_app_id(&surface);
-                    let states = read_states(window);
-                    Some((surface, title, app_id, states, outputs.clone()))
+                    // The list mirrors what is ON SCREEN, and a Space element is not
+                    // automatically that. Both shells can hide without being destroyed —
+                    // an X11 unmap clears the `wl_surface` and keeps the `Window`, an xdg
+                    // toplevel that commits a null buffer keeps its element with an empty
+                    // bbox — and `ident::surface` alone separates only the first of those,
+                    // so an X11 window left the dock on hide while a wayland one stayed.
+                    if !ident::is_drawn(window) {
+                        return None;
+                    }
+                    let surface = ident::surface(window)?;
+                    let names = ident::names(window);
+                    let title = names.title.unwrap_or_default();
+                    let app_id = names.app_id.unwrap_or_default();
+                    Some((surface, title, app_id, read_states(window), outputs.clone()))
                 })
             })
             .collect();
@@ -434,29 +441,16 @@ fn outputs_for(space: &Space<Window>) -> Vec<Output> {
     space.outputs().cloned().collect()
 }
 
-/// Read `title` / `app_id` from a toplevel's xdg role attributes.
-fn title_app_id(surface: &WlSurface) -> (String, String) {
-    with_states(surface, |states| {
-        let attrs = states.data_map.get::<XdgToplevelSurfaceData>();
-        match attrs.and_then(|a| a.lock().ok()) {
-            Some(a) => (a.title.clone().unwrap_or_default(), a.app_id.clone().unwrap_or_default()),
-            None => (String::new(), String::new()),
-        }
-    })
-}
-
-/// Derive the wlr states from what the compositor has set on the toplevel. y5 has
-/// no minimize concept, so `minimized` stays false.
+/// The wlr states, in this module's own shape. `window.ident` answers the question
+/// for either shell (xdg pending state, or the X11 `_NET_WM_STATE` predicates); this
+/// only re-labels the answer, because `ToplevelStates` carries the wl_array encoding
+/// the protocol wants and is private to this crate.
 fn read_states(window: &Window) -> ToplevelStates {
-    window
-        .toplevel()
-        .map(|t| {
-            t.with_pending_state(|s| ToplevelStates {
-                maximized: s.states.contains(XdgState::Maximized),
-                minimized: false,
-                activated: s.states.contains(XdgState::Activated),
-                fullscreen: s.states.contains(XdgState::Fullscreen),
-            })
-        })
-        .unwrap_or_default()
+    let s = ident::states(window);
+    ToplevelStates {
+        maximized: s.maximized,
+        minimized: s.minimized,
+        activated: s.activated,
+        fullscreen: s.fullscreen,
+    }
 }

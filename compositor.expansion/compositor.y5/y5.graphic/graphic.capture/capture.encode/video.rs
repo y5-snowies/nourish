@@ -62,7 +62,7 @@ impl VideoEncoder {
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-        let mut child = child_spawn::spawn(&mut cmd)
+        let mut child = child_spawn::spawn_awaited(&mut cmd)
             .map_err(|e| warn!("ffmpeg spawn failed (video disabled): {e}"))
             .ok()?;
 

@@ -1,4 +1,5 @@
 use smithay::backend::allocator::dmabuf::Dmabuf;
+use smithay::xwayland::X11Surface;
 use smithay::desktop::{Space, Window};
 use smithay::utils::{Logical, Point, Rectangle};
 use smithay::wayland::dmabuf::{DmabufGlobal, ImportNotifier};
@@ -58,6 +59,72 @@ pub trait WireTrait {
     /// because the placeholder policy lives above this trait and the drain runs
     /// later than the answer is valid for.
     fn destroy_surface_data(&mut self, surface: ToplevelSurface, drag_discard: bool);
+
+    /// The window behind an X11 surface, with the world holding it — the X11 twin of
+    /// `owning_space`, and named for the same reason: it RESOLVES a world rather than
+    /// reading the focused one.
+    ///
+    /// Answers from the Space OR from the withdrawn record, and that is the ONE place the
+    /// two views are reconciled. A window is in exactly one of them: withdrawing moves it
+    /// out of the Space and into the record, a remap moves it back. Without the record
+    /// half, a destroy arriving after a withdrawal would find nothing and the window
+    /// would never be retired at all.
+    ///
+    /// Searched across ALL worlds, and both callers need that. An X11 window can die
+    /// while the user is looking at a different world, so resolving the teardown against
+    /// `host_space` alone would silently drop it, leaving the window mapped forever in
+    /// the world it actually lives in. The map path needs it for the same reason from
+    /// the other side: an unmap KEEPS the element in its own world's Space, so a remap
+    /// that failed to find it there would mint a second identity for a window already
+    /// on the canvas.
+    ///
+    /// Keyed on the X11 surface rather than the wl_surface because by the time the X
+    /// server says a window is gone, the association may already be.
+    fn owning_x11_window(&self, surface: &X11Surface) -> Option<(uuid::Uuid, Window)>;
+
+
+    /// A NAMED world's window Space, mutably — the counterpart to `all_world_spaces`
+    /// the X11 teardown needs once [`Self::owning_x11_window`] has said which world its
+    /// window is in.
+    fn space_of_world_mut(&mut self, world: uuid::Uuid) -> &mut SpaceState;
+
+    /// An XWayland window unmapped or was destroyed. Keyed off the WINDOW, not a
+    /// surface: the uuid was stamped on its own user data at map and outlives both
+    /// the X11 window and the wl_surface association, which a `ToplevelSurface`-keyed
+    /// `destroy_surface_data` cannot express.
+    fn destroy_x11_data(&mut self, window: Window);
+
+    /// An X11 window withdrew: retire it as a destroy would, but PARK its identity so a
+    /// later map can restore it rather than mint a new one.
+    ///
+    /// The teardown half is the same as [`Self::destroy_x11_data`] — same ephemeral and
+    /// `DiscardPlaceholder` guards, same placeholder — because from everything above the
+    /// wire layer a withdrawal and a close are indistinguishable, which is exactly what
+    /// X11 says about them.
+    fn withdraw_x11(&mut self, world: uuid::Uuid, window: Window);
+
+    /// A withdrawn X11 window is being mapped again: put it back in the world and at the
+    /// position it left, under its original uuid.
+    ///
+    /// The placeholder the withdrawal left is KEPT. A withdrawal is a close as far as
+    /// everything above the wire layer can tell — X11 gives no signal that separates
+    /// "hidden, coming back" from "closed" — so it leaves a placeholder, and a client
+    /// mapping the window again later does not retract that any more than launching a
+    /// second window would.
+    ///
+    /// The consequence is that a readmitted window has NO placeholder record of its own:
+    /// `map` lost it when the destroy path ran, and nothing re-files it. Every writer of
+    /// that record guards on its absence, because `PlaceholderState::modify` aborts on a
+    /// missing record rather than skipping.
+    fn readmit_x11(&mut self, window: Window);
+
+    /// Is this window a live element of some world's Space, as opposed to a withdrawn one
+    /// [`Self::owning_x11_window`] answered for out of the record?
+    fn is_space_element(&self, window: &Window) -> bool;
+
+    /// Drop a withdrawn window's record — it is not coming back. Called on destroy and
+    /// when the X server dies; a no-op for a window that never withdrew.
+    fn forget_withdrawn_x11(&mut self, surface: &X11Surface);
     /// Warp the pointer to a world-space point. The handler reads its own
     /// hosted space internally (it owns it now), so no space is passed in.
     fn apply_pointer(&mut self, storage_point: Point<f64, Logical>);

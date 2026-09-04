@@ -406,6 +406,31 @@ impl DrmDevice {
         self.internal.device_fd()
     }
 
+    /// Restore the card/tty to the configuration captured when this device was created,
+    /// so the console gets a mode it can display back.
+    ///
+    /// This is the work `Drop` does, made callable. Relying on `Drop` alone means every
+    /// strong reference to the device must be gone first — each live [`DrmSurface`], the
+    /// [`DrmDeviceNotifier`], and whatever the compositor's own event sources hold — and
+    /// an event loop that never frees its sources (a reference cycle through a captured
+    /// loop handle is the usual cause) silently turns that into "the console is never
+    /// restored". A compositor should call this on its way out instead of hoping.
+    ///
+    /// A NO-OP once the device is paused, which is exactly right: a session that has been
+    /// switched away from holds no DRM master and does not own the display, so the
+    /// foreground VT's mode must be left alone. That makes this safe to call
+    /// unconditionally on any exit path.
+    ///
+    /// Restoring CLEARS the active flag, so this happens at most once and a surface
+    /// dropped afterwards skips its own disabling commit rather than blanking what was
+    /// just restored.
+    pub fn restore_state(&self) {
+        match &*self.internal {
+            DrmDeviceInternal::Atomic(dev) => dev.restore_state(),
+            DrmDeviceInternal::Legacy(dev) => dev.restore_state(),
+        }
+    }
+
     /// Pauses the device.
     ///
     /// This will cause the `DrmDevice` to avoid making calls to the file descriptor e.g. on drop.

@@ -53,7 +53,7 @@ pub fn groups(_release: Option<&str>) -> Vec<PackageGroup> {
                           intend to compile y5 on this machine",
             packages: vec![
                 "base-devel", "git", "clang", "pkgconf", "protobuf", "rust",
-                "wayland-protocols", "libxcb", "xcb-util-cursor",
+                "wayland-protocols",
             ],
             default_on: false,
         },

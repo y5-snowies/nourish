@@ -16,6 +16,7 @@ use compositor_y5_camera_transform_translate::transform::{Context as XformCtx, T
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_core_state_base::state::CoordinateTrait;
 use compositor_monitor_compositor_iced_base::{HandleId, IcedSpace, Transform as IcedTransform};
+use compositor_support_smithay_state_window_ident::ident;
 
 // The hit type, filter, context, and the `_cx` hit-test entry come from the
 // Loop-free core; re-export so callers keep using `surface_interface_base::hit::*`.
@@ -195,10 +196,9 @@ where
             if !callback(bbox_world, window_geom) {
                 continue;
             }
-            let Some(toplevel) = window.toplevel() else {
+            let Some(s) = ident::surface(window) else {
                 continue;
             };
-            let s = toplevel.wl_surface().clone();
             let location = _loop
                 .inner.space_state()
                 .state

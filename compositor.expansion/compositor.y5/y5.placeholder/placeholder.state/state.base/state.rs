@@ -86,6 +86,17 @@ impl PlaceholderState {
         action(&mut *item.borrow_mut());
     }
 
+    /// A COPY of a record, leaving the original in place.
+    ///
+    /// The withdrawal path needs this and [`Self::erase`] will not do: an X11 window that
+    /// unmaps is still alive and keeps its own record, so the placeholder standing in for
+    /// it has to be a second thing with an identity of its own. Erasing would move the
+    /// record — and with it the uuid — which is what makes a window and its placeholder
+    /// mutually exclusive everywhere else.
+    pub fn clone_record(&self, uuid: &Uuid) -> Option<Placeholder> {
+        self.map.get(uuid).map(|rc| rc.borrow().clone())
+    }
+
     pub fn erase(&mut self, uuid: &Uuid) -> Placeholder {
         // Erase was called from an unknown window meaning a few things:
         // 1. window_destroyed was called before a top level was created.

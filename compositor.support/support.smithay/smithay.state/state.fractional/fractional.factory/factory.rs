@@ -19,6 +19,17 @@ where
         + 'static,
     I: FractionalScaleHandler + 'static {
     let mut fractional_manager_state = FractionalScaleManagerState::new::<I>(&display_handle);
+    // NOT advertised to Xwayland.
+    //
+    // `wp_fractional_scale_v1` asks a client to render at a scale the compositor picks.
+    // Xwayland binds it and applies the answer to X windows, which never asked and cannot
+    // be asked — so the scale becomes a negotiation between y5 and a proxy about windows
+    // neither owns. Hidden, Xwayland falls back to the integer
+    // `wl_surface.set_buffer_scale` path, which is what xwayland-satellite was deployed
+    // with (`--force-scale 1 --ignore-fractional-scale`).
+    smithay::wayland::fractional_scale::set_visibility_filter(|client| {
+        !compositor_support_smithay_state_xwayland_base::base::is_xwayland(client)
+    });
     let cfg = FractionalScaleConfig::default();
     // Seed the published scale rather than starting at "unknown".
     //

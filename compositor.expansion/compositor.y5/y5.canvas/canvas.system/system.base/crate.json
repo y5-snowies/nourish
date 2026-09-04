@@ -28,6 +28,8 @@
     "compositor_monitor_compositor_iced_base",
     "smithay",
     "uuid",
-    "compositor_y5_placeholder_surface_base"
+    "compositor_y5_placeholder_surface_base",
+    "compositor_support_smithay_state_window_ident",
+    "compositor_support_smithay_state_window_shell"
   ]
 }

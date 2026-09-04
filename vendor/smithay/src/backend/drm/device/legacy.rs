@@ -121,38 +121,58 @@ impl LegacyDrmDevice {
     }
 }
 
-impl Drop for LegacyDrmDevice {
-    fn drop(&mut self) {
-        if self.active.load(Ordering::SeqCst) {
-            let _guard = self.span.enter();
+impl LegacyDrmDevice {
+    /// Restore the tty to the state captured when this device was created.
+    ///
+    /// The legacy counterpart of [`super::atomic::AtomicDrmDevice::restore_state`]; see
+    /// there for why this is split out of `Drop` and why it clears `active`.
+    ///
+    /// Iterates `old_state` rather than draining it, so the method can take `&self` and
+    /// be reached through the `Arc<DrmDeviceInternal>`. Re-entry is prevented by the
+    /// `active` flag rather than by consuming the map.
+    pub(super) fn restore_state(&self) {
+        if !self.active.load(Ordering::SeqCst) {
+            return;
+        }
+        let _guard = self.span.enter();
 
-            // Here we restore the tty to it's previous state.
-            // In case e.g. getty was running on the tty sets the correct framebuffer again,
-            // so that getty will be visible.
-            // We do exit correctly, if this fails, but the user will be presented with
-            // a black screen, if no display handler takes control again.
+        // Here we restore the tty to it's previous state.
+        // In case e.g. getty was running on the tty sets the correct framebuffer again,
+        // so that getty will be visible.
+        // We do exit correctly, if this fails, but the user will be presented with
+        // a black screen, if no display handler takes control again.
 
-            debug!("Device still active, trying to restore previous state");
-            for (handle, (info, connectors)) in self.old_state.drain() {
-                trace!(
-                    framebuffer = ?info.framebuffer(),
-                    offset = ?info.position(),
-                    ?connectors,
-                    mode = ?info.mode(),
-                    "Resetting crtc {:?}",
-                    handle,
-                );
-                if let Err(err) = self.fd.set_crtc(
-                    handle,
-                    info.framebuffer(),
-                    info.position(),
-                    &connectors,
-                    info.mode(),
-                ) {
-                    error!("Failed to reset crtc ({:?}). Error: {}", handle, err);
-                }
+        debug!("Device still active, trying to restore previous state");
+        let mut restored = true;
+        for (handle, (info, connectors)) in self.old_state.iter() {
+            trace!(
+                framebuffer = ?info.framebuffer(),
+                offset = ?info.position(),
+                ?connectors,
+                mode = ?info.mode(),
+                "Resetting crtc {:?}",
+                handle,
+            );
+            if let Err(err) = self.fd.set_crtc(
+                *handle,
+                info.framebuffer(),
+                info.position(),
+                connectors,
+                info.mode(),
+            ) {
+                error!("Failed to reset crtc ({:?}). Error: {}", handle, err);
+                restored = false;
             }
         }
+        if restored {
+            self.active.store(false, Ordering::SeqCst);
+        }
+    }
+}
+
+impl Drop for LegacyDrmDevice {
+    fn drop(&mut self) {
+        self.restore_state();
     }
 }
 

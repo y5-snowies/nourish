@@ -63,6 +63,20 @@ esac
 
 need curl; need tar; need sha256sum; need uname
 
+# Rootless, and checked HERE rather than left to the installer.
+#
+# `y5-install` refuses uid 0 already, and must: per-action `sudo` covers the steps that
+# need privilege, while `$HOME` has to be the real user's or `settings.json` and the user
+# systemd units land in /root and `systemctl --user` talks to root's manager instead of
+# theirs. But that refusal comes after this script has downloaded, verified and unpacked a
+# bundle — as root, into a root-owned temp dir. Checking before the first `curl` turns a
+# late failure into an immediate one and leaves nothing behind.
+if [ "$(id -u)" -eq 0 ]; then
+    die "do not run this as root or with sudo.
+Run it as your normal user — the installer invokes sudo itself only for the steps that
+need root, so your configuration lands in \$HOME/.config, not /root."
+fi
+
 # uname -m -> the arch token used in the asset name.
 detect_arch() {
     case "$(uname -m)" in

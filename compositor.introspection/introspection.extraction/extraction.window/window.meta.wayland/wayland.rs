@@ -3,7 +3,8 @@ use compositor_introspection_extraction_window_meta_proc_tree::proc::extract_ful
 use compositor_introspection_extraction_window_meta_types::types::{Meta, MetaNode};
 use compositor_introspection_extraction_window_meta_wayland_surface::wayland::read_surface_identity;
 use smithay::desktop::{Space, Window};
-use smithay::reexports::wayland_server::{DisplayHandle, Resource};
+use smithay::reexports::wayland_server::DisplayHandle;
+use compositor_support_smithay_state_window_ident::ident;
 
 /// Pull a `Meta` from a live Wayland window, joining its surface identity
 /// with the /proc data for its client process. `Some` if at least one data
@@ -13,23 +14,10 @@ pub fn extract_from_window(
     _space: &Space<Window>,
     display_handle: &DisplayHandle,
 ) -> Option<Meta> {
-    let (app_id, title, target_wl_surface) = read_surface_identity(window);
+    let (app_id, title, _target_wl_surface) = read_surface_identity(window);
+    let creds = ident::credentials(window, display_handle);
 
-    let mut pid = None;
-    let mut uid = None;
-    let mut gid = None;
-
-    if let Some(wl_surface) = &target_wl_surface {
-        if let Some(client) = wl_surface.client() {
-            if let Ok(creds) = client.get_credentials(display_handle) {
-                pid = Some(creds.pid as u32);
-                uid = Some(creds.uid as u32);
-                gid = Some(creds.gid as u32);
-            }
-        }
-    }
-
-    let mut meta = if let Some(p) = pid {
+    let mut meta = if let Some(p) = creds.pid {
         extract_meta_for_pid(p).unwrap_or_default()
     } else {
         Meta::default()
@@ -37,9 +25,9 @@ pub fn extract_from_window(
 
     meta.app_id = app_id;
     meta.title = title;
-    meta.pid = pid;
-    meta.uid = uid;
-    meta.gid = gid;
+    meta.pid = creds.pid;
+    meta.uid = creds.uid;
+    meta.gid = creds.gid;
 
     if meta.app_id.is_none() && meta.title.is_none() && meta.pid.is_none() && meta.exe.is_none() {
         return None;
@@ -57,18 +45,13 @@ pub fn extract_from_window(
 /// process-tree half stays on that thread. `None` when the window yields
 /// nothing identifying.
 pub fn extract_surface_meta(window: &Window, display_handle: &DisplayHandle) -> Option<Meta> {
-    let (app_id, title, target_wl_surface) = read_surface_identity(window);
+    let (app_id, title, _target_wl_surface) = read_surface_identity(window);
     let mut meta = Meta { app_id, title, ..Meta::default() };
 
-    if let Some(wl_surface) = &target_wl_surface {
-        if let Some(client) = wl_surface.client() {
-            if let Ok(creds) = client.get_credentials(display_handle) {
-                meta.pid = Some(creds.pid as u32);
-                meta.uid = Some(creds.uid as u32);
-                meta.gid = Some(creds.gid as u32);
-            }
-        }
-    }
+    let creds = ident::credentials(window, display_handle);
+    meta.pid = creds.pid;
+    meta.uid = creds.uid;
+    meta.gid = creds.gid;
 
     if meta.app_id.is_none() && meta.title.is_none() && meta.pid.is_none() {
         return None;

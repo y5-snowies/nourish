@@ -1,0 +1,36 @@
+# Standalone X11/XWayland stress-test harness (controller + subject).
+# Sibling of ../window.stress, which does the same job for wayland clients.
+# Deliberately OUTSIDE the repo's cross-workspace graph: its own [workspace], its
+# own Cargo.lock, crates.io deps only, plain-stderr diagnostics.
+[package]
+name = "y5-x11-stress"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+# Own workspace root so cargo does not walk up into the compositor workspaces.
+[workspace]
+
+[lib]
+name = "x11_stress"
+path = "src/lib.rs"
+
+[[bin]]
+name = "x11-stress-controller"
+path = "src/bin/controller.rs"
+
+[[bin]]
+name = "x11-stress-subject"
+path = "src/bin/subject.rs"
+
+[dependencies]
+# The same X11 binding smithay's own XWM is built on, so what the subject sends is
+# exactly the shape the compositor is written against — no xlib/xcb C dependency.
+x11rb = "0.13"
+
+# Match the repo convention: release without LTO. Debug artifacts are not viable on
+# this disk, so this is the profile the harness is built with.
+[profile.release-fast]
+inherits = "release"
+lto = false

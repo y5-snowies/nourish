@@ -20,7 +20,7 @@ pub fn plan(state: &mut Loop, size: Size<i32, Physical>) -> Vec<(Window, Rectang
         .space_state()
         .state
         .elements()
-        .filter(|w| w.wl_surface().is_some() && w.geometry().size.w > 0 && w.geometry().size.h > 0)
+        .filter(|w| compositor_support_smithay_state_window_ident::ident::is_drawn(w))
         .map(|w| {
             let loc = state.inner.space_state().state.element_location(w).unwrap_or_default();
             (w.clone(), loc)

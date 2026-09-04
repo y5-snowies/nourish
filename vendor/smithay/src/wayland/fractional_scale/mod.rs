@@ -72,6 +72,7 @@ use wayland_server::{
 use super::compositor::{SurfaceData, with_states};
 
 use crate::wayland::{Dispatch2, GlobalData, GlobalDispatch2};
+use std::sync::Mutex;
 
 /// State of the wp_fractional_scale_manager_v1 Global
 #[derive(Debug)]
@@ -103,6 +104,29 @@ impl FractionalScaleManagerState {
     }
 }
 
+/// Clients this global is hidden from.
+///
+/// `wp_fractional_scale_v1` asks the compositor what scale a surface should render at,
+/// and whoever bound it acts on the answer. That is right for an application drawing its
+/// own content and wrong for a client that merely FORWARDS other applications' windows —
+/// an Xwayland server applies the scale to X clients that never asked and cannot be
+/// consulted.
+///
+/// A filter rather than a refused bind: a global a client cannot see is one it never
+/// binds, so no traffic is generated to be discarded.
+static VISIBILITY_FILTER: Mutex<Option<Box<dyn Fn(&wayland_server::Client) -> bool + Send + Sync>>> =
+    Mutex::new(None);
+
+/// Restrict which clients are shown `wp_fractional_scale_manager_v1`.
+///
+/// The filter returns `true` for a client that may see the global. Replaces any
+/// previously installed filter; with none installed every client sees it.
+pub fn set_visibility_filter(
+    filter: impl Fn(&wayland_server::Client) -> bool + Send + Sync + 'static,
+) {
+    *VISIBILITY_FILTER.lock().unwrap_or_else(|e| e.into_inner()) = Some(Box::new(filter));
+}
+
 impl<D> GlobalDispatch2<wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1, D> for GlobalData
 where
     D: Dispatch<wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1, GlobalData>
@@ -118,6 +142,14 @@ where
         data_init: &mut wayland_server::DataInit<'_, D>,
     ) {
         data_init.init(resource, GlobalData);
+    }
+
+    fn can_view(&self, client: &wayland_server::Client) -> bool {
+        VISIBILITY_FILTER
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_none_or(|filter| filter(client))
     }
 }
 

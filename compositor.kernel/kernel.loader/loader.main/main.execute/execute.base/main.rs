@@ -1,7 +1,8 @@
 #![allow(irrefutable_let_patterns)]
-pub mod activation_env;
 mod event_loop;
+mod shutdown;
 mod wayland;
+mod xwayland;
 pub mod wgpu;
 
 use compositor_model_debug_instance_record::{info, trace, warn};
@@ -19,7 +20,7 @@ use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_core_state_base::state::{Loader, Orchestrator as State};
 use compositor_support_smithay_dispatch_wire_trait::wire_trait::WireTrait;
 // App-launch executor (kernel.execution driver) — all worker/reaper/channel
-// wiring is encapsulated behind `block_sigchld` + `install`.
+// wiring is encapsulated behind `install`.
 use compositor_kernel_execution_driver_executor_install::install as launch_executor;
 
 /// The shipped version, baked in at COMPILE time from the repo-root `VERSION` file —
@@ -42,9 +43,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read here, right after config; unrecognized flags are warned once below.
     compositor_model_environment_experimental_base::base::init();
 
-    // Block SIGCHLD before any thread spawns, so the launch reaper's signalfd is
-    // the sole consumer (no-op under the Direct backend).
-    launch_executor::block_sigchld();
+    // Before the log threads below, and before every other spawn: a `signalfd` only ever
+    // receives signals that are BLOCKED, and the mask is inherited by threads created
+    // afterwards. See `shutdown::block_signals`. SIGCHLD is deliberately NOT blocked —
+    // launched children are collected through their own exit descriptors now, so nothing
+    // consumes that signal (`child.pidfd`).
+    shutdown::block_signals();
 
     let environment = compositor_orchestration_environment_type_base::base::Get();
     compositor_support_library_debug_client_base::init_logging();
@@ -152,8 +156,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         wayland_socket.name.clone(),
         // wayland_socket_proprietary.name.clone()
     );
-
-    // activation_env::push_wayland_session_env(wayland_socket.name.to_str().unwrap());
 
     let mut nested = false;
     #[cfg(all(feature = "backend-winit", not(feature = "backend-native")))]
@@ -407,10 +409,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // whole Loop.
                     display.get_mut().dispatch_clients(&mut state.state).unwrap();
                 }
-                // Apply the world effects this cycle's protocol handlers recorded
-                // (map/commit/fullscreen/layer/dmabuf) — see SMITHAY_DECOUPLING.md.
-                // Same iteration, synchronous; the handlers stayed world-free.
-                state.drain_protocol();
+                // No drain here. Dispatching only QUEUES onto the protocol outboxes;
+                // applying them is the loop's job, once per iteration, after every
+                // source has had its turn (see `event_loop.run` below). It used to be a
+                // statement right here, and could not stay: X11 arrives on its own
+                // source, and two sources that each drain make the order a frame's
+                // events are applied in a function of which fd calloop polled first.
+                //
+                // Nothing is lost by deferring it. calloop's `run` is
+                // `while !stop { dispatch(); cb(); }`, so the drain follows every
+                // dispatch in the SAME iteration — this callback cannot run without one
+                // behind it. `dispatch_clients` appears nowhere else in the tree, and
+                // the only nested loop (the xwm pump) is X11-only and is itself driven
+                // by a source of this loop, so there is no wayland dispatch that escapes
+                // the drain.
+                //
+                // The marker is what keeps that callback from draining on wakes with no
+                // protocol traffic behind them — see `Dispatch::protocol_pending`.
+                state.state.protocol_pending = true;
                 Ok(PostAction::Continue)
             },
         )
@@ -456,19 +472,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Creating renderer");
 
+    // The DRM device, kept reachable for the ONE thing that has to happen after the
+    // event loop stops: re-committing the mode the console was using, so the getty is
+    // visible again (`DrmDevice::restore_state`).
+    //
+    // Held here because nothing else can hold it usefully. Every other strong reference
+    // lives inside a calloop source, and the loop never frees its sources — several
+    // source closures captured a clone of the loop's own handle, which is a refcount back
+    // to the loop, so the loop and its callbacks keep each other alive and `drop` of the
+    // `EventLoop` frees nothing. That is why the restore is CALLED rather than left to a
+    // destructor; see the note above the call site at the end of `main`.
     #[cfg(feature = "backend-native")]
-    {
+    let drm_restore = {
         info!("starting loader...");
         // The returned handles are the backend's integration surface (see
         // compositor_kernel_native_device_interface_base): the main project applies
         // runtime device settings through them.
-        let _backend_handles = compositor_kernel_native_wire_entry_base::entry::wire(
+        let backend_handles = compositor_kernel_native_wire_entry_base::entry::wire(
             &mut state,
             wayland_socket_name_default_subprocess,
             &mut event_loop,
         );
         info!("starting loader OK");
-    }
+        let manager = backend_handles.ctx.borrow().drm_output_manager.clone();
+        manager
+    };
 
     #[cfg(all(feature = "backend-winit", not(feature = "backend-native")))]
     {
@@ -590,11 +618,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     unsafe { std::env::set_var("WAYLAND_DISPLAY", &wayland_socket_name_for_children) };
     info!("WAYLAND_DISPLAY set to {:?} for child processes", wayland_socket_name_for_children);
 
-    // After WlrLayerShellState::new and event loop is running:
-    compositor_orchestration_environment_interface_lifecycle::lifecycle::announce_session(
-        wayland_socket_name_default_subprocess_2.to_str().unwrap(),
-        &environment.DesktopName,
-    );
+    // Native XWayland. AFTER the WAYLAND_DISPLAY export above, because the X server is
+    // a wayland client of ours and smithay hands it the socket it must connect back
+    // on; and after the backend wire, so the first X11 window has an output to be
+    // placed against. The server comes up asynchronously — `DISPLAY` is published from
+    // its ready event, not here.
+    {
+        let dh = state.inner.loader.display_handle.clone();
+        xwayland::register(&dh, &mut event_loop);
+    }
+
+    // SIGTERM / SIGINT -> stop the loop, so the teardown below actually runs. Registered
+    // late, with everything it will tear down already wired.
+    shutdown::register(&mut event_loop);
+
+    // After WlrLayerShellState::new and event loop is running.
+    //
+    // NOT when nested, which `announce_session`'s own doc has always demanded and nothing
+    // enforced. It writes the per-USER systemd and D-Bus activation environments, so a
+    // dev session under `run-host.sh winit` was repointing the HOST session's
+    // `WAYLAND_DISPLAY` at its own socket — and inside a container sharing
+    // `/run/user/$UID` that is literally the host's bus and user manager, which no probe
+    // can distinguish from our own. Nothing is lost: y5's own launches read
+    // `executor.install::base_env`, which is per-process, so apps started from inside the
+    // nested session still get the right values. Only launches from OUTSIDE it are
+    // affected, and those wanting a nested session can say so per-invocation
+    // (`WAYLAND_DISPLAY=wayland-2 app`) instead of a global mutation nothing unwinds.
+    if !nested {
+        compositor_orchestration_environment_interface_lifecycle::lifecycle::announce_session(
+            wayland_socket_name_default_subprocess_2.to_str().unwrap(),
+            &environment.DesktopName,
+        );
+    }
 
     // move to loop factory ( it can spawn. )
     let (results_tx, results_rx) = cl_channel::channel::<SampleBatch>();
@@ -657,12 +712,70 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Sampler::Drop closes its internal registration channel, which causes
     // the thread to exit cleanly when state's sampler field is dropped.
     info!("Event Loop start");
-    event_loop.run(None, &mut state, move |_state| {
-        // Is now running. (Input-independent control-plane work — display drains, lock
-        // engage — is ping-driven via `state.inner.ping_control()`, drained in the
-        // backend's control-plane ping source, NOT polled per dispatch. Foreign-toplevel
+    event_loop.run(None, &mut state, move |state| {
+        // Apply the world effects this iteration's protocol handlers recorded
+        // (map/commit/destroy/fullscreen/layer/dmabuf) — see SMITHAY_DECOUPLING.md.
+        //
+        // HERE, and not in the source callbacks, because wayland and X11 arrive on two
+        // different calloop sources and the compositor must not care which one calloop
+        // polled first. Draining per source made the boundary between them a
+        // scheduling detail: an X11 destroy and the wayland surface destruction it
+        // implies could be applied in either order, in one pass or two, depending on fd
+        // readiness. Draining once after every source has been dispatched makes a frame's
+        // protocol traffic one ordered batch regardless of which protocol carried it —
+        // which is the whole reason the outboxes are shared between the two rather than
+        // split per shell (`find::Shell`).
+        //
+        // Safe with respect to rendering, which also runs from sources: a redraw is
+        // requested by writing a calloop ping from inside a handler, and a ping written
+        // during this iteration is only readable on the next poll — so a render never
+        // observes state this drain has not yet applied.
+        //
+        // Gated on the marker, so a wake with nothing behind it — a vblank, a timer —
+        // does not pay for the drain's tail. `drain_protocol` consumes it. The rule is
+        // that whatever WRITES a drained queue arms it (`Dispatch::arm_drain`): the
+        // protocol sources for their own dispatch, and the few writers reachable from
+        // input at the write itself. What must never arm it is the input SOURCE — that
+        // would run the drain on every pointer motion for queues that fill when a lock
+        // is released or a drag ends. See `Dispatch::protocol_pending`.
+        //
+        // (Input-independent control-plane work — display drains, lock engage — is
+        // ping-driven via `state.inner.ping_control()`, drained in the backend's
+        // control-plane ping source, NOT polled per dispatch. Foreign-toplevel
         // re-advertisement is event-driven off the `WORLD_SWITCHED` bus channel above.)
+        if state.state.protocol_pending {
+            state.drain_protocol();
+        }
     })?;
+
+    // THE DISPLAY FIRST, before anything slower, because it is the half the user is
+    // looking at: re-commit the mode the console had before we took the card, so the
+    // getty comes back instead of a monitor rejecting the timing.
+    //
+    // Called rather than left to `Drop`. Reaching smithay's destructor by refcount would
+    // mean every strong reference to the device being gone — each live `DrmSurface`, the
+    // `DrmDeviceNotifier`, and the seven event-source closures holding the render context
+    // — and the event loop never frees its sources at all (see `drm_restore` above). A
+    // missed reference there is a silently broken console, so the restore is explicit.
+    //
+    // A NO-OP when this session is not the one on screen: `restore_state` is guarded on
+    // the device being active, which a VT switch away already cleared along with our DRM
+    // master. That is correct rather than merely safe — the foreground VT owns the
+    // display and has programmed its own mode, so there is nothing of ours to put back.
+    //
+    // `try_borrow` because panicking here would replace one bad exit with another.
+    #[cfg(feature = "backend-native")]
+    match drm_restore.try_borrow() {
+        Ok(manager) => {
+            manager.device().restore_state();
+            info!("DRM state restored");
+        }
+        Err(err) => warn!("DRM manager still borrowed at teardown; skipping restore: {err:?}"),
+    }
+
+    // Then the session environment, which outlives this process and would otherwise point
+    // the next login at a socket nobody is listening on.
+    shutdown::teardown(&mut state, nested);
 
     // Our own teardown first, so anything EGL has to say about it is still
     // reported — the compositor's contexts and surfaces go out with `state`.

@@ -22,9 +22,9 @@ impl RestorationMatcher for JetBrainsMatcher {
         pending: &PendingRestoration,
         candidate: &MetaNode,
         candidate_hints: &InferredHints,
-        candidate_token: Option<&str>,
+        candidate_tokens: &[&str],
     ) -> MatchResult {
-        if token_matches(pending, candidate, candidate_token) {
+        if token_matches(pending, candidate, candidate_tokens) {
             return MatchResult::Yes;
         }
 

@@ -5,6 +5,7 @@ use compositor_y5_camera_transform_translate::slot;
 use compositor_y5_camera_transform_translate::transform::Transform;
 use compositor_orchestration_core_state_base::Loop;
 use compositor_orchestration_core_state_base::state::CoordinateTrait;
+use compositor_support_smithay_state_window_shell::shell;
 
 #[derive(Debug)]
 pub struct Bound {
@@ -51,15 +52,7 @@ where
         .state
         .element_location(window)
         .unwrap_or_default();
-    let slot_size = if cfg.window_client_size_fallback {
-        window
-            .toplevel()
-            .and_then(|t| t.with_pending_state(|s| s.size))
-            .filter(|s| s.w > 0 && s.h > 0)
-            .or_else(|| Some(window.geometry().size))
-    } else {
-        slot::expected_size(window)
-    };
+    let slot_size = slot::expected_size(window);
     let geom = match slot_size.filter(|s| s.w > 0 && s.h > 0) {
         Some(size) => smithay::utils::Rectangle::new(elem_loc, size),
         None => state

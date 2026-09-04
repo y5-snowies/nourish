@@ -10,6 +10,9 @@ use compositor_support_action_camera_fit_element::element::{
 use compositor_orchestration_core_state_base::Loop;
 use compositor_y5_window_interface_draw::visible::DrawWindow;
 use compositor_y5_window_interface_record::window::LoopWindow;
+use compositor_support_smithay_state_window_find::find;
+use compositor_support_smithay_state_window_ident::ident;
+use compositor_support_smithay_state_window_shell::shell;
 
 struct Modifier;
 impl Modifier {
@@ -102,7 +105,10 @@ pub fn view_directional(state: &mut Loop, direction: Direction, alternative: boo
         .inner.space_state()
         .state
         .elements()
-        .filter(|w| w.toplevel().is_some()) // toplevels only, no popups
+        // Not every element is on screen: a hidden X11 window (unmap is a HIDE) or an
+        // xdg toplevel holding a null buffer keeps its slot, and neither is a place to
+        // travel to.
+        .filter(|w| ident::is_drawn(w))
         .collect();
 
     let mut id_map: HashMap<WindowId, smithay::desktop::Window> =
@@ -160,12 +166,12 @@ pub fn view_directional(state: &mut Loop, direction: Direction, alternative: boo
         .get_keyboard()
         .and_then(|kb| kb.current_focus())
         .and_then(|focus_surface| {
-            state.inner.space_state().state.elements().find(|w| {
-                w.toplevel()
-                    .and_then(|t| Some(t.wl_surface()))
-                    .map(|s| s == &focus_surface)
-                    .unwrap_or(false)
-            })
+            state
+                .inner
+                .space_state()
+                .state
+                .elements()
+                .find(|w| find::is_surface(w, &focus_surface))
         })
         .map_or(None, |w| w.uuid());
 
@@ -224,7 +230,7 @@ pub fn view_directional(state: &mut Loop, direction: Direction, alternative: boo
             if let Some(target_window) = id_map.get(target_id) {
                 // Get the surface to focus and set keyboard focus on it.
                 // Replace `serial` with your event serial source.
-                if let Some(surface) = target_window.toplevel().and_then(|s| Some(s.wl_surface())) {
+                if let Some(surface) = ident::surface(target_window) {
                     let kb = state.state.seat.seat.get_keyboard().unwrap();
 
                     // Window-specific: raise, activate, configure.
@@ -237,13 +243,11 @@ pub fn view_directional(state: &mut Loop, direction: Direction, alternative: boo
                     }
                     for w in state.inner.space_state().state.elements() {
                         w.set_activated(w == target_window);
-                        if let Some(toplevel) = w.toplevel() {
-                            toplevel.send_pending_configure();
-                        }
+                        shell::send_pending(w);
                     }
 
                     let serial = SERIAL_COUNTER.next_serial();
-                    kb.set_focus(&mut state.state, Some(surface.clone()), serial);
+                    kb.set_focus(&mut state.state, Some(surface), serial);
                 }
             }
         }

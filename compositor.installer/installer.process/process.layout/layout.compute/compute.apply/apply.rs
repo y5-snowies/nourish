@@ -21,6 +21,7 @@ pub fn apply(actions: &[Action], dry_run: bool) -> Result<(), String> {
     Ok(())
 }
 
+
 fn place(dest: &Path, source: &Source, mode: u32, root: bool, am_root: bool, dry_run: bool) -> Result<(), String> {
     // Materialize the source as a concrete path (writing text to a temp file).
     let src_path: PathBuf = match source {

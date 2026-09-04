@@ -24,12 +24,16 @@ pub fn candidate_token_from_env(candidate: &MetaNode) -> Option<&str> {
         .map(String::as_str)
 }
 
-/// True if the candidate's activation token (from surface data OR env)
-/// matches the pending restoration's stored token.
+/// True if any activation token the candidate is known by (from surface
+/// data OR env) matches the pending restoration's stored token.
 ///
 /// Three sources are checked in order:
-/// 1. `candidate_token` — the surface-data token set by the compositor
-///    from `request_activation`. This is the protocol-level signal.
+/// 1. `candidate_tokens` — EVERY token the surface has been named by, via
+///    `request_activation`. This is the protocol-level
+///    signal, and the only one that can work for a single-instance app:
+///    its launched process exits immediately and the window belongs to an
+///    already-running instance whose environment holds an older token, so
+///    sources 2 and 3 are both stale there.
 /// 2. `XDG_ACTIVATION_TOKEN` in the candidate's allowlisted env. The
 ///    last-resort signal for clients that received the token but never
 ///    called `xdg_activation_v1.activate`.
@@ -41,7 +45,7 @@ pub fn candidate_token_from_env(candidate: &MetaNode) -> Option<&str> {
 pub fn token_matches(
     pending: &PendingRestoration,
     candidate: &MetaNode,
-    candidate_token: Option<&str>,
+    candidate_tokens: &[&str],
 ) -> bool {
     // What tokens does the pending know about? Usually the same value
     // is set under both var names, but allow either.
@@ -58,11 +62,9 @@ pub fn token_matches(
         return false;
     }
 
-    // Source 1: surface-data token.
-    if let Some(t) = candidate_token {
-        if pending_tokens.iter().any(|p| *p == t) {
-            return true;
-        }
+    // Source 1: surface-data tokens.
+    if candidate_tokens.iter().any(|t| pending_tokens.contains(t)) {
+        return true;
     }
 
     // Sources 2 & 3: candidate env.

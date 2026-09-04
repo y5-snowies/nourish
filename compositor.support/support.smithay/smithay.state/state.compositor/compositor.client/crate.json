@@ -1,0 +1,8 @@
+{
+  "deps": [
+    // Developer logging — provides error!/warn!/info!/trace!/abort! (see lib.rs).
+    "compositor_model_debug_instance_record",
+    "smithay",
+    "compositor_support_smithay_wayland_connection_record"
+  ]
+}

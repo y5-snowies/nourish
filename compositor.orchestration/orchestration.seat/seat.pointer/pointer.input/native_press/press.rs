@@ -10,6 +10,8 @@ use compositor_support_smithay_dispatch_state_base::state::Dispatch;
 use compositor_y5_surface_interface_base::hit::SurfaceHit;
 // Trait import: provides `uuid()` / `is_fullscreen()` on `Window` below.
 use compositor_y5_window_interface_record::window::LoopWindow;
+use compositor_support_smithay_state_window_shell::shell;
+use compositor_support_smithay_state_window_ident::ident;
 
 // This is only called on presses when there was a surface hit.
 // Currently, I cancel wayland focus on a different place. so please provide a snippet on how to invoke the de-activation.
@@ -149,9 +151,7 @@ pub fn apply_focus(
 
             for w in _loop.inner.space_state().state.elements() {
                 w.set_activated(w == window);
-                if let Some(toplevel) = w.toplevel() {
-                    toplevel.send_pending_configure();
-                }
+                shell::send_pending(w);
             }
 
             // A fullscreen window must stay above its peers even when another
@@ -169,7 +169,21 @@ pub fn apply_focus(
                 }
             }
 
-            window.toplevel().map(|t| t.wl_surface().clone())
+            // KEYBOARD focus is a property of the WINDOW, not of where the click fell —
+            // with one exception, and it is forced rather than chosen.
+            //
+            // An X11 POPUP gets no grab. y5 refuses one (`PopupGrabError::InvalidGrab`:
+            // an X client grabs through the X server and is already holding one), so
+            // nothing routes keys to it the way a wayland popup's grab does. Focus stays
+            // on the toplevel, `focus_changed` points the X SERVER's input focus at the
+            // toplevel window, and a text field inside a menu receives pointer events but
+            // no keys at all — which is exactly what a menu with a search box does.
+            //
+            // So the popup's own surface takes the focus. Everything downstream already
+            // works from there: `surface_associated` indexes every X11 window including
+            // popups, so `focus_changed` resolves this surface back to its `X11Surface`
+            // and issues the `SetInputFocus` the menu is waiting for.
+            x11_popup_focus(_loop, hit).or_else(|| ident::surface(window))
         }
         SurfaceHit::Layer { surface, .. } => {
             // Honor the client's keyboard_interactivity on ANY layer — Background/Bottom
@@ -201,9 +215,7 @@ pub fn apply_focus(
             }
             for window in _loop.inner.space_state().state.elements() {
                 window.set_activated(false);
-                if let Some(toplevel) = window.toplevel() {
-                    toplevel.send_pending_configure();
-                }
+                shell::send_pending(window);
             }
             None
         }
@@ -225,4 +237,19 @@ pub fn apply_focus(
     if let Some(registry) = _loop.inner.surface_mut().registry.as_mut() {
         registry.set_keyboard_focus(iced_focus);
     }
+}
+
+/// The clicked surface, if it is a TRACKED X11 POPUP — the one thing that takes keyboard
+/// focus away from the window it belongs to.
+///
+/// Restricted to X11 on purpose. A wayland popup is served by its grab, which routes keys
+/// without moving the seat's focus, and pulling focus onto its surface here would change
+/// long-settled xdg behaviour to fix a problem it does not have.
+fn x11_popup_focus(state: &Loop, hit: &SurfaceHit) -> Option<WlSurface> {
+    let surface = hit.surface()?;
+    matches!(
+        state.state.popup.state.find_popup(surface),
+        Some(smithay::desktop::PopupKind::X11(_))
+    )
+    .then(|| surface.clone())
 }

@@ -1,8 +1,15 @@
 use smithay::desktop::Window;
-use smithay::wayland::compositor;
-use std::sync::Mutex;
+use compositor_support_smithay_state_window_ident::ident;
 
-/// Read app_id / title / target wl_surface from a window's toplevel role.
+/// Read app_id / title / target wl_surface from a window's shell role.
+///
+/// X11 answers the same two questions through `WM_CLASS` and `WM_NAME`, and a dock,
+/// the launcher matcher and the icon inference all read the identical two fields —
+/// so `window.ident` puts the X11 `class` in `app_id` and `WM_NAME` in `title`, with
+/// no third vocabulary introduced for callers to learn.
+///
+/// The surface may be `None` for an X11 window until Xwayland associates one; every
+/// caller already tolerates that (a window with no surface identity yet).
 pub fn read_surface_identity(
     window: &Window,
 ) -> (
@@ -10,29 +17,6 @@ pub fn read_surface_identity(
     Option<String>,
     Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
 ) {
-    let mut app_id = None;
-    let mut title = None;
-    let mut target = None;
-
-    if let Some(toplevel) = window.toplevel() {
-        let wl_surface = toplevel.wl_surface();
-        compositor::with_states(wl_surface, |states| {
-            if let Some(role) = states
-                .data_map
-                .get::<Mutex<smithay::wayland::shell::xdg::XdgToplevelSurfaceRoleAttributes>>()
-            {
-                if let Ok(role_guard) = role.lock() {
-                    title = role_guard.title.clone();
-                    app_id = role_guard.app_id.clone();
-                }
-            }
-        });
-        target = Some(wl_surface.clone());
-    }
-
-    // NOTE: XWayland support omitted here; mirror this block with
-    // window.x11_surface() if/when we support XWayland windows.
-
-    (app_id, title, target)
+    let names = ident::names(window);
+    (names.app_id, names.title, ident::surface(window))
 }
-

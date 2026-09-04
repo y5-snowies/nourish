@@ -1,3 +1,4 @@
 {
-  "deps": []
+  "deps": [
+    "compositor_support_library_process_child_pidfd",]
 }

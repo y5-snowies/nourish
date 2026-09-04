@@ -618,6 +618,7 @@ fn present(context: &mut WinitRenderContext, state: &mut Loop, visible: Vec<Wind
         &visible,
     );
     compositor_kernel_graphic_draw_present_callbacks::callbacks::send_layer_frames(state, &context.output);
+    compositor_kernel_graphic_draw_present_cursor::cursor::send_frames(state, &context.output);
     compositor_kernel_graphic_draw_present_callbacks::callbacks::housekeeping(state);
 
     compositor_kernel_winit_frame_submit_base::submit::request_redraw(&mut context.winit_backend);

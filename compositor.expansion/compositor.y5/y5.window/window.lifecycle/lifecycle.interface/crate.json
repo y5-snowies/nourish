@@ -18,6 +18,10 @@
     "compositor_y5_navigator_travel_machine",
     "compositor_y5_navigator_state_base",
     "compositor_y5_navigator_travel_state",
-    "uuid"
+    "uuid",
+    "compositor_support_smithay_state_window_find",
+    "compositor_support_smithay_state_window_ident",
+    "compositor_support_smithay_state_window_shell",
+    "compositor_support_smithay_state_window_child"
   ]
 }

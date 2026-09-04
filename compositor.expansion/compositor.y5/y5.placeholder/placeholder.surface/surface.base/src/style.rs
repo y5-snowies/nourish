@@ -17,6 +17,27 @@ pub const BG_SESSION: Color = Color { r: 0.03, g: 0.08, b: 0.09, a: 1.0 };
 /// it, so a placeholder that is both is recognisably neither of the single states — the
 /// point is that you can tell all four apart, not that they blend.
 pub const BG_CONTAINER_SESSION: Color = Color { r: 0.06, g: 0.08, b: 0.14, a: 1.0 };
+/// Warm the chosen panel background for a placeholder whose window was an X11
+/// client.
+///
+/// A MODIFIER rather than a fifth constant, on purpose. The four tones above are a
+/// closed set chosen so all four are told apart, and X11-ness is an independent
+/// axis — it can coexist with any of them, so hand-picking eight tones would make
+/// each one less distinguishable to encode a fact that is really just "and also".
+/// Lifting red and dropping blue-green a little reads as a warm cast over whatever
+/// the base was saying, which is what "and also" should look like.
+///
+/// Deliberately gentle: this marks a protocol difference, not a problem, and it
+/// must not compete with the selection ring or the launching state.
+pub fn with_x11_tint(base: Color) -> Color {
+    Color {
+        r: (base.r + 0.055).min(1.0),
+        g: (base.g - 0.008).max(0.0),
+        b: (base.b - 0.012).max(0.0),
+        a: base.a,
+    }
+}
+
 pub const PANEL_BG: Color = Color { r: 0.08, g: 0.09, b: 0.12, a: 1.0 };
 pub const PANEL_BG_SOFT: Color = Color { r: 0.10, g: 0.12, b: 0.16, a: 0.85 };
 

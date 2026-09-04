@@ -75,7 +75,6 @@ pub struct WindowFit {
 /// - `elem_loc` — the window's `element_location` (world; the slot origin).
 /// - `geom` — `window.geometry()` (the client's declared window: content, excludes CSD shadow).
 /// - `view_dst` — the root surface's logical size (`SurfaceView.dst`; reflects viewport / scale).
-/// - `bbox` — `window.bbox()` (whole-tree extent; used only under `subsurface_shrinks`).
 /// - `slot` — the compositor-decided window size.
 ///
 /// Three regimes:
@@ -97,9 +96,7 @@ pub fn window_fit(
     elem_loc: Point<i32, Logical>,
     geom: Rectangle<i32, Logical>,
     view_dst: Size<i32, Logical>,
-    bbox: Rectangle<i32, Logical>,
     slot: Size<i32, Logical>,
-    subsurface_shrinks: bool,
     stretch: bool,
 ) -> WindowFit {
     if stretch {
@@ -122,15 +119,11 @@ pub fn window_fit(
         };
     }
 
-    let (ref_size, ref_loc, cover) = if subsurface_shrinks {
-        (bbox.size, bbox.loc, false)
+    let excess = (view_dst.w - slot.w).abs().max((view_dst.h - slot.h).abs());
+    let (ref_size, ref_loc, cover) = if excess <= MARGIN_FILL_THRESHOLD {
+        (geom.size, geom.loc, true)
     } else {
-        let excess = (view_dst.w - slot.w).abs().max((view_dst.h - slot.h).abs());
-        if excess <= MARGIN_FILL_THRESHOLD {
-            (geom.size, geom.loc, true)
-        } else {
-            (view_dst, Point::from((0, 0)), false)
-        }
+        (view_dst, Point::from((0, 0)), false)
     };
     let fit_s = {
         let sw = slot.w as f64 / (ref_size.w.max(1) as f64);
@@ -150,6 +143,52 @@ pub fn window_fit(
         elem_loc.y as f64 + (slot.h as f64 - ref_size.h as f64 * fit_s) / 2.0 - ref_loc.y as f64 * fit_s,
     );
     WindowFit { fit_sx: fit_s, fit_sy: fit_s, fit_surf, ref_size, cover }
+}
+
+/// Where a popup's surface ORIGIN sits, in the parent's main-surface-local frame, under
+/// this fit — the one mapping the render path and the hit test must agree on.
+///
+/// `location` is the popup's geometry-relative offset as `PopupManager` reports it, and
+/// `popup_geom` its own `geometry().loc` (zero for X11, which declares no window
+/// geometry — the location half is `PopupKind::location`'s answer instead).
+///
+/// Two regimes, and the difference is which frame the fit anchored:
+///
+/// - **cover** (margin / stretch): the fit anchors the client's GEOMETRY, so a
+///   geometry-relative offset needs `geom.loc` added to reach surface-local. This is
+///   smithay's own `geometry().loc + location - popup.geometry().loc`, byte for byte, and
+///   it is what makes a cursor-anchored menu land on the cursor.
+/// - **oversized / subsurface-shrink**: the fit anchors the whole surface, so no
+///   `geom.loc` term — and the visible content is a SCALED version of the declared
+///   geometry, so the offset is pinned proportionally by `ref_size / geom.size`. Without
+///   that, a geometry-relative anchor lands somewhere inside the visible content instead
+///   of on it.
+///
+/// The popup's own SIZE is not scaled here (only by `fit_s` at the call site), so a
+/// corner-anchored popup lands within about one popup-size of the corner in the
+/// proportional regime — a known, accepted approximation.
+///
+/// Returned in `f64` because the render path multiplies by the output scale before
+/// rounding, while the hit test rounds straight to logical integers; rounding here would
+/// cost the render path sub-pixel accuracy.
+pub fn popup_offset(
+    fit: &WindowFit,
+    geom: Rectangle<i32, Logical>,
+    location: Point<i32, Logical>,
+    popup_geom: Point<i32, Logical>,
+) -> Point<f64, Logical> {
+    let pin = |reference: i32, declared: i32| match fit.cover || declared <= 0 {
+        true => 1.0,
+        false => reference as f64 / declared as f64,
+    };
+    let base = match fit.cover {
+        true => geom.loc,
+        false => Point::from((0, 0)),
+    };
+    Point::from((
+        base.x as f64 + (location.x - popup_geom.x) as f64 * pin(fit.ref_size.w, geom.size.w),
+        base.y as f64 + (location.y - popup_geom.y) as f64 * pin(fit.ref_size.h, geom.size.h),
+    ))
 }
 
 /// The placement of a window's content inside its recognized bounds.

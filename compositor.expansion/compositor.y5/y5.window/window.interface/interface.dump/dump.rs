@@ -4,10 +4,12 @@
 //! the window's process AND every ancestor — far too heavy for a lifecycle path,
 //! and only ever wanted while looking at one specific window.
 //!
-//! The ancestor chain is the point: under xwayland every X11 title shares ONE
-//! satellite process, so the window's own node describes the satellite, and what
-//! identifies the real application (a Steam launcher, a Proton wrapper) sits above
-//! it. Printing the chain is the only way to see that shape on a live window.
+//! The ancestor chain is the point: what identifies the real application (a Steam
+//! launcher, a Proton wrapper) often sits ABOVE the window's own process node.
+//! Printing the chain is the only way to see that shape on a live window. Native
+//! XWayland keeps this honest for X11 windows too — the pid comes from
+//! `_NET_WM_PID`, the app's own, not from the surface credentials that would name
+//! the one X server for every X11 window on screen.
 
 use compositor_introspection_extraction_window_meta_types::types::MetaNode;
 use compositor_orchestration_core_state_base::Loop;
@@ -16,6 +18,8 @@ use smithay::desktop::Window;
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 use std::collections::HashSet;
+use compositor_support_smithay_state_window_find::find;
+use compositor_support_smithay_state_window_ident::ident;
 
 /// Emitted at `error!` so it lands whatever the configured level: this only ever
 /// runs when a human pressed the key, and a diagnostic that the log level can
@@ -33,20 +37,20 @@ fn line(depth: usize, node: &MetaNode) {
 fn focused(state: &Loop) -> Option<Window> {
     let surface = state.state.seat.seat.get_keyboard()?.current_focus()?;
     state.inner.space_state().state.elements()
-        .find(|w| w.toplevel().map(|t| t.wl_surface() == &surface).unwrap_or(false))
+        .find(|w| find::is_surface(w, &surface))
         .cloned()
 }
 
 /// `title`, falling back to `[app_id]`: a blank title is common and names nothing.
 fn label(window: &Window) -> String {
-    let Some(s) = window.toplevel().map(|t| t.wl_surface().clone()) else { return "<no toplevel>".into() };
-    with_states(&s, |st| {
-        let Some(a) = st.data_map.get::<XdgToplevelSurfaceData>().and_then(|a| a.lock().ok()) else {
-            return "<no role data>".into();
-        };
-        let t = a.title.clone().unwrap_or_default();
-        if t.is_empty() { format!("[{}]", a.app_id.clone().unwrap_or_default()) } else { t }
-    })
+    let names = ident::names(window);
+    if let Some(title) = names.title {
+        return title;
+    }
+    match names.app_id {
+        Some(app_id) => format!("[{app_id}]"),
+        None => "<unnamed>".into(),
+    }
 }
 
 /// Everything on a pane this frame, deduped across slots, in stacking order.

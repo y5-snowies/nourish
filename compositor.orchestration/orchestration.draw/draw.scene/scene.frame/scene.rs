@@ -898,10 +898,8 @@ where
         })
         .collect();
     for (window, size) in resize_due {
-        if let Some(toplevel) = window.toplevel() {
-            toplevel.with_pending_state(|s| s.size = Some(size));
-            toplevel.send_configure();
-        }
+        compositor_support_smithay_state_window_shell::shell::stage(&window, size, false);
+        compositor_support_smithay_state_window_shell::shell::send(&window);
     }
 
     // Return the resulting scene

@@ -5,6 +5,8 @@
     "compositor_orchestration_core_state_base",
     "compositor_y5_window_interface_record",
     "smithay",
-    "uuid"
+    "uuid",
+    "compositor_support_smithay_state_window_ident",
+    "compositor_support_smithay_state_window_find"
   ]
 }

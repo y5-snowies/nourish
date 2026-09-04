@@ -31,6 +31,15 @@ need curl
 need tar
 need sha256sum
 
+# Rootless — see the identical check in bootstrap.sh. `y5-install` refuses uid 0 anyway;
+# checking before the download means a `sudo` invocation fails immediately instead of
+# after fetching and unpacking a bundle into a root-owned temp dir.
+if [ "$(id -u)" -eq 0 ]; then
+    die "do not run this as root or with sudo.
+Run it as your normal user — the installer invokes sudo itself only for the steps that
+need root, so your configuration lands in \$HOME/.config, not /root."
+fi
+
 # Friendly (non-fatal) distro check. This bootstrap fetches the FEDORA bundle: its binaries
 # are dynamically linked to Fedora's system libraries and won't reliably run elsewhere. The
 # interactive installer is distro-aware (it detects apt/pacman/dnf and, on NixOS, prints a

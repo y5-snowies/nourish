@@ -6,12 +6,13 @@ use smithay::input::pointer::{
     PointerGrab, PointerInnerHandle, RelativeMotionEvent,
 };
 
-use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::wayland::seat::WaylandFocus;
 use smithay::utils::{Logical, Point, Rectangle, Size};
 use compositor_support_smithay_dispatch_state_base::state::DispatchWire;
 use compositor_support_smithay_state_grab_resize_motion::on_motion;
 use compositor_support_smithay_state_grab_resize_surface::{ResizeEdge, ResizeSurfaceState};
+use compositor_support_smithay_state_window_shell::shell;
 
 pub struct GrabResize<WireObject: DispatchWire> {
     pub start_data: PointerGrabStartData<WireObject>,
@@ -29,9 +30,11 @@ impl<WireObject: DispatchWire> GrabResize<WireObject> {
         initial_window_rect: Rectangle<i32, Logical>,
     ) -> Self {
         let initial_rect = initial_window_rect;
-        ResizeSurfaceState::with(window.toplevel().unwrap().wl_surface(), |state| {
-            *state = ResizeSurfaceState::Resizing { edges, initial_rect };
-        });
+        if let Some(surface) = window.wl_surface() {
+            ResizeSurfaceState::with(&surface, |state| {
+                *state = ResizeSurfaceState::Resizing { edges, initial_rect };
+            });
+        }
         Self { start_data, window, edges, initial_rect, last_window_size: initial_rect.size }
     }
 }
@@ -48,15 +51,14 @@ impl<WireObject: DispatchWire> PointerGrab<WireObject> for GrabResize<WireObject
         const BTN_LEFT: u32 = 0x110;
         if !handle.current_pressed().contains(&BTN_LEFT) {
             handle.unset_grab(self, data, event.serial, event.time, true);
-            let xdg = self.window.toplevel().unwrap();
-            xdg.with_pending_state(|state| {
-                state.states.unset(xdg_toplevel::State::Resizing);
-                state.size = Some(self.last_window_size);
-            });
-            xdg.send_pending_configure();
-            ResizeSurfaceState::with(xdg.wl_surface(), |state| {
-                *state = ResizeSurfaceState::WaitingForLastCommit { edges: self.edges, initial_rect: self.initial_rect };
-            });
+            shell::stage(&self.window, self.last_window_size, false);
+            shell::unstage_resizing(&self.window);
+            shell::send_pending(&self.window);
+            if let Some(surface) = self.window.wl_surface() {
+                ResizeSurfaceState::with(&surface, |state| {
+                    *state = ResizeSurfaceState::WaitingForLastCommit { edges: self.edges, initial_rect: self.initial_rect };
+                });
+            }
         }
     }
     fn axis(&mut self, data: &mut WireObject, handle: &mut PointerInnerHandle<'_, WireObject>, details: AxisFrame) { handle.axis(data, details) }

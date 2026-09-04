@@ -9,7 +9,14 @@ pub enum WindowLifecycleEvent {
     // Resize(Window),
     /// The `bool` is the surface's `DiscardPlaceholder` mark (Shift-close from the
     /// selection toolbar): destroy must leave no placeholder behind.
-    Destroyed(Uuid, Option<ActivationDetails>, bool),
+    Destroyed(Uuid, Vec<ActivationDetails>, bool),
+    /// An X11 window WITHDREW — unmapped, but still alive and able to map again.
+    ///
+    /// Distinct from [`Self::Destroyed`] because the two differ in what happens to the
+    /// window's own record: a destroy MOVES it into the placeholder, a withdrawal COPIES
+    /// it and leaves the original in place. The `bool` is the same `DiscardPlaceholder`
+    /// verdict.
+    Withdrawn(Uuid, bool),
     /// (Un)fullscreen request for a window. `true` = enter fullscreen.
     Fullscreen(Window, bool),
     /// Bring `window` into view (camera `view`) and activate it. Queued by the neutral wire

@@ -12,7 +12,9 @@ use tracing::trace;
 use wayland_protocols::xdg::shell::server::xdg_wm_base;
 use wayland_server::{Resource, protocol::wl_surface::WlSurface};
 
-use super::{PopupGrab, PopupGrabError, PopupGrabInner, PopupKind};
+use super::{PopupGrab, PopupGrabError, PopupGrabInner, PopupKind, x11_popup_link};
+#[cfg(feature = "xwayland")]
+use crate::xwayland::{X11Surface, xwm::X11Window};
 
 /// Helper to track popups.
 #[derive(Debug, Default)]
@@ -76,6 +78,16 @@ impl PopupManager {
         match popup {
             PopupKind::Xdg(ref _xdg) => (),
             PopupKind::InputMethod(ref _input_method) => {
+                return Err(PopupGrabError::InvalidGrab);
+            }
+            // An X11 popup cannot take a popup grab. The grab protocol it would need is
+            // `xdg_popup.grab`, which is what makes a wayland client's menu dismiss on an
+            // outside click; X11 clients do their own grabbing through the X server and
+            // are already holding one by the time the window appears. Presenting one here
+            // is about PLACEMENT — anchored to its parent and moving with it — not about
+            // taking input away from everything else.
+            #[cfg(feature = "xwayland")]
+            PopupKind::X11(_) => {
                 return Err(PopupGrabError::InvalidGrab);
             }
         }
@@ -165,6 +177,37 @@ impl PopupManager {
             })
     }
 
+    /// The tracked X11 popup for `window`, as `(its X11 surface, its wl_surface)`.
+    ///
+    /// Exists so a popup can be the PARENT of another popup. `child::as_popup` resolves a
+    /// declared `WM_TRANSIENT_FOR` among the compositor's Space elements, and a tracked
+    /// popup is deliberately not one — so a submenu, whose parent is the menu above it,
+    /// resolved nothing and fell through to being an ordinary window: a Space slot, a
+    /// uuid, a decoration, and a position centred on the camera rather than beside the
+    /// item that opened it. Chains deeper than one were unreachable.
+    ///
+    /// Only a LIVE popup answers. A withdrawn one is about to be swept by
+    /// [`Self::cleanup`], and adopting it as a parent would attach the child to a node
+    /// that is going away.
+    #[cfg(feature = "xwayland")]
+    pub fn find_x11_popup(&self, window: X11Window) -> Option<(X11Surface, WlSurface)> {
+        let matches = |kind: &PopupKind| match kind {
+            PopupKind::X11(p) if p.alive() && p.x11_surface().window_id() == window => {
+                Some((p.x11_surface().clone(), kind.wl_surface().clone()))
+            }
+            _ => None,
+        };
+        self.unmapped_popups
+            .iter()
+            .find_map(matches)
+            .or_else(|| {
+                self.popup_trees
+                    .iter()
+                    .flat_map(|tree| tree.iter_popups())
+                    .find_map(|(kind, _)| matches(&kind))
+            })
+    }
+
     /// Returns the popups and their relative positions for a given toplevel surface, if any.
     pub fn popups_for_surface(
         surface: &WlSurface,
@@ -218,7 +261,18 @@ impl PopupManager {
 /// or because its parent popup belongs (indirectly) to said toplevel.
 pub fn find_popup_root_surface(popup: &PopupKind) -> Result<WlSurface, DeadResource> {
     let mut parent = popup.parent().ok_or(DeadResource)?;
-    while get_role(&parent) == Some(XDG_POPUP_ROLE) {
+    loop {
+        // An X11 popup's surface carries the xwayland-shell role, not `xdg_popup`, so the
+        // role test below cannot see the chain it forms. Checked first and separately —
+        // without it a submenu resolves its root to the menu above it rather than to the
+        // toplevel, and lands in a `PopupTree` of its own.
+        if let Some(link) = x11_popup_link(&parent) {
+            parent = PopupKind::X11(link).parent().ok_or(DeadResource)?;
+            continue;
+        }
+        if get_role(&parent) != Some(XDG_POPUP_ROLE) {
+            return Ok(parent);
+        }
         parent = with_states(&parent, |states| {
             states
                 .data_map
@@ -232,7 +286,6 @@ pub fn find_popup_root_surface(popup: &PopupKind) -> Result<WlSurface, DeadResou
         })
         .ok_or(DeadResource)?;
     }
-    Ok(parent)
 }
 
 /// Computes this popup's location relative to its toplevel wl_surface's geometry.
@@ -246,7 +299,24 @@ pub fn get_popup_toplevel_coords(popup: &PopupKind) -> Point<i32, Logical> {
     };
 
     let mut offset = (0, 0).into();
-    while get_role(&parent) == Some(XDG_POPUP_ROLE) {
+    loop {
+        // The X11 half of the same chain — see `find_popup_root_surface`. Its offset is
+        // the parent-relative one an X11 popup reports, which is the only geometric fact
+        // that crosses from the X server's coordinate space into the compositor's.
+        if let Some(link) = x11_popup_link(&parent) {
+            let popup = PopupKind::X11(link);
+            offset += popup.location();
+            match popup.parent() {
+                Some(next) => {
+                    parent = next;
+                    continue;
+                }
+                None => return offset,
+            }
+        }
+        if get_role(&parent) != Some(XDG_POPUP_ROLE) {
+            return offset;
+        }
         offset += with_states(&parent, |states| {
             states
                 .cached_state
@@ -269,8 +339,6 @@ pub fn get_popup_toplevel_coords(popup: &PopupKind) -> Point<i32, Logical> {
                 .unwrap()
         });
     }
-
-    offset
 }
 
 #[derive(Debug, Default, Clone)]

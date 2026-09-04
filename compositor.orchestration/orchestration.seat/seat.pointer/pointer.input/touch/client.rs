@@ -85,6 +85,11 @@ pub fn down(_loop: &mut Loop, id: i32, world: Point<f64, Logical>, time: u32) {
     let keyboard = _loop.state.seat.seat.get_keyboard().unwrap();
     crate::native_press::press::apply_focus(_loop, &hit, &keyboard, serial);
     let focus = focus_of(&hit);
+    // The X STACK too, before the down goes out — the touch counterpart of the raise the
+    // pointer rim does on a crossing (`native_motion`): the X server hit-tests its own
+    // tree, so a tap on an overlapped X11 window has to find it on top. A no-op for
+    // anything that is not X11.
+    _loop.state.raise_x11_for_pointer(focus.as_ref().map(|(surface, _)| surface));
     let Some(touch) = _loop.state.seat.seat.get_touch() else { return };
     touch.down(&mut _loop.state, focus, &DownEvent { slot: slot(id), location: world, serial, time });
 }

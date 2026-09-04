@@ -3,25 +3,19 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
 
 use smithay::reexports::calloop::channel::Sender as CalloopSender;
 
 use compositor_introspection_execution_launch_execute::execute::execute;
-use compositor_introspection_execution_launch_reap::reap::reap_zombies;
 use compositor_introspection_execution_launch_types::types::{LaunchOutcome, LaunchRequest};
 
-/// How hard a reap tries for the spawn interlock. A spawn holds it for a fork
-/// plus an exec handshake, so losing it means another thread is mid-spawn.
-const REAP_ATTEMPTS: usize = 8;
-const REAP_BACKOFF: Duration = Duration::from_millis(2);
-
-/// What the worker thread does. Reaping rides the same queue BECAUSE the two
-/// must not overlap: one thread doing both serialises them by construction, and
-/// keeps the calloop thread out of the interlock — it posts and returns.
+/// What the worker thread does — one thing, now that reaping is the loop's job.
+///
+/// It used to carry a `Reap` variant too, because reaping meant `waitpid(-1)` and that
+/// had to be serialised against every spawn in the process. A child is now named by its
+/// own descriptor, so there is nothing to serialise and nothing to post here.
 enum Job {
     Launch(LaunchRequest),
-    Reap,
 }
 
 /// Submit launches off the calloop thread. Cloneable; the worker thread lives
@@ -33,8 +27,10 @@ pub struct LaunchWorker {
 }
 
 impl LaunchWorker {
-    /// Spawn the worker thread. `outcomes` is the calloop side; the caller must
-    /// insert its receiver as a loop source and dispatch each outcome.
+    /// Spawn the worker thread. `outcomes` is the calloop side; the caller must insert
+    /// its receiver as a loop source and dispatch each outcome. Exit descriptors do not
+    /// travel this way: `spawn_detached` hands each one to the sink the loader installed
+    /// (`child.pidfd`), so nothing about reaping is threaded through here.
     pub fn spawn(outcomes: CalloopSender<LaunchOutcome>, scope: bool) -> Self {
         let (tx, rx) = mpsc::channel::<Job>();
         thread::Builder::new()
@@ -54,30 +50,11 @@ impl LaunchWorker {
         }
     }
 
-    /// Queue a reap (the SIGCHLD source's whole job). Silent on a gone worker:
-    /// `submit` already reports that, and one report is enough.
-    pub fn reap(&self) {
-        let _ = self.tx.send(Job::Reap);
-    }
 }
 
 fn run(rx: mpsc::Receiver<Job>, outcomes: CalloopSender<LaunchOutcome>, scope: bool) {
     while let Ok(job) = rx.recv() {
         let req = match job {
-            // Retry briefly while another thread's spawn holds the interlock.
-            // Sleeping here is free: this thread's only deadline is the next
-            // launch, and one queued behind this is one nobody has asked for yet.
-            Job::Reap => {
-                for attempt in 0..REAP_ATTEMPTS {
-                    if reap_zombies().is_some() {
-                        break;
-                    }
-                    if attempt + 1 < REAP_ATTEMPTS {
-                        thread::sleep(REAP_BACKOFF);
-                    }
-                }
-                continue;
-            }
             Job::Launch(req) => req,
         };
         // One launch may not take the queue down with it. The interlock closes the

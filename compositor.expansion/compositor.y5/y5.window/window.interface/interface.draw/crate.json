@@ -8,6 +8,8 @@
     "compositor_model_environment_config_base",
     "compositor_y5_canvas_draw_context",
     "compositor_y5_window_interface_record",
-    "uuid"
+    "uuid",
+    "compositor_support_smithay_state_window_shell",
+    "compositor_support_smithay_state_window_find"
   ]
 }

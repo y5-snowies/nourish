@@ -9,6 +9,10 @@
 //! case where each launch does spawn its own process tree).
 //! No exe-name-only fallback — too false-positive-prone (it'd bind
 //! any Chrome window to any pending Chrome restoration).
+//!
+//! The single-instance case neither can reach — the second window, produced by the
+//! FIRST process — is not handled here. It is not Chrome-specific, so it is a pass in
+//! `state.handoff` that runs once every matcher has declined.
 
 use compositor_introspection_extraction_window_base::handlers::chrome::id as chrome_id;
 use compositor_introspection_extraction_window_base::{HandlerId, InferredHints, MetaNode};
@@ -30,9 +34,9 @@ impl RestorationMatcher for ChromeMatcher {
         pending: &PendingRestoration,
         candidate: &MetaNode,
         _candidate_hints: &InferredHints,
-        candidate_token: Option<&str>,
+        candidate_tokens: &[&str],
     ) -> MatchResult {
-        if token_matches(pending, candidate, candidate_token) {
+        if token_matches(pending, candidate, candidate_tokens) {
             return MatchResult::Yes;
         }
         if pid_tree_contains(candidate, pending.launched_pid) {

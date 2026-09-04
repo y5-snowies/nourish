@@ -5,14 +5,12 @@ use smithay::{
 };
 
 use compositor_support_smithay_state_grab_resize_surface::{ResizeEdge, ResizeSurfaceState};
+use compositor_support_smithay_state_window_find::find;
 
 pub fn handle_commit(space: &mut Space<Window>, surface: &WlSurface) -> Option<()> {
     // Currently disabled: interactive resize is a no-op.
     return None;
-    let window = space
-        .elements()
-        .find(|w| w.toplevel().unwrap().wl_surface() == surface)
-        .cloned()?;
+    let window = find::in_space(space, surface)?;
 
     let mut window_loc = space.element_location(&window)?;
     let geometry = window.geometry();

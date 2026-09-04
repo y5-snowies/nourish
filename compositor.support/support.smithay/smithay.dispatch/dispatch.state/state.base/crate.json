@@ -1,5 +1,6 @@
 {
   "deps": [
+    "compositor_support_smithay_state_window_ident",
     "compositor_support_smithay_state_redraw_schedule",
     "compositor_support_smithay_state_tearing_gate",
     "compositor_support_smithay_dispatch_wire_tearing",
@@ -47,6 +48,12 @@
     "compositor_support_smithay_dispatch_wire_session",
     "compositor_support_smithay_dispatch_wire_drag",
     "compositor_support_smithay_state_grab_drag_state",
-    "compositor_support_smithay_state_session_store"
+    "compositor_support_smithay_state_session_store",
+    "compositor_support_smithay_state_compositor_client",
+    "compositor_support_smithay_state_xwayland_base",
+    "compositor_support_smithay_state_xwayland_focus",
+    "compositor_support_smithay_state_window_shell",
+    "compositor_support_smithay_state_window_find",
+    "compositor_support_smithay_dispatch_state_deferred"
   ]
 }

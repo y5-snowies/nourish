@@ -12,6 +12,7 @@
     "compositor_kernel_graphic_draw_plan_frame",
     "compositor_kernel_graphic_draw_plan_tap",
     "compositor_kernel_graphic_draw_present_callbacks",
+    "compositor_kernel_graphic_draw_present_cursor",
     "compositor_y5_lock_scene_frame",
     "compositor_y5_picker_system_base",
     "compositor_y5_picker_scene_frame",

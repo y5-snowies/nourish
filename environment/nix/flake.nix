@@ -114,10 +114,6 @@
               pkgs.librsvg # librsvg2
               pkgs.libappindicator-gtk3
 
-              # xwayland-satellite (X11/XCB) build deps — the patched component built
-              # into the install bundle links libxcb + xcb-util-cursor.
-              pkgs.libxcb
-              pkgs.libxcb-cursor
             ];
 
             shellHook = ''

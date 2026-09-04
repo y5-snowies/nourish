@@ -14,6 +14,7 @@ use compositor_y5_window_draw_occlude::occlude::{Occluders, Visible};
 use compositor_y5_window_interface_record::window::LoopWindow;
 use compositor_pipeline_abi_clock_base::base as clock;
 use compositor_pipeline_abi_descriptor_base::base::{self as d, Times};
+use compositor_support_smithay_state_window_find::find;
 
 /// One drawable in the content band: a canvas element (window / select-box /
 /// cursor) or an iced surface. Windows and world iced interleave here by the
@@ -46,9 +47,7 @@ fn window_flags(
     selected: bool,
     primary: bool,
 ) -> u32 {
-    let activated = focus
-        .zip(window.toplevel().map(|t| t.wl_surface().clone()))
-        .is_some_and(|(f, s)| *f == s);
+    let activated = focus.is_some_and(|f| find::is_surface(window, f));
     d::when(d::ACTIVATED, activated)
         | d::when(d::TOPMOST, topmost)
         | d::when(d::FULLSCREEN, window.is_fullscreen())
